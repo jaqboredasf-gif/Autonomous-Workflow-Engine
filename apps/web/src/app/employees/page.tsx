@@ -9,6 +9,7 @@ interface Emp {
   role: 'admin' | 'foreman' | 'worker';
   is_active: boolean;
   hourly_rate: number | null;
+  skills: string[];
 }
 
 const inputCls = 'rounded border px-2 py-1.5 text-sm';
@@ -22,10 +23,20 @@ export default function Employees() {
   async function load() {
     const { data, error } = await supabase
       .from('users')
-      .select('id, full_name, role, is_active, hourly_rate')
+      .select('id, full_name, role, is_active, hourly_rate, skills')
       .order('full_name');
     if (error) setError(error.message);
     setEmps(data ?? []);
+  }
+
+  async function saveSkills(id: string, raw: string) {
+    const skills = raw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    const { error } = await supabase.from('users').update({ skills }).eq('id', id);
+    if (error) setError(error.message);
+    load();
   }
 
   useEffect(() => {
@@ -91,6 +102,7 @@ export default function Employees() {
           <tr className="border-b text-left text-neutral-500">
             <th className="py-2 pr-4">Name</th>
             <th className="py-2 pr-4">Role</th>
+            <th className="py-2 pr-4">Skills (comma-separated, used by dispatch)</th>
             <th className="py-2 pr-4">Rate</th>
             <th className="py-2">Active</th>
           </tr>
@@ -100,6 +112,18 @@ export default function Employees() {
             <tr key={e.id} className="border-b">
               <td className="py-2 pr-4">{e.full_name}</td>
               <td className="py-2 pr-4">{e.role}</td>
+              <td className="py-2 pr-4">
+                <input
+                  className="w-full rounded border px-2 py-1 text-xs"
+                  defaultValue={e.skills.join(', ')}
+                  placeholder="e.g. service-call, panel, rough-in"
+                  onBlur={(ev) => {
+                    if (ev.target.value !== e.skills.join(', ')) {
+                      saveSkills(e.id, ev.target.value);
+                    }
+                  }}
+                />
+              </td>
               <td className="py-2 pr-4">{e.hourly_rate ? `$${e.hourly_rate}/h` : '—'}</td>
               <td className="py-2">
                 <button

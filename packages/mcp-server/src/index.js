@@ -258,6 +258,152 @@ server.registerTool(
   }
 );
 
+server.registerTool(
+  'check_territory',
+  {
+    description:
+      'Check whether a location is inside the licensed service territory. ' +
+      'Pass the county name and/or zip code extracted from a customer request. ' +
+      'Returns licensed true/false plus the full licensed-area list (useful for a decline reply).',
+    inputSchema: {
+      county: z.string().optional().describe('County name, e.g. "Fairfield County, CT"'),
+      zip: z.string().optional().describe('5-digit zip code'),
+    },
+  },
+  async ({ county, zip }) => {
+    if (!county && !zip) return fail(new Error('provide county and/or zip'));
+    const { data, error } = await db.from('service_areas').select('kind, value, note');
+    if (error) return fail(error);
+    const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const matched = data.filter(
+      (a) =>
+        (a.kind === 'county' && county && norm(a.value).includes(norm(county).replace(/county|ny|ct|nj/g, ''))) ||
+        (a.kind === 'zip' && zip && a.value === zip)
+    );
+    return json({
+      licensed: matched.length > 0,
+      matched,
+      licensed_areas: data.map((a) => a.value),
+    });
+  }
+);
+
+server.registerTool(
+  'find_best_worker',
+  {
+    description:
+      'Rank employees for a job by skill match, availability in the time window ' +
+      '(no conflicting shift), proximity to the job (from most recent GPS punch), and hourly rate. ' +
+      'Use for dispatch decisions: "who should take this service call?"',
+    inputSchema: {
+      skill: z.string().optional().describe('Required specialty, e.g. "troubleshooting", "panel"'),
+      when_start: z.string().describe('Job window start, ISO 8601'),
+      when_end: z.string().describe('Job window end, ISO 8601'),
+      near_lat: z.number().optional().describe('Job latitude (for proximity ranking)'),
+      near_lng: z.number().optional().describe('Job longitude'),
+    },
+  },
+  async ({ skill, when_start, when_end, near_lat, near_lng }) => {
+    const [{ data: people, error: pErr }, { data: busy, error: bErr }, { data: punches, error: puErr }] =
+      await Promise.all([
+        db
+          .from('users')
+          .select('id, full_name, role, skills, hourly_rate')
+          .eq('is_active', true),
+        db
+          .from('shifts')
+          .select('user_id, starts_at, ends_at')
+          .neq('status', 'cancelled')
+          .lt('starts_at', when_end)
+          .gt('ends_at', when_start),
+        db
+          .from('time_entries')
+          .select('user_id, in_lat, in_lng, clock_in')
+          .not('in_lat', 'is', null)
+          .gte('clock_in', new Date(Date.now() - 14 * 864e5).toISOString())
+          .order('clock_in', { ascending: false }),
+      ]);
+    if (pErr || bErr || puErr) return fail(pErr ?? bErr ?? puErr);
+
+    const busyIds = new Set(busy.map((s) => s.user_id));
+    const lastPunch = new Map();
+    for (const p of punches) if (!lastPunch.has(p.user_id)) lastPunch.set(p.user_id, p);
+
+    const rad = (d) => (d * Math.PI) / 180;
+    const distKm = (aLat, aLng, bLat, bLng) =>
+      2 *
+      6371 *
+      Math.asin(
+        Math.sqrt(
+          Math.sin(rad(bLat - aLat) / 2) ** 2 +
+            Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(rad(bLng - aLng) / 2) ** 2
+        )
+      );
+
+    const ranked = people
+      .map((w) => {
+        const available = !busyIds.has(w.id);
+        const skillMatch = skill
+          ? (w.skills ?? []).some((s) => s.toLowerCase().includes(skill.toLowerCase()))
+          : null;
+        const punch = lastPunch.get(w.id);
+        const distance_km =
+          near_lat != null && near_lng != null && punch
+            ? +distKm(near_lat, near_lng, punch.in_lat, punch.in_lng).toFixed(1)
+            : null;
+        return {
+          name: w.full_name,
+          role: w.role,
+          skills: w.skills,
+          hourly_rate: w.hourly_rate,
+          available_in_window: available,
+          skill_match: skillMatch,
+          distance_km,
+          last_seen: punch?.clock_in ?? null,
+        };
+      })
+      .sort(
+        (a, b) =>
+          Number(b.available_in_window) - Number(a.available_in_window) ||
+          Number(b.skill_match ?? 0) - Number(a.skill_match ?? 0) ||
+          (a.distance_km ?? 1e9) - (b.distance_km ?? 1e9) ||
+          (a.hourly_rate ?? 1e9) - (b.hourly_rate ?? 1e9)
+      );
+    return json(ranked);
+  }
+);
+
+server.registerTool(
+  'log_lead',
+  {
+    description:
+      'Log an inbound customer request (email/call) with its classification and disposition. ' +
+      'Log EVERY request, including declines — this becomes demand and quoting data.',
+    inputSchema: {
+      from_contact: z.string().optional().describe('Customer email or phone'),
+      subject: z.string().optional(),
+      summary: z.string().describe('One-sentence summary of the request'),
+      address: z.string().optional(),
+      county: z.string().optional(),
+      zip: z.string().optional(),
+      trade: z.string().optional().describe('Specialty needed, e.g. "troubleshooting"'),
+      priority: z.enum(['p1_emergency', 'routine', 'quote']).default('routine'),
+      disposition: z.enum(['dispatched', 'declined_territory', 'replied', 'pending']).default('pending'),
+      notes: z.string().optional(),
+    },
+  },
+  async (args) => {
+    const { data: org, error: oErr } = await db.from('orgs').select('id').limit(1).single();
+    if (oErr) return fail(oErr);
+    const { data, error } = await db
+      .from('leads')
+      .insert({ org_id: org.id, ...args })
+      .select('id, received_at, priority, disposition')
+      .single();
+    return error ? fail(error) : json(data);
+  }
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error('exattime MCP server running (stdio)');
