@@ -11,9 +11,9 @@ AI-agent-driven calendar/scheduling automation layer.
 - [x] RLS policies (`0002_rls.sql`)
 - [x] Shared domain types (`packages/shared`)
 - [x] API contract v0 (`docs/API_CONTRACT.md`)
-- [ ] Supabase project created, migrations applied
-- [ ] Expo + Next.js apps initialized (see README)
-- [ ] Auth wired (login, roles)
+- [x] Supabase project created, migrations applied
+- [x] Expo + Next.js apps initialized (see README)
+- [x] Auth wired (login, roles) — verified against live project
 
 ## Phase 1 — Time tracking (weeks 2–3)
 
