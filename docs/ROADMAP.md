@@ -51,7 +51,8 @@ Lunch 12:00–12:30 confirmed 2026-07-16.
 - [x] MCP server (`packages/mcp-server`, registered in `.mcp.json`): tools
   get_timesheets, get_flags, get_hours_report, list_job_sites,
   list_employees — smoke-tested against live DB
-- [ ] Google Calendar sync for shifts/schedules
+- [ ] Microsoft 365 calendar sync (Graph API) for shifts/schedules —
+  Lippolis runs M365; needs Entra app registration (see below)
 - Agent jobs: daily punch-anomaly review, weekly schedule pre-build,
   pay-period reconciliation — approval-gated, autonomy expands with trust
 
