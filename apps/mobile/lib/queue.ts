@@ -18,6 +18,8 @@ export interface QueuedPunch {
   costCodeId: string | null;
   lat: number | null;
   lng: number | null;
+  /** GPS accuracy in meters, as reported by the device. */
+  accuracyM?: number | null;
   /** Storage path of the punch photo, if one was captured and uploaded. */
   photoPath?: string | null;
   /** Set when a foreman punches for someone else (crew clock-in). */
@@ -60,8 +62,10 @@ export async function queueLength(): Promise<number> {
   return (await readQueue()).length;
 }
 
-/** Send a punch to the server. Throws on network/server failure. */
-export async function sendPunch(p: QueuedPunch, deviceId: string): Promise<void> {
+/** Send a punch to the server. Throws on network/server failure.
+ * Returns the closed entry's id for 'out' punches (used to attach a
+ * completion report), null otherwise. */
+export async function sendPunch(p: QueuedPunch, deviceId: string): Promise<string | null> {
   if (p.kind === 'in') {
     const { error } = await supabase.from('time_entries').insert({
       org_id: p.orgId,
@@ -71,6 +75,7 @@ export async function sendPunch(p: QueuedPunch, deviceId: string): Promise<void>
       clock_in: p.at,
       in_lat: p.lat,
       in_lng: p.lng,
+      in_accuracy_m: p.accuracyM ?? null,
       in_photo_url: p.photoPath ?? null,
       device_id: deviceId,
       client_uuid: p.clientUuid,
@@ -78,6 +83,7 @@ export async function sendPunch(p: QueuedPunch, deviceId: string): Promise<void>
     });
     // 23505 = duplicate (device_id, client_uuid): already synced, not an error.
     if (error && error.code !== '23505') throw error;
+    return null;
   } else {
     const { data: open, error: findErr } = await supabase
       .from('time_entries')
@@ -87,12 +93,18 @@ export async function sendPunch(p: QueuedPunch, deviceId: string): Promise<void>
       .order('clock_in', { ascending: false })
       .limit(1);
     if (findErr) throw findErr;
-    if (!open?.length) return; // nothing open — punch-out already applied
+    if (!open?.length) return null; // nothing open — punch-out already applied
     const { error } = await supabase
       .from('time_entries')
-      .update({ clock_out: p.at, out_lat: p.lat, out_lng: p.lng })
+      .update({
+        clock_out: p.at,
+        out_lat: p.lat,
+        out_lng: p.lng,
+        out_accuracy_m: p.accuracyM ?? null,
+      })
       .eq('id', open[0].id);
     if (error) throw error;
+    return open[0].id;
   }
 }
 

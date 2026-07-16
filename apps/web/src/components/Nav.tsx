@@ -7,6 +7,7 @@ const LINKS = [
   { href: '/', label: 'Home' },
   { href: '/timesheets', label: 'Timesheets' },
   { href: '/schedule', label: 'Schedule' },
+  { href: '/completions', label: 'Completions' },
   { href: '/map', label: 'Map' },
   { href: '/flags', label: 'Flags' },
   { href: '/sites', label: 'Job Sites' },

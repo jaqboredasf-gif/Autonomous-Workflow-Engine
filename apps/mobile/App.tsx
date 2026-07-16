@@ -52,16 +52,20 @@ function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number) {
   return 2 * 6371 * Math.asin(Math.sqrt(h));
 }
 
-async function getGps(): Promise<{ lat: number | null; lng: number | null }> {
+async function getGps(): Promise<{ lat: number | null; lng: number | null; accuracy: number | null }> {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return { lat: null, lng: null };
+    if (status !== 'granted') return { lat: null, lng: null, accuracy: null };
     const pos = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
     });
-    return { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    return {
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      accuracy: pos.coords.accuracy ?? null,
+    };
   } catch {
-    return { lat: null, lng: null };
+    return { lat: null, lng: null, accuracy: null };
   }
 }
 
@@ -159,6 +163,7 @@ function PunchScreen({ userId }: { userId: string }) {
   const [busy, setBusy] = useState(false);
   const [queued, setQueued] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
+  const [completionFor, setCompletionFor] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [{ data: prof }, { data: siteRows }, { data: codeRows }, { data: open }, { data: settings }] =
@@ -204,14 +209,14 @@ function PunchScreen({ userId }: { userId: string }) {
     load();
   }, [load]);
 
-  async function sendOrQueue(p: QueuedPunch): Promise<boolean> {
+  async function sendOrQueue(p: QueuedPunch): Promise<{ ok: boolean; entryId: string | null }> {
     try {
-      await sendPunch(p, await getDeviceId());
-      return true;
+      const entryId = await sendPunch(p, await getDeviceId());
+      return { ok: true, entryId };
     } catch {
       const n = await enqueue(p);
       setQueued(n);
-      return false;
+      return { ok: false, entryId: null };
     }
   }
 
@@ -238,8 +243,9 @@ function PunchScreen({ userId }: { userId: string }) {
 
     let synced = 0;
     let queuedNow = 0;
+    let closedEntryId: string | null = null;
     for (const target of targets) {
-      const ok = await sendOrQueue({
+      const res = await sendOrQueue({
         kind,
         clientUuid: genId(),
         at,
@@ -249,11 +255,18 @@ function PunchScreen({ userId }: { userId: string }) {
         costCodeId: kind === 'in' ? codeId : null,
         lat: gps.lat,
         lng: gps.lng,
+        accuracyM: gps.accuracy,
         photoPath,
         createdBy: target === userId ? null : userId,
       });
-      if (ok) synced++;
+      if (res.ok) synced++;
       else queuedNow++;
+      if (target === userId) closedEntryId = res.entryId;
+    }
+
+    // Solo clock-out that reached the server → completion report form.
+    if (!crewMode && kind === 'out' && closedEntryId) {
+      setCompletionFor(closedEntryId);
     }
 
     const who = crewMode ? `${targets.length} worker(s)` : 'you';
@@ -271,6 +284,21 @@ function PunchScreen({ userId }: { userId: string }) {
       <View style={styles.center}>
         <ActivityIndicator color="#fff" />
       </View>
+    );
+  }
+
+  if (completionFor) {
+    return (
+      <CompletionForm
+        entryId={completionFor}
+        userId={userId}
+        orgId={profile.org_id}
+        siteId={siteId}
+        onDone={(msg) => {
+          setCompletionFor(null);
+          setStatus(msg);
+        }}
+      />
     );
   }
 
@@ -399,6 +427,74 @@ function PunchScreen({ userId }: { userId: string }) {
   );
 }
 
+function CompletionForm({
+  entryId,
+  userId,
+  orgId,
+  siteId,
+  onDone,
+}: {
+  entryId: string;
+  userId: string;
+  orgId: string;
+  siteId: string | null;
+  onDone: (msg: string) => void;
+}) {
+  const [workComplete, setWorkComplete] = useState(true);
+  const [returnTrip, setReturnTrip] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
+  const [materials, setMaterials] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    setSaving(true);
+    const { error } = await supabase.from('completion_reports').insert({
+      org_id: orgId,
+      user_id: userId,
+      time_entry_id: entryId,
+      job_site_id: siteId,
+      work_complete: workComplete,
+      return_trip_needed: returnTrip,
+      return_trip_reason: returnTrip ? returnReason || null : null,
+      materials_used: materials || null,
+      notes: notes || null,
+    });
+    setSaving(false);
+    onDone(error ? `Completion failed: ${error.message}` : 'Completion report submitted ✓');
+  }
+
+  return (
+    <View style={styles.screen}>
+      <Text style={styles.title}>Job wrap-up</Text>
+
+      <Pressable style={[styles.row, workComplete && styles.rowActive]}
+        onPress={() => setWorkComplete(!workComplete)}>
+        <Text style={styles.rowText}>{workComplete ? '☑' : '☐'} Work complete</Text>
+      </Pressable>
+      <Pressable style={[styles.row, returnTrip && styles.rowActive]}
+        onPress={() => setReturnTrip(!returnTrip)}>
+        <Text style={styles.rowText}>{returnTrip ? '☑' : '☐'} Return trip needed</Text>
+      </Pressable>
+      {returnTrip && (
+        <TextInput style={styles.input} placeholder="Why? (parts, inspection, …)"
+          placeholderTextColor="#888" value={returnReason} onChangeText={setReturnReason} />
+      )}
+      <TextInput style={styles.input} placeholder="Materials used"
+        placeholderTextColor="#888" value={materials} onChangeText={setMaterials} />
+      <TextInput style={[styles.input, styles.multiline]} placeholder="Notes"
+        placeholderTextColor="#888" multiline value={notes} onChangeText={setNotes} />
+
+      <Pressable style={[styles.punchBtn, styles.punchIn]} disabled={saving} onPress={submit}>
+        <Text style={styles.punchText}>{saving ? '…' : 'SUBMIT'}</Text>
+      </Pressable>
+      <Pressable onPress={() => onDone('Completion skipped')}>
+        <Text style={styles.signOut}>Skip for now</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#111' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
@@ -412,6 +508,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginTop: 10,
   },
+  multiline: { minHeight: 80, textAlignVertical: 'top' },
   primaryBtn: {
     marginTop: 16,
     backgroundColor: '#2563eb',
