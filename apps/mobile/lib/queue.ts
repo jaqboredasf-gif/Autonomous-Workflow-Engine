@@ -18,6 +18,10 @@ export interface QueuedPunch {
   costCodeId: string | null;
   lat: number | null;
   lng: number | null;
+  /** Storage path of the punch photo, if one was captured and uploaded. */
+  photoPath?: string | null;
+  /** Set when a foreman punches for someone else (crew clock-in). */
+  createdBy?: string | null;
 }
 
 export function genId(): string {
@@ -67,8 +71,10 @@ export async function sendPunch(p: QueuedPunch, deviceId: string): Promise<void>
       clock_in: p.at,
       in_lat: p.lat,
       in_lng: p.lng,
+      in_photo_url: p.photoPath ?? null,
       device_id: deviceId,
       client_uuid: p.clientUuid,
+      created_by: p.createdBy ?? null,
     });
     // 23505 = duplicate (device_id, client_uuid): already synced, not an error.
     if (error && error.code !== '23505') throw error;

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "exattime": {
+      "command": "node",
+      "args": ["packages/mcp-server/src/index.js"],
+      "env": {
+        "SUPABASE_URL": "https://qgoiacwdntaqeghcyjlw.supabase.co",
+        "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}"
+      }
+    }
+  }
+}

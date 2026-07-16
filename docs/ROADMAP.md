@@ -18,19 +18,21 @@ AI-agent-driven calendar/scheduling automation layer.
 ## Phase 1 — Time tracking (weeks 2–3)
 
 - [x] Mobile clock in/out, GPS + timestamp at punch, cost code picker
-- [ ] Crew clock-in (foreman punches crew)
+- [x] Crew clock-in (foreman/admin multi-selects workers, punches all;
+  RLS lets foremen close crew entries)
 - [x] Offline queue (AsyncStorage, ordered flush); idempotent on
   (deviceId, clientUuid) — `apps/mobile/lib/queue.ts`
 - [x] Timesheet view (web, last 7 days, RLS-scoped) — worker/foreman
   scoping refinements pending
-- [ ] Optional punch photo (store only, no face-match in v1)
+- [x] Optional punch photo (camera at clock-in when org setting on; private
+  bucket, signed URLs in web; no face-match in v1)
 
 ## Phase 2 — Location (week 4)
 
 - [x] Geofence validation server-side (DB trigger, `0003_geo_flags.sql`):
   inside = green, outside = **flagged, never blocked**
 - [x] Nearest-site auto-suggest at punch (mobile sorts by distance)
-- [ ] Admin map view + flags list
+- [x] Admin map view (geofences + last-24h punches) + flags list
 - No continuous background tracking in v1
 
 ## Phase 3 — Payroll (weeks 5–6)
@@ -46,8 +48,10 @@ Lunch 12:00–12:30 confirmed 2026-07-16.
 
 ## Phase 4 — Calendar + agent layer (grand project)
 
-- MCP server wrapping the API (tools listed in API_CONTRACT.md)
-- Google Calendar sync for shifts/schedules
+- [x] MCP server (`packages/mcp-server`, registered in `.mcp.json`): tools
+  get_timesheets, get_flags, get_hours_report, list_job_sites,
+  list_employees — smoke-tested against live DB
+- [ ] Google Calendar sync for shifts/schedules
 - Agent jobs: daily punch-anomaly review, weekly schedule pre-build,
   pay-period reconciliation — approval-gated, autonomy expands with trust
 
