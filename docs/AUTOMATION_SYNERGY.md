@@ -88,11 +88,11 @@ day one → actual hours vs. estimate feed back into future quoting.
 
 ## What Exattime needs added to enable this (build queue)
 
-- [ ] `service_areas` table (licensed counties/zips) + `check_territory` tool
-- [ ] `skills` on users (text[] of trades/specialties) + skills editor on Employees page
-- [ ] `find_best_worker` MCP tool (skills ∩ availability ∩ proximity ∩ rate)
-- [ ] `leads` table (log every inbound request + disposition — data for quoting later)
-- [ ] Supabase → n8n webhook on flagged punches
+- [x] `service_areas` table + `check_territory` tool (SAMPLE rows seeded — replace with real licensed territory)
+- [x] `skills` on users + inline editor on Employees page
+- [x] `find_best_worker` MCP tool (skill ∩ shift-conflict availability ∩ GPS proximity ∩ rate)
+- [x] `leads` table + `log_lead` tool
+- [ ] Supabase → n8n webhook on flagged punches (needs the n8n instance URL)
 - [ ] M365 Graph sync (blocked on Azure — IT request out)
 
 ## Inputs needed from Lippolis
