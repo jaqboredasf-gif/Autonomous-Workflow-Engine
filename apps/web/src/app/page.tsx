@@ -60,6 +60,11 @@ export default function Home() {
         <p className="mt-4">
           Signed in as <strong>{profile.full_name}</strong> ({profile.role})
         </p>
+        <p className="mt-4">
+          <a href="/timesheets" className="text-blue-600 underline">
+            View timesheets →
+          </a>
+        </p>
         <button
           onClick={signOut}
           className="mt-6 rounded bg-neutral-800 px-4 py-2 text-white"

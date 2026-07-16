@@ -17,18 +17,20 @@ AI-agent-driven calendar/scheduling automation layer.
 
 ## Phase 1 — Time tracking (weeks 2–3)
 
-- Mobile clock in/out, GPS + timestamp at punch, cost code picker
-- Crew clock-in (foreman punches crew)
-- Offline queue (SQLite/AsyncStorage) → `/punches/sync`; idempotent on
-  (deviceId, clientUuid)
-- Timesheet views (worker: self, foreman: crew)
-- Optional punch photo (store only, no face-match in v1)
+- [x] Mobile clock in/out, GPS + timestamp at punch, cost code picker
+- [ ] Crew clock-in (foreman punches crew)
+- [x] Offline queue (AsyncStorage, ordered flush); idempotent on
+  (deviceId, clientUuid) — `apps/mobile/lib/queue.ts`
+- [x] Timesheet view (web, last 7 days, RLS-scoped) — worker/foreman
+  scoping refinements pending
+- [ ] Optional punch photo (store only, no face-match in v1)
 
 ## Phase 2 — Location (week 4)
 
-- Geofence validation: inside = green, outside = **flagged, never blocked**
-- Nearest-site auto-suggest at punch
-- Admin map view + flags list
+- [x] Geofence validation server-side (DB trigger, `0003_geo_flags.sql`):
+  inside = green, outside = **flagged, never blocked**
+- [x] Nearest-site auto-suggest at punch (mobile sorts by distance)
+- [ ] Admin map view + flags list
 - No continuous background tracking in v1
 
 ## Phase 3 — Payroll (weeks 5–6)
