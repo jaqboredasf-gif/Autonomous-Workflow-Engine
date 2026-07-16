@@ -178,6 +178,86 @@ server.registerTool(
   }
 );
 
+server.registerTool(
+  'get_schedule',
+  {
+    description:
+      'List scheduled shifts between two dates: who works when and at which job site. ' +
+      'This is the schedule the M365 calendar sync mirrors.',
+    inputSchema: {
+      from: z.string().describe('Start date, YYYY-MM-DD'),
+      to: z.string().describe('End date, YYYY-MM-DD'),
+      include_cancelled: z.boolean().default(false),
+    },
+  },
+  async ({ from, to, include_cancelled }) => {
+    let q = db
+      .from('shifts')
+      .select(
+        'id, starts_at, ends_at, status, notes, users!shifts_user_id_fkey(full_name), job_sites(name)'
+      )
+      .gte('starts_at', `${from}T00:00:00Z`)
+      .lte('starts_at', `${to}T23:59:59Z`)
+      .order('starts_at');
+    if (!include_cancelled) q = q.neq('status', 'cancelled');
+    const { data, error } = await q;
+    return error ? fail(error) : json(data);
+  }
+);
+
+server.registerTool(
+  'create_shift',
+  {
+    description:
+      'Schedule a shift for an employee. Names are matched case-insensitively against ' +
+      'employees and job sites; the tool errors if a name is ambiguous or unknown.',
+    inputSchema: {
+      employee: z.string().describe('Employee full name'),
+      job_site: z.string().optional().describe('Job site name'),
+      starts_at: z.string().describe('Shift start, ISO 8601 (e.g. 2026-07-20T07:00:00-04:00)'),
+      ends_at: z.string().describe('Shift end, ISO 8601'),
+      notes: z.string().optional(),
+    },
+  },
+  async ({ employee, job_site, starts_at, ends_at, notes }) => {
+    const { data: users, error: uErr } = await db
+      .from('users')
+      .select('id, org_id, full_name')
+      .ilike('full_name', `%${employee}%`)
+      .eq('is_active', true);
+    if (uErr) return fail(uErr);
+    if (users.length !== 1) {
+      return fail(new Error(`employee "${employee}" matched ${users.length} people`));
+    }
+    let siteId = null;
+    if (job_site) {
+      const { data: sites, error: sErr } = await db
+        .from('job_sites')
+        .select('id, name')
+        .ilike('name', `%${job_site}%`)
+        .eq('is_active', true);
+      if (sErr) return fail(sErr);
+      if (sites.length !== 1) {
+        return fail(new Error(`job site "${job_site}" matched ${sites.length} sites`));
+      }
+      siteId = sites[0].id;
+    }
+    const { data, error } = await db
+      .from('shifts')
+      .insert({
+        org_id: users[0].org_id,
+        user_id: users[0].id,
+        job_site_id: siteId,
+        starts_at,
+        ends_at,
+        notes: notes ?? null,
+      })
+      .select('id, starts_at, ends_at')
+      .single();
+    return error ? fail(error) : json({ created: data, employee: users[0].full_name });
+  }
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error('exattime MCP server running (stdio)');

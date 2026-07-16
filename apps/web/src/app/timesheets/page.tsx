@@ -41,7 +41,7 @@ export default function Timesheets() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function load() {
     const from = new Date();
     from.setDate(from.getDate() - 7);
     supabase
@@ -56,7 +56,18 @@ export default function Timesheets() {
         if (error) setError(error.message);
         setRows(data ?? []);
       });
-  }, []);
+  }
+
+  useEffect(load, []);
+
+  async function approve(id: string) {
+    const { error } = await supabase
+      .from('time_entries')
+      .update({ status: 'approved' })
+      .eq('id', id);
+    if (error) setError(error.message);
+    load();
+  }
 
   if (error) return <main className="p-8 text-red-600">{error}</main>;
   if (!rows) return <main className="p-8">Loading…</main>;
@@ -97,7 +108,23 @@ export default function Timesheets() {
                       {r.out_geo_flag ?? '—'}
                     </span>
                   </td>
-                  <td className="py-2">{r.status}</td>
+                  <td className="py-2">
+                    {r.status === 'open' || r.status === 'submitted' ? (
+                      <span>
+                        {r.status}{' '}
+                        {r.clock_out && (
+                          <button
+                            onClick={() => approve(r.id)}
+                            className="ml-1 rounded bg-green-600 px-2 py-0.5 text-xs text-white"
+                          >
+                            approve
+                          </button>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="font-semibold text-green-700">{r.status}</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

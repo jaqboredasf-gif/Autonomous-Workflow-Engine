@@ -63,6 +63,21 @@ export default function Payroll() {
   const [rows, setRows] = useState<Summary[] | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function lockPeriod() {
+    setMsg(null);
+    setError(null);
+    const { data, error } = await supabase
+      .from('time_entries')
+      .update({ status: 'locked' })
+      .eq('status', 'approved')
+      .gte('clock_in', `${from}T00:00:00Z`)
+      .lte('clock_in', `${to}T23:59:59Z`)
+      .select('id');
+    if (error) setError(error.message);
+    else setMsg(`Locked ${data?.length ?? 0} approved entr${(data?.length ?? 0) === 1 ? 'y' : 'ies'}.`);
+  }
 
   async function run() {
     setError(null);
@@ -155,7 +170,13 @@ export default function Payroll() {
           className="rounded bg-neutral-800 px-3 py-2 text-sm text-white disabled:opacity-40">
           Download CSV
         </button>
+        <button onClick={lockPeriod}
+          className="rounded bg-red-700 px-3 py-2 text-sm text-white"
+          title="Locks all approved entries in range. Locked entries only change with an audit trail.">
+          Lock period
+        </button>
       </div>
+      {msg && <p className="mt-3 text-sm text-green-600">{msg}</p>}
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
       {rows && (
