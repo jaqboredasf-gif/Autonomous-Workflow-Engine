@@ -3,7 +3,48 @@
 Read CONTEXT.md first, then this, then all docs/planning/*.md. One approved task per session.
 Vocabulary authority: docs/architecture/UBIQUITOUS_LANGUAGE.md (2026-07-17).
 
-## Current state (2026-07-17, Task B1 COMPLETE — implementation started)
+## Current state (2026-07-17, Phase 4 COMPLETE — MVP defined, eval baseline built)
+
+Phase 4 ran as one session: MVP defined in **docs/planning/MVP_SPEC.md** (the
+canonical MVP authority — read it before any B-task), harness mapped in
+**docs/architecture/AGENT_HARNESS.md**, evals in
+**docs/testing/EVAL_STRATEGY.md**, 7 harness terms added to
+UBIQUITOUS_LANGUAGE.md. Key decisions (full list DECISION_LOG 2026-07-17
+Phase 4): MVP = email-triage vertical [RECOMMENDATION — boss confirmation
+pending]; attendance report = fast-follow blocked on B8; Maps 1–7 + drafts/
+approvals ship, scheduling + delivery post-MVP; no generic agent runtime;
+Verify Step convention; B2 budgets (1 call/email, ≤2 retries, fail-closed);
+Phases 5–6 collapsed into per-slice design interrogations.
+
+Built this session (E1): fixtures/emails/labels.json (ground truth) +
+scripts/eval-intake.sh (baseline deterministic eval: keyword recall 100%, FP
+0, territory 100%) wired into regression.sh. Regression = 3 acceptance slices
++ baseline eval, ALL GREEN. Drift check clean at migrations 0001–0012.
+
+### Grill questions for the boss (Phase 4, ≤5)
+1. Priority + B8 together: first demo = email-triage queue (buildable now) or
+   daily attendance exception report (needs your written rounding/OT policy —
+   what is it)?
+2. B2: who watches the requests inbox today, and who should own the triage
+   queue (drives W2 approver too)?
+3. B5: exact towns/counties/zips we accept work in (unlocks the only planned
+   auto-send, currently drafted-only)?
+4. B10: minimum info before a service call can be scheduled?
+5. Interview closer 2 (still unasked): the one mistake this automation must
+   never make?
+
+### Next build session prompt — Task B2 (approved order: B2→B3→B5→B4)
+> Read docs/planning/CONTEXT.md, SESSION_HANDOFF.md, MVP_SPEC.md,
+> docs/architecture/AGENT_HARNESS.md, docs/architecture/UBIQUITOUS_LANGUAGE.md,
+> docs/testing/EVAL_STRATEGY.md, TASK_BACKLOG.md B2. Task B2 only:
+> classification harness + Runner 2 evals. Start with the compact design
+> interrogation (packet fields, prompt versioning, runner location, new event
+> types), record decisions in DECISION_LOG, then test-first build per the
+> operating model. Budgets and gates are fixed by Phase 4 — do not relax them.
+> Regression + baseline eval green before and after; drift check; update
+> backlog/handoff; commit; stop after B2.
+
+## Prior state (2026-07-17, Task B1 COMPLETE — implementation started)
 
 B1 (intake spine) built and committed this session. Live DB and repo in sync at
 migrations 0001–0012. Regression = 20 acceptance checks across 3 slices, ALL

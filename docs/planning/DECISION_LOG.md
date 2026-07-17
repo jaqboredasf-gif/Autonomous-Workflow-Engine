@@ -2,7 +2,47 @@
 
 Append-only. Newest first. Format: date — decision — why — supersedes (if any).
 
-## 2026-07-17 (B1 build session — intake spine + orphan-schema cleanup)
+## 2026-07-17 (Phase 4 — MVP definition + harness/eval integration)
+
+- **MVP = email-triage vertical slice** (docs/planning/MVP_SPEC.md) —
+  [RECOMMENDATION, boss confirmation pending]. Rationale: fully buildable on
+  fixtures today (B1 done, no Entra dependency); attendance exception report
+  is blocked on B8 (OT/rounding policy) so its correctness is unverifiable
+  now; building triage does not preempt the boss's choice — the attendance
+  report needs no AWE harness work and stays a fast-follow the week B8 is
+  answered. Grill question 1 puts the priority question + B8 to the boss
+  together. Resolves the Phase-4 gate from DECISION_LOG 2026-07-17
+  boss-priority finding (as a recommendation, not a boss decision).
+- **MVP cut**: Maps 1–3, 5–7 ship; Map 4 ships through confirmation-draft
+  approval (calendar/shift step manual); Maps 8–21, scheduling linkage (B6),
+  pricing/estimate/invoice models (B7/B8) post-MVP. Narrows PROJECT_SCOPE
+  §MVP (scheduling + estimate/invoice models were listed there) — none of
+  them block the triage demo, and auto-scheduling prerequisites (jobs,
+  availability, conflict checks) don't exist yet.
+- **Harness doctrine**: harness = schema constraints + triggers +
+  integration_events + deterministic scripts + per-slice runner code. No
+  generic agent runtime, no engine tables, no tool-dispatch layer until a
+  second consumer exists. Verify Step convention adopted: model claims never
+  count as evidence; DB-trigger events count by construction; unverified
+  outcome = failure. Docs: AGENT_HARNESS.md maps all five components to
+  built/partial/task.
+- **B2 budgets fixed by design**: 1 model call per email, ≤2 retries, then
+  classification=unknown → needs_review (fail-closed). Enforced in runner
+  code, not prompts.
+- **Eval system**: fixtures + fixtures/emails/labels.json (ground truth;
+  label changes are reviewed decisions) + two runners. Runner 1 (baseline,
+  deterministic — keyword recall 100%, keyword FP 0, territory 100%) BUILT
+  and wired into regression. Runner 2 (model evals, hard gates: emergency
+  union recall 100%, detection 12/12, hallucinated fields 0, verify-step pass
+  100%) = B2, on-demand, never in regression. EVAL_STRATEGY.md.
+- **Phases 5–6 collapsed into per-slice design interrogations** (operating
+  model rule 3). MVP_SPEC.md + AGENT_HARNESS.md carry the architecture; each
+  build task (B2/B3/B5/B4) starts with its own compact interrogation instead
+  of a standalone architecture session. Supersedes the phase-5/6 planning
+  sequence from 2026-07-17 Phase 1 entry.
+- **Phone-intake bridge scoped**: synthetic email_messages row
+  (mailbox='manual-intake'), identical pipeline; needs one check-constraint
+  amendment; shortly-after-MVP, not in demo.
 
 - **Orphan foreign schema dropped (migration 0012).** Live DB was found carrying
   16 uncommitted tables (organizations/people/roles/organization_members/

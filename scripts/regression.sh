@@ -35,5 +35,10 @@ if [ -f scripts/acceptance-slice3.sh ]; then
   bash scripts/acceptance-slice3.sh || fails=$((fails+1))
 fi
 
+if [ -f scripts/eval-intake.sh ]; then
+  step "intake eval (baseline, deterministic)"
+  bash scripts/eval-intake.sh || fails=$((fails+1))
+fi
+
 echo; echo "regression: $([ $fails = 0 ] && echo ALL GREEN || echo "$fails FAILURES")"
 [ "$fails" = "0" ]

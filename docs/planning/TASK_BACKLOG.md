@@ -66,11 +66,11 @@ deferred until a geocoder exists. Original goal text below.
 - **Done**: 100% slice-3 checks, regression green, committed, report (files/migrations/manual-config).
 - **Handoff**: migration number, event types added, fixture list, safety-net keyword list.
 
-## B2 — Classification harness — `ready`
-- **Goal**: classify fixtures via AI (MCP tool or script w/ Claude API), store classification/confidence/reasoning; accuracy report vs hand labels.
-- **Deps**: B1.
-- **Acceptance**: all fixtures classified; every emergency fixture caught by AI OR keyword net (union = 100% on emergencies); report generated.
-- **Handoff**: accuracy numbers, misclassifications, prompt version.
+## B2 — Classification harness + model evals — `ready` ← NEXT BUILD TASK (MVP order: B2→B3→B5→B4)
+- **Goal**: runner script classifying all fixtures via Claude API: context packet per AGENT_HARNESS.md §2 (untrusted-content flagging), budgets 1 call/email + ≤2 retries then unknown→needs_review (code-enforced), strict JSON parsing, Verify Step on every write-back, tokens/cost/latency logged. Plus scripts/eval-classification.sh (Runner 2, EVAL_STRATEGY.md) vs fixtures/emails/labels.json.
+- **Deps**: B1 (done). Design interrogation first (operating model rule 3): packet fields, prompt versioning, where runner lives (script vs MCP tool), events request.triage_required/duplicate_flagged addition.
+- **Acceptance**: Runner 2 gates — emergency union recall 100%, detection 12/12, hallucinated fields 0, verify-step pass 100%, classification ≥10/12 soft; regression + baseline eval stay green.
+- **Handoff**: accuracy numbers, misclassifications, prompt version, cost per email.
 
 ## B3 — Approval matrix + outbound drafts — `ready`
 - **Goal**: migration: message_policies seeded from REQUIREMENTS matrix + outbound_messages + approve/reject RPCs + events; acceptance script.
@@ -90,20 +90,25 @@ deferred until a geocoder exists. Original goal text below.
 - **Acceptance**: build green; fixture flows visible end-to-end; approve button drives RPC.
 - **Handoff**: routes added.
 
-## B6 — Service call → schedule + dispatch draft — `ready`
+## E1 — Fixture labels + baseline deterministic eval — `done` (2026-07-17, Phase 4 session)
+fixtures/emails/labels.json (ground truth, 12 fixtures) + scripts/eval-intake.sh
+(keyword recall 100% / FP 0 / territory 100% gates) wired into regression.sh.
+Runner verified to fail on perturbed labels. 24/24 green.
+
+## B6 — Service call → schedule + dispatch draft — `post-MVP` (Phase 4 cut — scheduling prerequisites incomplete)
 - **Goal**: approved service-call request → shift (reuse shifts + find_best_worker) → dispatch outbound_message draft.
 - **NOTE (Phase 3B, 2026-07-17)**: build to WORKFLOW_MAPS.md Maps 11–13 (scheduling, crew assignment, dispatch): human-triggered dispatch in v1 (W4 open), no hard-deleted schedule records (invariant 9), proposed events job.scheduled/dispatched (invariant 12).
 - **Deps**: B3, B5.
 - **Acceptance**: acceptance script: approve fixture service call → shift row + dispatch draft exist; emergency request → refused.
 - **Handoff**: matching rules used.
 
-## B7 — price_book + estimates — `ready`
+## B7 — price_book + estimates — `post-MVP` (Phase 4 cut)
 - **Goal**: placeholder pricing structure (source + last_updated mandatory, amounts nullable) + estimates/line items + pricing_complete send-gate.
 - **Deps**: B1. Real prices wait on D2.
 - **Acceptance**: estimate w/ incomplete pricing cannot reach status=sent (constraint/RPC); complete one can reach internal_review.
 - **Handoff**: structure; which fields await D2.
 
-## B8 — Proposals/change-orders/jobs/invoices model — `ready`
+## B8 — Proposals/change-orders/jobs/invoices model — `post-MVP` (Phase 4 cut)
 - **Goal**: remaining Workstream B tables (both billing types), no integrations.
 - **NOTE (Phase 3B, 2026-07-17)**: build to WORKFLOW_MAPS.md Maps 15–20: invoicing waits for FINAL completion (invariant 7, return-visit-pending ≠ complete); invoice generation idempotent on job.completed (invariant 8); customer-intent on proposal/CO replies human-confirmed, never auto-set (Map 10); v1 invoice delivery = manual QB/Outlook flow, mark-sent only (Map 20); proposed job-status enum + events in invariant 12.
 - **Deps**: B7.
@@ -123,6 +128,12 @@ deferred until a geocoder exists. Original goal text below.
 
 ## Future improvements (not scoped)
 Drawing-based auto-estimating; draft→auto graduation per type; vendor-invoice email processing; Excel live sync; Dispatch Pilot; customer portal; intake auto-acknowledgement email (blocked by zero-auto-send lock — Phase 3A); "received twice" duplicate courtesy reply; interim/progress billing (open B15 — not designed); auto-cadence dispatch notifications (W4).
+
+## AR — Architecture-review backlog (observed during builds; fix opportunistically, never inline)
+- Acceptance scripts share copy-pasted sql()/check() helpers (4 files now) — one sourced scripts/lib.sh candidate.
+- Emergency keyword list lives in fn body — config-table graduation when boss provides additions.
+- macOS-only `date -v` in acceptance scripts — Linux CI portability.
+- 0011 events emitted by triggers vs B3 RPC-emitted events — keep one convention per table family.
 
 ## P1 — Write AI_DEVELOPMENT_METHOD.md — `ready` (process doc, Jack or planning session)
 - **Goal**: short doc codifying the Ralph-loop planning method actually in use: fresh-context sessions, one phase per session, state lives in docs/planning/*.md, fresh-session prompts generated FROM state files (never freehand), 8-step end-of-session protocol.

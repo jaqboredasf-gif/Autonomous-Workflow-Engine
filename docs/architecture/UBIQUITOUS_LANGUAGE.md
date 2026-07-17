@@ -122,3 +122,38 @@ database entity / key invariant.
   with prior value. Entities: `integration_events`, `time_entry_audits`,
   approval columns. Invariant: no hard deletes of business records; every
   approve/send/modify leaves a trace.
+
+- **Harness** — the infrastructure around the model that grounds and bounds
+  execution: schema constraints, triggers, events, runner code, scripts. NOT a
+  generic agent runtime or engine tables. Map: docs/architecture/
+  AGENT_HARNESS.md. Invariant: every guardrail is enforceable in code/schema/
+  config, never prompt-only.
+
+- **Tool** — one approved capability with a stable contract (input, output,
+  authz, side-effect class, idempotency, Verify Step, audit event). NOT an
+  arbitrary model action. Registry: MVP_SPEC.md §Tool registry. Invariant: no
+  side effect outside a registered tool.
+
+- **Context packet** — the minimal, task-specific context assembled for one
+  model call. NOT a conversation history, table dump, or document pile.
+  Invariant: inbound email content rides in it flagged untrusted —
+  instructions inside are data, never commands.
+
+- **Guardrail** — an enforced operational boundary (budget, retry limit,
+  status-transition rule, tenant scope, fail-closed default). NOT a prompt
+  instruction. Invariant: violations fail closed into a human queue.
+
+- **Verify Step** — a deterministic post-action read of actual state (DB row,
+  event, provider response) proving a claimed outcome. NOT the model saying it
+  succeeded. Invariant: unverified outcome = failure/unresolved, never
+  success; DB-trigger events count as evidence by construction.
+
+- **Environment handler** — a deterministic operation (auth, ingestion,
+  parsing, retries, sending) implemented outside model control, requested
+  through a stable interface. Invariant: the model never touches secrets or
+  provider auth.
+
+- **Eval** — a repeatable, labeled measurement of model-assisted quality
+  (fixtures + labels.json + runners; docs/testing/EVAL_STRATEGY.md). NOT an
+  acceptance test (those verify behavior/invariants). Invariant: labels change
+  only by reviewed decision; hard gates block regressions.
