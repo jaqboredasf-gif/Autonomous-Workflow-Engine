@@ -1,12 +1,12 @@
 # Session Handoff
 
-Read this + all docs/planning/*.md at the start of every session. One approved task per session.
+Read CONTEXT.md first, then this, then all docs/planning/*.md. One approved task per session.
 
-## Current state (2026-07-16)
+## Current state (2026-07-16, end of session A1)
 
-- Repo: ~/exattime, git main, last commit 6a0565e (Slice 1). **Slice 2 (migration 0010 + acceptance-slice2.sh) applied to live DB but NOT committed.**
-- Live Supabase: project qgoiacwdntaqeghcyjlw. Migrations 0001–0010 applied.
-- Regression: `SUPABASE_ACCESS_TOKEN=... EMAIL=... PASSWORD=... bash scripts/regression.sh` (needs mgmt token + Jack's login).
+- Repo: ~/exattime, git main. Commits: aad11e3 (Slice 2: immutability + corrections), 6a7ef3a (planning docs). Working tree clean except gitignored env files.
+- Live Supabase: migrations 0001–0010 applied. Regression ALL GREEN (19/19 acceptance checks + typechecks + build + MCP smoke).
+- Run tests: `source .env.acceptance && bash scripts/regression.sh`
 
 ## Task A1 — DONE (2026-07-16)
 
@@ -43,8 +43,6 @@ Known quirk: macOS `date -v` flags used in acceptance scripts — not portable t
 
 Revoke sbp_ management token after setup; rotate service-role key before real data; org-scope punch-photo read policy.
 
-## Next session prompt (pending Jack's approval of next task)
+## Next session prompt — Task A2 APPROVED by Jack (2026-07-16)
 
-Recommended next: **A2** (web /corrections page — small, completes the corrections feature) or **B1** (intake spine — starts Workstream B). Jack picks.
-
-> Read docs/planning/*.md. Task A2 is approved: build the /corrections page in apps/web (list pending timecard_corrections with original vs corrected values, Approve button calling the apply_timecard_correction RPC, Reject button setting status=rejected) plus a Nav entry. Reuse existing page patterns. Acceptance: web build green (15 routes), manual approve/reject flow works, bash scripts/regression.sh ALL GREEN. Update TASK_BACKLOG.md + SESSION_HANDOFF.md. Do only this task.
+> Read docs/planning/CONTEXT.md, then docs/planning/SESSION_HANDOFF.md and TASK_BACKLOG.md. Task A2 is approved: build the /corrections page in apps/web (list timecard_corrections with original vs corrected values and reason; Approve button calling the apply_timecard_correction RPC; Reject button setting status=rejected) plus a Nav entry. Reuse existing page patterns (see timesheets page for the approve-button pattern). Acceptance: web build green (15 routes); seeded pending correction can be approved end-to-end and the time entry updates; rejected correction cannot be applied; `source .env.acceptance && bash scripts/regression.sh` ALL GREEN before and after. Update TASK_BACKLOG.md + SESSION_HANDOFF.md, commit, report modified files. Do only this task.
