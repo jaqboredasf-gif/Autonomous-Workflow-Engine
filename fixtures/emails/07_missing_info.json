@@ -1,0 +1,19 @@
+{
+  "org_id": "2b219aa5-1148-4e3e-a1a0-1725d62b935c",
+  "direction": "inbound",
+  "mailbox": "fixtures@local",
+  "from_addr": "tom.b.homeowner@example.com",
+  "to_addrs": [
+    "requests@lippoliselectric.example"
+  ],
+  "subject": "need electrician",
+  "body_text": "my lights keep flickering can you send someone",
+  "received_at": "2026-07-16T09:00:00Z",
+  "is_fixture": true,
+  "raw": {
+    "fixture": true,
+    "from": "tom.b.homeowner@example.com",
+    "subject": "need electrician",
+    "body": "my lights keep flickering can you send someone"
+  }
+}

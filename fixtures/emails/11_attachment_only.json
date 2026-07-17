@@ -1,0 +1,29 @@
+{
+  "org_id": "2b219aa5-1148-4e3e-a1a0-1725d62b935c",
+  "direction": "inbound",
+  "mailbox": "fixtures@local",
+  "from_addr": "c.nguyen@example.com",
+  "to_addrs": [
+    "requests@lippoliselectric.example"
+  ],
+  "subject": "(see photos)",
+  "body_text": "",
+  "received_at": "2026-07-16T09:00:00Z",
+  "is_fixture": true,
+  "raw": {
+    "fixture": true,
+    "from": "c.nguyen@example.com",
+    "subject": "(see photos)",
+    "body": ""
+  },
+  "attachments": [
+    {
+      "filename": "panel1.jpg",
+      "content_type": "image/jpeg"
+    },
+    {
+      "filename": "panel2.jpg",
+      "content_type": "image/jpeg"
+    }
+  ]
+}

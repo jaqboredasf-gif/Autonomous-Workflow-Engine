@@ -45,13 +45,19 @@ Root cause: test-data bugs, not schema. (1) insert + same-second clock-out PATCH
 - **Done**: answers in DATA_MODEL.md price_book section; assumptions removed.
 
 ## D3 — Discovery: ops facts — `ready` (human task)
-- **Goal**: emergency contact + channel; real licensed territory; rounding/OT policy; n8n URL; QB Desktop vs Online; headcount + phone types (unanswered from interview).
+- **Goal**: emergency contact + channel; real licensed territory; rounding/OT policy; n8n URL; QB Desktop vs Online; headcount + phone types (unanswered from interview). Phase 3A additions: required intake fields per request type (B10); unanswered info-request nudge/close policy (B11); emergency ack timeout + fallback contact order (B12). Phase 3B additions: proposal validity + silent-customer policy (B13); schedule change/cancellation policy + fees (B14); partial-completion billing (B15); field-initiated change orders + work-before-approval (B16); who decides fixed vs T&M (B17); v1 payment/dispute tracking (B18).
 - **Done**: answers recorded; SAMPLE territory replaced.
 
 ---
 
-## B1 — Intake spine + fixtures + safety nets — `ready` ← RECOMMENDED FIRST TASK
+## B1 — Intake spine + fixtures + safety nets — `done` (2026-07-17)
+Migrations 0011 (intake spine) + 0012 (orphan-schema cleanup — see DECISION_LOG
+2026-07-17 B1 session) applied; 12 fixtures in fixtures/emails/; slice 3 = 20/20
+wired into regression.sh; full regression ALL GREEN. Territory check is
+county/zip string matching (service_areas has no geo radius); lat/lng geocoding
+deferred until a geocoder exists. Original goal text below.
 - **Goal**: migration 0011: email_messages (immutable, is_fixture) + work_requests (classification fields, emergency status lock) + RLS + request.received / request.classified / request.emergency_escalated events + deterministic emergency-keyword + territory checks (SQL functions) + ~12 fixture emails (edge cases from RISKS §"fixtures") + scripts/acceptance-slice3.sh.
+- **NOTE (Phase 3A, 2026-07-17)**: build to WORKFLOW_MAPS.md — spine ordering (keyword net before dedupe short-circuit), proposed statuses/enum/events (invariant 6: awaiting_info/needs_review/duplicate, not_a_work_request, dedupe via graph_message_id + duplicate_of link), fixtures should cover Maps 5–7 (missing-info, fuzzy duplicate, low-confidence/spam).
 - **Why**: foundation of entire Workstream B; fully buildable + testable without Graph.
 - **Files**: supabase/migrations/0011_request_intake.sql, scripts/acceptance-slice3.sh, fixtures/emails/*.json (new dir).
 - **Deps**: none (SAMPLE territory acceptable for tests; auto-send stays off).
@@ -86,6 +92,7 @@ Root cause: test-data bugs, not schema. (1) insert + same-second clock-out PATCH
 
 ## B6 — Service call → schedule + dispatch draft — `ready`
 - **Goal**: approved service-call request → shift (reuse shifts + find_best_worker) → dispatch outbound_message draft.
+- **NOTE (Phase 3B, 2026-07-17)**: build to WORKFLOW_MAPS.md Maps 11–13 (scheduling, crew assignment, dispatch): human-triggered dispatch in v1 (W4 open), no hard-deleted schedule records (invariant 9), proposed events job.scheduled/dispatched (invariant 12).
 - **Deps**: B3, B5.
 - **Acceptance**: acceptance script: approve fixture service call → shift row + dispatch draft exist; emergency request → refused.
 - **Handoff**: matching rules used.
@@ -98,6 +105,7 @@ Root cause: test-data bugs, not schema. (1) insert + same-second clock-out PATCH
 
 ## B8 — Proposals/change-orders/jobs/invoices model — `ready`
 - **Goal**: remaining Workstream B tables (both billing types), no integrations.
+- **NOTE (Phase 3B, 2026-07-17)**: build to WORKFLOW_MAPS.md Maps 15–20: invoicing waits for FINAL completion (invariant 7, return-visit-pending ≠ complete); invoice generation idempotent on job.completed (invariant 8); customer-intent on proposal/CO replies human-confirmed, never auto-set (Map 10); v1 invoice delivery = manual QB/Outlook flow, mark-sent only (Map 20); proposed job-status enum + events in invariant 12.
 - **Deps**: B7.
 - **Acceptance**: fixed-price invoice total = proposal + approved change orders (SQL check); T&M invoice references approved time_entries only; unreviewed invoice cannot reach status=sent.
 - **Handoff**: model decisions.
@@ -114,4 +122,9 @@ Root cause: test-data bugs, not schema. (1) insert + same-second clock-out PATCH
 ---
 
 ## Future improvements (not scoped)
-Drawing-based auto-estimating; draft→auto graduation per type; vendor-invoice email processing; Excel live sync; Dispatch Pilot; customer portal.
+Drawing-based auto-estimating; draft→auto graduation per type; vendor-invoice email processing; Excel live sync; Dispatch Pilot; customer portal; intake auto-acknowledgement email (blocked by zero-auto-send lock — Phase 3A); "received twice" duplicate courtesy reply; interim/progress billing (open B15 — not designed); auto-cadence dispatch notifications (W4).
+
+## P1 — Write AI_DEVELOPMENT_METHOD.md — `ready` (process doc, Jack or planning session)
+- **Goal**: short doc codifying the Ralph-loop planning method actually in use: fresh-context sessions, one phase per session, state lives in docs/planning/*.md, fresh-session prompts generated FROM state files (never freehand), 8-step end-of-session protocol.
+- **Why**: Phase 3B draft prompt referenced this file from memory — it doesn't exist. Phantom reference proved prompts are being written freehand (see DECISION_LOG 2026-07-17 Phase 3B process rule). Also: start each planning session by verifying every file the prompt names actually exists.
+- **Done**: file exists in docs/planning/; SESSION_HANDOFF read-order updated to include it.

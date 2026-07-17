@@ -30,5 +30,10 @@ if [ -f scripts/acceptance-slice2.sh ]; then
   bash scripts/acceptance-slice2.sh || fails=$((fails+1))
 fi
 
+if [ -f scripts/acceptance-slice3.sh ]; then
+  step "acceptance slice 3"
+  bash scripts/acceptance-slice3.sh || fails=$((fails+1))
+fi
+
 echo; echo "regression: $([ $fails = 0 ] && echo ALL GREEN || echo "$fails FAILURES")"
 [ "$fails" = "0" ]

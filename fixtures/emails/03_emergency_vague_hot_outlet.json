@@ -1,0 +1,19 @@
+{
+  "org_id": "2b219aa5-1148-4e3e-a1a0-1725d62b935c",
+  "direction": "inbound",
+  "mailbox": "fixtures@local",
+  "from_addr": "d.kim@example.com",
+  "to_addrs": [
+    "requests@lippoliselectric.example"
+  ],
+  "subject": "outlet question",
+  "body_text": "Hello, the outlet in our hallway feels hot when I touch it and there is a faint buzzing. Should I be worried? Diane Kim, 45 Elm Ave, Mount Vernon NY, Westchester County, 914-555-0192.",
+  "received_at": "2026-07-16T09:00:00Z",
+  "is_fixture": true,
+  "raw": {
+    "fixture": true,
+    "from": "d.kim@example.com",
+    "subject": "outlet question",
+    "body": "Hello, the outlet in our hallway feels hot when I touch it and there is a faint buzzing. Should I be worried? Diane Kim, 45 Elm Ave, Mount Vernon NY, Westchester County, 914-555-0192."
+  }
+}

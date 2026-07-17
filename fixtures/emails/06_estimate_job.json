@@ -1,0 +1,19 @@
+{
+  "org_id": "2b219aa5-1148-4e3e-a1a0-1725d62b935c",
+  "direction": "inbound",
+  "mailbox": "fixtures@local",
+  "from_addr": "gm@rivertowngrill.example.com",
+  "to_addrs": [
+    "requests@lippoliselectric.example"
+  ],
+  "subject": "Panel upgrade + new circuits for restaurant kitchen",
+  "body_text": "We are renovating our restaurant kitchen and need a 400A panel upgrade, 8 new dedicated circuits, and hood interlock wiring. Site: Rivertown Grill, 300 Warburton Ave, Yonkers NY 10701, Westchester County. Commercial building. Plans available. GM Sandra Perez 914-555-0150.",
+  "received_at": "2026-07-16T09:00:00Z",
+  "is_fixture": true,
+  "raw": {
+    "fixture": true,
+    "from": "gm@rivertowngrill.example.com",
+    "subject": "Panel upgrade + new circuits for restaurant kitchen",
+    "body": "We are renovating our restaurant kitchen and need a 400A panel upgrade, 8 new dedicated circuits, and hood interlock wiring. Site: Rivertown Grill, 300 Warburton Ave, Yonkers NY 10701, Westchester County. Commercial building. Plans available. GM Sandra Perez 914-555-0150."
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "org_id": "2b219aa5-1148-4e3e-a1a0-1725d62b935c",
+  "direction": "inbound",
+  "mailbox": "fixtures@local",
+  "from_addr": "p.walsh@example.com",
+  "to_addrs": [
+    "requests@lippoliselectric.example"
+  ],
+  "subject": "sparks from breaker box - are we in your area?",
+  "body_text": "Our breaker box is sparking right now and there is smoke. We are in Hempstead, Nassau County, 310 Front St 11550. I know that might be outside your area but please help or tell us who to call. Pat Walsh 516-555-0102.",
+  "received_at": "2026-07-16T09:00:00Z",
+  "is_fixture": true,
+  "raw": {
+    "fixture": true,
+    "from": "p.walsh@example.com",
+    "subject": "sparks from breaker box - are we in your area?",
+    "body": "Our breaker box is sparking right now and there is smoke. We are in Hempstead, Nassau County, 310 Front St 11550. I know that might be outside your area but please help or tell us who to call. Pat Walsh 516-555-0102."
+  }
+}
