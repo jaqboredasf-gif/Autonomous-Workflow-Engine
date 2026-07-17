@@ -19,21 +19,24 @@ check() { # check <name> <condition-result 0|1>
   if [ "$2" = "0" ]; then echo "PASS  $1"; pass=$((pass+1)); else echo "FAIL  $1"; fail=$((fail+1)); fi
 }
 
-sql() { jq -Rs '{query: .}' <<<"$1" | curl -s -X POST "$MGMT" \
+sql() { jq -Rs '{query: .}' <<<"$1" | curl -s --retry 2 --retry-all-errors -X POST "$MGMT" \
   -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @-; }
 
-TOK=$(curl -s -X POST "$URL/auth/v1/token?grant_type=password" -H "apikey: $ANON" \
+TOK=$(curl -s --retry 2 --retry-all-errors -X POST "$URL/auth/v1/token?grant_type=password" -H "apikey: $ANON" \
   -H "Content-Type: application/json" \
   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" | jq -r .access_token)
-USER_ID=$(curl -s "$URL/rest/v1/users?select=id" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" | jq -r '.[0].id')
+USER_ID=$(curl -s --retry 2 --retry-all-errors "$URL/rest/v1/users?select=id" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" | jq -r '.[0].id')
 
 CU=$(uuidgen | tr '[:upper:]' '[:lower:]')
+# clock_in 1h in the past: the later clock-out PATCH uses now(), and the
+# clock_out > clock_in check constraint rejects same-second in/out pairs
+CIN=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)
 
 # --- 1+2: punch in ~210m from center (60m past fence) with 80m accuracy → inside
-ROW=$(curl -s -X POST "$URL/rest/v1/time_entries" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" \
+ROW=$(curl -s --retry 2 --retry-all-errors -X POST "$URL/rest/v1/time_entries" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" \
   -H "Content-Type: application/json" -H "Prefer: return=representation" \
   -d "{\"org_id\":\"$ORG\",\"user_id\":\"$USER_ID\",\"job_site_id\":\"$SITE\",
-       \"clock_in\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"in_lat\":40.71469,\"in_lng\":-74.006,
+       \"clock_in\":\"$CIN\",\"in_lat\":40.71469,\"in_lng\":-74.006,
        \"in_accuracy_m\":80,\"device_id\":\"acceptance\",\"client_uuid\":\"$CU\"}")
 ID=$(jq -r '.[0].id' <<<"$ROW")
 FLAG=$(jq -r '.[0].in_geo_flag' <<<"$ROW")
@@ -44,19 +47,19 @@ CREATED=$(sql "select count(*) c from integration_events where event_type='punch
 check "1b. punch.created event emitted" $([ "$CREATED" = "1" ]; echo $?)
 
 # --- 3: clock out 2km away, 10m accuracy → outside + flagged event exactly once
-curl -s -X PATCH "$URL/rest/v1/time_entries?id=eq.$ID" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" \
+curl -s --retry 2 --retry-all-errors -X PATCH "$URL/rest/v1/time_entries?id=eq.$ID" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" \
   -H "Content-Type: application/json" \
   -d "{\"clock_out\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"out_lat\":40.7308,\"out_lng\":-74.006,\"out_accuracy_m\":10}" >/dev/null
 # second no-op update must not duplicate the flag event
-curl -s -X PATCH "$URL/rest/v1/time_entries?id=eq.$ID" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" \
+curl -s --retry 2 --retry-all-errors -X PATCH "$URL/rest/v1/time_entries?id=eq.$ID" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" \
   -H "Content-Type: application/json" -d '{"notes":"acceptance touch"}' >/dev/null
-OUTFLAG=$(curl -s "$URL/rest/v1/time_entries?id=eq.$ID&select=out_geo_flag" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" | jq -r '.[0].out_geo_flag')
+OUTFLAG=$(curl -s --retry 2 --retry-all-errors "$URL/rest/v1/time_entries?id=eq.$ID&select=out_geo_flag" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" | jq -r '.[0].out_geo_flag')
 check "3. tight accuracy far away → outside" $([ "$OUTFLAG" = "outside" ]; echo $?)
 FLAGGED=$(sql "select count(*) c from integration_events where event_type='punch.flagged' and entity_id='$ID'" | jq -r '.[0].c')
 check "3b. punch.flagged emitted exactly once" $([ "$FLAGGED" = "1" ]; echo $?)
 
 # --- 4: completion report with return trip → both events
-CR=$(curl -s -X POST "$URL/rest/v1/completion_reports" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" \
+CR=$(curl -s --retry 2 --retry-all-errors -X POST "$URL/rest/v1/completion_reports" -H "apikey: $ANON" -H "Authorization: Bearer $TOK" \
   -H "Content-Type: application/json" -H "Prefer: return=representation" \
   -d "{\"org_id\":\"$ORG\",\"user_id\":\"$USER_ID\",\"time_entry_id\":\"$ID\",\"job_site_id\":\"$SITE\",
        \"work_complete\":false,\"return_trip_needed\":true,\"return_trip_reason\":\"waiting on parts\",
@@ -67,8 +70,8 @@ EV=$(sql "select event_type from integration_events where entity_id='$CRID' orde
 check "4b. job.completed + return_trip events" $([ "$EV" = "completion.return_trip_required,job.completed" ]; echo $?)
 
 # --- 5: anon cannot read events or completions
-ANON_EV=$(curl -s "$URL/rest/v1/integration_events?select=id&limit=1" -H "apikey: $ANON" | jq 'length')
-ANON_CR=$(curl -s "$URL/rest/v1/completion_reports?select=id&limit=1" -H "apikey: $ANON" | jq 'length')
+ANON_EV=$(curl -s --retry 2 --retry-all-errors "$URL/rest/v1/integration_events?select=id&limit=1" -H "apikey: $ANON" | jq 'length')
+ANON_CR=$(curl -s --retry 2 --retry-all-errors "$URL/rest/v1/completion_reports?select=id&limit=1" -H "apikey: $ANON" | jq 'length')
 check "5. anon blocked from integration_events" $([ "$ANON_EV" = "0" ]; echo $?)
 check "5b. anon blocked from completion_reports" $([ "$ANON_CR" = "0" ]; echo $?)
 
