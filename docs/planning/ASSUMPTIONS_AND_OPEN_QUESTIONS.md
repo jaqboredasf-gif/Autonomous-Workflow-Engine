@@ -17,6 +17,15 @@ into the owning doc, tag [CONFIRMED <date>], delete the row here.
 | B7 | Pricing source (Excel?), estimate approvers, per-customer rates? | price_book import, estimate workflow (D2) |
 | B8 | Rounding/OT policy in writing (exact vs 7/15-min; weekly-40 vs daily OT) | Workstream A payroll verification |
 | B9 | ExakTime monthly cost | ROI framing (nice-to-know) |
+| B10 | Minimum info required before a service call can be scheduled (name + address + phone + problem description? anything else — access instructions, billing info?) — per request type if it differs | WORKFLOW_MAPS Map 5 required-field sets; missing-info detection |
+| B11 | Unanswered info-request policy: how many nudges, spacing, when to close a request as abandoned | Map 5 expiry/close rules (until answered: closing = manual human action w/ reason) |
+| B12 | Emergency ack timeout + fallback order: if primary emergency contact doesn't acknowledge, after how long does it go to whom? | Map 2 escalation chain; emergency_contacts priority + timeout config (extends B6) |
+| B13 | Proposal validity + silent-customer policy: how long is a sent proposal good; follow-up nudges (count/spacing); honor a stale acceptance after prices changed? | Map 10 expiry/nudges; until answered, follow-up = manual human action w/ reason |
+| B14 | Schedule change/cancellation policy: who may cancel a customer-approved job; required customer notice; any cancellation-fee practice? | Map 14 approvals + cancellation_notice matrix row |
+| B15 | Partial-completion billing: invoice only after final visit, or interim/progress billing (fixed-price AND T&M)? | Maps 16/19 invoice gating (invariant 7 assumes final-completion-only until answered) |
+| B16 | Field-initiated change orders: how does a crew report scope growth today, and may work proceed before the CO is approved? | Map 17 D3; unapproved-extras billing rule |
+| B17 | Who decides fixed-price vs T&M for a job, and on what basis? | Map 8 D2; jobs.billing_type source |
+| B18 | Should v1 track payment status / disputes at all, or is that purely QB-side until integration? Credit/re-issue practice on disputed invoices? | Map 20 job close-out; invoice void/reissue flow |
 
 ## B. Questions for IT / M365 admin
 
@@ -44,3 +53,16 @@ into the owning doc, tag [CONFIRMED <date>], delete the row here.
 5. Emergencies handled ad hoc by phone today; no confirmed formal after-hours process.
 6. Same job data typed into multiple systems (Outlook/calendar/Excel/QB) today.
 7. Estimator role exists in some form; estimates may need owner approval before send.
+8. Office admin is the intake triage-queue owner (Maps 1/5/6/7 in WORKFLOW_MAPS.md) —
+   until B2 answers who actually watches the inbox, could be the owner today.
+
+## E. Phase 3 workflow-design questions (Jack decides or asks boss; from WORKFLOW_MAPS.md 2026-07-17)
+
+| # | Question | Blocks |
+|---|---|---|
+| W1 | Intake SLA + notification cadence: how long may a request sit untouched in `new`/`needs_review`/`awaiting_info` before escalating, and does triage owner get immediate pings or a digest? (Only existing SLA: service-call confirmation unanswered 4h → owner.) Now also covers delivery queues: aging unscheduled jobs, undispatched jobs, unreported completions, blocked invoice drafts. | Maps 1/5/7 + 11/13/15/19/20 escalation paths; B5 queue UI design |
+| W2 | v1 approver for the drafted out-of-territory decline — matrix row was written for auto mode; who approves the draft while auto is disabled? Office admin assumed. | Map 3 human approvals; message_policies seed (B3) |
+| W3 | Does approving the service-call confirmation also authorize the shift/calendar entry (one approval covers both), or is scheduling-confirmation a separate matrix approval? One-approval assumed. | Map 4 approvals; B3/B6 build |
+| W4 | Dispatch timing: when does the dispatch notification go out (on approval? day before?) and who triggers it in v1? Human-triggered assumed, no auto-cadence. | Map 13 trigger; queue design |
+| W5 | Does a reschedule notice reuse the scheduling-confirmation matrix row, and does cancellation need its own `cancellation_notice` row (proposed)? | Map 14 approvals; message_policies seed |
+| W6 | Is a completion notice sent for EVERY job or only some? Matrix defines approver, not trigger policy. v1: always drafted, human decides send. | Map 15 human approvals |
