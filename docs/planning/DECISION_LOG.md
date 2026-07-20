@@ -239,3 +239,37 @@ Append-only. Newest first. Format: date — decision — why — supersedes (if 
   an **external execution dependency, not an architecture blocker**. B2 is NOT
   "fully evaluated" until 2B runs with a real key. No env file modified; the var
   is documented, not committed.
+
+## 2026-07-20 (Task ADR — Approval Diff & Reasoning, offline evidence slice)
+
+- **Offline evidence slice first, Graph capture second.** This session built ONLY
+  the offline substrate: migration `0014_approval_evidence.sql`, a pure engine
+  `scripts/lib/approval-diff.mjs`, labelled `fixtures/approvals/*.json`, and
+  deterministic Runner 3 (`eval-approval-diff.sh`). ZERO Graph, ZERO network, ZERO
+  send. Draft→sent mailbox pairing + Sent-Items subscription are the deliberate
+  NEXT isolated task. Why: the diff logic and schema are evaluable and safe with
+  no mailbox access; capture adds real-world risk and belongs in its own session.
+- **`material` is class-driven, not a ratio threshold.** material = any edit class
+  other than `formatting_only`/`tone`. Those two are cosmetic; a big reword trips
+  `major_rewrite` (material) via `edit_ratio ≥ 0.60`. Malformed input fails closed
+  → material=true (never silently "unchanged"). Rationale: material must mean "the
+  AI got something a human had to fix," the exact signal that gates graduation.
+- **Deterministic heuristic classifier, evidence-grade not judgment-grade.** 10
+  fixed edit classes via regex/keyword over the content-token symmetric diff;
+  multiple may fire (`ambiguous` flags it). Sentence-initial capitals excluded from
+  entity detection (no real NER). Limits documented in APPROVAL_DIFF.md — this is
+  offline evidence, not a semantic judge.
+- **`category_authority` stores graduation, never performs it.** authority_level is
+  human-set (default `draft_only`); NO trigger/update writes it. Counters are a
+  cache a future *reviewed* job may fill. Honors the lock: no autonomous sending or
+  graduation logic beyond the offline evidence schema.
+- **No hard deletes, enforced twice.** RLS default-deny (no delete policy) PLUS a
+  `before delete` guard on both evidence tables (blocks even service role).
+  Evidence tables immutable after insert (corrections = new rows), same rule as
+  `email_messages` (0011).
+- **Migration validated offline; live apply is human-gated.** No psql/supabase/
+  docker in-env, and applying schema to live Supabase from an isolated session is
+  an irreversible outward action. `scripts/lib/validate-migration-0014.mjs` does a
+  deterministic structural lint (PASS, in regression); live apply left to a human,
+  same posture as B2's Runner 2B credential gate. Runner 3 (the slice's completion
+  bar) is fully offline and passes independently.

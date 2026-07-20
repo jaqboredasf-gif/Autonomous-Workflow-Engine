@@ -1,0 +1,13 @@
+{
+  "category": "estimate_followup",
+  "draft": {
+    "subject": "Re: your estimate",
+    "body": "The estimate is $450 for parts and labor.",
+    "to": ["frank@example.com"]
+  },
+  "sent": {
+    "subject": "Re: your estimate",
+    "body": "The estimate is $520 for parts and labor.",
+    "to": ["frank@example.com"]
+  }
+}

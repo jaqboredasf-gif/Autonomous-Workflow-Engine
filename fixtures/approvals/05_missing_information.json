@@ -1,0 +1,13 @@
+{
+  "category": "service_call_confirm",
+  "draft": {
+    "subject": "Re: your service request",
+    "body": "Hello Frank, we received your service request for the panel work at your property and we will follow up with you shortly to confirm the details.",
+    "to": ["frank@example.com"]
+  },
+  "sent": {
+    "subject": "Re: your service request",
+    "body": "Hello Frank, we received your service request for the panel work at your property and we will follow up with you shortly to confirm the details. Please note our crew will need access to the basement and someone over eighteen present to sign the completion form.",
+    "to": ["frank@example.com"]
+  }
+}

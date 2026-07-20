@@ -1,0 +1,19 @@
+{
+  "_comment": "Ground truth for fixtures/approvals/*.json — the expected output of scripts/lib/approval-diff.mjs diff(draft, sent), asserted by scripts/eval-approval-diff.sh (Runner 3). edit_classes uses SUBSET semantics (every listed class must be present) unless edit_classes_exact:true (set must match exactly). 'material' and 'unchanged' are asserted when present; 'ambiguous' and 'no_list_deltas' when present; 'malformed' asserts errors were returned. Changing a label is a reviewed decision, not a test fix (docs/testing/APPROVAL_DIFF.md).",
+
+  "01_unchanged.json":            { "unchanged": true,  "material": false, "edit_classes": [],                                                    "edit_classes_exact": true, "ambiguous": false },
+  "02_formatting_only.json":      { "unchanged": false, "material": false, "edit_classes": ["formatting_only"],                                   "edit_classes_exact": true, "ambiguous": false },
+  "03_tone.json":                 { "unchanged": false, "material": false, "edit_classes": ["tone"],                                              "edit_classes_exact": true, "ambiguous": false },
+  "04_factual_correction.json":   { "unchanged": false, "material": true,  "edit_classes": ["factual_correction"],                                "edit_classes_exact": true, "ambiguous": false },
+  "05_missing_information.json":  { "unchanged": false, "material": true,  "edit_classes": ["missing_information"],                               "edit_classes_exact": true, "ambiguous": false },
+  "06_recipient_correction.json": { "unchanged": false, "material": true,  "edit_classes": ["recipient_correction"],                              "edit_classes_exact": true, "ambiguous": false },
+  "07_scheduling.json":           { "unchanged": false, "material": true,  "edit_classes": ["scheduling"],                                        "edit_classes_exact": true, "ambiguous": false },
+  "08_pricing.json":              { "unchanged": false, "material": true,  "edit_classes": ["pricing"],                                           "edit_classes_exact": true, "ambiguous": false },
+  "09_attachment.json":           { "unchanged": false, "material": true,  "edit_classes": ["attachment"],                                        "edit_classes_exact": true, "ambiguous": false },
+  "10_compliance.json":           { "unchanged": false, "material": true,  "edit_classes": ["compliance"],                                        "edit_classes_exact": true, "ambiguous": false },
+  "11_major_rewrite.json":        { "unchanged": false, "material": true,  "edit_classes": ["major_rewrite"] },
+  "12_multi_class.json":          { "unchanged": false, "material": true,  "edit_classes": ["recipient_correction", "pricing", "attachment"],      "ambiguous": true },
+  "13_ambiguous.json":            { "unchanged": false, "material": true,  "edit_classes": ["scheduling", "pricing"],                              "ambiguous": true },
+  "14_malformed.json":            { "malformed": true,  "unchanged": false, "material": true },
+  "15_missing_optional.json":     { "unchanged": true,  "material": false, "edit_classes": [],                                                    "edit_classes_exact": true, "ambiguous": false, "no_list_deltas": true }
+}

@@ -1,0 +1,14 @@
+{
+  "category": "service_call_confirm",
+  "_note": "No cc / bcc / attachments keys on either side — missing optional fields must be treated as empty, never as a delta.",
+  "draft": {
+    "subject": "Re: your request",
+    "body": "Thanks, we will be in touch.",
+    "to": ["frank@example.com"]
+  },
+  "sent": {
+    "subject": "Re: your request",
+    "body": "Thanks, we will be in touch.",
+    "to": ["frank@example.com"]
+  }
+}

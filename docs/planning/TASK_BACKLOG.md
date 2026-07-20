@@ -73,6 +73,14 @@ deferred until a geocoder exists. Original goal text below.
 - **SHIPPED (2026-07-20)**: standalone domain service + injected adapter (classify.mjs / lib/classification.mjs / lib/model-adapters.mjs / lib/db.mjs); migration 0013 (triage_required + duplicate_flagged); Runner 2A (deterministic, in regression) `passed=20 failed=0, accuracy 12/12`; Runner 2B (live, key-gated, not in regression). Regression intact (slice3 20/20, eval-intake 24/24). Decisions in DECISION_LOG 2026-07-20; contract/rules/evidence/limits in EVAL_STRATEGY.md.
 - **REMAINING**: Runner 2B never run (no ANTHROPIC_API_KEY) — external execution dependency; B2 not "fully evaluated" until 2B passes with a real key. Known limits: duplicate detection scoped to fixture corpus (production scoping = MCP/n8n); fixture-08 status deviation (needs_review vs label duplicate — intentional, never auto-close content dupes).
 
+## ADR — Approval Diff & Reasoning (offline evidence slice) — `done (offline slice; live 0014 apply + Graph capture pending)` (2026-07-20)
+- **Goal**: offline substrate for draft-not-compose ROI — capture AI-draft vs human-sent diff as evidence; per-category graduation is human-decided. ZERO Graph/network/send this slice.
+- **Deps**: B1 (done). Design agreed 2026-07-20 (SESSION_HANDOFF).
+- **Acceptance**: Runner 3 deterministic + green; migration additive/validated; ≥1 labelled pair per edit class + unchanged/multi/ambiguous/malformed/missing-optional; no B1/B2 regression.
+- **SHIPPED (2026-07-20)**: migration `0014_approval_evidence.sql` (approval_drafts / approval_outcomes / category_authority; is_fixture, fixture namespace, RLS, no-hard-delete + immutability guards, `approval.diff_recorded`/`approval.material_edit` events, human-set authority_level); `scripts/lib/approval-diff.mjs` (pure, deterministic, contract `{unchanged,edit_ratio,field_deltas,edit_classes,material}` + `ambiguous`/`errors`); `fixtures/approvals/*.json` (15) + labels.json; Runner 3 `scripts/eval-approval-diff.sh`+`.mjs` **passed=120 failed=0, coverage 10/10**, in regression; offline `scripts/lib/validate-migration-0014.mjs` **PASS**, in regression; docs/testing/APPROVAL_DIFF.md. Decisions in DECISION_LOG 2026-07-20 ADR.
+- **REMAINING**: 0014 not applied to live DB (no psql/supabase/docker in-env; live apply = human-gated, like B2's 2B). Known limits (APPROVAL_DIFF.md §7): heuristic English-only classifier; factual-vs-tone fuzzy; attachment compare by name only; engine takes an already-paired draft/sent — it does not find the pair.
+- **NEXT (separate session)**: Microsoft Graph Sent-Items subscription + draft→sent mailbox pairing that feeds real captures into this schema/engine. Only after 0014 is applied live.
+
 ## B3 — Approval matrix + outbound drafts — `ready`
 - **Goal**: migration: message_policies seeded from REQUIREMENTS matrix + outbound_messages + approve/reject RPCs + events; acceptance script.
 - **Deps**: B1.

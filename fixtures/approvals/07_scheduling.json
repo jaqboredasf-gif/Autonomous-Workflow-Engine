@@ -1,0 +1,13 @@
+{
+  "category": "service_call_confirm",
+  "draft": {
+    "subject": "Re: scheduling your service",
+    "body": "We can arrive Tuesday at 9:00 AM.",
+    "to": ["frank@example.com"]
+  },
+  "sent": {
+    "subject": "Re: scheduling your service",
+    "body": "We can arrive Wednesday at 1:00 PM.",
+    "to": ["frank@example.com"]
+  }
+}

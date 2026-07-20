@@ -1,0 +1,13 @@
+{
+  "category": "service_call_confirm",
+  "draft": {
+    "subject": "Re: your service request",
+    "body": "Hello Frank,\n\nWe can send a technician on Tuesday.\n\nThanks",
+    "to": ["frank@example.com"]
+  },
+  "sent": {
+    "subject": "Re: your service request",
+    "body": "Hello Frank,\n\n\nWe can send a <b>technician</b> on Tuesday.\n\nThanks   ",
+    "to": ["frank@example.com"]
+  }
+}

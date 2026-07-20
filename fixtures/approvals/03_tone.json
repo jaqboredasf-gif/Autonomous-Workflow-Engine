@@ -1,0 +1,13 @@
+{
+  "category": "service_call_confirm",
+  "draft": {
+    "subject": "Re: your request",
+    "body": "Please find our response below.",
+    "to": ["frank@example.com"]
+  },
+  "sent": {
+    "subject": "Re: your request",
+    "body": "Kindly see our reply below.",
+    "to": ["frank@example.com"]
+  }
+}

@@ -45,5 +45,15 @@ if [ -f scripts/eval-classification.sh ]; then
   bash scripts/eval-classification.sh || fails=$((fails+1))
 fi
 
+if [ -f scripts/lib/validate-migration-0014.mjs ]; then
+  step "migration 0014 structural validation (offline lint — no DB)"
+  node scripts/lib/validate-migration-0014.mjs >/dev/null 2>&1 && echo OK || { node scripts/lib/validate-migration-0014.mjs; fails=$((fails+1)); }
+fi
+
+if [ -f scripts/eval-approval-diff.sh ]; then
+  step "approval-diff eval (Runner 3, offline deterministic — no keys, no DB, no network)"
+  bash scripts/eval-approval-diff.sh || fails=$((fails+1))
+fi
+
 echo; echo "regression: $([ $fails = 0 ] && echo ALL GREEN || echo "$fails FAILURES")"
 [ "$fails" = "0" ]

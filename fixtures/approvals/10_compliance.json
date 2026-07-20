@@ -1,0 +1,13 @@
+{
+  "category": "service_call_confirm",
+  "draft": {
+    "subject": "Re: your service request",
+    "body": "We will complete the work as discussed.",
+    "to": ["frank@example.com"]
+  },
+  "sent": {
+    "subject": "Re: your service request",
+    "body": "We will complete the licensed and insured work as discussed.",
+    "to": ["frank@example.com"]
+  }
+}

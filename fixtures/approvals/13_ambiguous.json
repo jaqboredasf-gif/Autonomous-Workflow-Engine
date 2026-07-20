@@ -1,0 +1,13 @@
+{
+  "category": "service_call_confirm",
+  "draft": {
+    "subject": "Re: your service request",
+    "body": "We can come Tuesday for $450.",
+    "to": ["frank@example.com"]
+  },
+  "sent": {
+    "subject": "Re: your service request",
+    "body": "We can come Wednesday for $500.",
+    "to": ["frank@example.com"]
+  }
+}

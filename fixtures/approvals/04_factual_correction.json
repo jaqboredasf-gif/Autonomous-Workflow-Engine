@@ -1,0 +1,13 @@
+{
+  "category": "service_call_confirm",
+  "draft": {
+    "subject": "Re: your account",
+    "body": "Your account number is 4471 and the work order is 88.",
+    "to": ["frank@example.com"]
+  },
+  "sent": {
+    "subject": "Re: your account",
+    "body": "Your account number is 4417 and the work order is 88.",
+    "to": ["frank@example.com"]
+  }
+}

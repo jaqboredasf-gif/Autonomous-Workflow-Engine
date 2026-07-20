@@ -1,0 +1,13 @@
+{
+  "category": "estimate_followup",
+  "draft": {
+    "subject": "Re: your request",
+    "body": "We will handle it.",
+    "to": ["frank@example.com"]
+  },
+  "sent": {
+    "subject": "Re: your request",
+    "body": "After carefully reviewing everything you shared with us about the situation at your property we have prepared a thorough summary of how our team intends to proceed step by step so that you feel fully informed and comfortable before any work begins and we truly appreciate your patience throughout this entire process.",
+    "to": ["frank@example.com"]
+  }
+}

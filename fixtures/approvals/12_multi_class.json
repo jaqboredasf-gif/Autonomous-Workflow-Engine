@@ -1,0 +1,15 @@
+{
+  "category": "estimate_followup",
+  "draft": {
+    "subject": "Re: your estimate",
+    "body": "The estimate is $450.",
+    "to": ["a@example.com"],
+    "attachments": [{ "name": "quote.pdf" }]
+  },
+  "sent": {
+    "subject": "Re: your estimate",
+    "body": "The estimate is $600.",
+    "to": ["b@example.com"],
+    "attachments": [{ "name": "quote.pdf" }, { "name": "warranty.pdf" }]
+  }
+}

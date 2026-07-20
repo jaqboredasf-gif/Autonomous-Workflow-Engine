@@ -3,6 +3,52 @@
 Read CONTEXT.md first, then this, then all docs/planning/*.md. One approved task per session.
 Vocabulary authority: docs/architecture/UBIQUITOUS_LANGUAGE.md (2026-07-17).
 
+## Current state (2026-07-20, Task ADR offline slice COMPLETE — Runner 3 green)
+
+ADR offline evidence slice built and committed this session. Repo advanced from
+B2 commit `18ef23f`. ZERO Graph, ZERO network, ZERO send — as scoped.
+
+### What ADR shipped
+- **0014_approval_evidence.sql** — additive over 0001–0013. Tables
+  `approval_drafts` / `approval_outcomes` / `category_authority`; `is_fixture` +
+  `fixture:<key>` namespace, org-scoped FKs, timestamps, RLS-first (admin read;
+  service-role write; no delete policy), no-hard-delete `before delete` guards +
+  immutability guards (corrections = new rows), events `approval.diff_recorded` +
+  `approval.material_edit` on the emit_event spine, **human-set** `authority_level`
+  (default `draft_only`; no autonomous graduation).
+- **scripts/lib/approval-diff.mjs** — pure/offline/deterministic. `diff(draft,sent)`
+  → `{unchanged, edit_ratio, field_deltas, edit_classes, material}` (+ `ambiguous`,
+  `errors`). Compares subject/body/to/cc/bcc/attachments; 10-class heuristic
+  classifier; malformed input fails closed → material.
+- **fixtures/approvals/*.json** (15) + labels.json — ≥1 labelled pair per edit
+  class, plus unchanged / multi-class / ambiguous / malformed / missing-optional.
+- **scripts/eval-approval-diff.sh** (+ .mjs) — Runner 3, pure offline (no keys/DB/
+  network), in regression.
+- **scripts/lib/validate-migration-0014.mjs** — offline structural lint (no DB in
+  env), in regression.
+- **docs/testing/APPROVAL_DIFF.md** — schema, contract, material/classification
+  rules, limits, Runner 3, deliberate exclusions.
+
+### ADR evidence (2026-07-20)
+Runner 3 `passed=120 failed=0, 15 fixtures, edit-class coverage 10/10`; determinism
++ contract-shape asserted per fixture. Migration lint PASS. No B1/B2 regression:
+Runner 2A `passed=20 failed=0, accuracy 12/12` (verified in isolation — a full-
+regression run hit a transient Supabase mgmt-API 429 throttle on 2A only; re-run
+green), intake eval 24/24, acceptance slices intact. Detail: docs/testing/APPROVAL_DIFF.md.
+
+### ADR open dependency (NOT a blocker)
+**0014 never applied to the live DB** — no psql/supabase CLI/docker in this env, and
+applying schema to live Supabase from an isolated session is a human-gated outward
+action (same posture as B2's Runner 2B). To apply: `source .env.acceptance` then
+push 0014 via the supabase CLI or the mgmt query API. Runner 3 (the completion bar)
+is fully offline and passes without it.
+
+### Next session — ADR Graph capture, NOT started
+Microsoft Graph Sent-Items subscription + draft→sent mailbox pairing feeding real
+captures into 0014's schema via the offline engine. Only after 0014 is applied live.
+Everything in "hard boundaries" for this slice still holds until that task is
+explicitly approved.
+
 ## Current state (2026-07-20, Task B2 COMPLETE — classification harness + Runner 2A green)
 
 B2 built and committed this session. Live DB + repo in sync at migrations

@@ -1,0 +1,13 @@
+{
+  "category": "service_call_confirm",
+  "_note": "sent.to is a number, not an array — the engine must fail closed (errors, material=true), never treat malformed capture as unchanged.",
+  "draft": {
+    "subject": "Re: your service request",
+    "body": "Hello Frank, we can help.",
+    "to": ["frank@example.com"]
+  },
+  "sent": {
+    "subject": "Re: your service request",
+    "to": 123
+  }
+}
