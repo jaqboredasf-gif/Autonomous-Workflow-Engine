@@ -40,5 +40,10 @@ if [ -f scripts/eval-intake.sh ]; then
   bash scripts/eval-intake.sh || fails=$((fails+1))
 fi
 
+if [ -f scripts/eval-classification.sh ]; then
+  step "classification eval (Runner 2A, deterministic — no model key)"
+  bash scripts/eval-classification.sh || fails=$((fails+1))
+fi
+
 echo; echo "regression: $([ $fails = 0 ] && echo ALL GREEN || echo "$fails FAILURES")"
 [ "$fails" = "0" ]

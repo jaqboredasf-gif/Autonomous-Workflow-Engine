@@ -205,3 +205,37 @@ Append-only. Newest first. Format: date — decision — why — supersedes (if 
 - Pricing: placeholders only; source + last-updated mandatory; incomplete pricing blocks send.
 - QuickBooks: Option B (integrate after core workflow) — see INTEGRATIONS.md.
 - Fixtures-first email build; Entra app registration = blocking dependency for all real-mail work.
+
+## 2026-07-20 (Task B2 — classification harness + Runner 2 evals)
+
+- **Standalone classification module, not MCP-first.** `scripts/classify.mjs`
+  (thin entrypoint) → `scripts/lib/classification.mjs` (domain service) with an
+  injected model adapter (`scripts/lib/model-adapters.mjs`). MCP/n8n reuse the
+  same `classify()` later; wrapping is out of B2 scope. Why: logic must be
+  provider-agnostic and unit-evaluable without n8n or a live model.
+- **Runner 2 split 2A/2B.** 2A (`eval-classification.sh`) = deterministic, fixture
+  adapter replays recorded outputs, real DB persistence + Verify Step, **in
+  regression** (regression-safe via idempotent `fixture:<name>` ingest). 2B
+  (`eval-classification-live.sh`) = live paid inference, key-gated, **not in
+  regression**. Why: measure harness correctness deterministically every run;
+  measure model quality only on demand. **2A's accuracy line is a smoke check,
+  NOT a quality gate — real accuracy comes only from 2B.**
+- **New intake events (migration 0013):** `request.triage_required` (status →
+  needs_review) and `duplicate_flagged` (duplicate_of set, not auto-closed).
+  Additive CREATE OR REPLACE of `emit_work_request_events`; existing emits
+  unchanged (acceptance-slice3 still 20/20).
+- **Duplicate detection scoped to the fixture corpus** (`graph_message_id LIKE
+  'fixture:%'`) so 2A is deterministic and isolated from accumulated slice/
+  production rows. Production scoping (all real inbound per sender) is wired at
+  the MCP/n8n boundary. Known limitation, documented in EVAL_STRATEGY.md.
+- **Fixture 08 status deviation (label vs pipeline).** Label
+  `expected_status=duplicate`; pipeline yields `needs_review` + linked
+  `duplicate_of`. Intentional — honors the locked rule that fuzzy/content
+  duplicates are NEVER auto-closed (a human sets `duplicate`). Classification
+  (the gated field) matches the label. Label left unchanged (changing a label is
+  a reviewed decision, not a test fix).
+- **B2 DoD = implementation complete / deterministic eval green / live eval
+  pending credential.** No `ANTHROPIC_API_KEY` in-env → 2B unrun. Missing key is
+  an **external execution dependency, not an architecture blocker**. B2 is NOT
+  "fully evaluated" until 2B runs with a real key. No env file modified; the var
+  is documented, not committed.

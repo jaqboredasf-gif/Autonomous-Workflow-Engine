@@ -3,6 +3,54 @@
 Read CONTEXT.md first, then this, then all docs/planning/*.md. One approved task per session.
 Vocabulary authority: docs/architecture/UBIQUITOUS_LANGUAGE.md (2026-07-17).
 
+## Current state (2026-07-20, Task B2 COMPLETE — classification harness + Runner 2A green)
+
+B2 built and committed this session. Live DB + repo in sync at migrations
+0001–0013. Classifier is a provider-agnostic domain service with an injected
+model adapter; deterministic Runner 2A is GREEN and wired into regression.
+
+### What B2 shipped
+- **0013_triage_events.sql** — additive `request.triage_required` +
+  `duplicate_flagged` intake events (existing emits unchanged). Applied to live DB.
+- **scripts/lib/classification.mjs** — domain service: keyword∪model emergency
+  union, 1-call+≤2-retry budget, fail-closed→unknown/needs_review, status
+  derivation, hallucination guard, Jaccard duplicate detection.
+- **scripts/lib/model-adapters.mjs** — `fixtureAdapter` (recorded, 2A) +
+  `anthropicAdapter` (live raw fetch, 2B, no SDK).
+- **scripts/lib/db.mjs** — persistence + deterministic Verify Step (re-read DB:
+  row_updated/values_match/org_scoped/event_present/no_duplicate_side_effect)
+  over the management query API; idempotent `fixture:<name>` ingest.
+- **scripts/classify.mjs** — thin entrypoint (`--fixture --adapter --persist`,
+  `--selftest`); success requires `verify.ok`, never the model's word.
+- **scripts/eval-classification.sh** (Runner 2A, in regression) +
+  **scripts/eval-classification-live.sh** (Runner 2B, key-gated, not in regression).
+- **fixtures/emails/model_recorded.json** — recorded model outputs for 2A.
+
+### B2 evidence (2026-07-20)
+Runner 2A `passed=20 failed=0, accuracy 12/12`; all Verify Steps pass; emergency
+union catches 02/03/05; fixture 11 fails closed; hallucinated fields 0; idempotent
+rerun proven. Regression: acceptance-slice3 20/20, eval-intake (Runner 1) 24/24 —
+no existing intake behavior broke. Full detail: docs/testing/EVAL_STRATEGY.md.
+
+### B2 open dependency (NOT a blocker)
+**Runner 2B never executed** — no `ANTHROPIC_API_KEY` in this environment. B2 =
+*implementation complete / deterministic eval green / live eval pending
+credential*. External execution dependency. To finish evaluation: set
+`ANTHROPIC_API_KEY` (do NOT commit it) and run
+`source .env.acceptance && ANTHROPIC_API_KEY=... bash scripts/eval-classification-live.sh`.
+B2 may NOT be called "fully evaluated" until that passes with a real key.
+
+### Next session — ADR (Approval Diff & Reasoning), NOT started
+Design agreed this session (draft-not-compose ROI; diff-capture of AI-draft vs
+admin-sent via Graph Sent Items; per-category graduation to auto). **Safest first
+task:** the offline diff engine + evidence schema on fixtures — migration
+`0014_approval_evidence.sql` (approval_drafts / approval_outcomes /
+category_authority, is_fixture, no hard deletes), pure `scripts/lib/approval-diff.mjs`,
+labelled `fixtures/approvals/*.json`, deterministic `scripts/eval-approval-diff.sh`
+(Runner 3). ZERO Graph, ZERO network, ZERO send capability. Graph
+subscription/matching is the deliberate task AFTER that. Do not start ADR until
+B2's DoD is acknowledged.
+
 ## Current state (2026-07-17, Phase 4 COMPLETE — MVP defined, eval baseline built)
 
 Phase 4 ran as one session: MVP defined in **docs/planning/MVP_SPEC.md** (the
