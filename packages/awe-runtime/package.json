@@ -1,0 +1,16 @@
+{
+  "name": "@exattime/awe-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The AWE platform service layer: the reusable application services (submit run, inspect outcome, retrieve artifact and audit history, assemble and compact context, discover and invoke registered execution adapters) that any future surface — app server, CLI worker, scheduled job, MCP — calls instead of re-implementing orchestration. Depends only on @exattime/awe-kernel.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./service": "./src/service.mjs",
+    "./file-sinks": "./src/file-sinks.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

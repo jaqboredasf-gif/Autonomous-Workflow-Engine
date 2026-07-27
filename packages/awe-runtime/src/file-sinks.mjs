@@ -1,6 +1,13 @@
 // ---------------------------------------------------------------------------
-// artifact-store.mjs — the local-filesystem implementation of the kernel's
-// ArtifactSink and AuditSink boundaries.
+// file-sinks.mjs — the local-filesystem implementations of the kernel's
+// ArtifactSink, AuditSink and (for context checkpoints) DocumentSink
+// boundaries.
+//
+// Lives in `packages/` rather than `scripts/` because deployable surfaces need
+// it: the MCP server persists a run report for every call, and a package cannot
+// import from the repo's script directory without inverting the dependency.
+// `scripts/lib/artifact-store.mjs` re-exports it unchanged, so every runner
+// that already imported it there is unaffected.
 //
 // This is the FIRST implementation, not the permanent one. The kernel defines
 // the interfaces (packages/awe-kernel/src/sinks.mjs) precisely so that a
@@ -28,7 +35,7 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 
-import { createArtifactSink, createAuditSink, serializeReport } from '../../packages/awe-kernel/src/index.mjs';
+import { canonicalJson, createArtifactSink, createAuditSink, serializeReport } from '../../awe-kernel/src/index.mjs';
 
 // Repo-relative default. Gitignored: run artifacts are evidence of a run, not
 // source, and committing them would make every regression run a diff.
@@ -113,6 +120,46 @@ export function createFileAuditSink({ root = DEFAULT_ARTIFACT_ROOT, name = 'loca
         return { ok: false, written: 0, ref: null, error: String(e?.message ?? e) };
       }
     },
+  });
+}
+
+/**
+ * createFileDocumentSink({ root }) -> DocumentSink
+ *
+ * write(document, { path }) -> { ok, ref, bytes, error }
+ *
+ * The same atomic, contained, canonical writer for documents that are NOT run
+ * reports — today, context checkpoints (`awe.context_checkpoint/v1`). It is a
+ * separate sink rather than a looser ArtifactSink on purpose: an ArtifactSink
+ * asserts the run-report schema on every write, and widening it to "any object"
+ * would silently retire that check for the reports too.
+ *
+ * The document must carry its own `schema` and its own self-digest; this writer
+ * verifies neither, because the kernel builder that produced it already did.
+ */
+export function createFileDocumentSink({ root = DEFAULT_ARTIFACT_ROOT, name = 'local_document' } = {}) {
+  return Object.freeze({
+    kind: 'document_sink',
+    name,
+    write(document, { path } = {}) {
+      try {
+        if (typeof path !== 'string' || path.length === 0) {
+          return { ok: false, ref: null, bytes: 0, error: 'a document write needs a path' };
+        }
+        const target = containedPath(root, path);
+        mkdirSync(dirname(target), { recursive: true });
+
+        const bytes = `${canonicalJson(document)}\n`;
+        const temp = `${target}.tmp`;
+        writeFileSync(temp, bytes, { encoding: 'utf8', mode: 0o600 });
+        renameSync(temp, target);
+
+        return { ok: true, ref: target, bytes: bytes.length, error: null };
+      } catch (e) {
+        return { ok: false, ref: null, bytes: 0, error: String(e?.message ?? e) };
+      }
+    },
+    root,
   });
 }
 
