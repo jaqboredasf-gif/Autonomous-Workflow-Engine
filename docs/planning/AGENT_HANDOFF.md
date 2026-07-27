@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-27T14:34:00Z
+2026-07-27T14:32:23Z
 
 ## agent
 
@@ -55,6 +55,8 @@ Keep the pull request draft. Do not apply migrations or begin Phase 2.
 - Updated security findings, regression documentation, context, and decisions.
 - Committed and pushed the verified implementation, then opened draft PR #3
   targeting `main`.
+- Verified draft PR #3 is mergeable, contains exactly the 16 intended files,
+  and both handoff validation runs passed.
 - Did not connect to Supabase, apply/dry-run a migration, alter n8n, send
   communications, or use real staff/tenant data.
 
@@ -131,6 +133,7 @@ Keep the pull request draft. Do not apply migrations or begin Phase 2.
 - Regression shell syntax.
 - Agent handoff validator.
 - Git whitespace validation.
+- GitHub Actions handoff validation for both push and pull-request events.
 
 ## tests failed
 
