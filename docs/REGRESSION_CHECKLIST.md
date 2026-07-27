@@ -62,6 +62,15 @@ re-run it rather than treating it as a regression.
   2026-07-26): `integration_events`, `time_entry_audits`, `crews`, `crew_members`
   carry 16 undeclared org-scoped client policies with no role gate — an authenticated
   worker can read AND delete audit events. Human-gated fix in TASK_BACKLOG S1.**
+- Phase 1 repository-only checks:
+  `node scripts/lib/validate-phase1-security.mjs` pins C1 policy removal, C2 RPC
+  grants, C3 tenant/crew authorization, and the C4 database contract;
+  `npm test --workspace @exattime/mcp-server` pins mandatory tenant input,
+  scoped reads, forced-tenant inserts, and cross-tenant override denial.
+- Live RLS/RPC behavior remains unexecuted until explicit migration approval.
+  Required scenarios are worker-own success, cross-user/cross-tenant denial,
+  assigned-crew foreman success, unassigned-crew denial, same-tenant admin
+  success, unauthorized privileged-RPC denial, and service-role continuity.
 - The approval queue writes only through `record_approval()`; `outbound_messages` has
   no client insert/update/delete policy, and no UI file may reference
   `mark_message_sent` (Runner 5 asserts this).

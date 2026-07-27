@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-27T14:00:25Z
+2026-07-27T14:30:14Z
 
 ## agent
 
@@ -14,128 +14,171 @@ jaqboredasf-gif/Autonomous-Workflow-Engine
 
 ## branch
 
-chore/agent-handoff-clean
+security/phase-1-remediation
 
 ## commit
 
-Branch `HEAD`; resolve with `git rev-parse HEAD` after the final handoff update.
+Branch `HEAD`; resolve with `git rev-parse HEAD` after the final handoff commit.
 
 ## current objective
 
-Completed: created and verified a clean, `main`-based handoff integration draft PR that supersedes closed PR #1. Do not begin Security Remediation Phase 1.
+Phase 1 C1-C4 repository-only remediation is implemented and locally validated.
+Keep the pull request draft. Do not apply migrations or begin Phase 2.
 
 ## pull request
 
-- Replacement PR: `#2` — https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/pull/2
-- Base: `main`
-- Head: `chore/agent-handoff-clean`
-- State: open draft; mergeable; checks passed.
-- PR #1: closed without merge after a comment linked PR #2; old branch preserved.
+- PR #2 merged into `main` with merge commit
+  `dbf8f1755f1afefa8f7e44caa6c59bdf7e2863b1`.
+- Phase 1 draft PR: create after this handoff is committed and pushed.
+- Base: `main`.
+- Head: `security/phase-1-remediation`.
 
 ## default branch
 
-- `main` at `75c43c6e42de1bd5265e95c88ebd6ed94afaf383`.
-
-## branch ancestry findings
-
-- `main` and `origin/main` point to the verified pre-security baseline `75c43c6e42de1bd5265e95c88ebd6ed94afaf383`.
-- `security/c1-policy-cleanup` remains preserved at `3e617f283390eb64976a1322e8ecdaed48e54cd3`.
-- PR #1 cannot safely target `main` because `chore/agent-handoff-integration` descends from the security-preparation commit `3e617f2`.
-- `chore/agent-handoff-clean` was created directly from `origin/main`.
-- Only the five verified handoff-only commits were cherry-picked; no security-preparation commit was imported.
+`main` at `dbf8f1755f1afefa8f7e44caa6c59bdf7e2863b1`.
 
 ## completed work
 
-- Verified remotes, local status, branch tips, history, merge bases, the old branch diff, and PR #1 metadata.
-- Confirmed that commits `2d0ae97`, `6a5a99d`, `7d6d7f9`, `d9c400a`, and `e12eac2` touch only the four handoff integration files.
-- Preserved unrelated modified and untracked files in the original worktree without inspecting, modifying, staging, or committing them.
-- Created a separate linked worktree and `chore/agent-handoff-clean` directly from `origin/main`.
-- Cherry-picked only the verified handoff integration commits.
-- Confirmed the branch diff against `main` contains exactly the four intended files.
-- Pushed `chore/agent-handoff-clean` without force.
-- Opened draft PR #2 targeting `main` and verified its remote diff contains exactly the four intended files.
-- Commented on PR #1 with the replacement link and ancestry explanation, then closed it without merge.
-- Waited for both replacement PR validation runs; both passed.
+- Strictly reviewed PR #2, marked it ready, merged it normally, fast-forwarded
+  the local `main` ref, and validated the merged handoff integration.
+- Preserved the original worktree's unrelated modified/untracked architecture
+  files and used a clean linked worktree for Phase 1.
+- Created `security/phase-1-remediation` directly from updated `main`.
+- Read all requested planning, security, migration, and MCP sources and compared
+  every file on `security/c1-policy-cleanup` with `main`.
+- Documented the implementation plan before adding migration contents.
+- Generated four ordered migration files with the Supabase CLI.
+- Implemented C1 policy reconciliation, C2 function privilege closure, C3
+  tenant/crew authorization, and C4 MCP tenant binding.
+- Added focused MCP tests and an offline migration-structure validator.
+- Updated security findings, regression documentation, context, and decisions.
+- Did not connect to Supabase, apply/dry-run a migration, alter n8n, send
+  communications, or use real staff/tenant data.
 
 ## files changed
 
-- `.github/workflows/agent-handoff.yml`
-- `AGENTS.md`
+- `docs/REGRESSION_CHECKLIST.md`
+- `docs/SECURITY_FINDINGS.md`
 - `docs/planning/AGENT_HANDOFF.md`
-- `scripts/validate-agent-handoff.sh`
+- `docs/planning/CONTEXT.md`
+- `docs/planning/DECISION_LOG.md`
+- `docs/planning/SECURITY_PHASE1_PLAN.md`
+- `packages/mcp-server/package.json`
+- `packages/mcp-server/src/index.js`
+- `packages/mcp-server/src/tenant-db.js`
+- `packages/mcp-server/test/tenant-db.test.mjs`
+- `scripts/lib/validate-phase1-security.mjs`
+- `scripts/regression.sh`
+- `supabase/migrations/20260727142118_phase1_c1_remove_undeclared_policies.sql`
+- `supabase/migrations/20260727142120_phase1_c2_restrict_privileged_rpcs.sql`
+- `supabase/migrations/20260727142121_phase1_c3_bind_time_and_crew_authorization.sql`
+- `supabase/migrations/20260727142123_phase1_c4_mcp_tenant_contract.sql`
 
 ## migrations
 
-None created, applied, moved, or modified by this task.
+- `20260727142118_phase1_c1_remove_undeclared_policies.sql`: drops exactly 16
+  undeclared policies and asserts RLS remains enabled.
+- `20260727142120_phase1_c2_restrict_privileged_rpcs.sql`: revokes blanket
+  client execution, restores intentional RPCs, and preserves service role.
+- `20260727142121_phase1_c3_bind_time_and_crew_authorization.sql`: adds tenant
+  validation triggers and worker/crew/admin policies.
+- `20260727142123_phase1_c4_mcp_tenant_contract.sql`: adds a service-role-only
+  startup tenant assertion.
+- Apply state: none applied or dry-run against any database.
+
+## prepared-work reconciliation
+
+- Reused from `security/c1-policy-cleanup`: exact C1 policy inventory/drop set,
+  proof that RLS must remain enabled, and the zero-policy post-condition.
+- Superseded: its sequential `0016` filename, because Phase 1 migrations were
+  generated from updated `main` with the CLI's timestamp ordering.
+- Rejected as deployment artifacts: the C1 rehearsal performs probe writes and
+  is safe only with rollback; its rollback recreates the vulnerability.
+- Not imported: `CODEX_HANDOFF`, session/backlog edits, regression wiring, and
+  extensive historical evidence that were mixed with the single C1 commit.
 
 ## commands run
 
-- `git remote -v`
-- `git status --short`
-- `git branch -vv`
-- `git log --graph --decorate --oneline --all -n 40`
-- `git merge-base main security/c1-policy-cleanup`
-- `git merge-base main chore/agent-handoff-integration`
-- `git diff --name-status main...chore/agent-handoff-integration`
-- `gh pr view 1 --json number,title,state,isDraft,url,baseRefName,headRefName,commits,files`
-- `git show --format=... --name-status` for each handoff commit
-- `gh --version`
-- `gh auth status`
-- `git fetch origin --prune`
-- `git worktree add -b chore/agent-handoff-clean /private/tmp/awe-handoff-clean origin/main`
-- `git cherry-pick 2d0ae97 6a5a99d 7d6d7f9 d9c400a e12eac2`
-- `git diff --name-status main...HEAD`
-- `git log --graph --decorate --oneline main..HEAD`
-- `bash -n scripts/validate-agent-handoff.sh`
+- `gh pr view 2 ...`; `gh pr checks 2`
+- `git fetch origin --prune`; branch/log/merge-base/diff/secret scans
+- `gh pr ready 2`; `gh pr merge 2 --merge`
+- `git branch -f main origin/main`
+- `git worktree add -b security/phase-1-remediation ... main`
+- `npx --yes supabase@2.48.3 migration new ...` (four local files only)
+- `node --check packages/mcp-server/src/index.js`
+- `node --check packages/mcp-server/src/tenant-db.js`
+- `node --test packages/mcp-server/test/tenant-db.test.mjs`
+- `node scripts/lib/validate-phase1-security.mjs`
+- `PYTHONPATH=/private/tmp/awe-pglast python3 ... parse_sql(...)`
+- `bash -n scripts/regression.sh`
 - `bash scripts/validate-agent-handoff.sh`
 - `git diff --check`
-- `ruby -e 'require "yaml"; YAML.load_file(...)'`
-- `git merge-base --is-ancestor main HEAD`
-- `git push -u origin chore/agent-handoff-clean`
-- `gh pr create --draft --base main --head chore/agent-handoff-clean ...`
-- `gh pr view 2 --json ...`
-- `gh pr diff 2 --name-only`
-- `gh pr comment 1 --body ...`
-- `gh pr close 1`
-- `gh pr checks 2 --watch --interval 5`
+- `npm run build --workspace apps/web`
 
 ## tests passed
 
-- Pre-commit branch diff contains exactly the four intended handoff files.
-- The clean branch is based directly on `origin/main`.
-- Bash syntax validation passed.
-- Agent handoff required-heading and secret-value validation passed.
-- Git whitespace validation passed.
-- Workflow YAML parsed successfully.
-- Ancestry checks confirmed `main` is the branch merge base and security-preparation commit `3e617f2` is not an ancestor of the clean branch.
-- GitHub Actions `validate` passed for both the push and pull-request runs.
+- PR #2 base/head, four-file diff, mergeability, ancestry, secret scan, and both
+  GitHub Actions checks.
+- Merged-main handoff validator.
+- MCP JavaScript syntax.
+- MCP tenant-binding tests: 4 passed, 0 failed.
+- Phase 1 offline migration structure validation.
+- PostgreSQL syntax parsing for all four migrations with pglast 7.7.
+- Mobile TypeScript typecheck.
+- Regression shell syntax.
+- Agent handoff validator.
+- Git whitespace validation.
 
 ## tests failed
 
-None.
+None due to an implementation assertion.
+
+## tests not run
+
+- Web build: attempted but unavailable in the clean worktree because `next` is
+  not installed there.
+- Full regression, live RLS/RPC scenarios, database advisors, migration list,
+  and rolled-back migration dry run: require unavailable credentials/local DB
+  and, for any live target, explicit migration approval.
+- Later authorized commands are documented in
+  `docs/planning/SECURITY_PHASE1_PLAN.md`; results must not be inferred.
 
 ## live changes
 
-- GitHub: pushed `chore/agent-handoff-clean`, opened draft PR #2, commented on PR #1, and closed PR #1 without merge. No branch was deleted or rewritten.
-- Supabase/database: no live change.
-- n8n/external APIs/production: no live change.
+- GitHub only: PR #2 was marked ready and merged normally into `main`.
+- Supabase/database: no connection, migration, schema, data, or configuration
+  change.
+- n8n/external APIs/production: no change.
 
 ## approvals required
 
-- Keep the replacement PR as draft and do not merge without explicit approval.
-- Explicit approval remains required before applying any live database migration.
-- Do not begin Security Remediation Phase 1 under this task.
+- Keep the Phase 1 PR draft and do not merge it yet.
+- Explicit approval is required before any local-linked, remote, or production
+  migration apply.
+- Immediately before approval, reconcile live policy/function/grant inventory,
+  migration history, and repository declarations; stop on any disagreement.
+- Phase 2 requires a separate task.
 
 ## risks
 
-- PR #1 includes security-preparation ancestry and must not be retargeted or merged.
-- The old branch must remain preserved after PR #1 is superseded.
-- Unrelated user changes remain in the original worktree and are intentionally outside this task.
+- Mobile crew punch currently selects arbitrary org users; C3 intentionally
+  denies foreman actions until users have legitimate `crew_members` assignments.
+- C2 may reveal undocumented client RPC dependencies during authorized live
+  testing; do not broaden grants without identifying the exact caller.
+- C4 requires coordinated server/database rollout and a valid deployment
+  `MCP_ORG_ID`; mixed versions fail startup by design.
+- C1 emergency rollback recreates the vulnerability and is not a normal rollback.
+- Live C2-C4 state has not been queried in this repository-only task.
 
 ## blockers
 
-None currently.
+No repository implementation blocker. Live verification and deployment are
+blocked on explicit approval and credentials. Web/mobile checks are blocked in
+the clean worktree by missing installed dependencies.
 
 ## exact next prompt
 
-Review the clean handoff-only draft PR, confirm its four-file diff and passing checks, then explicitly approve merge if desired. Keep `security/c1-policy-cleanup` separate and do not begin Security Remediation Phase 1 without a new task.
+Review draft Phase 1 PR and its C1-C4 migration/server diff. Do not apply it.
+After review, authorize a fresh read-only live inventory and rolled-back dry run
+only; stop if migration history, live grants/policies, and repository state
+disagree. Do not begin Phase 2.

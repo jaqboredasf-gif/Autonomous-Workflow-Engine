@@ -22,6 +22,12 @@ SUPABASE_URL=https://qgoiacwdntaqeghcyjlw.supabase.co node packages/mcp-server/s
 jq -r 'select(.id==2) | .result.tools | length')
 [ "${TOOLS:-0}" -ge 10 ] && echo "OK ($TOOLS tools)" || { echo "FAIL (tools=$TOOLS)"; fails=$((fails+1)); }
 
+step "Phase 1 MCP tenant binding (offline)"
+(cd packages/mcp-server && npm test) || fails=$((fails+1))
+
+step "Phase 1 migration structural validation (offline)"
+node scripts/lib/validate-phase1-security.mjs || fails=$((fails+1))
+
 step "acceptance slice 1"
 bash scripts/acceptance-slice1.sh || fails=$((fails+1))
 

@@ -167,6 +167,14 @@ not clean up. No role gate, so any authenticated org member can read, insert and
 SQL + acceptance criteria: TASK_BACKLOG S1. Do not apply without Jack's
 go-ahead — dropping objects on live is destructive.
 
+**Security Phase 1 (prepared, never applied):** branch
+`security/phase-1-remediation` addresses C1 policy drift, C2 privileged function
+execution, C3 time-entry/crew authorization, and C4 MCP tenant binding in four
+ordered migrations plus server code. The exact plan and compatibility boundary
+are in `docs/planning/SECURITY_PHASE1_PLAN.md`. A live policy/function/grant and
+migration-history comparison, rolled-back dry run, and explicit approval are
+mandatory before any apply.
+
 Live policy drift is worth re-checking after any externally-made change:
 
 ```bash

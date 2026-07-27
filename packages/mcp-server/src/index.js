@@ -8,14 +8,32 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { createTenantDb, requireTenantId } from './tenant-db.js';
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !key) {
-  console.error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set');
+const orgIdValue = process.env.MCP_ORG_ID;
+if (!url || !key || !orgIdValue) {
+  console.error('SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and MCP_ORG_ID must be set');
+  process.exit(1);
+}
+let orgId;
+try {
+  orgId = requireTenantId(orgIdValue);
+} catch (error) {
+  console.error(error.message);
   process.exit(1);
 }
 const db = createClient(url, key, { auth: { persistSession: false } });
+const tenantDb = createTenantDb(db, orgId);
+
+const { data: assertedTenant, error: tenantError } = await db.rpc('assert_mcp_tenant', {
+  p_org_id: orgId,
+});
+if (tenantError || assertedTenant !== orgId) {
+  console.error(`MCP tenant assertion failed: ${tenantError?.message ?? 'tenant mismatch'}`);
+  process.exit(1);
+}
 
 const server = new McpServer({ name: 'exattime', version: '0.0.1' });
 
@@ -44,7 +62,7 @@ server.registerTool(
     },
   },
   async ({ from, to, employee }) => {
-    let q = db
+    let q = tenantDb
       .from('time_entries')
       .select(ENTRY_SELECT)
       .gte('clock_in', `${from}T00:00:00Z`)
@@ -80,7 +98,7 @@ server.registerTool(
   },
   async ({ days }) => {
     const from = new Date(Date.now() - days * 864e5).toISOString();
-    const { data, error } = await db
+    const { data, error } = await tenantDb
       .from('time_entries')
       .select(ENTRY_SELECT)
       .gte('clock_in', from)
@@ -116,7 +134,7 @@ server.registerTool(
     },
   },
   async ({ from, to, group_by }) => {
-    const { data, error } = await db
+    const { data, error } = await tenantDb
       .from('time_entries')
       .select(ENTRY_SELECT)
       .gte('clock_in', `${from}T00:00:00Z`)
@@ -155,7 +173,7 @@ server.registerTool(
     },
   },
   async ({ include_inactive }) => {
-    let q = db.from('job_sites').select('id, name, address, lat, lng, radius_m, is_active');
+    let q = tenantDb.from('job_sites').select('id, name, address, lat, lng, radius_m, is_active');
     if (!include_inactive) q = q.eq('is_active', true);
     const { data, error } = await q.order('name');
     return error ? fail(error) : json(data);
@@ -171,7 +189,7 @@ server.registerTool(
     },
   },
   async ({ include_inactive }) => {
-    let q = db.from('users').select('id, full_name, role, is_active, hourly_rate');
+    let q = tenantDb.from('users').select('id, full_name, role, is_active, hourly_rate');
     if (!include_inactive) q = q.eq('is_active', true);
     const { data, error } = await q.order('full_name');
     return error ? fail(error) : json(data);
@@ -191,7 +209,7 @@ server.registerTool(
     },
   },
   async ({ from, to, include_cancelled }) => {
-    let q = db
+    let q = tenantDb
       .from('shifts')
       .select(
         'id, starts_at, ends_at, status, notes, users!shifts_user_id_fkey(full_name), job_sites(name)'
@@ -220,7 +238,7 @@ server.registerTool(
     },
   },
   async ({ employee, job_site, starts_at, ends_at, notes }) => {
-    const { data: users, error: uErr } = await db
+    const { data: users, error: uErr } = await tenantDb
       .from('users')
       .select('id, org_id, full_name')
       .ilike('full_name', `%${employee}%`)
@@ -231,7 +249,7 @@ server.registerTool(
     }
     let siteId = null;
     if (job_site) {
-      const { data: sites, error: sErr } = await db
+      const { data: sites, error: sErr } = await tenantDb
         .from('job_sites')
         .select('id, name')
         .ilike('name', `%${job_site}%`)
@@ -242,7 +260,7 @@ server.registerTool(
       }
       siteId = sites[0].id;
     }
-    const { data, error } = await db
+    const { data, error } = await tenantDb
       .from('shifts')
       .insert({
         org_id: users[0].org_id,
@@ -272,7 +290,7 @@ server.registerTool(
   },
   async ({ county, zip }) => {
     if (!county && !zip) return fail(new Error('provide county and/or zip'));
-    const { data, error } = await db.from('service_areas').select('kind, value, note');
+    const { data, error } = await tenantDb.from('service_areas').select('kind, value, note');
     if (error) return fail(error);
     const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
     const matched = data.filter(
@@ -306,17 +324,17 @@ server.registerTool(
   async ({ skill, when_start, when_end, near_lat, near_lng }) => {
     const [{ data: people, error: pErr }, { data: busy, error: bErr }, { data: punches, error: puErr }] =
       await Promise.all([
-        db
+        tenantDb
           .from('users')
           .select('id, full_name, role, skills, hourly_rate')
           .eq('is_active', true),
-        db
+        tenantDb
           .from('shifts')
           .select('user_id, starts_at, ends_at')
           .neq('status', 'cancelled')
           .lt('starts_at', when_end)
           .gt('ends_at', when_start),
-        db
+        tenantDb
           .from('time_entries')
           .select('user_id, in_lat, in_lng, clock_in')
           .not('in_lat', 'is', null)
@@ -393,11 +411,9 @@ server.registerTool(
     },
   },
   async (args) => {
-    const { data: org, error: oErr } = await db.from('orgs').select('id').limit(1).single();
-    if (oErr) return fail(oErr);
-    const { data, error } = await db
+    const { data, error } = await tenantDb
       .from('leads')
-      .insert({ org_id: org.id, ...args })
+      .insert(args)
       .select('id, received_at, priority, disposition')
       .single();
     return error ? fail(error) : json(data);
