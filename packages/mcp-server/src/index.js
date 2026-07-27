@@ -1,409 +1,101 @@
 #!/usr/bin/env node
-// Exattime MCP server — exposes time-tracking data as tools for AI agents.
-// Runs with the service-role key (trusted admin context): the agent layer is
-// org-internal automation, not an end-user surface. Never register this
-// server anywhere untrusted users can call it.
+// ---------------------------------------------------------------------------
+// Exattime MCP server — the AWE kernel's first external execution surface.
+//
+// This file is WIRING ONLY. It reads env, chooses a data port, builds the sinks,
+// registers the tool descriptors with the MCP SDK, and hands every call to
+// `executeTool`. There is no business logic, no query, no error formatting and
+// no tenant resolution here — all of that moved to modules that can be tested
+// without a credential (see scripts/eval-mcp.mjs, Runner M).
+//
+// Two operating modes, fail-closed by default:
+//
+//   TEST (default)  Deterministic fixture data, in-process. No credential, no
+//                   network, no live rows. Every response says `mode: "TEST"`
+//                   and `is_fixture: true`, so a caller cannot mistake fixture
+//                   output for production data.
+//   LIVE            Requires SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and an
+//                   explicit tenant — AWE_ORG_ID on the process or `org_id` on
+//                   the call. The server starts either way; a LIVE call without
+//                   a tenant is REFUSED with `tenant_required`, not defaulted.
+//
+// Why the server no longer exits without credentials: it used to `process.exit(1)`
+// on a missing key, which meant the tool surface could not be listed, described
+// or tested anywhere the key was absent — including regression. A server that
+// can enumerate its tools offline and refuses to touch live data without an
+// explicit LIVE + tenant is both more testable and more fail-closed than one
+// that dies at startup.
+//
+// The service-role key bypasses RLS. Never register this server anywhere
+// untrusted users can call it.
+// ---------------------------------------------------------------------------
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createClient } from '@supabase/supabase-js';
-import { z } from 'zod';
 
-const url = process.env.SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !key) {
-  console.error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set');
-  process.exit(1);
+import { createFileArtifactSink, createFileAuditSink } from '../../awe-runtime/src/index.mjs';
+
+import { createFixtureDataPort, createSupabaseDataPort } from './data-port.mjs';
+import { FIXTURE_ROWS } from './fixtures.mjs';
+import { executeTool } from './runtime.mjs';
+import { resolveMode } from './tenant.mjs';
+import { TOOLS } from './tools.mjs';
+
+const env = process.env;
+const mode = resolveMode(env);
+
+// The live client is built ONLY in LIVE mode. In TEST the process holds no
+// credential at all, which is a stronger statement than holding one and
+// choosing not to use it.
+let port;
+if (mode === 'LIVE') {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('AWE_MODE=LIVE requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
+    process.exit(1);
+  }
+  port = createSupabaseDataPort(
+    createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } }),
+  );
+} else {
+  port = createFixtureDataPort({ rows: FIXTURE_ROWS });
 }
-const db = createClient(url, key, { auth: { persistSession: false } });
 
-const server = new McpServer({ name: 'exattime', version: '0.0.1' });
+// Durable evidence for every call. The local filesystem is the FIRST backend,
+// not the permanent one — the sink interface is what lets a Supabase table or
+// an object store replace it without a tool changing a line (ADR-0002 decides
+// which, and is unresolved). `AWE_ARTIFACT_ROOT` lets an operator put the
+// evidence somewhere other than the repo.
+const artifactRoot = env.AWE_ARTIFACT_ROOT ?? 'artifacts';
+const artifacts = createFileArtifactSink({ root: artifactRoot });
+const audit = createFileAuditSink({ root: artifactRoot });
 
-function json(data) {
-  return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+const server = new McpServer({ name: 'exattime', version: '0.1.0' });
+
+for (const tool of TOOLS) {
+  server.registerTool(
+    tool.descriptor.name,
+    {
+      description: tool.descriptor.description,
+      inputSchema: tool.inputSchema,
+    },
+    async (input) => {
+      // The clock is read HERE, at the process boundary, and passed down. Every
+      // layer below is deterministic given this instant, which is what makes a
+      // run replayable from its artifact.
+      const now = new Date().toISOString();
+      const { response } = await executeTool({
+        tool, input, deps: { port, env, now, artifacts, audit },
+      });
+      return response;
+    },
+  );
 }
-
-function fail(error) {
-  return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
-}
-
-const ENTRY_SELECT =
-  'id, clock_in, clock_out, status, in_geo_flag, out_geo_flag, notes, ' +
-  'users!time_entries_user_id_fkey(full_name), job_sites(name), cost_codes(code, label)';
-
-server.registerTool(
-  'get_timesheets',
-  {
-    description:
-      'List time entries between two dates, optionally filtered by employee name. ' +
-      'Returns clock in/out times, hours, job site, cost code, GPS flags, and status.',
-    inputSchema: {
-      from: z.string().describe('Start date, YYYY-MM-DD'),
-      to: z.string().describe('End date, YYYY-MM-DD'),
-      employee: z.string().optional().describe('Filter by employee full name (partial match)'),
-    },
-  },
-  async ({ from, to, employee }) => {
-    let q = db
-      .from('time_entries')
-      .select(ENTRY_SELECT)
-      .gte('clock_in', `${from}T00:00:00Z`)
-      .lte('clock_in', `${to}T23:59:59Z`)
-      .order('clock_in', { ascending: false });
-    const { data, error } = await q;
-    if (error) return fail(error);
-    const rows = employee
-      ? data.filter((r) =>
-          r.users?.full_name?.toLowerCase().includes(employee.toLowerCase())
-        )
-      : data;
-    return json(
-      rows.map((r) => ({
-        ...r,
-        hours: r.clock_out
-          ? +(((new Date(r.clock_out) - new Date(r.clock_in)) / 3.6e6).toFixed(2))
-          : null,
-      }))
-    );
-  }
-);
-
-server.registerTool(
-  'get_flags',
-  {
-    description:
-      'List anomalies needing human review: punches outside the job-site geofence, ' +
-      'punches with no GPS, and entries left open (missing clock-out) for over 16 hours.',
-    inputSchema: {
-      days: z.number().int().min(1).max(90).default(14).describe('Look-back window in days'),
-    },
-  },
-  async ({ days }) => {
-    const from = new Date(Date.now() - days * 864e5).toISOString();
-    const { data, error } = await db
-      .from('time_entries')
-      .select(ENTRY_SELECT)
-      .gte('clock_in', from)
-      .order('clock_in', { ascending: false });
-    if (error) return fail(error);
-    const flags = [];
-    for (const r of data) {
-      const who = r.users?.full_name ?? '?';
-      const site = r.job_sites?.name ?? 'no site';
-      if (r.in_geo_flag === 'outside')
-        flags.push({ kind: 'outside_fence_in', who, site, entry: r });
-      if (r.out_geo_flag === 'outside')
-        flags.push({ kind: 'outside_fence_out', who, site, entry: r });
-      if (r.in_geo_flag === 'no_gps')
-        flags.push({ kind: 'no_gps', who, site, entry: r });
-      if (!r.clock_out && Date.now() - new Date(r.clock_in) > 16 * 3.6e6)
-        flags.push({ kind: 'missing_clock_out', who, site, entry: r });
-    }
-    return json(flags);
-  }
-);
-
-server.registerTool(
-  'get_hours_report',
-  {
-    description:
-      'Aggregate completed hours between two dates, grouped by employee, job site, or cost code. ' +
-      'Raw hours only — lunch deduction, overtime, and rounding are applied at payroll export.',
-    inputSchema: {
-      from: z.string().describe('Start date, YYYY-MM-DD'),
-      to: z.string().describe('End date, YYYY-MM-DD'),
-      group_by: z.enum(['employee', 'site', 'cost_code']).default('employee'),
-    },
-  },
-  async ({ from, to, group_by }) => {
-    const { data, error } = await db
-      .from('time_entries')
-      .select(ENTRY_SELECT)
-      .gte('clock_in', `${from}T00:00:00Z`)
-      .lte('clock_in', `${to}T23:59:59Z`)
-      .not('clock_out', 'is', null);
-    if (error) return fail(error);
-    const keyOf = (r) =>
-      group_by === 'employee'
-        ? r.users?.full_name ?? '?'
-        : group_by === 'site'
-          ? r.job_sites?.name ?? 'no site'
-          : (r.cost_codes ? `${r.cost_codes.code} — ${r.cost_codes.label}` : 'no code');
-    const totals = new Map();
-    for (const r of data) {
-      const k = keyOf(r);
-      const h = (new Date(r.clock_out) - new Date(r.clock_in)) / 3.6e6;
-      const cur = totals.get(k) ?? { entries: 0, hours: 0 };
-      cur.entries += 1;
-      cur.hours += h;
-      totals.set(k, cur);
-    }
-    return json(
-      [...totals.entries()]
-        .map(([k, v]) => ({ [group_by]: k, entries: v.entries, hours: +v.hours.toFixed(2) }))
-        .sort((a, b) => b.hours - a.hours)
-    );
-  }
-);
-
-server.registerTool(
-  'list_job_sites',
-  {
-    description: 'List job sites with geofence coordinates and radius.',
-    inputSchema: {
-      include_inactive: z.boolean().default(false),
-    },
-  },
-  async ({ include_inactive }) => {
-    let q = db.from('job_sites').select('id, name, address, lat, lng, radius_m, is_active');
-    if (!include_inactive) q = q.eq('is_active', true);
-    const { data, error } = await q.order('name');
-    return error ? fail(error) : json(data);
-  }
-);
-
-server.registerTool(
-  'list_employees',
-  {
-    description: 'List employees with role and active status.',
-    inputSchema: {
-      include_inactive: z.boolean().default(false),
-    },
-  },
-  async ({ include_inactive }) => {
-    let q = db.from('users').select('id, full_name, role, is_active, hourly_rate');
-    if (!include_inactive) q = q.eq('is_active', true);
-    const { data, error } = await q.order('full_name');
-    return error ? fail(error) : json(data);
-  }
-);
-
-server.registerTool(
-  'get_schedule',
-  {
-    description:
-      'List scheduled shifts between two dates: who works when and at which job site. ' +
-      'This is the schedule the M365 calendar sync mirrors.',
-    inputSchema: {
-      from: z.string().describe('Start date, YYYY-MM-DD'),
-      to: z.string().describe('End date, YYYY-MM-DD'),
-      include_cancelled: z.boolean().default(false),
-    },
-  },
-  async ({ from, to, include_cancelled }) => {
-    let q = db
-      .from('shifts')
-      .select(
-        'id, starts_at, ends_at, status, notes, users!shifts_user_id_fkey(full_name), job_sites(name)'
-      )
-      .gte('starts_at', `${from}T00:00:00Z`)
-      .lte('starts_at', `${to}T23:59:59Z`)
-      .order('starts_at');
-    if (!include_cancelled) q = q.neq('status', 'cancelled');
-    const { data, error } = await q;
-    return error ? fail(error) : json(data);
-  }
-);
-
-server.registerTool(
-  'create_shift',
-  {
-    description:
-      'Schedule a shift for an employee. Names are matched case-insensitively against ' +
-      'employees and job sites; the tool errors if a name is ambiguous or unknown.',
-    inputSchema: {
-      employee: z.string().describe('Employee full name'),
-      job_site: z.string().optional().describe('Job site name'),
-      starts_at: z.string().describe('Shift start, ISO 8601 (e.g. 2026-07-20T07:00:00-04:00)'),
-      ends_at: z.string().describe('Shift end, ISO 8601'),
-      notes: z.string().optional(),
-    },
-  },
-  async ({ employee, job_site, starts_at, ends_at, notes }) => {
-    const { data: users, error: uErr } = await db
-      .from('users')
-      .select('id, org_id, full_name')
-      .ilike('full_name', `%${employee}%`)
-      .eq('is_active', true);
-    if (uErr) return fail(uErr);
-    if (users.length !== 1) {
-      return fail(new Error(`employee "${employee}" matched ${users.length} people`));
-    }
-    let siteId = null;
-    if (job_site) {
-      const { data: sites, error: sErr } = await db
-        .from('job_sites')
-        .select('id, name')
-        .ilike('name', `%${job_site}%`)
-        .eq('is_active', true);
-      if (sErr) return fail(sErr);
-      if (sites.length !== 1) {
-        return fail(new Error(`job site "${job_site}" matched ${sites.length} sites`));
-      }
-      siteId = sites[0].id;
-    }
-    const { data, error } = await db
-      .from('shifts')
-      .insert({
-        org_id: users[0].org_id,
-        user_id: users[0].id,
-        job_site_id: siteId,
-        starts_at,
-        ends_at,
-        notes: notes ?? null,
-      })
-      .select('id, starts_at, ends_at')
-      .single();
-    return error ? fail(error) : json({ created: data, employee: users[0].full_name });
-  }
-);
-
-server.registerTool(
-  'check_territory',
-  {
-    description:
-      'Check whether a location is inside the licensed service territory. ' +
-      'Pass the county name and/or zip code extracted from a customer request. ' +
-      'Returns licensed true/false plus the full licensed-area list (useful for a decline reply).',
-    inputSchema: {
-      county: z.string().optional().describe('County name, e.g. "Fairfield County, CT"'),
-      zip: z.string().optional().describe('5-digit zip code'),
-    },
-  },
-  async ({ county, zip }) => {
-    if (!county && !zip) return fail(new Error('provide county and/or zip'));
-    const { data, error } = await db.from('service_areas').select('kind, value, note');
-    if (error) return fail(error);
-    const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const matched = data.filter(
-      (a) =>
-        (a.kind === 'county' && county && norm(a.value).includes(norm(county).replace(/county|ny|ct|nj/g, ''))) ||
-        (a.kind === 'zip' && zip && a.value === zip)
-    );
-    return json({
-      licensed: matched.length > 0,
-      matched,
-      licensed_areas: data.map((a) => a.value),
-    });
-  }
-);
-
-server.registerTool(
-  'find_best_worker',
-  {
-    description:
-      'Rank employees for a job by skill match, availability in the time window ' +
-      '(no conflicting shift), proximity to the job (from most recent GPS punch), and hourly rate. ' +
-      'Use for dispatch decisions: "who should take this service call?"',
-    inputSchema: {
-      skill: z.string().optional().describe('Required specialty, e.g. "troubleshooting", "panel"'),
-      when_start: z.string().describe('Job window start, ISO 8601'),
-      when_end: z.string().describe('Job window end, ISO 8601'),
-      near_lat: z.number().optional().describe('Job latitude (for proximity ranking)'),
-      near_lng: z.number().optional().describe('Job longitude'),
-    },
-  },
-  async ({ skill, when_start, when_end, near_lat, near_lng }) => {
-    const [{ data: people, error: pErr }, { data: busy, error: bErr }, { data: punches, error: puErr }] =
-      await Promise.all([
-        db
-          .from('users')
-          .select('id, full_name, role, skills, hourly_rate')
-          .eq('is_active', true),
-        db
-          .from('shifts')
-          .select('user_id, starts_at, ends_at')
-          .neq('status', 'cancelled')
-          .lt('starts_at', when_end)
-          .gt('ends_at', when_start),
-        db
-          .from('time_entries')
-          .select('user_id, in_lat, in_lng, clock_in')
-          .not('in_lat', 'is', null)
-          .gte('clock_in', new Date(Date.now() - 14 * 864e5).toISOString())
-          .order('clock_in', { ascending: false }),
-      ]);
-    if (pErr || bErr || puErr) return fail(pErr ?? bErr ?? puErr);
-
-    const busyIds = new Set(busy.map((s) => s.user_id));
-    const lastPunch = new Map();
-    for (const p of punches) if (!lastPunch.has(p.user_id)) lastPunch.set(p.user_id, p);
-
-    const rad = (d) => (d * Math.PI) / 180;
-    const distKm = (aLat, aLng, bLat, bLng) =>
-      2 *
-      6371 *
-      Math.asin(
-        Math.sqrt(
-          Math.sin(rad(bLat - aLat) / 2) ** 2 +
-            Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(rad(bLng - aLng) / 2) ** 2
-        )
-      );
-
-    const ranked = people
-      .map((w) => {
-        const available = !busyIds.has(w.id);
-        const skillMatch = skill
-          ? (w.skills ?? []).some((s) => s.toLowerCase().includes(skill.toLowerCase()))
-          : null;
-        const punch = lastPunch.get(w.id);
-        const distance_km =
-          near_lat != null && near_lng != null && punch
-            ? +distKm(near_lat, near_lng, punch.in_lat, punch.in_lng).toFixed(1)
-            : null;
-        return {
-          name: w.full_name,
-          role: w.role,
-          skills: w.skills,
-          hourly_rate: w.hourly_rate,
-          available_in_window: available,
-          skill_match: skillMatch,
-          distance_km,
-          last_seen: punch?.clock_in ?? null,
-        };
-      })
-      .sort(
-        (a, b) =>
-          Number(b.available_in_window) - Number(a.available_in_window) ||
-          Number(b.skill_match ?? 0) - Number(a.skill_match ?? 0) ||
-          (a.distance_km ?? 1e9) - (b.distance_km ?? 1e9) ||
-          (a.hourly_rate ?? 1e9) - (b.hourly_rate ?? 1e9)
-      );
-    return json(ranked);
-  }
-);
-
-server.registerTool(
-  'log_lead',
-  {
-    description:
-      'Log an inbound customer request (email/call) with its classification and disposition. ' +
-      'Log EVERY request, including declines — this becomes demand and quoting data.',
-    inputSchema: {
-      from_contact: z.string().optional().describe('Customer email or phone'),
-      subject: z.string().optional(),
-      summary: z.string().describe('One-sentence summary of the request'),
-      address: z.string().optional(),
-      county: z.string().optional(),
-      zip: z.string().optional(),
-      trade: z.string().optional().describe('Specialty needed, e.g. "troubleshooting"'),
-      priority: z.enum(['p1_emergency', 'routine', 'quote']).default('routine'),
-      disposition: z.enum(['dispatched', 'declined_territory', 'replied', 'pending']).default('pending'),
-      notes: z.string().optional(),
-    },
-  },
-  async (args) => {
-    const { data: org, error: oErr } = await db.from('orgs').select('id').limit(1).single();
-    if (oErr) return fail(oErr);
-    const { data, error } = await db
-      .from('leads')
-      .insert({ org_id: org.id, ...args })
-      .select('id, received_at, priority, disposition')
-      .single();
-    return error ? fail(error) : json(data);
-  }
-);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error('exattime MCP server running (stdio)');
+console.error(
+  `exattime MCP server running (stdio) — mode=${mode}, tools=${TOOLS.length}, `
+  + `tenant=${env.AWE_ORG_ID ? 'bound via AWE_ORG_ID' : 'required per call'}`
+  + `${mode === 'TEST' ? ', DATA IS FIXTURE' : ''}`,
+);
