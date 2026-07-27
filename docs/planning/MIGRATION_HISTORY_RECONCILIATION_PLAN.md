@@ -64,3 +64,40 @@ enum mismatch/order drift, unclassified ACL/default-ACL drift, unsafe
 backup/PITR confirmation, storage dependency mismatch, or inability to reproduce
 the schema in isolation. Phase 1 deployment stays blocked until every stop is
 resolved or explicitly rejected through a documented security approval.
+
+## 2026-07-27 isolated replay attempt
+
+- The immutable PR #3 head was confirmed as
+  `f42ffb3dbeb3ed5a7235f25dec6e7ebcff137168`; the PR remained open and draft
+  with both reported Actions checks successful.
+- Repository configuration, planning context, integration documentation,
+  acceptance scripts, and database helpers independently identify production
+  project `qgoiacwdntaqeghcyjlw`. The Supabase project inventory confirmed that
+  project is active and distinct from the separate project
+  `mzlzbnnikwblqirjyqap`.
+- No supported disposable database runtime was available: Docker, PostgreSQL,
+  and Supabase CLI were absent. No remote replay project was created because
+  separate approval was not supplied.
+- `CANONICAL_0015` and `CANONICAL_PHASE1` were therefore not produced. No
+  migration was executed or transaction behavior tested.
+- Read-only production catalog queries reconfirmed PostgreSQL 17.6, 24
+  application tables with RLS enabled, no `supabase_migrations` schema, and
+  broad owner-specific default function ACLs for `PUBLIC`, `anon`,
+  `authenticated`, and `service_role`.
+- The live public schema contains 18 `SECURITY DEFINER` functions. Nine have no
+  function-level `search_path`: `business_role_matches`,
+  `create_outbound_draft`, `emit_approval_outcome_events`,
+  `emit_email_events`, `emit_outbound_insert_events`,
+  `emit_outbound_update_events`, `emit_work_request_events`,
+  `mark_message_sent`, and `record_approval` (nine exact signatures total).
+  The remaining fixed configurations use `search_path=public`, not the safer
+  `pg_catalog, public` form.
+- Offline Phase 1 structural validation, migrations 0014/0015 validators,
+  deterministic Runners 3-5, MCP tenant-binding tests, handoff validation, and
+  `git diff --check` passed.
+
+The inability to reproduce `CANONICAL_0015`, unclassified privileged-function
+search paths, missing migration ledger, unknown migration executor, and
+unconfirmed backup/PITR status activate the hard stop. Strategy D ("none are
+safe yet") is the only supported reconciliation recommendation. History
+backfill, baseline generation, Phase 1 merge, and deployment remain blocked.

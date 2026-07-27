@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-27T20:30:00Z
+2026-07-27T15:50:00Z
 
 ## agent
 
@@ -18,14 +18,15 @@ jaqboredasf-gif/Autonomous-Workflow-Engine
 
 ## commit
 
-Pending final repository-only correction commit; resolve with
-`git rev-parse HEAD` after commit.
+PR #3 was reviewed at immutable head
+`f42ffb3dbeb3ed5a7235f25dec6e7ebcff137168`. A documentation-only evidence
+commit follows this handoff update.
 
 ## current objective
 
-Correct draft PR #3 so Phase 1 C2 exposes only the verified shipped client
-surface, strengthens exact-signature validation, and records the mandatory
-migration-history reconciliation plan. Keep the PR draft and do not deploy.
+Complete the authorized portions of the isolated replay/read-only comparison,
+record the hard stop where no disposable database runtime exists, keep PR #3
+draft, and make no production changes.
 
 ## completed work
 
@@ -48,6 +49,19 @@ migration-history reconciliation plan. Keep the PR draft and do not deploy.
 - Documented absent application migration history, prohibited live history
   repair, remaining `SECURITY DEFINER` risk, and canonical replay requirements.
 - No Supabase, n8n, production, or external communication action was performed.
+- Confirmed PR #3 remains open and draft at the requested immutable head, with
+  both reported Actions checks successful.
+- Independently confirmed production project `qgoiacwdntaqeghcyjlw` from
+  repository declarations and Supabase project metadata; distinguished it from
+  the separate `AWE` project.
+- Confirmed Docker, PostgreSQL, and Supabase CLI are unavailable locally. No
+  remote replay environment was created without separate approval, so
+  `CANONICAL_0015` and `CANONICAL_PHASE1` were not produced.
+- Queried only production catalogs with `SELECT`. Reconfirmed no migration
+  schema, broad default function ACLs, 24 RLS-enabled application tables, and
+  18 public `SECURITY DEFINER` functions, including nine exact signatures with
+  no pinned function-level `search_path`.
+- Selected migration-history strategy D: none are safe yet.
 
 ## files changed
 
@@ -80,6 +94,8 @@ migration-history reconciliation plan. Keep the PR draft and do not deploy.
   ownership by the executor, closed executor default ACLs, and no API-role
   `CREATE` privilege in `public`.
 - No migration was applied or dry-run against a database.
+- No canonical replay migration was applied because no approved disposable
+  database runtime was available.
 
 ## commands run
 
@@ -92,6 +108,9 @@ migration-history reconciliation plan. Keep the PR draft and do not deploy.
 - `bash -n` for regression, acceptance, and handoff scripts
 - pglast 7.7 parsing for all four Phase 1 migrations
 - `git diff --check`; intended-file status/diff review
+- read-only Supabase project metadata and PostgreSQL catalog `SELECT` queries
+- local runtime discovery for Docker, PostgreSQL, and Supabase CLI
+- offline migrations 0014/0015 validators and deterministic Runners 3-5
 
 ## tests passed
 
@@ -102,15 +121,22 @@ migration-history reconciliation plan. Keep the PR draft and do not deploy.
 - Phase 1 validator JavaScript syntax.
 - Shell syntax for all acceptance/regression/handoff scripts.
 - Git whitespace and intended-file diff checks.
+- Migrations 0014/0015 structural validators and deterministic Runners 3-5.
 
 ## tests failed
 
-None.
+- Initial aggregate `npm test` invocation failed because the repository root has
+  no test script; the scoped MCP package tests subsequently passed.
+- An initial combined validator command used the MCP package working directory,
+  so repository-relative validator paths were not found; rerunning from the
+  repository root passed.
 
 ## tests not run
 
 - No live authorization, RLS, RPC, migration, advisor, or regression test.
-- No isolated PostgreSQL/Supabase replay or behavioral authorization test.
+- No isolated PostgreSQL/Supabase replay, transaction/rollback/idempotency
+  test, normalized canonical snapshot, three-way comparison, C3 query plan, or
+  behavioral authorization test.
 - TypeScript/application builds were not rerun because application code did not
   change; GitHub Actions remains pending until push.
 
@@ -118,13 +144,14 @@ None.
 
 - Supabase/database: none.
 - n8n, production, and external communications: none.
-- GitHub will receive only the final repository commit, draft PR description,
-  and CI run after local checks pass.
+- Production received catalog `SELECT` queries only. They performed no DDL or
+  DML and created no temporary objects.
+- GitHub receives only this documentation evidence commit; PR #3 stays draft.
 
 ## approvals required
 
-- Approval for an isolated canonical replay environment and read-only live
-  schema dump.
+- Approval to install/provision a local disposable PostgreSQL/Supabase runtime,
+  or explicit cost approval for a separate isolated Supabase project.
 - Explicit security decision on every remaining unsafe `SECURITY DEFINER`
   `search_path`.
 - Explicit ownership decisions and implemented internal routes before
@@ -145,12 +172,14 @@ None.
 - `apply_timecard_correction` and `mark_message_sent` now require internal
   service routes carrying reviewed human attribution; no shipped route exists.
 - Live behavior of the service-role decision table is untested.
-- Deployment readiness is 42/100: repository consistency improved, but live
-  reconciliation and privileged-function hardening remain mandatory.
+- Deployment readiness is 30/100: repository consistency is strong, but the
+  canonical replay, full three-way comparison, privileged-function hardening,
+  backup/PITR confirmation, and executor proof remain absent.
 
 ## blockers
 
-Do not deploy or merge. Canonical replay/schema comparison, unsafe
+Do not deploy or merge. `CANONICAL_0015` and `CANONICAL_PHASE1` do not exist.
+Canonical replay/schema comparison, unsafe
 `SECURITY DEFINER` disposition, live exact-ACL verification, backup/PITR
 confirmation, target/executor confirmation, and isolated authorization tests
 remain unresolved.
