@@ -2,6 +2,99 @@
 
 Append-only. Newest first. Format: date — decision — why — supersedes (if any).
 
+## 2026-07-27 (K2 — execution-kernel adoption + durable run artifacts)
+
+Code-only session. No database call, no migration, no live change, no commit.
+
+- **A run report is a control-plane record, not a second copy of the data.** The
+  durable artifact carries the run's identity, status, machine-readable reason or
+  error code, gate decisions and audit events — and the workflow's output only as
+  a **digest**. Draft bodies, subjects, recipients and extracted personal data
+  stay in the tables that already hold them under RLS. Rejected: embedding the
+  result so artifacts are self-contained; that would publish customer content to
+  a filesystem with no policy on it.
+- **A durable write that did not land downgrades the run to `incomplete`.** It
+  does not throw, and it does not let the run report itself `completed`. A sink
+  failure is not a workflow failure, but a run whose evidence is missing is not a
+  finished run either. Rejected: logging a warning and returning success.
+- **The local filesystem is the FIRST artifact backend, not the chosen one.**
+  `ArtifactSink`/`AuditSink` are kernel interfaces; the filesystem implementation
+  lives outside the kernel (`scripts/lib/artifact-store.mjs`) because the kernel's
+  layering lint forbids writes. Choosing the durable backend means choosing the
+  harness DB access path = **ADR-0002, unratified**, so it was deliberately not
+  chosen. See TASK_BACKLOG K3.
+- **The execution context grants nothing.** `createExecutionContext` records who,
+  which tenant, which run, which mode — and carries no capability list, tool
+  permission, role check or tenant policy. Authorization stays where it already
+  lives (approval matrix, RPCs, RLS) until the Tool Registry is unblocked. This is
+  what let Phase 4's extension boundaries be built without pre-empting ADR-0002.
+- **A LIVE run with no `org_id` is refused at construction.** That is the shape of
+  the known MCP `orgs limit 1` defect (ADR-0002 condition 1); making it
+  unconstructable is cheaper than detecting it later.
+- **Classification refusals became first-class blocked reasons.** `fail_closed`
+  and `hallucinated_fields` were flags a caller had to remember to read; they are
+  now `classification_fail_closed` and `ungrounded_extraction` in the platform
+  reason union (both already in the harness `BlockedReason` union, contracts §2.4).
+  `classify()` itself is unchanged — Runner 2A still sees exactly what it saw.
+- **`classify()` takes an injectable `db`.** Its keyword net and territory check
+  are database functions, so the orchestration could not be exercised at all
+  without credentials. A seam, not a behaviour change; every existing caller gets
+  the default module.
+- **`redact()` now scrubs credentials embedded in longer strings.** The value
+  patterns were anchored, so `"rejected token eyJ…"` passed through untouched —
+  which is exactly how tokens reach audit trails. Found by a non-vacuity
+  perturbation, not by review. Whole-value behaviour is unchanged.
+- **`pass` was removed from the secret-key deny-list.** `pass(word|phrase)?` matched
+  the bare word `pass`, which is the name of every runner's pass counter — the
+  first run report written said `"pass": "[redacted]"`. A deny-list that eats the
+  evidence it exists to protect gets switched off, which is worse than a narrow
+  one. `password`/`passphrase`/`passcode` still match, and an actual credential is
+  still caught by value shape whatever its key is called. `token` was deliberately
+  left in place: over-redacting a token count is cheap and is already pinned by a
+  test.
+- **Runner 4 and Runner 5 fail if their run artifact does not land.** Opting out is
+  explicit (`AWE_ARTIFACTS=off`) and is reported, never silent.
+
+## 2026-07-27 (H0 — ADR-0001…0009 review pass; RATIFICATION NOT GRANTED)
+
+**No architectural decision was approved in this entry.** It records that the
+review required by H0 exit criterion 10 was performed, and what it found. All nine
+records in `docs/architecture/decisions/` remain `Status: Proposed` and carry no
+authority. `AGENT_HARNESS_DOCTRINE.md` (D1–D20) and `AGENT_HARNESS_GUARDRAILS.md`
+(G1–G20) therefore remain PROPOSED with them.
+
+- **A session may not ratify its own ADRs.** The ADR README states `Proposed`
+  "carries no authority", and proposed doctrine D2 states automation never approves
+  its own work. An agent flipping these to `Accepted` would be the exact failure the
+  harness exists to prevent. Ratification is Jack's signature plus a dated entry
+  under this heading; nothing else grants it.
+- **Review outcome (recommendations only, not decisions):** ADR-0001, 0002, 0004,
+  0006, 0008 → Accept as written. ADR-0003, 0005, 0007 → Accept with a named
+  amendment (below). ADR-0009 → Accept as a record; it decides nothing and its
+  underlying choice is still open. No record is recommended for rejection.
+- **Three defects found in the proposed set, all doc-level, none yet costed in
+  code:**
+  1. *Wall-clock semantics contradict.* Proposed D17 counts wall clock as a budget
+     dimension terminating `failed` / `budget_exhausted`; G9 and ADR-0003 say a
+     wall-clock lapse is `expired` and **resumable**. Terminal vs resumable for the
+     same dimension. Fix by separating session `max_wall_seconds` (terminal) from
+     lease expiry (resumable) before H11.
+  2. *ADR-0005's growth bound does not hold.* It claims fixture row growth is
+     "bounded by corpus size, not by run count", but proposed D11 makes
+     `agent_steps` / `agent_tool_calls` / `agent_model_calls` insert-only, so a
+     re-run appends a fresh ledger to the reused session. Step rows grow linearly
+     with regression runs; the 100,000-row threshold is reached by run count.
+  3. *ADR-0007 does not define the absent-row case.* `agent_harness_settings` is
+     keyed per `org_id`; a new org with no row has no `enabled=false` to read. Must
+     state that a missing row reads as disabled, or the opt-in default fails open.
+- **Migration numbering conflict stands (ADR-0009).** `AGENT_HARNESS_H0_EXIT.md` §5
+  allocates `0017`/`0018` to harness tables while Phase 1 C2–C4 may claim
+  `0017`–`0019`. Documentation conflict today, cheap only while H2 is unwritten.
+- **H0 documentation is untracked.** The entire H0 doc set exists only as untracked
+  files on `chore/agent-handoff-integration` (superseded by
+  `chore/agent-handoff-clean`, merged to `main` as `dbf8f17`). Preserving it in a
+  documentation-only commit is a prerequisite to acting on it.
+
 ## 2026-07-27 (Task S1 — approval checkpoint prepared; live apply not authorized)
 
 - **The live inventory still matches the exact expected pending state.** All 16

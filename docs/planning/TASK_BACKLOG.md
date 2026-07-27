@@ -283,7 +283,83 @@ Drawing-based auto-estimating; draft→auto graduation per type; vendor-invoice 
 - macOS-only `date -v` in acceptance scripts — Linux CI portability.
 - 0011 events emitted by triggers vs B3 RPC-emitted events — keep one convention per table family.
 - `npm run lint` in apps/web is broken repo-wide: `eslint-config-next` requires `next/dist/compiled/babel/eslint-parser`, which Next 16 does not ship (`next lint` was removed in 16). Pre-existing — fails identically on the pre-B5 tree — and not in regression.sh; TypeScript strict checking still runs in the production build. Fix = move to the flat-config `@next/eslint-plugin-next` setup, or drop the lint script.
-- Acceptance slices 4 and 5 both seed a fixture email + work_request + drafts per run; live fixture rows accumulate in the `fixture:` namespace. Harmless (is_fixture, unresolvable recipients) but a periodic fixture-reaper — which must respect the no-hard-delete guards — is worth designing before real data lands.
+- Acceptance slices 4 and 5 both seed a fixture email + work_request + drafts per run; live fixture rows accumulate in the `fixture:` namespace. Harmless (is_fixture, unresolvable recipients) but a periodic fixture-reaper — which must respect the no-hard-delete guards — is worth designing before real data lands. **Expanded 2026-07-27 (ADR-0005)**: also covers harness `agent_*` fixture rows, and records the "dedicated fixture org" option as the recommended long-term answer (rejected for now: forks every acceptance script's org constant).
+- `scripts/lib/db.mjs` hard-codes `PROJECT_REF` and `ORG_ID` as module constants (lines 9-11) — fine for acceptance tooling, prohibited for harness runtime (ADR-0002). Candidate: read both from env with the current values as defaults.
+- `packages/mcp-server/src/index.js:396` binds tenancy with `from('orgs').select('id').limit(1)` — "the first org" is a single-tenant assumption, not a tenant binding. Pre-existing; harness may not copy it (ADR-0002 / G1). Fix is its own task.
+
+---
+
+## K-series — Execution kernel (`packages/awe-kernel`, built, offline, in regression)
+
+The kernel is NOT the agent harness. It is the deterministic execution
+foundation the H-series will sit on: shared outcome envelopes, audit events,
+Verify Steps as data, labelled corpora, gate runs, the suite registry, an
+execution context, a durable run-report schema, and the artifact/audit sink
+boundaries. Zero runtime dependencies, no clock, no randomness, no filesystem
+writes, no network — all enforced by the layering lint in Runner K.
+
+It deliberately contains **no** Tool Registry, capability model, tool
+permission, tenant policy or database client. Those are blocked on ADR-0002 and
+must not be decided by a kernel module.
+
+## K1 — Kernel core + Runners 3/4 adoption — `done (uncommitted)` (2026-07-27, prior session)
+- Shipped `packages/awe-kernel` (canonical/errors/reasons/outcome/events/verify/corpus/gates/suite/registry), `scripts/eval-kernel.{sh,mjs}` (Runner K), `scripts/lib/awe-reasons.mjs` (platform reason union), `scripts/lib/suite-plan.mjs`, `scripts/smoke-mcp.sh`; migrated Runners 3 and 4 and `regression.sh` onto it.
+
+## K2 — Execution-kernel adoption + durable run artifacts — `done (uncommitted)` (2026-07-27)
+- **Shipped**: Runner 5 migrated to the kernel (~51 lines of duplicated scaffolding removed, 325 → 349 assertions); standardized outcome envelopes and audit events for `prepareOutbound` and `classify` via `scripts/lib/awe-execution.mjs`; the durable run-report schema + sink boundaries (`report.mjs`, `sinks.mjs`, `context.mjs`, `execute.mjs`); the local-filesystem artifact/audit sink (`scripts/lib/artifact-store.mjs`); **Runner E** (`scripts/eval-execution.{sh,mjs}`) in regression; artifact persistence wired into Runners 4, 5 and E.
+- **Also**: `redact()` now scrubs credentials embedded in longer strings, not only whole values — a real gap found by a non-vacuity perturbation.
+- **Evidence**: Runner K 498/0, Runner 3 121/0, Runner 4 327/0, Runner 5 349/0, Runner E 376/0; six perturbations proven to fail and reverted.
+- **Not done**: MCP server integration; database/object-storage artifact adapters; anything requiring ADR-0002.
+
+## K3 — Artifact sink successor (Supabase / object storage) — `BLOCKED(ADR-0002)`
+- The `ArtifactSink`/`AuditSink` interfaces exist and the local filesystem is the first implementation. Choosing the durable backend means choosing the harness database access path, which is ADR-0002 and unratified. Do not implement by assumption.
+
+## K4 — MCP server on the kernel — `ready` (after K2)
+- `packages/mcp-server` still hand-rolls its own result shapes and has the `orgs limit 1` tenant defect (ADR-0002 condition 1, already in the AR list). Wrapping its tools in `runWorkflow` + an execution context would give every MCP call a standardized outcome, sanitized audit events and a durable report — and would force the tenant binding to be explicit. Needs `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` to smoke-test, which this environment does not have.
+
+---
+
+## H-series — Agent Harness (design complete; H0 awaiting ratification)
+
+Architecture: `docs/architecture/AGENT_HARNESS_DESIGN.md` · doctrine
+`AGENT_HARNESS_DOCTRINE.md` (D1–D20) · guardrails `AGENT_HARNESS_GUARDRAILS.md`
+(G1–G20) · contracts `AGENT_HARNESS_CONTRACTS.md` · decisions
+`AGENT_HARNESS_DECISIONS.md` + `docs/architecture/decisions/ADR-0001…0008` ·
+gates `AGENT_HARNESS_H0_EXIT.md` · next session `AGENT_HARNESS_H1_BRIEF.md`.
+Dependency map + apply checkpoints: H0_EXIT §5.
+
+## H0 — Doctrine, decision resolution, implementation contracts — `done (docs) / BLOCKED(Jack ratification)` (2026-07-27)
+- **Shipped**: O1–O5 resolved with full comparisons; two design defects corrected (kill switch → `agent_harness_settings`, ADR-0007; harness eval → **Runner 6**, ADR-0008); doctrine D1–D20 with enforcement/second layer/failure/test per rule; guardrail matrix G1–G20; six subsystem contracts; 8 ADRs; H0 exit + H1 brief; proposed harness vocabulary appended to UBIQUITOUS_LANGUAGE.
+- **Blocker**: all 8 ADRs are `Proposed`. H0 closes when Jack ratifies and a DECISION_LOG entry records the date. ADR-0001 alone gates H1; the rest gate H2+.
+- **No code, no migration, no live change, nothing committed.**
+
+## H1 — Harness pure core — `ready (blocked on ADR-0001 ratification)`
+- **Goal**: `packages/harness` pure core — descriptor validation, digest, token estimator, error taxonomy, blocked-reason union, redaction — plus `scripts/eval-harness-unit.sh` and a layering lint, wired into regression. **No DB, no network, no clock, no randomness, zero runtime deps.**
+- **Full brief** (files, exports, tests, prohibited deps, stop conditions, rollback): `docs/architecture/AGENT_HARNESS_H1_BRIEF.md`.
+- **Acceptance**: unit suite + layering lint green; lint proven non-vacuous; regression ALL GREEN before/after; zero runtime dependencies; no file outside the brief's list modified.
+
+## H2 — Migration 0017 (harness settings + session types + sessions + steps) — `ready` (after H1; ADR-0002 + ADR-0007 required)
+- Written + offline-validated + `begin/rollback` dry-run only. **Not applied** — apply is checkpoint **AC-1**, explicit approval, S1 protocol. Adds `scripts/acceptance-slice6.sh` (state-aware PENDING/APPLIED, `pg_policies` count pin per harness table).
+
+## H3 — Migration 0018 (agent_tools + tool/model call ledgers + snapshots + views) — `ready` (after H2)
+- Same discipline; apply is checkpoint **AC-2**. Dry-run must prove the partial unique idempotency index raises 23505 on a double insert.
+
+## H4 — Tool registry + code↔DB parity validator — `ready` (after H1, H3)
+## H5 — Verify Step library — `ready` (after H4)
+## H6 — Dispatcher (read + write_internal) — `ready` (after H4, H5)
+## H7 — Model abstraction + router + adapters — `ready` (after H1; ADR-0004) — Runner 2A must stay byte-identical
+## H8 — Retry engine (8 classes) — `ready` (after H6, H7)
+## H9 — Context assembler — `ready` (after H1) — packet byte-identical to today's `buildPacket()`
+## H10 — Compaction ladder L1–L3 — `ready` (after H9, H3)
+## H11 — Session manager + bounded loop — `ready` (after H2, H6, H8, H10; ADR-0003)
+## H12 — Session type `triage_email` + CLI + **parity gate vs Runner 2A** — `ready` (after H11, H4, H7)
+## H13 — **Runner 6A** (in regression) + 6B (live, key-gated) — `ready` (after H12; ADR-0005, ADR-0008)
+## H14 — Human gate + `human_visible` dispatch — `ready` (after H12, H6; ADR-0006)
+## H15 — Web API `/api/agent/*` — `ready` (after H11)
+## H16 — MCP wrappers + observability views + kill switch — `ready` (after H14, H3; ADR-0007)
+## H17 — Docs, AGENT_HARNESS.md mapping rewrite, runbook, EVAL_STRATEGY Runner 6 — `ready` (after H16)
+
+---
 
 ## P1 — Write AI_DEVELOPMENT_METHOD.md — `ready` (process doc, Jack or planning session)
 - **Goal**: short doc codifying the Ralph-loop planning method actually in use: fresh-context sessions, one phase per session, state lives in docs/planning/*.md, fresh-session prompts generated FROM state files (never freehand), 8-step end-of-session protocol.

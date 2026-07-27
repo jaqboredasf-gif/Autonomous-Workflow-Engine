@@ -1,9 +1,210 @@
 # Session Handoff
 
 Read CONTEXT.md first, then this, then all docs/planning/*.md. One approved task per session.
-Vocabulary authority: docs/architecture/UBIQUITOUS_LANGUAGE.md (2026-07-17).
+Vocabulary authority: docs/architecture/UBIQUITOUS_LANGUAGE.md (2026-07-17; harness
+terms appended 2026-07-27 marked PROPOSED).
 
-## Current state (2026-07-27, Task S1 approval checkpoint — 0016 promoted, nothing applied)
+## Current state (2026-07-27, K2 — execution-kernel adoption + durable run artifacts, CODE COMPLETE, uncommitted)
+
+Code-only session on `chore/agent-handoff-integration`. **No database call, no
+migration, no credential, no network, no commit, no push.** Everything below is
+offline and in the working tree.
+
+The reusable execution foundation is now real code, not a design. A workflow can
+be handed a request and will: build an execution context, pass its own
+fail-closed gates, execute deterministic logic, return a standardized outcome
+envelope, emit sanitized audit events, persist a durable run report, and
+terminate with an explicit final state — through one call (`runWorkflow`) that
+cannot leak an exception.
+
+### Shipped
+- **Runner 5 on the kernel.** ~51 lines of duplicated harness machinery deleted
+  (counters, `ok`/`bad`/`check`, manual corpus loading, three hand-rolled
+  `JSON.stringify` determinism comparisons, the coverage loop, a local `sameSet`,
+  a regex `stripComments`, the purity loop, the summary/exit block). Assertions
+  **325 → 349**; strictly stronger — canonical-byte determinism instead of
+  `JSON.stringify`, orphan-label detection it did not have, the kernel's
+  state-scanner comment stripper, and cross-engine reason-union checks.
+- **Standardized outcomes for `prepareOutbound` and `classify`**
+  (`scripts/lib/awe-execution.mjs`). Success / refusal / blocked routing /
+  validation failure / internal error all return an outcome envelope with a
+  machine-readable code. Both engines keep their existing signatures: Runner 4 and
+  Runner 2A are untouched.
+- **Durable run-report artifacts.** Stable schema `awe.run_report/v1`
+  (`packages/awe-kernel/src/report.mjs`), atomic deterministic local writer
+  (`scripts/lib/artifact-store.mjs`), path `<workflow>/<date>/<run_id>.json` under
+  a gitignored `artifacts/`. Wired into Runners 4, 5 and E.
+- **Extension boundaries** (`context.mjs`, `sinks.mjs`, `execute.mjs`): execution
+  context, run-metadata contract, ArtifactSink, AuditSink, ContextProvider. All
+  authorization-free by construction — see DECISION_LOG.
+- **Runner E** (`scripts/eval-execution.{sh,mjs}`), offline, in regression.
+
+### Evidence (offline suites, this tree)
+Runner K **503/0** (was 344), Runner 3 **121/0**, Runner 4 **327/0**, Runner 5
+**349/0** (was 325), Runner E **376/0** (new). `regression.sh --exclude-kinds=db`:
+9 of 10 green. Six non-vacuity perturbations each fired and were reverted
+(report redaction, artifact path containment, refusal-as-success, classification
+fail-closed, reason-registry membership, Runner 5 corpus parity).
+
+Two real defects were found by that discipline rather than by review, both in
+`redact()`: credentials embedded in longer strings were not scrubbed, and the key
+`pass` (every runner's pass counter) was being redacted out of run reports. Both
+fixed and pinned by tests.
+
+### The one failing suite, and why it is not this work
+`mcp-smoke` reports `FAIL (tools=0)`. The MCP server refuses to start without
+`SUPABASE_URL` **and** `SUPABASE_SERVICE_ROLE_KEY`, and this environment has
+neither. Verified by running the server directly:
+`SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set`. Its suite descriptor now
+declares both, so the plan says "missing env" instead of implying the tool surface
+shrank. **It still runs and still fails loudly** — this is a label fix, not a skip.
+
+### Deliberately NOT done
+Tool Registry, capability model, tool permissions, tenant policy (all
+**ADR-0002**, unratified — no assumption was made). MCP integration. Any
+database/object-storage artifact adapter. Runner 2A live regression. Nothing was
+committed.
+
+### Highest-leverage next task
+**K4 — put the MCP server on the kernel.** It is the only remaining component that
+still hand-rolls its own result shapes, it carries the known `orgs limit 1` tenant
+defect, and wrapping its tools in `runWorkflow` + an execution context would force
+that binding to become explicit while giving every MCP call a standardized
+outcome, sanitized audit events and a durable report. It needs
+`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` to smoke-test.
+
+**Before that, ask Jack whether this tree should be committed.** The kernel, the
+H0 doc set and this work are all untracked or uncommitted on a branch already
+superseded by `chore/agent-handoff-clean`. That hazard is unchanged from the
+section below and is now larger.
+
+## Current state (2026-07-27, H0 re-verification — H0 INCOMPLETE, H1 NOT started, nothing written but docs)
+
+A fresh session was asked to verify H0 and, if complete, implement H1 (harness pure
+core). **H1 was not started.** Two stop conditions fired.
+
+1. **H0 is INCOMPLETE — criterion 10 (ratification) is still open.** All eight ADRs
+   read `Proposed`; `DECISION_LOG.md` has no ratification entry. This cannot be
+   self-granted (ADR README: `Proposed` "carries no authority"; doctrine D2:
+   automation never approves its own work). H1 entry criteria 1 and 2 therefore fail.
+2. **The repository carries unrelated uncommitted work and an active stop condition.**
+   `docs/planning/AGENT_HANDOFF.md` in the working tree is a *different* agent's
+   read-only Phase 1 deployment review (Codex, 18:30Z), not part of H0. It reports
+   that the live database has **no `supabase_migrations` schema** while `0001`–`0015`
+   are materially present — repository, migration history, and live state disagree,
+   which is `AGENTS.md`'s standing stop condition.
+
+Also newly found: **two competing C1 migrations** for the same 16-policy drop, on two
+branches, under two naming conventions, with `main` carrying neither — recorded as
+**ADR-0009** (`Proposed`; raises no decision, makes the conflict explicit). It blocks
+H2's `0017`/`0018` numbering, not H1.
+
+**Branch hazard:** the entire H0 harness doc set is *untracked* on
+`chore/agent-handoff-integration`, a branch already superseded by
+`chore/agent-handoff-clean` (merged to `main` as `dbf8f17`). H0's output is on no
+branch and in no commit.
+
+Verification that H0's own claims hold against code (all confirmed):
+`packages/mcp-server/src/index.js:396` really does use `orgs … limit 1`;
+`scripts/lib/db.mjs` really does hard-code `PROJECT_REF`/`ORG_ID`; Runners 1–5 really
+are taken; `packages/harness/` does not exist. H0 criteria 1–9 are genuinely done and
+the doc set is internally consistent.
+
+Written this session (documentation only — no code, no SQL, no DB call, no commit):
+`docs/architecture/decisions/0009-competing-c1-migration-artifacts.md` (new),
+`docs/architecture/decisions/README.md` (index row), `AGENT_HARNESS_H0_EXIT.md`
+(blockers B-5/B-6 + §8 re-verification), this file.
+
+**Next action is Jack's, and it is not code.** In order: (a) decide whether the H0
+doc set should be committed somewhere durable before anything else; (b) review the
+8 short ADRs and ratify or amend, with a DECISION_LOG entry; (c) resolve ADR-0009's
+C1-artifact choice. Only (b) unblocks H1. The H1 prompt below stays valid verbatim
+once ADR-0001 is `Accepted`.
+
+**Scope note for whoever runs H1:** the H1 request that arrived this session was
+broader than `AGENT_HARNESS_H1_BRIEF.md` — it additionally asked for the tool
+registry core, the execution-request envelope, a structured guardrail-result type,
+and trust/provenance labels. All four are specified in `AGENT_HARNESS_CONTRACTS.md`
+(§1.3/§1.4, §2.1, §2.4, §4.1), so the wider scope is coherent with H0 — but it is a
+deliberate expansion of the brief and should be agreed, and the brief amended, rather
+than absorbed silently.
+
+## Current state (2026-07-27 late, Task H0 — Agent Harness doctrine: DOCS COMPLETE, ratification pending)
+
+**Two independent things are open. Do not conflate them.**
+
+1. **S1 / migration 0016 — unchanged, still not applied.** No S1 artefact was
+   touched this session. Full status in the S1 section below; it is still accurate.
+2. **H0 (Agent Harness doctrine) — documentation complete, awaiting Jack's
+   ratification.** Documentation only: no code, no migration, no seed, no workflow,
+   no commit, no push, no live change of any kind.
+
+### What the H0 session produced (all new files, all `Proposed`)
+
+```
+docs/architecture/AGENT_HARNESS_DECISIONS.md     O1–O5 resolved + 2 design defects (D-A, D-B)
+docs/architecture/AGENT_HARNESS_DOCTRINE.md      D1–D20, each with enforcement + 2nd layer + failure + test + G-number
+docs/architecture/AGENT_HARNESS_GUARDRAILS.md    G1–G20 enforcement matrix
+docs/architecture/AGENT_HARNESS_CONTRACTS.md     registry / dispatcher / verification / context+compaction / session / retry
+docs/architecture/AGENT_HARNESS_H0_EXIT.md       exit + entry criteria, dependency map H0–H17, blockers
+docs/architecture/AGENT_HARNESS_H1_BRIEF.md      the next session, in full
+docs/architecture/decisions/README.md            ADR location + naming convention + index
+docs/architecture/decisions/0001-…0008-*.md      8 records, all Proposed
+```
+Updated: `AGENT_HARNESS_DESIGN.md` (two corrections + H0 amendment header),
+`UBIQUITOUS_LANGUAGE.md` (proposed harness terms), `TASK_BACKLOG.md` (H-series),
+this file.
+
+### The five open questions and the recommendations (all PROPOSED)
+
+| # | Question | Recommendation | ADR |
+|---|---|---|---|
+| O1 | Harness DB access path | **Service-role `supabase-js`** with explicit `org_id` binding; harness runtime never imports `scripts/lib/db.mjs` and never holds the `sbp_` management token; direct-Postgres least-privilege is the documented successor behind a narrow `DbClient` | ADR-0002 |
+| O2 | Where the loop runs | **Library only** — CLI, web route, MCP, later n8n. No daemon in v1; the lease design permits one later | ADR-0003 |
+| O3 | Structured output | **Keep strict JSON-in-text**; native tool-calling deferred behind an adapter capability flag (changing it would invalidate the Runner 2A replay corpus that is the parity gate) | ADR-0004 |
+| O4 | Fixture row lifecycle | **Accumulate** with idempotent per-fixture session keys; no reaper (deletion is forbidden); revisit at 100k rows; dedicated fixture org is the named successor | ADR-0005 |
+| O5 | Human-gate surface | **Split**: approvals reuse the B5 queue unchanged; operational blocks get a read-only admin list | ADR-0006 |
+
+Plus two defects found in the design doc during inspection and corrected:
+**D-A** kill switch is `agent_harness_settings` (default `enabled=false`,
+`fixture_mode_only=true`), *not* `org_settings.harness_enabled` — that column does
+not exist and `org_settings` is the payroll config table (ADR-0007).
+**D-B** the harness eval is **Runner 6** (6A deterministic/in-regression, 6B
+live/key-gated) — Runners 1–5 are already allocated (ADR-0008).
+
+### H0 status and the single blocker
+
+**H0 status: INCOMPLETE.** Nine of ten exit criteria are done; the tenth —
+**Jack ratifies ADR-0001…0008 and a DECISION_LOG entry records the date** — cannot
+be self-granted. Until then every decision above carries zero authority.
+
+**H1 is NOT ready to begin.** It needs ADR-0001 (`Accepted`) only; ADR-0002…0008 may
+stay `Proposed` through H1 because H1 touches no database and no provider.
+
+### Exact next prompt (after ratification)
+
+> Execute H1 per `docs/architecture/AGENT_HARNESS_H1_BRIEF.md`. Confirm ADR-0001 is
+> Accepted and a DECISION_LOG entry exists; capture a green `scripts/regression.sh`
+> baseline first; branch `feat/h1-harness-core`. Build only the pure core
+> (`packages/harness`: descriptor validation, digest, token estimator, error
+> taxonomy, blocked-reason union, redaction) plus `scripts/eval-harness-unit.sh` and
+> `scripts/lib/lint-harness-layering.mjs`, wired into regression. Zero runtime
+> dependencies, no DB, no network, no clock, no randomness. Prove the layering lint
+> and the descriptor/taxonomy/redact suites non-vacuous by perturbation, then revert.
+> Do not touch S1, migrations, or any existing runtime path. Do not commit or push.
+
+If ratification is not yet given, the next action is a **review pass over
+`docs/architecture/decisions/`** (8 short records) — not code.
+
+### Recommended sequencing note
+
+Applying S1/0016 **before** apply checkpoint AC-1 (harness migration 0017) is
+recommended: 0017 creates more service-role-only tables on a database that still
+carries undeclared client policies on `integration_events`. Not a hard dependency —
+H1–H3 write no live state — but creating new service-role-only tables next to
+unresolved policy drift on the shared events table is avoidable risk.
+
+## S1 state (2026-07-27, unchanged by the H0 session — 0016 promoted, nothing applied)
 
 **S1 is still not applied. The live database is unchanged** (55 policies, 16 on
 the four target tables, 24 base tables). Two sessions have now touched it:
