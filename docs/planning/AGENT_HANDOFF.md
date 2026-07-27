@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-27T13:49:31Z
+2026-07-27T14:30:00Z
 
 ## agent
 
@@ -14,59 +14,49 @@ jaqboredasf-gif/Autonomous-Workflow-Engine
 
 ## branch
 
-chore/agent-handoff-integration
+chore/agent-handoff-clean
 
 ## commit
 
-d9c400ae1a18ad12dcc01214fea41fdbfb8fcd93
+Pending final task commit.
 
 ## current objective
 
-Finish and verify GitHub handoff integration and establish a safe neutral default branch. Do not begin security remediation Phase 1.
+Create and verify a clean, `main`-based handoff integration draft PR that supersedes PR #1. Do not begin Security Remediation Phase 1.
 
 ## pull request
 
-- Number and URL: `#1` — https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/pull/1
-- Base: `security/c1-policy-cleanup`
-- Head: `chore/agent-handoff-integration`
-- State: open draft
+- Replacement PR: pending creation.
+- Base: `main`
+- Head: `chore/agent-handoff-clean`
+- Intended state: draft
+- PR #1 remains open until the replacement PR exists and its diff is verified.
 
 ## default branch
 
-- Before: `security/c1-policy-cleanup`
-- After: `main`
+- `main` at `75c43c6e42de1bd5265e95c88ebd6ed94afaf383`.
 
 ## branch ancestry findings
 
-- The repository has one root commit: `39fcdbc22b655ef840a9deb74bbaab1f33d82d75`.
-- `security/c1-policy-cleanup` contains the complete linear repository history through pre-security baseline `75c43c6e42de1bd5265e95c88ebd6ed94afaf383`.
-- Security preparation is isolated in its next commit, `3e617f283390eb64976a1322e8ecdaed48e54cd3`.
-- Local `main` at `c6bd92f` was an ancestor of `75c43c6` and was safely fast-forwarded to that pre-security baseline.
-- Remote `main` was created at `75c43c6` and set as the default branch.
-- `security/c1-policy-cleanup` remains intact at `3e617f2`.
-- PR #1 cannot be safely retargeted to `main`: its head descends from `3e617f2`, so retargeting would include the security-preparation commit. No history was rewritten or force-pushed.
+- `main` and `origin/main` point to the verified pre-security baseline `75c43c6e42de1bd5265e95c88ebd6ed94afaf383`.
+- `security/c1-policy-cleanup` remains preserved at `3e617f283390eb64976a1322e8ecdaed48e54cd3`.
+- PR #1 cannot safely target `main` because `chore/agent-handoff-integration` descends from the security-preparation commit `3e617f2`.
+- `chore/agent-handoff-clean` was created directly from `origin/main`.
+- Only the five verified handoff-only commits were cherry-picked; no security-preparation commit was imported.
 
 ## completed work
 
-- Authenticated GitHub CLI as the repository owner.
-- Created the private GitHub repository without overwriting an existing repository.
-- Added `origin` and pushed the pre-existing `security/c1-policy-cleanup` branch.
-- Added mandatory repository agent rules.
-- Added this structured handoff record.
-- Added a handoff validation script.
-- Added GitHub Actions validation for handoff integration changes.
-- Reviewed all four PR files for correctness, safety, and maintainability.
-- Made the validator independent of the caller's working directory.
-- Made the validator reject empty required sections.
-- Made Actions run on every push and pull request.
-- Made pull-request validation require an updated handoff document.
-- Pinned `actions/checkout` to the v4.2.2 commit.
-- Created neutral `main` from the verified pre-security baseline and made it the default branch.
+- Verified remotes, local status, branch tips, history, merge bases, the old branch diff, and PR #1 metadata.
+- Confirmed that commits `2d0ae97`, `6a5a99d`, `7d6d7f9`, `d9c400a`, and `e12eac2` touch only the four handoff integration files.
+- Preserved unrelated modified and untracked files in the original worktree without inspecting, modifying, staging, or committing them.
+- Created a separate linked worktree and `chore/agent-handoff-clean` directly from `origin/main`.
+- Cherry-picked only the verified handoff integration commits.
+- Confirmed the branch diff against `main` contains exactly the four intended files.
 
 ## files changed
 
-- `AGENTS.md`
 - `.github/workflows/agent-handoff.yml`
+- `AGENTS.md`
 - `docs/planning/AGENT_HANDOFF.md`
 - `scripts/validate-agent-handoff.sh`
 
@@ -77,43 +67,26 @@ None created, applied, moved, or modified by this task.
 ## commands run
 
 - `git remote -v`
-- `git branch --show-current`
 - `git status --short`
+- `git branch -vv`
+- `git log --graph --decorate --oneline --all -n 40`
+- `git merge-base main security/c1-policy-cleanup`
+- `git merge-base main chore/agent-handoff-integration`
+- `git diff --name-status main...chore/agent-handoff-integration`
+- `gh pr view 1 --json number,title,state,isDraft,url,baseRefName,headRefName,commits,files`
+- `git show --format=... --name-status` for each handoff commit
+- `gh --version`
 - `gh auth status`
-- `gh repo view --json nameWithOwner,visibility,url,defaultBranchRef`
-- `gh repo view jaqboredasf-gif/Autonomous-Workflow-Engine`
-- `gh repo create jaqboredasf-gif/Autonomous-Workflow-Engine --private`
-- `git remote add origin`
-- `gh auth setup-git`
-- `git push -u origin security/c1-policy-cleanup`
-- `git switch -c chore/agent-handoff-integration`
-- `bash scripts/validate-agent-handoff.sh`
-- `gh pr view --json number,state,isDraft,url,headRefName,baseRefName`
-- `gh pr diff 1`
-- `gh pr checks 1`
 - `git fetch origin --prune`
-- `git branch -a -vv`
-- `git rev-list --max-parents=0 --all`
-- `git log --graph --decorate --oneline --all`
-- `git merge-base --is-ancestor`
-- `git diff --name-status origin/security/c1-policy-cleanup^ origin/security/c1-policy-cleanup`
-- `(cd scripts && bash validate-agent-handoff.sh)`
-- `ruby -e 'require "yaml"; YAML.load_file(...)'`
-- `git push -u origin main`
-- `gh repo edit --default-branch main`
-- `gh repo edit --visibility private --accept-visibility-change-consequences`
+- `git worktree add -b chore/agent-handoff-clean /private/tmp/awe-handoff-clean origin/main`
+- `git cherry-pick 2d0ae97 6a5a99d 7d6d7f9 d9c400a e12eac2`
+- `git diff --name-status main...HEAD`
+- `git log --graph --decorate --oneline main..HEAD`
 
 ## tests passed
 
-- Agent handoff required-heading validation.
-- Agent handoff actual-secret-pattern validation.
-- Bash syntax validation.
-- Git whitespace validation.
-- Validator passes when launched from the repository root.
-- Validator passes when launched from `scripts/`.
-- GitHub Actions `validate` checks passed for both the push and pull-request runs after the finalized review update.
-- Workflow YAML parses successfully.
-- PR handoff-change enforcement matches `docs/planning/AGENT_HANDOFF.md`.
+- Pre-commit branch diff contains exactly the four intended handoff files.
+- The clean branch is based directly on `origin/main`.
 
 ## tests failed
 
@@ -121,29 +94,26 @@ None.
 
 ## live changes
 
-- GitHub: created a private repository and pushed Git branches.
-- GitHub: created `main` at the verified pre-security baseline and changed the default branch from `security/c1-policy-cleanup` to `main`.
-- GitHub: repository visibility unexpectedly reported `PUBLIC` immediately after the default-branch edit; it was immediately restored and verified as `PRIVATE`.
+- GitHub: fetched current remote state only; replacement PR actions are pending.
 - Supabase/database: no live change.
-- n8n: no live change.
+- n8n/external APIs/production: no live change.
 
 ## approvals required
 
-- Do not merge PR #1 while it targets `security/c1-policy-cleanup`.
-- Decide whether to supersede PR #1 with a clean handoff branch and new draft PR based on `main`; do not rewrite or force-push PR #1.
+- Keep the replacement PR as draft and do not merge without explicit approval.
 - Explicit approval remains required before applying any live database migration.
+- Do not begin Security Remediation Phase 1 under this task.
 
 ## risks
 
-- PR #1 is correctly isolated from security changes only while its base remains `security/c1-policy-cleanup`; it cannot deliver the handoff integration to `main` in its current ancestry.
-- Retargeting PR #1 to `main` would include the full `3e617f2` security-preparation commit.
-- Unrelated untracked architecture documents appeared during this task. They were not inspected, modified, staged, or committed.
-- Prepared security remediation remains only on `security/c1-policy-cleanup`; this task did not apply it.
+- PR #1 includes security-preparation ancestry and must not be retargeted or merged.
+- The old branch must remain preserved after PR #1 is superseded.
+- Unrelated user changes remain in the original worktree and are intentionally outside this task.
 
 ## blockers
 
-PR #1 cannot be both preserved without history rewriting and safely retargeted to `main`. A clean replacement branch/PR from `main` is the safe next coordination task.
+None currently.
 
 ## exact next prompt
 
-Create a clean handoff-integration branch from `main`, cherry-pick only the handoff integration commits, open a replacement draft PR targeting `main`, and leave PR #1 and `security/c1-policy-cleanup` intact. Do not force-push, merge, or start Phase 1.
+Review the clean handoff-only draft PR, confirm its four-file diff and passing checks, then explicitly approve merge if desired. Keep `security/c1-policy-cleanup` separate and do not begin Security Remediation Phase 1 without a new task.
