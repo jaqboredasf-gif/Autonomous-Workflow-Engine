@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-27T14:30:14Z
+2026-07-27T14:34:00Z
 
 ## agent
 
@@ -29,7 +29,8 @@ Keep the pull request draft. Do not apply migrations or begin Phase 2.
 
 - PR #2 merged into `main` with merge commit
   `dbf8f1755f1afefa8f7e44caa6c59bdf7e2863b1`.
-- Phase 1 draft PR: create after this handoff is committed and pushed.
+- Phase 1 draft PR: `#3` —
+  https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/pull/3
 - Base: `main`.
 - Head: `security/phase-1-remediation`.
 
@@ -52,6 +53,8 @@ Keep the pull request draft. Do not apply migrations or begin Phase 2.
   tenant/crew authorization, and C4 MCP tenant binding.
 - Added focused MCP tests and an offline migration-structure validator.
 - Updated security findings, regression documentation, context, and decisions.
+- Committed and pushed the verified implementation, then opened draft PR #3
+  targeting `main`.
 - Did not connect to Supabase, apply/dry-run a migration, alter n8n, send
   communications, or use real staff/tenant data.
 
