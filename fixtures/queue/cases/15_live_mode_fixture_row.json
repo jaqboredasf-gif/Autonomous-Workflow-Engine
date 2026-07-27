@@ -1,0 +1,13 @@
+{
+  "description": "LIVE mode with a fixture row. A fixture must never be approved as though it were a real customer message \u2014 the symmetric half of the TEST-mode guard.",
+  "mode": "LIVE",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {},
+  "decision": "approve",
+  "reason": null
+}

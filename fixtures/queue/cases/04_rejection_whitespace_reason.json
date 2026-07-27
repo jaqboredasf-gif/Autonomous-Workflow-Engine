@@ -1,0 +1,13 @@
+{
+  "description": "Whitespace is not a reason. Same refusal as an empty one.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {},
+  "decision": "reject",
+  "reason": "   \n\t "
+}

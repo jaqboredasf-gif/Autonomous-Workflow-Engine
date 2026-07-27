@@ -16,26 +16,32 @@ prep) for Lippolis Electric, plus an automated work-request → invoice pipeline
 apps/mobile          Expo 57 (blank-typescript). Punch app: solo/crew clock in-out,
                      GPS accuracy, offline queue, punch photo, completion form.
                      Key files: App.tsx, lib/queue.ts, lib/supabase.ts
-apps/web             Next.js 16 app router + Tailwind. Admin dashboard, 14 routes:
-                     home/login, timesheets, schedule, completions, map, flags,
-                     sites, employees, payroll, settings, api/employees.
-                     Key files: src/app/*/page.tsx, src/components/Nav.tsx
+apps/web             Next.js 16 app router + Tailwind. Admin dashboard, 15 routes:
+                     home/login, timesheets, schedule, completions, approvals,
+                     map, flags, sites, employees, payroll, settings,
+                     api/employees.
+                     Key files: src/app/*/page.tsx, src/components/Nav.tsx,
+                     src/lib/approval-queue.ts (B5 queue logic — pure, imports
+                     scripts/lib/approval-matrix.mjs; Runner 5 tests it directly)
 packages/shared      shared types
 packages/mcp-server  stdio MCP server (ESM JS), 10 tools, service-role key via env
 supabase/migrations  0001–0015 ALL applied to the live project (0014 + 0015 applied
                      2026-07-26; see "Migration state" below)
-scripts/             regression.sh, acceptance-slice1..4.sh, classify.mjs,
+scripts/             regression.sh, acceptance-slice1..5.sh, classify.mjs,
                      eval-intake.sh (Runner 1), eval-classification*.sh (2A/2B),
                      eval-approval-diff.sh (Runner 3), eval-approval-matrix.sh (Runner 4),
-                     parity-route-live.mjs (live SQL/JS routing parity, used by slice 4)
+                     eval-approval-queue.sh (Runner 5), parity-route-live.mjs
+                     (live SQL/JS routing parity, used by slice 4)
 scripts/lib/         pure offline engines: classification.mjs, model-adapters.mjs,
                      db.mjs, approval-diff.mjs (ADR), approval-matrix.mjs +
                      outbound-draft.mjs (B3), validate-migration-0014/0015.mjs
 fixtures/            emails/ (intake, 12 + labels), approvals/ (ADR diff, 15 + labels),
-                     outbound/ (B3 matrix + drafts: 5 policy sets, 16 cases + labels)
+                     outbound/ (B3 matrix + drafts: 5 policy sets, 16 cases + labels),
+                     queue/ (B5 approval queue: base-row + 19 cases + labels)
 docs/                ROADMAP.md, API_CONTRACT.md, AUTOMATION_SYNERGY.md,
                      GAP_ANALYSIS.md, REGRESSION_CHECKLIST.md
-docs/testing/        EVAL_STRATEGY.md, APPROVAL_DIFF.md (ADR), APPROVAL_MATRIX.md (B3)
+docs/testing/        EVAL_STRATEGY.md, APPROVAL_DIFF.md (ADR), APPROVAL_MATRIX.md (B3),
+                     APPROVAL_QUEUE.md (B5)
 docs/planning/       THIS folder — scope/requirements/roadmap/backlog/handoff
 ```
 
@@ -91,9 +97,9 @@ An empty `[]` means it executes cleanly and left nothing behind.
 source .env.acceptance && bash scripts/regression.sh
 ```
 
-Runs: mobile tsc, web build, MCP smoke (expects ≥10 tools), acceptance slices 1–4
-(9 + 10 + 20 + 49 checks) against the LIVE project, Runners 1–4, and the 0014/0015
-offline lints. Slice 4 is mgmt-API heavy, so regression pauses 45s after it to let the
+Runs: mobile tsc, web build, MCP smoke (expects ≥10 tools), acceptance slices 1–5
+(9 + 10 + 20 + 49 + 27 checks) against the LIVE project, Runners 1–5, and the
+0014/0015 offline lints. Slice 4 is mgmt-API heavy, so regression pauses 45s after it to let the
 per-minute rate-limit window drain — a 429 in a later runner is a throttle, not a test
 result (`scripts/lib/db.mjs` and slice 4 both retry throttles with backoff).
 
@@ -105,10 +111,11 @@ node scripts/lib/validate-migration-0014.mjs   # ADR migration lint
 node scripts/lib/validate-migration-0015.mjs   # B3 migration lint + engine/SQL parity
 bash scripts/eval-approval-diff.sh             # Runner 3 (ADR diff engine)
 bash scripts/eval-approval-matrix.sh           # Runner 4 (B3 matrix + drafts)
+bash scripts/eval-approval-queue.sh            # Runner 5 (B5 approval queue UI logic)
 (cd apps/mobile && npx tsc --noEmit) && (cd apps/web && npm run build)
 ```
 
-Everything else in regression (slices 1–4, Runner 1 eval-intake, Runner 2A) reads AND
+Everything else in regression (slices 1–5, Runner 1 eval-intake, Runner 2A) reads AND
 WRITES the live project and needs `.env.acceptance` sourced. Must be ALL GREEN before
 and after every change. Gotcha already fixed — keep it fixed: time_entries has a
 `clock_out > clock_in` check constraint; acceptance scripts back-date clock_in 1h.
@@ -151,3 +158,20 @@ transaction) and nothing persists. Slice 4's `as_user()` helper is this pattern.
 Revoke sbp_ management token when setup phase ends; rotate service-role key before
 real employee data; org-scope punch-photo storage read policy; `.env.acceptance`
 must never be committed.
+
+**S1 (open, found 2026-07-26, human-gated):** the live DB carries 16 undeclared
+`*_org_{select,insert,update,delete}` policies on `integration_events`,
+`time_entry_audits`, `crews` and `crew_members` — orphan-schema residue 0012 did
+not clean up. No role gate, so any authenticated org member can read, insert and
+**delete audit events**. Verified live in rolled-back transactions. Remediation
+SQL + acceptance criteria: TASK_BACKLOG S1. Do not apply without Jack's
+go-ahead — dropping objects on live is destructive.
+
+Live policy drift is worth re-checking after any externally-made change:
+
+```bash
+jq -Rs '{query: .}' <<<"select tablename, policyname from pg_policies where schemaname='public' order by 1,2;" | \
+curl -s -X POST "https://api.supabase.com/v1/projects/qgoiacwdntaqeghcyjlw/database/query" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @- | \
+jq -r '.[] | .policyname' | while read -r p; do grep -qr "create policy $p " supabase/migrations/ || echo "UNDECLARED: $p"; done
+```

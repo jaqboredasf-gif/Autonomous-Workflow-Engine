@@ -47,6 +47,11 @@ if [ -f scripts/acceptance-slice4.sh ]; then
   sleep 45
 fi
 
+if [ -f scripts/acceptance-slice5.sh ]; then
+  step "acceptance slice 5 (B5 approval queue: browser-path RLS, RPC gates, embeds)"
+  bash scripts/acceptance-slice5.sh || fails=$((fails+1))
+fi
+
 if [ -f scripts/eval-intake.sh ]; then
   step "intake eval (baseline, deterministic)"
   bash scripts/eval-intake.sh || fails=$((fails+1))
@@ -75,6 +80,11 @@ fi
 if [ -f scripts/eval-approval-matrix.sh ]; then
   step "approval-matrix + outbound-draft eval (Runner 4, offline deterministic — no keys, no DB, no network)"
   bash scripts/eval-approval-matrix.sh || fails=$((fails+1))
+fi
+
+if [ -f scripts/eval-approval-queue.sh ]; then
+  step "approval-queue eval (Runner 5, offline deterministic — no keys, no DB, no network)"
+  bash scripts/eval-approval-queue.sh || fails=$((fails+1))
 fi
 
 echo; echo "regression: $([ $fails = 0 ] && echo ALL GREEN || echo "$fails FAILURES")"

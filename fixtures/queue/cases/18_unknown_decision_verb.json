@@ -1,0 +1,13 @@
+{
+  "description": "A decision verb outside {approve, reject}. Refused by name rather than silently ignored.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {},
+  "decision": "send",
+  "reason": null
+}

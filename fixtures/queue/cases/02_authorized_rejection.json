@@ -1,0 +1,13 @@
+{
+  "description": "Same authorized approver rejecting, with a reason. The reason is trimmed before it reaches record_approval().",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {},
+  "decision": "reject",
+  "reason": "  wrong customer address  "
+}

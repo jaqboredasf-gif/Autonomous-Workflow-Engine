@@ -1,0 +1,13 @@
+{
+  "description": "Rejection with no reason at all. 0015 raises 'a rejection must record a reason'; the UI refuses before the call is made.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {},
+  "decision": "reject",
+  "reason": null
+}

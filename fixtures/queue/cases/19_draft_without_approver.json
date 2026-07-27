@@ -1,0 +1,19 @@
+{
+  "description": "Defense in depth: a DRAFT row carrying no assigned approver role. create_outbound_draft() cannot produce this (routing must name a role before it writes a draft), so it can only arrive by corruption \u2014 the queue must still refuse it rather than offer an unowned approval.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true,
+      "owner": true
+    }
+  },
+  "row": {
+    "status": "draft",
+    "assigned_approver_role": null,
+    "routing_path": null,
+    "draft_key": "fixture:service_call_confirmation:WR-FIX-005"
+  },
+  "decision": "approve",
+  "reason": null
+}

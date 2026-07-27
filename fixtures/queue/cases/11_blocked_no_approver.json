@@ -1,0 +1,30 @@
+{
+  "description": "estimate_proposal with approver_role NULL in the live matrix: routed blocked/missing_approver_role. There is nobody to approve as, so the queue shows it and offers no decision. `blocked` is not a draft, so the queue refuses the decision as not_pending and shows the blocked reason instead.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true,
+      "owner": true
+    }
+  },
+  "row": {
+    "message_type": "estimate_proposal",
+    "status": "blocked",
+    "assigned_approver_role": null,
+    "routing_path": null,
+    "blocked_reason": "missing_approver_role",
+    "draft_key": "fixture:estimate_proposal:WR-FIX-002",
+    "message_policies": {
+      "message_type": "estimate_proposal",
+      "mode": "draft",
+      "approver_role": null,
+      "backup_approver_role": "owner",
+      "escalation_role": "owner",
+      "approval_limit_cents": null,
+      "active": true
+    }
+  },
+  "decision": "approve",
+  "reason": null
+}

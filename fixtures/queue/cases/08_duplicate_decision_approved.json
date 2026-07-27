@@ -1,0 +1,19 @@
+{
+  "description": "Message was already approved. Deciding again is refused (0015: 'only a draft can be decided') \u2014 duplicate-decision protection.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {
+    "status": "approved",
+    "approved_at": "2026-07-26T15:00:00.000Z",
+    "approver": {
+      "full_name": "Jack Admin"
+    }
+  },
+  "decision": "approve",
+  "reason": null
+}

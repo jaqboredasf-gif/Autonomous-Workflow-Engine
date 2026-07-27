@@ -1,0 +1,19 @@
+{
+  "description": "LIVE mode, real (non-fixture) message, authorized approver: the only combination in which a production message is decidable.",
+  "mode": "LIVE",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {
+    "is_fixture": false,
+    "to_addrs": [
+      "real.customer@example.com"
+    ],
+    "draft_key": "service_call_confirmation:WR-REAL-003"
+  },
+  "decision": "approve",
+  "reason": null
+}

@@ -1,0 +1,13 @@
+{
+  "description": "Office admin holds the assigned role, row is a fixture-safe draft in TEST mode: approval is offered and the RPC payload carries no reason.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {},
+  "decision": "approve",
+  "reason": null
+}

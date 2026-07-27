@@ -1,0 +1,19 @@
+{
+  "description": "TEST mode, but the row addresses a real mailbox. Deciding on real customer mail from a test deployment is refused (enforceTestMode vocabulary).",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {
+    "to_addrs": [
+      "real.customer@example.com"
+    ],
+    "is_fixture": false,
+    "draft_key": "service_call_confirmation:WR-REAL-001"
+  },
+  "decision": "approve",
+  "reason": null
+}

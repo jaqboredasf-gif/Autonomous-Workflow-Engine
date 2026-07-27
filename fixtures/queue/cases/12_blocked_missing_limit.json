@@ -1,0 +1,21 @@
+{
+  "description": "Amount-bearing change order with no configured approval limit (boss \u00a73 unanswered): blocked/missing_approval_limit. Fail-closed, not decidable. `blocked` is not a draft, so the queue refuses the decision as not_pending and shows the blocked reason instead.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "owner": true
+    }
+  },
+  "row": {
+    "message_type": "change_order",
+    "status": "blocked",
+    "amount_cents": 250000,
+    "assigned_approver_role": null,
+    "routing_path": null,
+    "blocked_reason": "missing_approval_limit",
+    "draft_key": "fixture:change_order:WR-FIX-003"
+  },
+  "decision": "approve",
+  "reason": null
+}

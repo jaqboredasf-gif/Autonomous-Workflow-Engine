@@ -3,7 +3,102 @@
 Read CONTEXT.md first, then this, then all docs/planning/*.md. One approved task per session.
 Vocabulary authority: docs/architecture/UBIQUITOUS_LANGUAGE.md (2026-07-17).
 
-## Current state (2026-07-26, Task B3 COMPLETE — live-verified, slice 4 green)
+## Current state (2026-07-26, Task B5 COMPLETE — approval queue shipped, slice 5 green)
+
+**B5 is done.** `/approvals` ships, backed by a pure logic module, 19 labelled
+fixtures, a new offline Runner 5 and a new live acceptance slice 5. **Zero
+database changes** — repo and live stay in sync at migrations 0001–0015 and the
+drift check is clean (24 base tables).
+
+### What B5 shipped
+- **`apps/web/src/lib/approval-queue.ts`** — every decidable rule, pure and
+  framework-free (no React, no Supabase client, no fetch, no clock). It IMPORTS
+  the B3 engine's `enforceTestMode`/`resolveMode` from `scripts/lib/approval-matrix.mjs`
+  instead of restating them, so there is exactly one definition of fixture-safety
+  in the repo. `QUEUE_SELECT` (the queue's PostgREST projection) lives here and
+  slice 5 reads it from the module — the acceptance test cannot drift from the UI.
+- **`apps/web/src/app/approvals/page.tsx`** — the shell: five view states
+  (loading / signed-out / error / empty / ready), pending-blocked-decided tabs,
+  a detail panel with the full draft, the work request, the matrix row that
+  routed it, the audit history, and Approve / Reject. Nothing is called that
+  `planDecision()` did not return, so a refused decision never leaves the browser.
+- **`fixtures/queue/`** — `base-row.json` + **19** labelled cases (each states
+  only the fields it tests) covering authorized approve/reject, unauthorized,
+  unresolved capability, signed-out, three duplicate-decision shapes, two
+  fail-closed blocked rows, a draft with no approver, both TEST-mode directions,
+  both LIVE-mode directions, escalation, and an unknown decision verb.
+- **Runner 5** (`scripts/eval-approval-queue.{sh,mjs}`) — pure offline, in
+  regression. Node 24 strips TS types on import, so it tests **the module the
+  page ships**, not a copy. Beyond the labels it hard-gates determinism, the
+  duplicate-decision invariant across *every* status enum value, the five view
+  states, the refresh verdict, audit ordering, `QUEUE_SELECT` column/FK-hint
+  resolution against the migrations, enum parity with 0015, and source purity
+  (no send call, no service-role credential, no direct write, only two RPCs).
+- **`scripts/acceptance-slice5.sh`** — 27 live checks over the browser's real
+  credentials (anon key + the signed-in user's JWT), in regression. Proves what
+  Runner 5 cannot: the three `users!` FK hints and the two-level
+  `work_requests → email_messages` embed actually resolve; admin reads the queue
+  while anon and the fixture `worker` read zero; `record_approval()` enforces the
+  reason, the role and one-decision-per-message against those credentials; a
+  blocked message is visible but undecidable; a direct PATCH writes nothing.
+- **`docs/testing/APPROVAL_QUEUE.md`** — contract, guard vocabulary, data
+  contract, TEST-mode rules, evidence, limits.
+
+### B5 evidence (2026-07-26)
+Runner 5 `passed=325 failed=0`, 19 fixtures, guard-reason coverage 7/7.
+Slice 5 `passed=27 failed=0`. Full regression **ALL GREEN on two consecutive
+runs**: mobile tsc, web build (**15 routes**), MCP 10 tools, slices 1–5
+(9 + 10 + 20 + 49 + 27), Runner 1 24/24, Runner 2A 20/20 accuracy 12/12,
+Runner 3 120/0, Runner 4 314/0, Runner 5 325/0, both migration lints PASS.
+Non-vacuity by perturbation: adding `'approved'` to `DECIDABLE_STATUSES` → 6
+failures; removing the rejection-reason `.trim()` → 4 failures; both restored,
+`git diff` clean. Detail: docs/testing/APPROVAL_QUEUE.md.
+
+### SECURITY finding — S1, open and human-gated
+Slice 5 asked whether a browser session could read the event log. It can. The
+live DB carries **16 undeclared policies** (`*_org_{select,insert,update,delete}`
+on `integration_events`, `time_entry_audits`, `crews`, `crew_members`) that no
+migration in this repo creates — orphan-schema residue 0012 did not clean up.
+They gate on `current_org_id()` with **no role check**. Verified live inside
+rolled-back transactions as the fixture `worker`: 310 events readable, **11
+`message.approved` events deletable**, a forged event insertable. That breaks
+"audit everything" and "no hard deletes" and makes the approval audit trail
+destructible by the people it audits.
+
+Not fixed this session on purpose: dropping objects on live is a destructive,
+human-gated action, and authoring an unapplied migration would break the
+repo↔live sync invariant. Remediation SQL + acceptance criteria: **TASK_BACKLOG
+S1**. The approval queue is unaffected — it never reads that table, and
+`outbound_messages`/`message_policies` carry no such policies.
+
+### Two things worth carrying forward
+- **The web app can import the offline engines directly**, and a Node runner can
+  import the app's TypeScript module (type stripping). Verified both directions
+  build and run. That is the escape from B3's dual-implementation problem: where
+  logic is shared, keep ONE copy instead of a mirror plus a parity lint.
+- **`npm run lint` in apps/web is broken repo-wide** (`eslint-config-next` wants
+  a parser Next 16 does not ship). Confirmed pre-existing by stashing B5 and
+  re-running. Not in regression; the build's TypeScript strict pass is green.
+  Filed under TASK_BACKLOG AR — fix it, don't route around it.
+
+### Still open (unchanged from B3, all deliberately fail-closed)
+- Approval limits (boss §3) unknown → every live `approval_limit_cents` NULL, so
+  amount-bearing messages block with `missing_approval_limit`.
+- `estimate_proposal` approver unknown → blocks with `missing_approver_role`.
+  Both are now VISIBLE to a human: the queue shows blocked rows with their reason.
+- **I1 (Entra app registration) still blocks all real-mail work.** No Graph work
+  started; slice 5 re-asserts `graph_message_id` stays NULL.
+- Live fixture user `f1000000-0000-4000-8000-000000000001` "FIXTURE Non-Approver
+  (slice4)" is used by slices 4 AND 5. Do not delete it.
+
+### Next session — S1 (safest) then B5b or B4
+**S1** is the safest next task and the only one with a security finding behind
+it: it is a scoped, reversible-by-recreation policy cleanup, human-gated, with
+acceptance criteria already written. After that, **B5b** (requests inbox, split
+out of B5) or **B4** (emergency escalation config) — both independent and ready.
+Do not start ADR Graph work; Entra (I1) is still blocked.
+
+## Prior state (2026-07-26, Task B3 COMPLETE — live-verified, slice 4 green)
 
 **B3 is done.** 0014 + 0015 are applied to the live project and every B3 acceptance
 criterion now has executed live evidence. Migrations 0001–0015 and the repo are in sync.

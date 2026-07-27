@@ -1,0 +1,13 @@
+{
+  "description": "No signed-in user at all. Nothing is decidable.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": null,
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {},
+  "decision": "approve",
+  "reason": null
+}

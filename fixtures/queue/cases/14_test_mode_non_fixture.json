@@ -1,0 +1,16 @@
+{
+  "description": "TEST mode, unresolvable recipient but is_fixture false \u2014 provenance is missing. Still refused.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {
+    "is_fixture": false,
+    "draft_key": "service_call_confirmation:WR-REAL-002"
+  },
+  "decision": "approve",
+  "reason": null
+}

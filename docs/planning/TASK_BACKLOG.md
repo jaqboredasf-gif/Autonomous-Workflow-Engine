@@ -157,11 +157,53 @@ deferred until a geocoder exists. Original goal text below.
 - **Acceptance**: emergency work_request → escalation event w/ contact payload; shift insert for escalated request rejected; human ack clears halt.
 - **Handoff**: contact config shape; unconfirmed channel noted.
 
-## B5 — Web: Requests inbox + Approval queue — `ready`
-- **Goal**: two pages reusing existing auth/Nav/patterns: request list w/ classification + status; drafts queue w/ approve/reject buttons.
-- **Deps**: B1, B3.
-- **Acceptance**: build green; fixture flows visible end-to-end; approve button drives RPC.
-- **Handoff**: routes added.
+## B5 — Web: Approval queue — `DONE` (2026-07-26)
+- **Goal (original)**: two pages reusing existing auth/Nav/patterns: request list w/ classification + status; drafts queue w/ approve/reject buttons.
+- **Deps**: B1, B3 (both done).
+- **Scope taken**: the **approval queue only**. The requests-inbox page is split out as **B5b** below — the queue is the half that gates outbound messages, so it earns its keep first, and shipping one small production-shaped page beats two thin ones.
+- **Acceptance criteria (derived from repo evidence, all met)**:
+  1. `/approvals` lists pending approvals under RLS with the signed-in user's own JWT ✅ (slice 5 checks 1–1d)
+  2. full approval request + related draft + work request + originating email visible ✅ (1b, 1d)
+  3. requester / recipient / message type / amount / approval owner / escalation state / timestamps / audit history displayed ✅ (page `dl` + `buildAuditTrail`; Runner 5 audit gates)
+  4. approve action drives `record_approval()` ✅ (slice 5 check 7)
+  5. reject action requires a reason ✅ (Runner 5 cases 03/04; slice 5 checks 5/5b/6)
+  6. blocked + error states are explicit and non-silent ✅ (1e, `queueState` gates)
+  7. duplicate decisions impossible ✅ (`DECIDABLE_STATUSES` + 0015; Runner 5 status invariant; slice 5 6b/7c)
+  8. unauthorized approvers cannot decide ✅ (`business_role_matches`; slice 5 2b/3c/8)
+  9. TEST-mode visibility + safeguards ✅ (mode badge, per-row `test` badge, symmetric guard; Runner 5 cases 13–16)
+  10. no send action, no bypass around the gate ✅ (Runner 5 source purity; slice 5 check 9 + 10/10b)
+  11. deterministic refresh after a decision ✅ (`verifyDecisionApplied`; Runner 5 refresh gates)
+  12. accessibility + responsive + loading/empty/success/failure states ✅ (live region, labelled controls, table caption/scope, `lg` grid; `queueState` 5/5)
+- **Shipped (2026-07-26)**: `apps/web/src/lib/approval-queue.ts` (pure decidable logic; imports the B3 engine's `enforceTestMode`/`resolveMode` rather than restating them), `apps/web/src/app/approvals/page.tsx`, Nav entry, `fixtures/queue/` (base row + 19 labelled cases), **Runner 5** `scripts/eval-approval-queue.{sh,mjs}` and **`scripts/acceptance-slice5.sh`**, both wired into regression. Contract + evidence: `docs/testing/APPROVAL_QUEUE.md`.
+- **Evidence**: Runner 5 `passed=325 failed=0` (19 fixtures, guard-reason coverage 7/7, non-vacuous by perturbation: 6 and 4 induced failures, restored); slice 5 `passed=27 failed=0`; full regression ALL GREEN twice; web build 15 routes; **zero database changes** (drift check: 24 base tables, unchanged).
+- **Handoff**: route `/approvals` added; `QUEUE_SELECT` in the lib is the single definition of the queue's projection (slice 5 reads it from the module).
+
+## B5b — Web: Requests inbox — `ready`
+- **Goal**: `/requests` list of `work_requests` with classification, urgency, territory result, status and the originating email — the intake-side counterpart to `/approvals`.
+- **Why**: split out of B5 (2026-07-26) so the approval queue could ship complete rather than two half pages.
+- **Deps**: B1 (done). Reuses the B5 page patterns and `work_requests_admin_read`.
+- **Acceptance**: build green; fixture requests visible end-to-end; no write actions beyond what 0011 already allows.
+
+## S1 — Remove undeclared client policies on the audit tables — `ready` (SECURITY, human-gated)
+- **Found**: 2026-07-26 by `scripts/acceptance-slice5.sh` while checking whether the browser could read the event log.
+- **Finding**: the LIVE database carries 16 policies (4 tables × select/insert/update/delete) that **no migration in this repo creates**, all named `<table>_org_{select,insert,update,delete}` — the naming convention of the orphan schema an external session created (see DECISION_LOG 2026-07-17 B1; migration 0012 dropped the orphan *tables* and restored `current_org_id()`, but not these policies). Affected: `integration_events`, `time_entry_audits`, `crews`, `crew_members`. They are gated on `current_org_id()` only — **no role check** — so any `authenticated` org member qualifies.
+- **Impact**: verified live inside rolled-back transactions using the fixture `worker` (`f1000000-…-001`): it can read 310 `integration_events`, **DELETE 11 `message.approved` events**, and INSERT a forged event. That breaks two universal rules at once (STAKEHOLDERS: "audit everything", "no hard deletes") and makes the approval audit trail destructible by the very people it audits. `time_entry_audits` is exposed the same way (currently empty, so a delete test is vacuous). `crews`/`crew_members` are a lesser privilege issue (any worker may create/modify/delete crews in their org).
+- **NOT the approval queue's problem**: B5 never reads `integration_events` (slice 5 check 4, Runner 5 source purity), and `outbound_messages` / `message_policies` carry no such policies — slice 4 and slice 5 both prove a `worker` sees zero rows there.
+- **Fix (do NOT apply without Jack's go-ahead — dropping objects on live is a destructive, human-gated action; dry-run in `begin; … rollback;` first)**:
+  ```sql
+  drop policy if exists integration_events_org_select on integration_events;
+  drop policy if exists integration_events_org_insert on integration_events;
+  drop policy if exists integration_events_org_update on integration_events;
+  drop policy if exists integration_events_org_delete on integration_events;
+  drop policy if exists time_entry_audits_org_select on time_entry_audits;
+  drop policy if exists time_entry_audits_org_insert on time_entry_audits;
+  drop policy if exists time_entry_audits_org_update on time_entry_audits;
+  drop policy if exists time_entry_audits_org_delete on time_entry_audits;
+  -- crews / crew_members: confirm nothing in apps/mobile or apps/web relies on
+  -- client-side crew writes BEFORE dropping these four + four.
+  ```
+- **Acceptance**: after apply, a `worker` JWT reads 0 `integration_events` and cannot delete or insert one; regression ALL GREEN (nothing in it writes those tables from a client session); a new check in slice 5 pins `pg_policies` count = 0 for `integration_events` so the drift cannot silently return.
+- **Deferred deliberately**: no migration file was authored, so repo↔live stay in sync at 0001–0015 until the fix is authorized.
 
 ## E1 — Fixture labels + baseline deterministic eval — `done` (2026-07-17, Phase 4 session)
 fixtures/emails/labels.json (ground truth, 12 fixtures) + scripts/eval-intake.sh
@@ -207,6 +249,8 @@ Drawing-based auto-estimating; draft→auto graduation per type; vendor-invoice 
 - Emergency keyword list lives in fn body — config-table graduation when boss provides additions.
 - macOS-only `date -v` in acceptance scripts — Linux CI portability.
 - 0011 events emitted by triggers vs B3 RPC-emitted events — keep one convention per table family.
+- `npm run lint` in apps/web is broken repo-wide: `eslint-config-next` requires `next/dist/compiled/babel/eslint-parser`, which Next 16 does not ship (`next lint` was removed in 16). Pre-existing — fails identically on the pre-B5 tree — and not in regression.sh; TypeScript strict checking still runs in the production build. Fix = move to the flat-config `@next/eslint-plugin-next` setup, or drop the lint script.
+- Acceptance slices 4 and 5 both seed a fixture email + work_request + drafts per run; live fixture rows accumulate in the `fixture:` namespace. Harmless (is_fixture, unresolvable recipients) but a periodic fixture-reaper — which must respect the no-hard-delete guards — is worth designing before real data lands.
 
 ## P1 — Write AI_DEVELOPMENT_METHOD.md — `ready` (process doc, Jack or planning session)
 - **Goal**: short doc codifying the Ralph-loop planning method actually in use: fresh-context sessions, one phase per session, state lives in docs/planning/*.md, fresh-session prompts generated FROM state files (never freehand), 8-step end-of-session protocol.

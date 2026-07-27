@@ -2,6 +2,66 @@
 
 Append-only. Newest first. Format: date — decision — why — supersedes (if any).
 
+## 2026-07-26 (Task B5 — approval queue UI)
+
+- **B5 ships the approval queue only; the requests inbox is split out as B5b.**
+  The backlog entry named two pages. The queue is the half that gates every
+  outbound message, and one small production-shaped page with real guards beats
+  two thin lists. Narrows TASK_BACKLOG B5 (2026-07-17); B5b is filed `ready`.
+- **The UI is a mirror, never an authority.** Every guard in
+  `apps/web/src/lib/approval-queue.ts` is already enforced by `record_approval()`
+  and RLS; the module decides only what to *offer* a human. Where the two
+  disagree the database wins and the page shows its raised error verbatim.
+  Hiding a button is not a security control — so slice 5 re-proves every guard
+  over the browser's own credentials rather than trusting the client code.
+- **Zero database changes in B5.** No migration, no new policy, no new RPC. The
+  queue reads through the existing admin SELECT policies and writes only through
+  0015's `record_approval()`. Repo↔live stay in sync at 0001–0015; drift check
+  after the slice: 24 base tables, unchanged.
+- **Audit history is reconstructed from the message row, not from
+  `integration_events`.** That table is service-role-only by design (0009), so
+  reading it from a browser would mean weakening its RLS or shipping a
+  service-role key to the client. The row's write-once attribution columns carry
+  the same facts (who / when / why) and 0015's transition guard makes them
+  set-once, so this is evidence rather than a retelling. Cost: the queue cannot
+  show events that have no column (none today). Rejected alternatives: a
+  security-definer audit RPC (needs a live migration — human-gated, and B5 did
+  not need one) and a client policy on `integration_events` (weakens RLS).
+- **The queue calls `business_role_matches()` instead of re-implementing the role
+  mapping.** One call per distinct approver role in view. An unresolved
+  capability counts as NOT held (fail closed). This keeps the Phase 5
+  `user_roles` migration a one-place change, as 0015 intended.
+- **TEST mode is symmetric.** In TEST only fixture rows addressed to
+  `@example.invalid` are decidable; in LIVE a fixture is not decidable at all.
+  A test deployment must not be able to approve real customer mail, and a
+  production deployment must not approve a fixture as though it were real. The
+  TEST half is the B3 engine's `enforceTestMode()`, imported rather than
+  restated, so there is one definition of fixture-safety in the repo.
+- **A decision is believed only after a re-read.** `verifyDecisionApplied()`
+  checks the row actually moved to the expected status after the refresh; an RPC
+  that returns success while the row stays in `draft` is reported as a failure.
+  Same posture as B2's Verify Step (2026-07-20).
+- **The web app imports the offline engine directly** (`apps/web/src/lib` →
+  `scripts/lib/approval-matrix.mjs`), and Runner 5 imports the TypeScript module
+  the page ships (Node 24 strips types). Verified both directions build and run.
+  This is the alternative to B3's dual-implementation problem: no mirror, no
+  parity lint needed for the shared parts — there is only one copy.
+- **SECURITY, found while checking whether the browser could read the event
+  log**: the live DB carries 16 undeclared `*_org_{select,insert,update,delete}`
+  policies on `integration_events`, `time_entry_audits`, `crews` and
+  `crew_members` — orphan-schema residue that 0012 (2026-07-17) did not clean
+  up. They check `current_org_id()` with **no role gate**, so any authenticated
+  org member qualifies. Verified live in rolled-back transactions as the fixture
+  `worker`: 310 events readable, 11 `message.approved` events deletable, a
+  forged event insertable. Filed as **S1**, NOT fixed this session: dropping
+  objects on live is a destructive, human-gated action (CONTEXT standing rule),
+  and authoring an unapplied migration would break the repo↔live sync invariant.
+  Remediation SQL is in the backlog entry.
+- **`npm run lint` (apps/web) is broken repo-wide and was not "fixed" by
+  weakening it.** `eslint-config-next` requires a parser Next 16 does not ship.
+  Confirmed pre-existing by stashing B5 and re-running. Filed under AR; the
+  production build still runs TypeScript strict checking, which is green.
+
 ## 2026-07-17 (Phase 4 — MVP definition + harness/eval integration)
 
 - **MVP = email-triage vertical slice** (docs/planning/MVP_SPEC.md) —

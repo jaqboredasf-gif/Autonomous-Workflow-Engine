@@ -1,0 +1,20 @@
+{
+  "description": "Already rejected and terminal. A second decision is refused.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {
+      "office_admin": true
+    }
+  },
+  "row": {
+    "status": "rejected",
+    "rejected_at": "2026-07-26T15:05:00.000Z",
+    "rejection_reason": "wrong customer",
+    "rejector": {
+      "full_name": "Jack Admin"
+    }
+  },
+  "decision": "reject",
+  "reason": "changed my mind"
+}

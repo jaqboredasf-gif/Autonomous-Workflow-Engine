@@ -1,0 +1,128 @@
+{
+  "01_authorized_approval.json": {
+    "guard_allowed": true,
+    "guard_reason": null,
+    "plan_ok": true,
+    "rpc": {
+      "p_decision": "approve",
+      "p_reason": null
+    }
+  },
+  "02_authorized_rejection.json": {
+    "guard_allowed": true,
+    "guard_reason": null,
+    "plan_ok": true,
+    "rpc": {
+      "p_decision": "reject",
+      "p_reason": "wrong customer address"
+    }
+  },
+  "03_rejection_missing_reason.json": {
+    "guard_allowed": true,
+    "guard_reason": null,
+    "plan_ok": false,
+    "plan_reason": "missing_rejection_reason"
+  },
+  "04_rejection_whitespace_reason.json": {
+    "guard_allowed": true,
+    "guard_reason": null,
+    "plan_ok": false,
+    "plan_reason": "missing_rejection_reason"
+  },
+  "05_unauthorized_approver.json": {
+    "guard_allowed": false,
+    "guard_reason": "unauthorized_approver",
+    "plan_ok": false,
+    "plan_reason": "unauthorized_approver"
+  },
+  "06_unknown_capability_fails_closed.json": {
+    "guard_allowed": false,
+    "guard_reason": "unauthorized_approver",
+    "plan_ok": false,
+    "plan_reason": "unauthorized_approver"
+  },
+  "07_signed_out_no_capabilities.json": {
+    "guard_allowed": false,
+    "guard_reason": "unauthorized_approver",
+    "plan_ok": false,
+    "plan_reason": "unauthorized_approver"
+  },
+  "08_duplicate_decision_approved.json": {
+    "guard_allowed": false,
+    "guard_reason": "not_pending",
+    "plan_ok": false,
+    "plan_reason": "not_pending"
+  },
+  "09_duplicate_decision_rejected.json": {
+    "guard_allowed": false,
+    "guard_reason": "not_pending",
+    "plan_ok": false,
+    "plan_reason": "not_pending"
+  },
+  "10_duplicate_decision_sent.json": {
+    "guard_allowed": false,
+    "guard_reason": "not_pending",
+    "plan_ok": false,
+    "plan_reason": "not_pending"
+  },
+  "11_blocked_no_approver.json": {
+    "guard_allowed": false,
+    "guard_reason": "not_pending",
+    "plan_ok": false,
+    "plan_reason": "not_pending"
+  },
+  "12_blocked_missing_limit.json": {
+    "guard_allowed": false,
+    "guard_reason": "not_pending",
+    "plan_ok": false,
+    "plan_reason": "not_pending"
+  },
+  "13_test_mode_real_recipient.json": {
+    "guard_allowed": false,
+    "guard_reason": "test_mode_violation",
+    "plan_ok": false,
+    "plan_reason": "test_mode_violation"
+  },
+  "14_test_mode_non_fixture.json": {
+    "guard_allowed": false,
+    "guard_reason": "test_mode_violation",
+    "plan_ok": false,
+    "plan_reason": "test_mode_violation"
+  },
+  "15_live_mode_fixture_row.json": {
+    "guard_allowed": false,
+    "guard_reason": "fixture_in_live_mode",
+    "plan_ok": false,
+    "plan_reason": "fixture_in_live_mode"
+  },
+  "16_live_mode_real_row.json": {
+    "guard_allowed": true,
+    "guard_reason": null,
+    "plan_ok": true,
+    "rpc": {
+      "p_decision": "approve",
+      "p_reason": null
+    }
+  },
+  "17_escalated_draft.json": {
+    "guard_allowed": true,
+    "guard_reason": null,
+    "plan_ok": true,
+    "rpc": {
+      "p_decision": "approve",
+      "p_reason": null
+    }
+  },
+  "18_unknown_decision_verb.json": {
+    "guard_allowed": true,
+    "guard_reason": null,
+    "plan_ok": false,
+    "plan_reason": "unknown_decision"
+  },
+  "19_draft_without_approver.json": {
+    "guard_allowed": false,
+    "guard_reason": "unassigned_approver",
+    "plan_ok": false,
+    "plan_reason": "unassigned_approver"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "description": "Capability lookup never resolved for this role (RPC error, or no session). Unknown is treated as NOT held.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-admin",
+    "roles": {}
+  },
+  "row": {},
+  "decision": "approve",
+  "reason": null
+}

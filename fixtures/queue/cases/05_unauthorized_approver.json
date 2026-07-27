@@ -1,0 +1,13 @@
+{
+  "description": "Signed-in user does not hold the assigned office_admin role (business_role_matches returned false). record_approval() would raise; the queue offers nothing.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-worker",
+    "roles": {
+      "office_admin": false
+    }
+  },
+  "row": {},
+  "decision": "approve",
+  "reason": null
+}

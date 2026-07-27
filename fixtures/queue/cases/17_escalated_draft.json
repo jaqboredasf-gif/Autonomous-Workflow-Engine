@@ -1,0 +1,22 @@
+{
+  "description": "Escalated draft (amount over the primary approver's limit) routed to the owner. Escalation state is displayed; the owner may decide.",
+  "mode": "TEST",
+  "capabilities": {
+    "userId": "u-owner",
+    "roles": {
+      "owner": true,
+      "office_admin": false
+    }
+  },
+  "row": {
+    "message_type": "change_order",
+    "amount_cents": 250000,
+    "assigned_approver_role": "owner",
+    "routing_path": "escalation",
+    "escalated": true,
+    "escalation_reason": "amount 250000 exceeds approval limit 50000 for role office_admin",
+    "draft_key": "fixture:change_order:WR-FIX-004"
+  },
+  "decision": "approve",
+  "reason": null
+}
