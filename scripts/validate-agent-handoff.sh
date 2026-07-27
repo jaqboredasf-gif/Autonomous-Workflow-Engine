@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-handoff="docs/planning/AGENT_HANDOFF.md"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+handoff="$repo_root/docs/planning/AGENT_HANDOFF.md"
 
 if [[ ! -f "$handoff" ]]; then
   echo "FAIL: missing $handoff" >&2
@@ -31,6 +32,15 @@ required_headings=(
 for heading in "${required_headings[@]}"; do
   if ! grep -Fqx "## $heading" "$handoff"; then
     echo "FAIL: missing required heading: ## $heading" >&2
+    exit 1
+  fi
+  if ! awk -v heading="## $heading" '
+    $0 == heading { in_section = 1; next }
+    in_section && /^## / { exit }
+    in_section && $0 !~ /^[[:space:]]*$/ { has_content = 1; exit }
+    END { exit(has_content ? 0 : 1) }
+  ' "$handoff"; then
+    echo "FAIL: required section has no content: ## $heading" >&2
     exit 1
   fi
 done
