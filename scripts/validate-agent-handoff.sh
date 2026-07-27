@@ -14,7 +14,7 @@ required_headings=(
   repository
   branch
   commit
-  "active task"
+  "current objective"
   "completed work"
   "files changed"
   migrations

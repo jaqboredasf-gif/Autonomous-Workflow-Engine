@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-27T13:12:25Z
+2026-07-27T13:17:27Z
 
 ## agent
 
@@ -18,11 +18,11 @@ chore/agent-handoff-integration
 
 ## commit
 
-Branch HEAD; resolve the immutable SHA from Git history when resuming.
+2d0ae97247c7be73419d3a02ebf041d6d16f609f
 
-## active task
+## current objective
 
-Establish the permanent no-copy-paste agent handoff workflow. Do not begin security remediation Phase 1.
+Finish and verify the GitHub handoff integration. Do not begin security remediation Phase 1.
 
 ## completed work
 
@@ -32,10 +32,12 @@ Establish the permanent no-copy-paste agent handoff workflow. Do not begin secur
 - Added mandatory repository agent rules.
 - Added this structured handoff record.
 - Added a handoff validation script.
+- Added GitHub Actions validation for handoff integration changes.
 
 ## files changed
 
 - `AGENTS.md`
+- `.github/workflows/agent-handoff.yml`
 - `docs/planning/AGENT_HANDOFF.md`
 - `scripts/validate-agent-handoff.sh`
 
@@ -56,12 +58,15 @@ None created, applied, moved, or modified by this task.
 - `gh auth setup-git`
 - `git push -u origin security/c1-policy-cleanup`
 - `git switch -c chore/agent-handoff-integration`
-- `scripts/validate-agent-handoff.sh`
+- `bash scripts/validate-agent-handoff.sh`
+- `gh pr view --json number,state,isDraft,url,headRefName,baseRefName`
 
 ## tests passed
 
 - Agent handoff required-heading validation.
 - Agent handoff actual-secret-pattern validation.
+- Bash syntax validation.
+- Git whitespace validation.
 
 ## tests failed
 
@@ -75,7 +80,7 @@ None.
 
 ## approvals required
 
-- Review and merge the draft handoff integration PR.
+- Review and merge draft PR `#1`.
 - Explicit approval remains required before applying any live database migration.
 
 ## risks
@@ -89,4 +94,4 @@ None for the handoff integration. Security remediation remains intentionally pau
 
 ## exact next prompt
 
-Review the draft PR for `chore/agent-handoff-integration`. If its validation passes, merge it without starting Phase 1, then confirm the desired long-term default branch strategy.
+Review and merge draft PR `#1` for `chore/agent-handoff-integration`. Do not start Phase 1. After merge, confirm the desired long-term default branch strategy before beginning any security remediation.
