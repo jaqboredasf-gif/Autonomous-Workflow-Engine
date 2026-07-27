@@ -31,6 +31,7 @@
 // ---------------------------------------------------------------------------
 
 import { canonicalClone } from './canonical.mjs';
+import { CONTEXT_ITEM_KINDS } from './context-item.mjs';
 import { invariant } from './errors.mjs';
 import { assertEvent } from './events.mjs';
 
@@ -164,10 +165,9 @@ export function memoryAuditSink({ name = 'memory' } = {}) {
 // It carries no authority and decides no policy, so introducing it settles
 // nothing that ADR-0002 or the Tool Registry still has to decide.
 
-export const CONTEXT_ITEM_KINDS = [
-  'domain_facts', 'workflow_state', 'tool_result', 'policy',
-  'human_decision', 'untrusted_content', 'derived_summary',
-];
+// Owned by context-item.mjs — the item is the thing that has a kind. Re-exported
+// here so a provider and the items it produces cannot drift apart.
+export { CONTEXT_ITEM_KINDS };
 
 export function defineContextProvider(impl) {
   validateNamed(impl, 'context provider');

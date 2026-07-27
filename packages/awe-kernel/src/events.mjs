@@ -45,6 +45,23 @@ export function instantDate(value) {
   return value.slice(0, 10);
 }
 
+// Seconds since the epoch, for age arithmetic (context compaction prunes by
+// age against a caller-supplied `as_of`).
+//
+// `Date.parse` is a pure string→number function: it takes no reading from the
+// system clock and returns the same value on every machine for a fully
+// qualified instant, which `isInstant` has already required. That is why it is
+// permitted here while `Date.now()` and `new Date()` are forbidden kernel-wide
+// — the ban is on reading the clock, not on parsing a timestamp the caller
+// supplied. Comparing the ISO strings directly would be wrong: two instants
+// with different UTC offsets sort by their text, not by their moment.
+export function instantEpochSeconds(value) {
+  invariant(isInstant(value), 'invalid_input', `not an ISO-8601 instant: '${value}'`, { value });
+  const ms = Date.parse(value);
+  invariant(Number.isFinite(ms), 'invalid_input', `instant '${value}' could not be parsed`, { value });
+  return Math.floor(ms / 1000);
+}
+
 // Key names whose values are never safe to record.
 //
 // `pass` is deliberately NOT on its own here: it is a plain English word, and in
@@ -71,7 +88,18 @@ const SECRET_VALUE_PATTERNS = [
   /sbp_[A-Za-z0-9]{20,}/g,                                         // Supabase personal access token
   /sb_secret_[A-Za-z0-9_-]{10,}/g,                                 // Supabase secret key (new format)
   /(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{16,}/gi,                  // Authorization header values
+  // An ASSIGNED secret inside free text: `password=hunter2`, `api_key: abc123`,
+  // `token = xyz`. The key-name deny-list above only catches an object KEY;
+  // this catches the same names when they appear inside a string, which is
+  // where they actually turn up — connection strings, driver errors, curl
+  // commands pasted into a note. The key name is kept so the message still
+  // reads; only the value is replaced.
+  /((?:pass(?:word|phrase|code)?|pwd|secret|token|api[-_]?key|access[-_]?key|private[-_]?key)\s*[=:]\s*)(?!\s)[^\s'"&,;)]{4,}/gi,
 ];
+
+// Patterns whose replacement keeps a capture group. Kept separate from the
+// whole-match patterns above so the simple ones stay simple.
+const SECRET_ASSIGNMENT_PATTERN = SECRET_VALUE_PATTERNS[SECRET_VALUE_PATTERNS.length - 1];
 
 // Replace every credential-shaped substring. Returns the value unchanged when it
 // holds nothing that looks like a credential, so digests over clean data stay
@@ -83,7 +111,11 @@ function scrubSecrets(value) {
     // `lastIndex` is per-regex state on a global pattern; reset so a previous
     // call cannot make this one start half way through the string.
     pattern.lastIndex = 0;
-    out = out.replace(pattern, REDACTED);
+    out = pattern === SECRET_ASSIGNMENT_PATTERN
+      // Keep `password=`, replace what follows it: a redacted message that still
+      // says WHICH field was scrubbed is far more useful to whoever is debugging.
+      ? out.replace(pattern, (_m, prefix) => `${prefix}${REDACTED}`)
+      : out.replace(pattern, REDACTED);
   }
   return out;
 }

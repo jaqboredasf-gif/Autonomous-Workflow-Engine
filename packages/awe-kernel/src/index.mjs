@@ -44,6 +44,7 @@ export {
 export {
   EVENT_ENVELOPE_KEYS, REDACTED,
   createEvent, assertEvent, sequence, eventTypes, redact, isInstant, instantDate,
+  instantEpochSeconds,
 } from './events.mjs';
 
 export {
@@ -56,6 +57,28 @@ export {
   createArtifactSink, memoryArtifactSink, nullArtifactSink,
   createAuditSink, memoryAuditSink, defineContextProvider,
 } from './sinks.mjs';
+
+export {
+  CONTEXT_ITEM_KEYS, CONTEXT_SENSITIVITIES, MAX_PRIORITY,
+  assertContextItem, compareContextItems, contentFingerprint, createContextItem,
+  estimateItems, estimateTokens, maxSensitivity, sensitivityRank,
+} from './context-item.mjs';
+
+export {
+  CONTEXT_BUNDLE_SCHEMA, CONTEXT_BUNDLE_KEYS, EXCLUSION_REASONS,
+  DEFAULT_TOKEN_BUDGET, DEFAULT_ITEM_BUDGET,
+  assembleContext, assertContextBundle, loadContext, renderContext,
+} from './assembly.mjs';
+
+export {
+  CONTEXT_CHECKPOINT_SCHEMA, CHECKPOINT_KEYS, COMPACTION_ACTIONS, NON_EXPIRABLE_KINDS,
+  assertCheckpoint, compactContext, createCheckpoint, restoreCheckpoint, structuralSummary,
+} from './compaction.mjs';
+
+export {
+  SIDE_EFFECTS, SIDE_EFFECT_RANK, LIFECYCLE_STATES, TOOL_DESCRIPTOR_KEYS,
+  assertToolDescriptor, compareSideEffect, createToolCatalog, defineTool,
+} from './tools.mjs';
 
 export {
   REPORT_SCHEMA, REPORT_KEYS, FINAL_STATES,

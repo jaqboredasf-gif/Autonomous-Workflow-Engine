@@ -34,6 +34,15 @@ export const SUITES = [
     tags: ['kernel', 'fast'],
   },
   {
+    id: 'context-unit',
+    name: 'context primitives (Runner C, pure — assembly, compaction, checkpoints)',
+    kind: 'unit',
+    command: 'bash scripts/eval-context.sh',
+    description: 'Deterministic context assembly with full exclusion accounting, model-independent compaction, and resumable tenant-bound checkpoints.',
+    skipIfMissing: ['scripts/eval-context.sh'],
+    tags: ['kernel', 'context', 'fast'],
+  },
+  {
     id: 'mobile-typecheck',
     name: 'mobile typecheck',
     kind: 'build',
@@ -51,14 +60,14 @@ export const SUITES = [
   },
   {
     id: 'mcp-smoke',
-    name: 'MCP server smoke (initialize + tools/list)',
+    name: 'MCP server smoke (initialize + tools/list, TEST mode — no credentials)',
     kind: 'build',
     command: 'bash scripts/smoke-mcp.sh',
-    // The server refuses to start without both, so the suite cannot list a tool
-    // in a credential-free environment. Declared so the plan says so instead of
-    // reporting `tools=0` as if the tool surface had shrunk. Still RUNS and
-    // still fails loudly — this is a truthful label, not a skip.
-    requires: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
+    // No longer declares required credentials. The server now starts in TEST
+    // mode with a fixture data port and holds no credential at all, so the tool
+    // surface is listable — and therefore verifiable — in a credential-free
+    // environment. LIVE still requires SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+    // and an explicit tenant, and refuses without them.
     skipIfMissing: ['scripts/smoke-mcp.sh'],
     tags: ['mcp'],
   },
@@ -180,6 +189,15 @@ export const SUITES = [
     command: 'bash scripts/eval-approval-queue.sh',
     skipIfMissing: ['scripts/eval-approval-queue.sh'],
     tags: ['eval', 'runner-5'],
+  },
+  {
+    id: 'eval-mcp',
+    name: 'kernelized MCP surface eval (Runner M, offline deterministic — no keys, no DB, no network)',
+    kind: 'offline',
+    command: 'bash scripts/eval-mcp.sh',
+    description: 'MCP tools on the shared kernel: explicit tenant binding, cross-tenant confinement, outcome-to-response mapping, sanitized audit and artifacts, and the neutral tool-descriptor and platform-service boundaries.',
+    skipIfMissing: ['scripts/eval-mcp.sh'],
+    tags: ['eval', 'runner-m', 'mcp', 'security'],
   },
   {
     id: 'eval-execution',

@@ -31,6 +31,7 @@
 // sinks.
 // ---------------------------------------------------------------------------
 
+import { assertContextBundle, loadContext } from './assembly.mjs';
 import { assertExecutionContext, runMetadata } from './context.mjs';
 import { invariant } from './errors.mjs';
 import { sequence } from './events.mjs';
@@ -66,16 +67,29 @@ async function callSink(fn) {
 }
 
 /**
- * runWorkflow({ context, body, artifacts, audit, summary, requireArtifact, finished_at })
+ * runWorkflow({ context, body, artifacts, audit, summary, requireArtifact,
+ *               finished_at, contextBundle, contextProviders, contextRequest })
  *
- *   body(context) -> outcome envelope (may be async)
+ *   body(context, { bundle }) -> outcome envelope (may be async)
  *   artifacts     -> ArtifactSink | null   (sinks.mjs)
  *   audit         -> AuditSink | null
  *   summary       -> optional, redacted, caller-chosen detail for the report
  *   finished_at   -> ISO instant supplied by the caller (the kernel has no clock)
  *
+ * Context is OPTIONAL and comes three ways, in decreasing order of the caller's
+ * involvement:
+ *
+ *   contextBundle    — already assembled; validated and passed through
+ *   contextProviders — providers plus `contextRequest` options; assembled here
+ *   neither          — `bundle` is null
+ *
+ * The third case is the one most of this repo is in and it stays free: a
+ * deterministic workflow that needs no assembled context is not made to carry
+ * an empty one, and every existing `body(context)` keeps working because the
+ * bundle arrives as a SECOND argument.
+ *
  * Returns, always:
- *   { outcome, report, artifact, audit_result, final_state, duplicates }
+ *   { outcome, report, artifact, audit_result, final_state, duplicates, context_bundle }
  */
 export async function runWorkflow({
   context,
@@ -85,17 +99,55 @@ export async function runWorkflow({
   summary = null,
   requireArtifact = null,
   finished_at = null,
+  contextBundle = null,
+  contextProviders = null,
+  contextRequest = {},
 } = {}) {
   assertExecutionContext(context, { at: 'runWorkflow' });
   invariant(typeof body === 'function', 'invalid_input', 'runWorkflow needs a body function', {});
+  invariant(
+    !(contextBundle !== null && contextProviders !== null),
+    'invalid_input', 'pass a preassembled contextBundle OR contextProviders, not both', {},
+  );
 
   // Persistence is required whenever a sink was supplied, unless the caller says
   // otherwise. Opting out is a decision someone has to write down.
   const mustPersist = requireArtifact === null ? artifacts !== null : requireArtifact === true;
 
+  // Assembled BEFORE the body runs and outside its try/catch semantics for a
+  // reason: a context that cannot be assembled is a failed run with a code, not
+  // a run that quietly proceeded with less than it asked for.
+  let bundle = null;
+  try {
+    if (contextBundle !== null) {
+      bundle = assertContextBundle(contextBundle, { at: 'runWorkflow' });
+      invariant(
+        bundle.run_id === context.run_id && bundle.org_id === context.org_id,
+        'contract_violation',
+        `context bundle belongs to run '${bundle.run_id}'/org '${bundle.org_id}', not '${context.run_id}'/'${context.org_id}'`,
+        { bundle_run: bundle.run_id, bundle_org: bundle.org_id },
+      );
+    } else if (contextProviders !== null) {
+      bundle = await loadContext({ context, providers: contextProviders, ...contextRequest });
+    }
+  } catch (e) {
+    const refusal = withRunMetadata(fromError(e, {
+      audit: [{ step: 'assemble_context', ok: false, detail: 'context assembly failed' }],
+    }), context);
+    return Object.freeze({
+      outcome: refusal,
+      report: buildReport({ context, outcome: refusal, finished_at, summary, persisted: false }),
+      artifact: null,
+      audit_result: null,
+      final_state: 'failed',
+      duplicates: Object.freeze([]),
+      context_bundle: null,
+    });
+  }
+
   let outcome;
   try {
-    const produced = await body(context);
+    const produced = await body(context, { bundle });
     // A workflow that forgets to return an envelope is a contract violation, not
     // a success with an odd shape.
     try {
@@ -154,5 +206,9 @@ export async function runWorkflow({
     audit_result: auditResult,
     final_state,
     duplicates: batch.duplicates,
+    // Returned rather than folded into the report: `awe.run_report/v1` is a
+    // pinned schema, and callers that want the context on the artifact put the
+    // digest in their `summary` deliberately.
+    context_bundle: bundle,
   });
 }
