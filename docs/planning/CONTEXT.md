@@ -25,8 +25,8 @@ apps/web             Next.js 16 app router + Tailwind. Admin dashboard, 15 route
                      scripts/lib/approval-matrix.mjs; Runner 5 tests it directly)
 packages/shared      shared types
 packages/mcp-server  stdio MCP server (ESM JS), 10 tools, service-role key via env
-supabase/migrations  0001–0015 ALL applied to the live project (0014 + 0015 applied
-                     2026-07-26; see "Migration state" below)
+supabase/migrations  0001–0015 applied live; 0016 promoted and dry-run verified
+                     but NOT applied pending explicit approval (see below)
 scripts/             regression.sh, acceptance-slice1..5.sh, classify.mjs,
                      eval-intake.sh (Runner 1), eval-classification*.sh (2A/2B),
                      eval-approval-diff.sh (Runner 3), eval-approval-matrix.sh (Runner 4),
@@ -39,7 +39,8 @@ fixtures/            emails/ (intake, 12 + labels), approvals/ (ADR diff, 15 + l
                      outbound/ (B3 matrix + drafts: 5 policy sets, 16 cases + labels),
                      queue/ (B5 approval queue: base-row + 19 cases + labels)
 docs/                ROADMAP.md, API_CONTRACT.md, AUTOMATION_SYNERGY.md,
-                     GAP_ANALYSIS.md, REGRESSION_CHECKLIST.md
+                     GAP_ANALYSIS.md, REGRESSION_CHECKLIST.md,
+                     SECURITY_FINDINGS.md (live findings + evidence; S1 lives here)
 docs/testing/        EVAL_STRATEGY.md, APPROVAL_DIFF.md (ADR), APPROVAL_MATRIX.md (B3),
                      APPROVAL_QUEUE.md (B5)
 docs/planning/       THIS folder — scope/requirements/roadmap/backlog/handoff
@@ -47,7 +48,8 @@ docs/planning/       THIS folder — scope/requirements/roadmap/backlog/handoff
 
 ## Migration state
 
-**0001–0015 are all applied to the live project.** 0014 + 0015 were applied 2026-07-26
+**0001–0015 are applied to the live project. Migration 0016 is committed as an
+approval-checkpoint artefact but is NOT applied.** 0014 + 0015 were applied 2026-07-26
 with Jack's explicit authorization, after a full dry-run (both files executed inside one
 `begin; … rollback;` transaction against the live schema — zero errors, zero residue).
 Drift check after apply: 24 public base tables = 19 (0001–0013) + 5 (0014 `approval_drafts`
@@ -159,13 +161,35 @@ Revoke sbp_ management token when setup phase ends; rotate service-role key befo
 real employee data; org-scope punch-photo storage read policy; `.env.acceptance`
 must never be committed.
 
-**S1 (open, found 2026-07-26, human-gated):** the live DB carries 16 undeclared
-`*_org_{select,insert,update,delete}` policies on `integration_events`,
-`time_entry_audits`, `crews` and `crew_members` — orphan-schema residue 0012 did
-not clean up. No role gate, so any authenticated org member can read, insert and
-**delete audit events**. Verified live in rolled-back transactions. Remediation
-SQL + acceptance criteria: TASK_BACKLOG S1. Do not apply without Jack's
-go-ahead — dropping objects on live is destructive.
+**S1 (0016 PROMOTED + DRY-RUN VERIFIED, awaiting explicit approval, found 2026-07-26):** the live DB
+carries 16 undeclared `*_org_{select,insert,update,delete}` policies on
+`integration_events`, `time_entry_audits`, `crews` and `crew_members` —
+orphan-schema residue 0012 did not clean up. No role gate, so any authenticated
+org member can read, insert and **delete audit events**; the owner of an edited
+time entry can delete and forge that entry's own audit rows. Verified live in
+aborted transactions. The removal has been fully rehearsed inside
+`begin; … rollback;` with 20 assertions — all pass, zero residue, and the
+rollback restores all 16 byte-identically. **Nothing has been applied.**
+Full inventory, evidence, exact SQL, risks and rollback: `docs/SECURITY_FINDINGS.md`.
+
+**The only supported apply path** (SECURITY_FINDINGS § S1 "The only supported
+apply path"): execute only
+`supabase/migrations/0016_drop_undeclared_client_policies.sql`, after rechecking
+the exact inventory and receiving explicit approval. Its full regression
+baseline, rehearsal, and `begin; … rollback;` dry-run passed on 2026-07-27.
+That file is drops + read-only post-conditions only.
+
+**Never apply `scripts/s1-policy-cleanup-rehearsal.sql`, and never turn its
+trailing `rollback;` into `commit;`.** It is a dry-run instrument that
+deliberately writes probe data (an `S1.DEFINER_PROBE` event, ` s1-probe` on every
+`approved` time entry, probe deletes/inserts on the four tables) which is
+discarded only by that `rollback;`. Committing it would write all of it into the
+production audit log. Same for `scripts/s1-policy-cleanup-rollback.sql` — it is
+break-glass re-creation, and running it re-opens the vulnerability.
+
+Do not apply anything without Jack's go-ahead — dropping objects on live is
+destructive. Regression pin: `scripts/acceptance-s1-security.sh` (state-aware,
+green in both PENDING and APPLIED states, red on drift).
 
 Live policy drift is worth re-checking after any externally-made change:
 

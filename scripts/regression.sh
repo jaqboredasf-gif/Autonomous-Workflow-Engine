@@ -52,6 +52,11 @@ if [ -f scripts/acceptance-slice5.sh ]; then
   bash scripts/acceptance-slice5.sh || fails=$((fails+1))
 fi
 
+if [ -f scripts/acceptance-s1-security.sh ]; then
+  step "S1 security (service-role-only tables: worker-JWT reads, audit-trail exposure, policy drift)"
+  bash scripts/acceptance-s1-security.sh || fails=$((fails+1))
+fi
+
 if [ -f scripts/eval-intake.sh ]; then
   step "intake eval (baseline, deterministic)"
   bash scripts/eval-intake.sh || fails=$((fails+1))

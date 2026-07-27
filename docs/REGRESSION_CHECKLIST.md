@@ -61,7 +61,27 @@ re-run it rather than treating it as a regression.
 - RLS: worker sees own entries; events table service-only. **Known live drift (S1,
   2026-07-26): `integration_events`, `time_entry_audits`, `crews`, `crew_members`
   carry 16 undeclared org-scoped client policies with no role gate — an authenticated
-  worker can read AND delete audit events. Human-gated fix in TASK_BACKLOG S1.**
+  worker can read AND delete audit events, and the owner of an edited time entry can
+  delete and forge that entry's own audit rows. Removal fully rehearsed in a
+  rolled-back transaction 2026-07-26 (all assertions pass, rollback proven) and
+  independently re-verified 2026-07-27; **still not applied — waiting on explicit
+  approval.** The only supported apply artefact is the promoted, dry-run-verified
+  migration `supabase/migrations/0016_drop_undeclared_client_policies.sql`;
+  `scripts/s1-policy-cleanup-rehearsal.sql` is a dry-run instrument that writes
+  probe data and is **never** applied or converted to `commit;`. Evidence + exact
+  SQL + apply path: `docs/SECURITY_FINDINGS.md` § S1.**
+- **Regression note**: nothing in regression.sh depends on those 16 policies. Every
+  `sql()` call in `scripts/acceptance-slice*.sh` goes through the management API,
+  which bypasses RLS; no suite issues a client-JWT request against the four tables.
+  Slice 1 check 5 tests `anon`, which those policies never granted.
+- **S1 pin (added 2026-07-27)**: `scripts/acceptance-s1-security.sh`, run by
+  `regression.sh` after slice 5, is the assertion that the four tables stay
+  service-role-only. It is state-aware — green while S1 is PENDING (16 policies,
+  exposure asserted to be exactly as documented) and green once APPLIED (0
+  policies, worker/audited-user reads asserted to be 0 and every forge refused) —
+  and RED on any other state. Its banner prints which one is live. It writes
+  nothing: every write probe runs in a transaction aborted by a deliberate
+  exception, and check D1 pins zero residue.
 - The approval queue writes only through `record_approval()`; `outbound_messages` has
   no client insert/update/delete policy, and no UI file may reference
   `mark_message_sent` (Runner 5 asserts this).

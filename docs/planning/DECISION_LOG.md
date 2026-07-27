@@ -2,6 +2,124 @@
 
 Append-only. Newest first. Format: date — decision — why — supersedes (if any).
 
+## 2026-07-27 (Task S1 — approval checkpoint prepared; live apply not authorized)
+
+- **The live inventory still matches the exact expected pending state.** All 16
+  named policies are present on `integration_events`, `time_entry_audits`,
+  `crews`, and `crew_members`; all target `authenticated`; none are missing and
+  no unexpected policy exists on the four tables.
+- **The required pre-apply evidence is green.** Full regression: ALL GREEN
+  (mobile typecheck, web build, MCP 10 tools, slices `9/0`, `10/0`, `20/0`,
+  `49/0`, `27/0`, S1 `14/0 PENDING`, Runners `24/0`, `20/0`, `120/0`, `314/0`,
+  `325/0`, both migration lints). The 20-assertion rehearsal and the promoted
+  migration's own `BEGIN/ROLLBACK` dry-run each returned `[]`; post-rollback
+  state remains 16 policies, RLS `4/4`, both required functions present, and
+  zero S1 probe rows.
+- **Migration 0016 is promoted for review, not applied.**
+  `supabase/migrations/0016_drop_undeclared_client_policies.sql` contains only
+  the approved 16-policy drop set plus read-only postconditions. Explicit
+  approval remains required before the live management-API command is run.
+- **Scope remains C1 only.** No C2 function ACL, C3 time-entry authorization,
+  C4 MCP tenant binding, grant, trigger, table, row, or unrelated policy change
+  was started.
+
+## 2026-07-27 (Task S1 — documentation correction of the apply path; nothing applied)
+
+- **The documented S1 apply procedure was unsafe and is corrected.**
+  SESSION_HANDOFF and SECURITY_FINDINGS both instructed the next session to
+  "run the rehearsal file with `rollback;` → `commit;`", and SECURITY_FINDINGS
+  asserted the rehearsal was "identical apart from the final `rollback;` →
+  `commit;`". **It is not identical.** Beyond the 16 `drop policy` statements the
+  rehearsal deliberately mutates live data to prove the surviving paths still
+  work: it emits an `S1.DEFINER_PROBE` event (B5), appends ` s1-probe` to the
+  `notes` of every `approved` time entry and writes the resulting audit row (C1),
+  and issues probe delete/insert statements against `integration_events`, `crews`
+  and `time_entry_audits` (B2–B4, B7). Those are safe only because the file ends
+  in `rollback;`. Following the documented instruction would have written every
+  probe permanently into the production audit log — on a security task whose
+  whole point is that the audit log must not be writable. Supersedes
+  SESSION_HANDOFF "Next session" (2026-07-26) and SECURITY_FINDINGS § S1
+  "Applied via the CONTEXT.md management-API recipe…" (2026-07-26).
+- **One apply path, stated in one place, referenced everywhere else.** The only
+  supported production path is now: move `scripts/s1-migration-0016-PENDING.sql`
+  verbatim to `supabase/migrations/0016_drop_undeclared_client_policies.sql`,
+  dry-run inside `begin; … rollback;`, apply with the CONTEXT.md management-API
+  recipe, commit in the same session. That file is drops plus read-only
+  post-conditions — no probes, no row writes — which is precisely what makes it,
+  and not the rehearsal, committable against production. CONTEXT, SESSION_HANDOFF,
+  TASK_BACKLOG and REGRESSION_CHECKLIST now point at SECURITY_FINDINGS § S1 "The
+  only supported apply path" rather than restating a procedure each.
+- **The prepared migration is the authority for the SQL, not the docs.** The
+  backlog's abbreviated `drop policy` snippet is labelled illustrative, and
+  SECURITY_FINDINGS' reproduction is labelled review-only; where a doc and
+  `scripts/s1-migration-0016-PENDING.sql` disagree, the file wins. Two hand-copied
+  SQL blocks in prose were a drift source on a destructive change.
+- **Supersedes the 07-26 "no migration file was authored" position.** That was
+  true when written; the 07-27 session authored one and parked it outside
+  `supabase/migrations/` so the repo↔live sync invariant still holds and a stray
+  `supabase db push` cannot reach it. TASK_BACKLOG's "Deferred deliberately"
+  bullet is updated to say so.
+- **Documentation-only session, by authorization.** No database write, no
+  migration execution, no commit, no push, no workflow publication. The one
+  known unsafe instruction left in the repo is the header comment of
+  `scripts/s1-policy-cleanup-rehearsal.sql` ("the only difference between this
+  and the live apply is the final statement (rollback -> commit)"), which is SQL
+  and therefore outside this session's edit authority. It is logged as the sole
+  remaining blocker and must be corrected before any apply session begins.
+
+## 2026-07-26 (Task S1 — rehearsal of the undeclared-policy removal, NOT applied)
+
+- **The session prompt's premise was wrong and was corrected rather than
+  worked around.** It stated the previous session had dry-run the S1 removals.
+  No such dry-run existed: clean working tree, last commit `75c43c6` (B5), no
+  artefact, log or doc entry. Only the S1 *discovery* evidence existed. The
+  rehearsal was performed from scratch and labelled as this session's work.
+  Reporting a rehearsal that had not happened would have been the worst possible
+  failure mode for a security task.
+- **Confirmed the removal set is exactly 16, and that "undeclared" is provable,
+  not inferred.** 55 live policies in `public`, 39 created by a
+  `create policy` statement in `supabase/migrations/`, 16 not. Independent
+  corroboration: all 16 are `TO authenticated` while **every** repo-declared
+  policy is `TO public`; 0009 states in a comment that `integration_events` is
+  service-role only; 0012 already removed the rest of that orphan schema.
+- **Corrects the backlog's claim that the `time_entry_audits` exposure is
+  vacuous.** Its policy's `EXISTS` subquery is itself subject to `time_entries`
+  RLS, so a caller sees audits for precisely the entries they can see. Probed
+  live as the owner of the only audited entry: `read=1 deleted=1
+  forged_inserted=1`. Supersedes TASK_BACKLOG S1 "currently empty, so a delete
+  test is vacuous" (2026-07-26).
+- **`DROP POLICY` was proven safe by exercising the surviving paths inside the
+  same transaction, not by reasoning about them.** `emit_event()` was called
+  from an `authenticated` session after the drops and its row was confirmed
+  written; a real `approved` time entry was updated and the audit trigger was
+  confirmed to write exactly one row. Both are `security definer` owned by
+  `postgres` on non-`FORCE` RLS tables. Catalog reasoning alone would have been
+  a guess.
+- **The acceptance suites cannot run inside the rehearsal transaction, and that
+  limit is stated rather than papered over.** They reach the DB over separate
+  HTTP connections (management API, PostgREST), so no transaction spans them.
+  Substituted: (a) 8 behavioural assertions inside the transaction reproducing
+  the same access patterns under the same principals — `authenticated` worker,
+  the audited user, and `anon`; (b) a static proof that every `sql()` call in
+  the acceptance scripts authenticates against the RLS-bypassing management API
+  and no suite issues a client-JWT request against the four tables; (c) a full
+  regression run as the pre-change baseline, ALL GREEN.
+- **Rollback is re-creation, and it was rehearsed, not assumed.** `DROP POLICY`
+  is unrecoverable after commit, so the rollback script was generated from
+  `pg_policies` and round-tripped: snapshot → drop 16 → recreate → assert all 16
+  identical on `(policyname, tablename, cmd, roles, permissive, qual,
+  with_check)` → rollback. Recorded as break-glass only: restoring re-opens the
+  vulnerability, and the right answer to a discovered consumer is a narrow
+  role-gated policy in a new migration.
+- **Still not applied, on purpose.** Dropping objects on live is destructive and
+  human-gated (CONTEXT standing rule), and no migration file was authored
+  because an unapplied migration breaks the repo↔live sync invariant. `0016`
+  gets written and committed in the same session it is applied.
+- **New doc: `docs/SECURITY_FINDINGS.md`** — the prompt asked for it and it did
+  not exist. Live findings, per-policy inventory, evidence, exact SQL, risk
+  table and rollback now live in one place instead of being spread across
+  CONTEXT / backlog / handoff / regression checklist.
+
 ## 2026-07-26 (Task B5 — approval queue UI)
 
 - **B5 ships the approval queue only; the requests inbox is split out as B5b.**

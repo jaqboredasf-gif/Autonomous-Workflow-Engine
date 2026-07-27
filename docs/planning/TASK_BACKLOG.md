@@ -184,10 +184,10 @@ deferred until a geocoder exists. Original goal text below.
 - **Deps**: B1 (done). Reuses the B5 page patterns and `work_requests_admin_read`.
 - **Acceptance**: build green; fixture requests visible end-to-end; no write actions beyond what 0011 already allows.
 
-## S1 — Remove undeclared client policies on the audit tables — `ready` (SECURITY, human-gated)
+## S1 — Remove undeclared client policies on the audit tables — `0016 PROMOTED + DRY-RUN VERIFIED, LIVE APPLY AWAITING EXPLICIT APPROVAL` (SECURITY, human-gated)
 - **Found**: 2026-07-26 by `scripts/acceptance-slice5.sh` while checking whether the browser could read the event log.
 - **Finding**: the LIVE database carries 16 policies (4 tables × select/insert/update/delete) that **no migration in this repo creates**, all named `<table>_org_{select,insert,update,delete}` — the naming convention of the orphan schema an external session created (see DECISION_LOG 2026-07-17 B1; migration 0012 dropped the orphan *tables* and restored `current_org_id()`, but not these policies). Affected: `integration_events`, `time_entry_audits`, `crews`, `crew_members`. They are gated on `current_org_id()` only — **no role check** — so any `authenticated` org member qualifies.
-- **Impact**: verified live inside rolled-back transactions using the fixture `worker` (`f1000000-…-001`): it can read 310 `integration_events`, **DELETE 11 `message.approved` events**, and INSERT a forged event. That breaks two universal rules at once (STAKEHOLDERS: "audit everything", "no hard deletes") and makes the approval audit trail destructible by the very people it audits. `time_entry_audits` is exposed the same way (currently empty, so a delete test is vacuous). `crews`/`crew_members` are a lesser privilege issue (any worker may create/modify/delete crews in their org).
+- **Impact**: verified live inside rolled-back transactions using the fixture `worker` (`f1000000-…-001`): it can read 310 `integration_events`, **DELETE 11 `message.approved` events**, and INSERT a forged event. That breaks two universal rules at once (STAKEHOLDERS: "audit everything", "no hard deletes") and makes the approval audit trail destructible by the very people it audits. `time_entry_audits` is exposed the same way (~~currently empty, so a delete test is vacuous~~ — **superseded 2026-07-26, see the correction bullet below: the exposure is real and was probed `read=1 deleted=1 forged_inserted=1`**). `crews`/`crew_members` are a lesser privilege issue (any worker may create/modify/delete crews in their org).
 - **NOT the approval queue's problem**: B5 never reads `integration_events` (slice 5 check 4, Runner 5 source purity), and `outbound_messages` / `message_policies` carry no such policies — slice 4 and slice 5 both prove a `worker` sees zero rows there.
 - **Fix (do NOT apply without Jack's go-ahead — dropping objects on live is a destructive, human-gated action; dry-run in `begin; … rollback;` first)**:
   ```sql
@@ -199,11 +199,44 @@ deferred until a geocoder exists. Original goal text below.
   drop policy if exists time_entry_audits_org_insert on time_entry_audits;
   drop policy if exists time_entry_audits_org_update on time_entry_audits;
   drop policy if exists time_entry_audits_org_delete on time_entry_audits;
-  -- crews / crew_members: confirm nothing in apps/mobile or apps/web relies on
-  -- client-side crew writes BEFORE dropping these four + four.
+  drop policy if exists crews_org_select        on crews;         -- + insert/update/delete
+  drop policy if exists crew_members_org_select on crew_members;  -- + insert/update/delete
   ```
-- **Acceptance**: after apply, a `worker` JWT reads 0 `integration_events` and cannot delete or insert one; regression ALL GREEN (nothing in it writes those tables from a client session); a new check in slice 5 pins `pg_policies` count = 0 for `integration_events` so the drift cannot silently return.
-- **Deferred deliberately**: no migration file was authored, so repo↔live stay in sync at 0001–0015 until the fix is authorized.
+  The snippet above is **illustrative and abbreviated** — do not paste it at a database.
+  The canonical, complete, self-guarding form is the promoted migration
+  **`supabase/migrations/0016_drop_undeclared_client_policies.sql`** (reproduced for review in
+  `docs/SECURITY_FINDINGS.md` § S1 "Exact remediation SQL"; if the two disagree, the
+  file wins).
+- **Apply path (the only supported one)**: after explicit approval, recheck the exact
+  live inventory and apply `supabase/migrations/0016_drop_undeclared_client_policies.sql`
+  with the CONTEXT.md management-API recipe. Its `begin; … rollback;` dry-run passed
+  2026-07-27. **`scripts/s1-policy-cleanup-rehearsal.sql` is never applied and
+  its `rollback;` is never changed to `commit;`** — it writes probe data that only the
+  rollback discards. Full statement: SECURITY_FINDINGS § S1 "The only supported apply path".
+- **Acceptance**: after apply, a `worker` JWT reads 0 `integration_events` and cannot delete or insert one; regression ALL GREEN (nothing in it writes those tables from a client session); the `pg_policies` count = 0 pin on all four tables holds so the drift cannot silently return. **The pin and the worker-JWT denial check already exist** — `scripts/acceptance-s1-security.sh` (added 2026-07-27, in `regression.sh` after slice 5). It is state-aware and flips from asserting PENDING to asserting APPLIED on its own, so no test work is needed at apply time.
+- **Approval checkpoint prepared**: migration 0016 is promoted and committed for
+  review, but remains unapplied. The live project is still at 0001–0015 plus the
+  documented 16-policy drift. Do not run `supabase db push`; the only authorized
+  live command is the reviewed management-API apply after explicit approval.
+
+### S1 rehearsal — completed 2026-07-26, NOT applied
+- **Count confirmed exact**: 55 live policies in `public`, 39 repo-declared, **16 undeclared** — the CONTEXT drift check names all 16 and nothing else. All 16 carry `TO authenticated`; every repo-declared policy uses `TO public`. That grant is the orphan-schema fingerprint.
+- **Rehearsal** `scripts/s1-policy-cleanup-rehearsal.sql`: `begin;` → 7 pre-assertions → 16 drops → 5 structural + 8 behavioural post-assertions + a live audit-trigger test → `rollback;`. **All pass**, management API returned `[]`, drift check after = drift check before.
+- **Non-vacuous**: drops commented out → `POST A1 FAIL: 16 policies remain`; drops commented out with the structural asserts disarmed → `POST B1 FAIL: worker still reads 377 events`.
+- **Rollback proven**: snapshot → drop → `scripts/s1-policy-cleanup-rollback.sql` → all 16 restored byte-identically on `(policyname, tablename, cmd, roles, permissive, qual, with_check)`.
+- **Correction to the impact note above**: `time_entry_audits` exposure is **not** vacuous. The policy's `EXISTS` subquery is itself filtered by `time_entries` RLS, so a caller sees audits for exactly the entries they can see. Probed live as the owner of the one audited entry: `read=1 deleted=1 forged_inserted=1`. The person whose approved/locked entry was edited can destroy and forge its own audit trail.
+- **Nothing found that blocks removal**: no client code (`apps/mobile`, `apps/web/src`, `packages/mcp-server`) references any of the four tables; `crews`/`crew_members` are empty; the only dependent functions (`emit_event`, `audit_time_entry_edit`) are `security definer` owned by `postgres` on non-`FORCE` RLS tables, and both were exercised post-drop inside the rehearsal and still worked.
+- **Blocker to permanent execution**: Jack's explicit go-ahead. Full risk/rollback/evidence writeup: `docs/SECURITY_FINDINGS.md`.
+- **The rehearsal file is not an apply artefact.** Beyond the 16 drops it writes probe data on purpose — an `S1.DEFINER_PROBE` event, ` s1-probe` appended to the `notes` of every `approved` time entry plus the audit row that triggers, and probe delete/insert statements against `integration_events`, `crews` and `time_entry_audits`. All of it is discarded only by the trailing `rollback;`. Committing it would write every probe permanently into the production audit log.
+
+### S1 re-verification + apply preparation — completed 2026-07-27, still NOT applied
+- **Every 07-26 claim re-derived from scratch**, not read off the record: 16 policies still live and all `TO authenticated`; a drift sweep over all 55 public policies found exactly the S1 set and no other drift; the exploit (`forged=1 deleted_approved_events=18 crew_created=1`) and the audit-owner exposure (`owner_reads_audits=1 owner_deleted_audits=1`) both reproduced in aborted transactions; rehearsal re-ran clean (`[]`); both non-vacuity perturbations still fail as expected; rollback round-trip `snapshot=16 restored=16 byte_identical=16 missing=0`; full regression ALL GREEN before and after. Detail table: `docs/SECURITY_FINDINGS.md` § S1.
+- **Promoted migration** `supabase/migrations/0016_drop_undeclared_client_policies.sql`
+  — 16 drops + self-guarding post-conditions (0 policies remain, RLS still on
+  all 4, both dependent definer functions present). No probes, no row writes.
+  Dry-run passed; live apply still awaits explicit approval.
+- **Regression pin** `scripts/acceptance-s1-security.sh` — in `regression.sh` after slice 5, state-aware (green PENDING, green APPLIED, red otherwise). APPLIED branch proven non-dead: forcing `S1STATE=APPLIED` against today's vulnerable DB fails 5 of its 6 exposure assertions.
+- **Nothing outstanding but authorization**: evidence, migration, rollback script and regression pin are all in place.
 
 ## E1 — Fixture labels + baseline deterministic eval — `done` (2026-07-17, Phase 4 session)
 fixtures/emails/labels.json (ground truth, 12 fixtures) + scripts/eval-intake.sh

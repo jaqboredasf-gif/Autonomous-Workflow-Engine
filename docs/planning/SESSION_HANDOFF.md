@@ -3,7 +3,123 @@
 Read CONTEXT.md first, then this, then all docs/planning/*.md. One approved task per session.
 Vocabulary authority: docs/architecture/UBIQUITOUS_LANGUAGE.md (2026-07-17).
 
-## Current state (2026-07-26, Task B5 COMPLETE — approval queue shipped, slice 5 green)
+## Current state (2026-07-27, Task S1 approval checkpoint — 0016 promoted, nothing applied)
+
+**S1 is still not applied. The live database is unchanged** (55 policies, 16 on
+the four target tables, 24 base tables). Two sessions have now touched it:
+2026-07-26 rehearsed the removal, 2026-07-27 re-derived every piece of evidence
+from scratch and prepared the apply artefacts. A third execution session confirmed
+the exact live 16-policy inventory, ran the full regression baseline ALL GREEN,
+re-ran the rehearsal (`[]`), dry-ran migration 0016 under `BEGIN/ROLLBACK` (`[]`),
+and promoted it on branch `security/c1-policy-cleanup`. Authority for all of it:
+`docs/SECURITY_FINDINGS.md` § S1.
+
+### What the 2026-07-27 session added
+- **Independent re-verification** — all 10 checks in SECURITY_FINDINGS § S1
+  "Independent re-verification (2026-07-27)" re-run rather than read off the
+  07-26 record: 16 policies confirmed live, the repo↔live drift sweep over all
+  55 policies found exactly the S1 set and no other drift, the exploit and the
+  audit-owner exposure both reproduced inside aborted transactions, the
+  rehearsal re-ran clean (`[]`), both non-vacuity perturbations still fail as
+  expected, the rollback round-trip restored all 16 byte-identically, and full
+  regression was ALL GREEN before and after.
+- **`supabase/migrations/0016_drop_undeclared_client_policies.sql`** — the
+  promoted migration: the exact 16 drops plus self-guarding post-conditions,
+  **no probes, no row writes**. It is committed for review but remains unapplied
+  until explicit approval.
+- **`scripts/acceptance-s1-security.sh`** — wired into `regression.sh` after
+  slice 5. State-aware: green while S1 is PENDING (asserting the exposure is
+  exactly as documented), green once APPLIED (asserting worker/audited-user reads
+  are 0 and every forge is refused), red on anything else. It closes the three
+  gaps the finding had (slice 1 tested only `anon`; slice 5 only *printed* the
+  policy count; `time_entry_audits` had no test at all) and needs no edit at
+  apply time.
+
+### Apply path — read this before any S1 apply session
+The **only** supported production apply path is
+`supabase/migrations/0016_drop_undeclared_client_policies.sql`, applied with the
+CONTEXT.md management-API recipe only after explicit approval and an immediate
+inventory recheck. Its `begin; … rollback;` dry-run passed on 2026-07-27.
+
+**`scripts/s1-policy-cleanup-rehearsal.sql` must never be applied, and changing
+its trailing `rollback;` to `commit;` is not an apply procedure.** Beyond the 16
+drops it deliberately writes live data to prove the surviving paths still work —
+an `S1.DEFINER_PROBE` event, ` s1-probe` appended to the `notes` of every
+`approved` time entry plus the audit row that triggers, and probe
+delete/insert statements against `integration_events`, `crews` and
+`time_entry_audits`. Committing it would put all of that permanently into the
+production audit log. Full statement of the path: SECURITY_FINDINGS § S1 "The
+only supported apply path".
+
+### Blocker
+Explicit live-apply approval. Nothing else is outstanding — evidence, migration,
+rollback script and regression pin are all in place.
+
+## Prior state (2026-07-26, Task S1 REHEARSED — nothing applied, waiting on Jack)
+
+**S1 is rehearsed, not executed. The live database is unchanged.** Read
+`docs/SECURITY_FINDINGS.md` § S1 first — it holds the full inventory, the exact
+SQL, the risk table, the rollback procedure and every piece of evidence.
+
+### Correction to the premise this session started from
+The session prompt said the previous session "dry-ran S1 policy removals."
+**It did not.** The working tree was clean, the last commit is B5
+(`75c43c6`), and no S1 dry-run artefact, log or doc entry existed anywhere in
+the repo. What existed was the S1 *discovery* evidence from slice 5. The
+rehearsal described below was therefore performed from scratch this session.
+
+### What this session did
+- Re-verified the finding against the live DB. **The 16 policies are still
+  present and the count is exact**: 55 policies in `public`, 39 declared by
+  `supabase/migrations/`, 16 undeclared — the same 16, no more, no fewer.
+- Established *why* they are foreign: all 16 are `TO authenticated`; **every**
+  repo-declared policy is `TO public`. 0009 states in a comment that
+  `integration_events` is "Service-role only: RLS on, no client policies"; 0002
+  enables RLS on `crews`/`crew_members`/`time_entry_audits` and declares no
+  policy for them. The orphan `ensure_rls` event trigger that would re-create
+  them is confirmed gone (0012).
+- Re-ran the exploit live inside aborted transactions: worker reads **377**
+  events, **deletes 16 `message.approved` events**, forges an event, creates a
+  crew. And a new one — **`time_entry_audits` is not vacuous**: probing as the
+  owner of the single audited entry gave `read=1 deleted=1 forged_inserted=1`.
+  The person whose approved entry was edited can destroy its own audit trail.
+- Proved nothing legitimate depends on the 16: no client code touches any of the
+  four tables, `crews`/`crew_members` are empty, and the only dependent
+  functions (`emit_event`, `audit_time_entry_edit`) are `security definer` owned
+  by `postgres` on non-`FORCE` RLS tables — they bypass RLS and were exercised
+  *after* the drops inside the rehearsal.
+- **Rehearsed the removal** (`scripts/s1-policy-cleanup-rehearsal.sql`):
+  `begin;` → 7 pre-assertions → 16 drops → 5 structural + 8 behavioural
+  post-assertions + a live audit-trigger test → `rollback;`. All pass; the
+  management API returned `[]`; the drift check after equals the drift check
+  before; zero probe rows left behind.
+- **Proved the rehearsal is non-vacuous** two ways and **proved the rollback**
+  (`scripts/s1-policy-cleanup-rollback.sql`) restores all 16 byte-identically.
+- Full regression **ALL GREEN** as the pre-change baseline.
+
+### What this session deliberately did NOT do
+No live DDL. No migration file authored (that happens at apply time, to keep
+repo↔live in sync — **superseded 2026-07-27**: the migration is now authored as
+`scripts/s1-migration-0016-PENDING.sql`, parked outside `supabase/migrations/`,
+so the sync invariant still holds). No B4 / B5b / Entra / Graph work. No external
+sends, no workflow activation, no RLS weakening, no audit rows deleted, no
+credential exposed.
+
+### Next session (corrected 2026-07-27 — the original instruction here was unsafe)
+**Ask Jack for the go-ahead, then apply S1 in one session** — via the prepared
+migration only. **Do NOT run the rehearsal file with `commit;`.** Correct
+sequence (authority: `docs/SECURITY_FINDINGS.md` § S1 "The only supported apply
+path"): move `scripts/s1-migration-0016-PENDING.sql` verbatim to
+`supabase/migrations/0016_drop_undeclared_client_policies.sql`, dry-run it inside
+`begin; … rollback;` and then apply it with the CONTEXT.md management-API recipe,
+re-run regression (`acceptance-s1-security.sh` must flip its banner to
+`S1 state: APPLIED` by itself), commit the migration and these docs in the same
+session. The drift pin and worker-JWT denial check are already built —
+`scripts/acceptance-s1-security.sh`, added 2026-07-27 — so no new test work is
+needed at apply time. If Jack declines, S1 stays open and the next task is
+**B5b** (requests inbox) or **B4**. Entra (I1) still blocks all Graph work.
+
+## Prior state (2026-07-26, Task B5 COMPLETE — approval queue shipped, slice 5 green)
 
 **B5 is done.** `/approvals` ships, backed by a pure logic module, 19 labelled
 fixtures, a new offline Runner 5 and a new live acceptance slice 5. **Zero
