@@ -14,7 +14,9 @@
 set -u
 cd "$(dirname "$0")/.."
 
-node scripts/eval-approval-matrix.mjs
+# The blocked-reason union check imports the queue's .ts module (Node strips the
+# types, same as Runner 5); its typeless-package notice is noise, not a result.
+node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/eval-approval-matrix.mjs
 rc=$?
 
 if [ "$rc" = "0" ]; then

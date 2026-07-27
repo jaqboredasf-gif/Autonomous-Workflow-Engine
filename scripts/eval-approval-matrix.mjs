@@ -8,55 +8,62 @@
 //
 // Beyond the per-case labels it enforces the invariants that make this slice
 // safe, as HARD gates:
+//   * corpus parity — every fixture is labelled and every label has a fixture
 //   * determinism   — same input twice, byte-identical output
 //   * no-send       — no case can produce an approved or sent state, and no ok
 //                     draft may claim send capability
 //   * fixture-safety— every recipient on a produced draft is @example.invalid
-//   * fail-closed   — every blocked reason in the vocabulary is exercised
+//   * fail-closed   — every blocked reason in the vocabulary is exercised, and
+//                     every reason the engine emits is registered in the
+//                     platform union (scripts/lib/awe-reasons.mjs)
 //   * templates     — every template renders completely and cleanly
 //   * source purity — the engine modules contain no network/send machinery
 //   * seed parity   — every message type has a matrix row; no fixture policy
 //                     ever puts final_invoice into auto mode
 //
+// Built on @exattime/awe-kernel: corpus loading, the gate run and the
+// determinism/coverage/purity gates are shared with every other runner, so this
+// file contains only what is specific to B3.
+//
 // Exit 0 iff all gates pass. Invoked by scripts/eval-approval-matrix.sh.
 // ---------------------------------------------------------------------------
 
-import { readFileSync, readdirSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { createGateRun, loadCorpus } from '../packages/awe-kernel/src/index.mjs';
 import { BLOCKED_REASONS, MESSAGE_TYPES, FIXTURE_EMAIL_DOMAIN } from './lib/approval-matrix.mjs';
 import { prepareOutbound, buildDraft, scanForbiddenContent, TEMPLATE_IDS } from './lib/outbound-draft.mjs';
+import { reasons as platformReasons } from './lib/awe-reasons.mjs';
+import { persistSuiteReport } from './lib/runner-report.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const DIR = join(ROOT, 'fixtures', 'outbound');
-const CASES = join(DIR, 'cases');
 
 const REQUIRED_KEYS = ['ok', 'status', 'blocked_reason', 'persist', 'draft', 'routing',
   'draft_key', 'events', 'audit'];
 
 const policySets = JSON.parse(readFileSync(join(DIR, 'policies.json'), 'utf8'));
-const labels = JSON.parse(readFileSync(join(DIR, 'labels.json'), 'utf8'));
 
-let pass = 0, fail = 0;
-const seenReasons = new Set();
-const ok = () => { pass++; };
-const bad = (m) => { console.log(`FAIL  ${m}`); fail++; };
-const check = (cond, m) => (cond ? ok() : bad(m));
-const sameList = (a, b) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
+const run = createGateRun({ name: 'eval-approval-matrix (Runner 4, offline, deterministic)' });
+const corpus = loadCorpus({
+  dir: DIR,
+  casesDir: join(DIR, 'cases'),
+  name: 'fixtures/outbound',
+});
 
-const files = readdirSync(CASES).filter((f) => f.endsWith('.json')).sort();
+run.corpusParity(corpus);
 
-for (const f of files) {
-  const label = labels[f];
-  if (!label) { bad(`${f} has no entry in labels.json`); continue; }
-
-  let c;
-  try { c = JSON.parse(readFileSync(join(CASES, f), 'utf8')); }
-  catch (e) { bad(`${f} is not valid JSON: ${e.message}`); continue; }
+for (const { name: f, data: c, label } of corpus.cases) {
+  if (label === null) continue; // already reported by the parity gate
 
   const policies = policySets[c.policy_set];
-  if (!policies) { bad(`${f} references unknown policy_set '${c.policy_set}'`); continue; }
+  if (!policies) {
+    run.check(false, `${f} references unknown policy_set '${c.policy_set}'`);
+    continue;
+  }
 
   const input = {
     action: c.action,
@@ -72,84 +79,65 @@ for (const f of files) {
   };
 
   const res = prepareOutbound(input);
-  const res2 = prepareOutbound(input);
 
   // determinism — HARD
-  check(JSON.stringify(res) === JSON.stringify(res2), `${f} non-deterministic output`);
+  run.deterministic(() => prepareOutbound(input), f);
 
   // contract shape — HARD
-  check(REQUIRED_KEYS.every((k) => k in res), `${f} missing a required contract key`);
+  run.contract(res, REQUIRED_KEYS, f);
 
   // ---- universal safety invariants (apply to EVERY case) ----
-  check(res.status === 'draft' || res.status === 'blocked',
+  run.check(res.status === 'draft' || res.status === 'blocked',
     `${f} produced status '${res.status}' — only draft|blocked may exist in B3`);
-  check(!res.draft || res.draft.status !== 'sent',
+  run.check(!res.draft || res.draft.status !== 'sent',
     `${f} produced a draft in 'sent' state — no send path may exist`);
-  check(!res.draft || res.draft.status !== 'approved',
+  run.check(!res.draft || res.draft.status !== 'approved',
     `${f} produced a pre-approved draft — automation has zero approval authority`);
-  check(!res.events.includes('message.approved') && !res.events.includes('message.sent'),
+  run.check(!res.events.includes('message.approved') && !res.events.includes('message.sent'),
     `${f} emitted an approval/send event from a drafting run`);
   if (res.ok) {
-    check(res.draft.requires_human_approval === true,
+    run.check(res.draft.requires_human_approval === true,
       `${f} ok draft does not require human approval`);
-    check(res.draft.send_capability === false,
+    run.check(res.draft.send_capability === false,
       `${f} ok draft claims send capability`);
-    check((res.draft.to_addrs || []).every((a) => String(a).toLowerCase().endsWith(FIXTURE_EMAIL_DOMAIN)),
+    run.check((res.draft.to_addrs || []).every((a) => String(a).toLowerCase().endsWith(FIXTURE_EMAIL_DOMAIN)),
       `${f} ok draft addresses a non-fixture recipient: ${JSON.stringify(res.draft.to_addrs)}`);
-    check(res.routing.effective_mode === 'draft',
+    run.check(res.routing.effective_mode === 'draft',
       `${f} effective_mode is '${res.routing?.effective_mode}' — zero v1 auto-sends is locked`);
   }
   if (res.blocked_reason) {
-    check(BLOCKED_REASONS.includes(res.blocked_reason),
+    run.check(BLOCKED_REASONS.includes(res.blocked_reason),
       `${f} unknown blocked_reason '${res.blocked_reason}'`);
-    seenReasons.add(res.blocked_reason);
+    // Cross-engine check: the reason must also be registered in the platform
+    // union, so one string cannot mean two things across route/gate/queue.
+    run.check(platformReasons.has(res.blocked_reason),
+      `${f} blocked_reason '${res.blocked_reason}' is not in the platform reason union`);
+    run.record('blocked_reason', res.blocked_reason);
   }
-  check(Array.isArray(res.audit) && res.audit.length > 0, `${f} produced no audit trail`);
+  run.check(Array.isArray(res.audit) && res.audit.length > 0, `${f} produced no audit trail`);
 
   // ---- label assertions ----
-  check(res.ok === label.ok, `${f} ok: expected ${label.ok} got ${res.ok}`);
-  check(res.status === label.status, `${f} status: expected ${label.status} got ${res.status}`);
-  check(res.persist === label.persist, `${f} persist: expected ${label.persist} got ${res.persist}`);
-  check(res.blocked_reason === (label.blocked_reason ?? null),
-    `${f} blocked_reason: expected ${label.blocked_reason ?? null} got ${res.blocked_reason}`);
-  check(res.draft_key === label.draft_key,
-    `${f} draft_key: expected ${label.draft_key} got ${res.draft_key}`);
-  check(sameList(res.events, label.events),
-    `${f} events: expected ${JSON.stringify(label.events)} got ${JSON.stringify(res.events)}`);
+  run.equal(res.ok, label.ok, `${f} ok`);
+  run.equal(res.status, label.status, `${f} status`);
+  run.equal(res.persist, label.persist, `${f} persist`);
+  run.equal(res.blocked_reason, label.blocked_reason ?? null, `${f} blocked_reason`);
+  run.equal(res.draft_key, label.draft_key, `${f} draft_key`);
+  // Order-sensitive: the event sequence a run emits is part of its contract.
+  run.equal(res.events ?? [], label.events ?? [], `${f} events`);
 
-  if ('approver_role' in label) {
-    check(res.routing?.approver_role === label.approver_role,
-      `${f} approver_role: expected ${label.approver_role} got ${res.routing?.approver_role}`);
-  }
-  if ('routing_path' in label) {
-    check(res.routing?.routing_path === label.routing_path,
-      `${f} routing_path: expected ${label.routing_path} got ${res.routing?.routing_path}`);
-  }
-  if ('escalated' in label) {
-    check(res.routing?.escalated === label.escalated,
-      `${f} escalated: expected ${label.escalated} got ${res.routing?.escalated}`);
-  }
-  if ('policy_mode' in label) {
-    check(res.routing?.policy_mode === label.policy_mode,
-      `${f} policy_mode: expected ${label.policy_mode} got ${res.routing?.policy_mode}`);
-  }
-  if ('effective_mode' in label) {
-    check(res.routing?.effective_mode === label.effective_mode,
-      `${f} effective_mode: expected ${label.effective_mode} got ${res.routing?.effective_mode}`);
-  }
-  if ('auto_downgraded' in label) {
-    check(res.routing?.auto_downgraded === label.auto_downgraded,
-      `${f} auto_downgraded: expected ${label.auto_downgraded} got ${res.routing?.auto_downgraded}`);
+  for (const field of ['approver_role', 'routing_path', 'escalated', 'policy_mode', 'effective_mode', 'auto_downgraded']) {
+    if (field in label) run.equal(res.routing?.[field], label[field], `${f} ${field}`);
   }
 }
 
-console.log('--- Runner 4 gates ---');
+run.section('Runner 4 gates');
 
 // Fail-closed coverage: every blocked reason must be exercised by a fixture —
 // an unexercised refusal is an unproven refusal. HARD.
-const uncovered = BLOCKED_REASONS.filter((r) => !seenReasons.has(r));
-check(uncovered.length === 0, `blocked-reason coverage: uncovered ${JSON.stringify(uncovered)}`);
-console.log(`blocked-reason coverage ${seenReasons.size}/${BLOCKED_REASONS.length}`);
+run.coverage('blocked_reason', BLOCKED_REASONS, { label: 'blocked-reason coverage' });
+
+// Every reason this engine can produce is registered in the platform union.
+run.includesAll(platformReasons.all(), BLOCKED_REASONS, 'engine reasons missing from the platform union');
 
 // Template coverage: every template renders completely, addresses a fixture
 // recipient, and contains no forbidden content. HARD.
@@ -166,44 +154,60 @@ const CANON = {
 };
 for (const t of TEMPLATE_IDS) {
   const built = buildDraft({ messageType: t, context: CANON });
-  check(built.ok, `template ${t} failed to render: ${built.error}`);
+  run.check(built.ok, `template ${t} failed to render: ${built.error}`);
   if (built.ok) {
-    check(built.draft.status === 'draft', `template ${t} produced status ${built.draft.status}`);
-    check(built.draft.to_addrs.every((a) => a.endsWith(FIXTURE_EMAIL_DOMAIN)),
+    run.check(built.draft.status === 'draft', `template ${t} produced status ${built.draft.status}`);
+    run.check(built.draft.to_addrs.every((a) => a.endsWith(FIXTURE_EMAIL_DOMAIN)),
       `template ${t} addressed a non-fixture recipient`);
-    check(scanForbiddenContent(built.draft.body_text).length === 0,
+    run.check(scanForbiddenContent(built.draft.body_text).length === 0,
       `template ${t} body contains forbidden troubleshooting content`);
   }
 }
 console.log(`template coverage ${TEMPLATE_IDS.length}/${MESSAGE_TYPES.length}`);
-check(MESSAGE_TYPES.every((t) => TEMPLATE_IDS.includes(t)),
-  `every message type needs a template (missing: ${JSON.stringify(MESSAGE_TYPES.filter((t) => !TEMPLATE_IDS.includes(t)))})`);
+run.includesAll(TEMPLATE_IDS, MESSAGE_TYPES, 'every message type needs a template');
 
 // Source purity: the engine modules must contain no network or send machinery.
 // This is the structural proof behind "no send capability exists". HARD.
-for (const mod of ['lib/approval-matrix.mjs', 'lib/outbound-draft.mjs']) {
-  const src = readFileSync(join(HERE, mod), 'utf8');
-  const code = src.split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
-  check(!/\b(fetch\s*\(|https?:\/\/|require\s*\(|nodemailer|smtp|sendmail|graph\.microsoft)/i.test(code),
-    `${mod} contains network/send machinery`);
-  check(!/\bimport\s+.*\bfrom\s+['"](?!\.\/)/.test(code),
-    `${mod} imports a non-local module`);
-}
+run.sourcePurity(
+  ['lib/approval-matrix.mjs', 'lib/outbound-draft.mjs'].map((m) => join(HERE, m)),
+  [
+    {
+      name: 'network/send machinery',
+      pattern: /\b(fetch\s*\(|https?:\/\/|require\s*\(|nodemailer|smtp|sendmail|graph\.microsoft)/i,
+      message: 'the outbound engines must contain no network or send capability',
+    },
+    {
+      name: 'non-local import',
+      pattern: /\bimport\s+.*\bfrom\s+['"](?!\.\/)/,
+      message: 'the outbound engines depend on nothing but their own directory',
+    },
+  ],
+  { label: 'engine purity' },
+);
 
 // Seed parity: the v1 fixture matrix covers every message type, and no fixture
 // policy anywhere puts the final invoice into auto mode (REQUIREMENTS: never auto).
-const seeded = new Set((policySets.seed_v1 || []).map((p) => p.message_type));
-check(MESSAGE_TYPES.every((t) => seeded.has(t)),
-  `seed_v1 missing rows for ${JSON.stringify(MESSAGE_TYPES.filter((t) => !seeded.has(t)))}`);
+run.includesAll((policySets.seed_v1 || []).map((p) => p.message_type), MESSAGE_TYPES, 'seed_v1 message-type rows');
 const invoiceAuto = Object.entries(policySets)
   .filter(([k]) => k !== '_readme')
   .flatMap(([set, rows]) => (Array.isArray(rows) ? rows : [])
     .filter((p) => p.message_type === 'final_invoice' && p.mode === 'auto')
     .map(() => set));
-check(invoiceAuto.length === 0, `final_invoice in auto mode in policy set(s) ${JSON.stringify(invoiceAuto)}`);
+run.check(invoiceAuto.length === 0, `final_invoice in auto mode in policy set(s) ${JSON.stringify(invoiceAuto)}`);
 // Every v1 seed row is draft mode — zero v1 auto-sends, seeded honestly.
-check((policySets.seed_v1 || []).every((p) => p.mode === 'draft'),
+run.check((policySets.seed_v1 || []).every((p) => p.mode === 'draft'),
   'seed_v1 contains a non-draft mode row (zero v1 auto-sends is locked)');
 
-console.log(`eval-approval-matrix (Runner 4, offline, deterministic): passed=${pass} failed=${fail}  [${files.length} fixtures]`);
-process.exit(fail === 0 ? 0 : 1);
+const report = run.summary({ fixtures: corpus.cases.length });
+
+// Durable evidence: this run's own verdict, as a run-report artifact, through
+// the same scaffolding every AWE workflow uses. `AWE_ARTIFACTS=off` opts out.
+const persisted = await persistSuiteReport(report, { workflowId: 'approval_matrix' });
+if (persisted.skipped) console.log('run artifact: skipped (AWE_ARTIFACTS=off)');
+else if (persisted.ok) console.log(`run artifact: ${persisted.ref} [${persisted.final_state}]`);
+else console.log(`FAIL  run artifact was not written — ${persisted.error}`);
+
+// A durable record that did not land is a failure of this run, not a warning.
+// It cannot be counted in the summary above (it records that summary), so it is
+// a hard gate on the exit code instead.
+process.exit(run.exitCode || (persisted.skipped || persisted.ok ? 0 : 1));

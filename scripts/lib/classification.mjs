@@ -6,7 +6,7 @@
 //   - budget is one primary call plus at most two retries.
 // The MCP server and n8n are expected to call classify() later; both are out of B2 scope.
 
-import * as db from './db.mjs';
+import * as defaultDb from './db.mjs';
 
 export const PROMPT_VERSION = 'b2-classify-v1';
 
@@ -105,7 +105,10 @@ export function deriveStatus(classification, { missing_info, county, zip, duplic
   return 'new';
 }
 
-function expectedEvent(emergency, duplicate_of, status, classification) {
+// Exported so the run scaffolding records the SAME event the Verify Step looks
+// for. Two copies of this rule would be two different answers to "what should
+// have been emitted?".
+export function expectedEvent(emergency, duplicate_of, status, classification) {
   if (emergency) return 'request.emergency_escalated';
   if (duplicate_of) return 'duplicate_flagged';
   if (status === 'needs_review') return 'request.triage_required';
@@ -147,7 +150,14 @@ function jaccard(a, b) {
 }
 
 // --- Orchestration: classify one email, optionally persist + Verify Step ---
-export async function classify(email, { adapter, persist = false } = {}) {
+//
+// `db` is injectable and defaults to the real persistence module. It is a seam,
+// not a behaviour change: every existing caller gets exactly what it got before.
+// It exists because the keyword net and the territory check are database
+// functions, so without it classify() cannot be exercised at all without
+// credentials — and an orchestration that can only be tested live is an
+// orchestration nobody tests.
+export async function classify(email, { adapter, persist = false, db = defaultDb } = {}) {
   const text = email.fullText();
   const keyword_net = await db.keywordNet(text);
   const packet = buildPacket(email, { keyword_net_emergency: keyword_net });

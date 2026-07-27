@@ -4,6 +4,8 @@
 // new dependency. All writes go through the same triggers as B1, so emergency
 // invariants and event emission are enforced by the database, not this code.
 
+import { defineVerify, runVerify } from '../../packages/awe-kernel/src/index.mjs';
+
 const PROJECT_REF = 'qgoiacwdntaqeghcyjlw';
 const ORG_ID = '2b219aa5-1148-4e3e-a1a0-1725d62b935c';
 const QUERY_URL = `https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`;
@@ -154,27 +156,60 @@ export async function writeClassification(emailId, existingId, c) {
 
 // Deterministic Verify Step: re-read the DB and confirm the write actually landed,
 // belongs to the right org, emitted the expected event, and created no duplicate row.
+//
+// The checks are DECLARED (a kernel verify spec) and evaluated by
+// @exattime/awe-kernel, not hand-coded here: the same spec can be evaluated
+// against a recorded probe with no database, the check ids are stable, and a
+// probe that throws is reported as a FAILED step rather than crashing the run —
+// an unreachable database must never be mistaken for a verified write.
+// Returned shape is `{ ok, checks, ... }`; `.verify.ok` and
+// `.verify.checks.<id>` are what Runner 2A reads, and both are unchanged.
+export const CLASSIFICATION_WRITE_BACK = defineVerify({
+  name: 'classification.write_back',
+  description: 'B2 write-back landed, in the right org, with its event, and no duplicate row.',
+  sources: ['row', 'event_count', 'work_request_count'],
+  checks: [
+    { id: 'row_updated', kind: 'exists', source: 'row' },
+    {
+      id: 'values_match',
+      kind: 'fields_equal',
+      source: 'row',
+      fields: { classification: { $ctx: 'classification' }, status: { $ctx: 'status' } },
+    },
+    { id: 'org_scoped', kind: 'equals', source: 'row', path: 'org_id', expectedPath: 'org' },
+    { id: 'event_present', kind: 'count_at_least', source: 'event_count', expected: 1 },
+    { id: 'no_duplicate_side_effect', kind: 'count_equals', source: 'work_request_count', expected: 1 },
+  ],
+});
+
 export async function verify(workRequestId, emailId, expected) {
-  const rows = await sql(
-    `select id, org_id, classification, status, urgency from work_requests where id = ${lit(workRequestId)}`
-  );
-  const row = rows[0] || null;
-  const evRows = await sql(
-    `select count(*)::int as n from integration_events
-      where entity_id = ${lit(workRequestId)} and entity_type = 'work_request'
-        and event_type = ${lit(expected.event)}`
-  );
-  const dupRows = await sql(
-    `select count(*)::int as n from work_requests where email_message_id = ${lit(emailId)}`
-  );
-  const checks = {
-    row_updated: !!row,
-    values_match: !!row
-      && row.classification === expected.classification
-      && row.status === expected.status,
-    org_scoped: !!row && row.org_id === org,
-    event_present: (evRows[0]?.n ?? 0) >= 1,
-    no_duplicate_side_effect: (dupRows[0]?.n ?? 0) === 1,
+  const probe = async (source) => {
+    switch (source) {
+      case 'row': {
+        const rows = await sql(
+          `select id, org_id, classification, status, urgency from work_requests where id = ${lit(workRequestId)}`
+        );
+        return rows[0] || null;
+      }
+      case 'event_count':
+        return sql(
+          `select count(*)::int as n from integration_events
+            where entity_id = ${lit(workRequestId)} and entity_type = 'work_request'
+              and event_type = ${lit(expected.event)}`
+        );
+      case 'work_request_count':
+        return sql(
+          `select count(*)::int as n from work_requests where email_message_id = ${lit(emailId)}`
+        );
+      /* istanbul ignore next -- sources are fixed by the spec above */
+      default:
+        throw new Error(`unknown verify source '${source}'`);
+    }
   };
-  return { ok: Object.values(checks).every(Boolean), checks };
+
+  const result = await runVerify(CLASSIFICATION_WRITE_BACK, {
+    probe,
+    context: { classification: expected.classification, status: expected.status, org },
+  });
+  return { ok: result.ok, checks: result.checks, failures: result.failures, digest: result.digest };
 }

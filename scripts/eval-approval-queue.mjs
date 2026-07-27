@@ -7,6 +7,7 @@
 // every labelled case in fixtures/queue/, plus the invariants that make the
 // queue safe, as HARD gates:
 //
+//   * corpus parity    — every fixture is labelled and every label has a fixture
 //   * determinism      — same row + same capabilities twice, identical verdict
 //   * label parity     — guard verdict AND the RPC payload match the label
 //   * reason coverage  — every GUARD_REASON in the vocabulary is exercised
@@ -21,14 +22,22 @@
 //   * enum parity      — statuses / roles / message types match 0015's enums
 //   * source purity    — the UI has no send path, no service-role key, no
 //                        direct write to outbound_messages
+//   * durable report   — this run's own result is persisted as a run artifact
+//
+// Built on @exattime/awe-kernel: the corpus loader, the gate run and the
+// determinism/coverage/purity gates are shared with every other runner, so this
+// file contains only what is specific to B5. Output format is unchanged.
 //
 // Exit 0 iff all gates pass. Invoked by scripts/eval-approval-queue.sh.
 // ---------------------------------------------------------------------------
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
+import { createGateRun, loadCorpus, stripComments } from '../packages/awe-kernel/src/index.mjs';
+import { reasons as platformReasons } from './lib/awe-reasons.mjs';
+import { persistSuiteReport } from './lib/runner-report.mjs';
 import {
   BUSINESS_ROLES,
   DECIDABLE_STATUSES,
@@ -59,32 +68,27 @@ const DIR = join(ROOT, 'fixtures', 'queue');
 const CASES = join(DIR, 'cases');
 
 const read = (p) => readFileSync(p, 'utf8');
-const readJson = (p) => JSON.parse(read(p));
 
-let pass = 0;
-let fail = 0;
-const ok = () => { pass++; };
-const bad = (m) => { console.log(`FAIL  ${m}`); fail++; };
-const check = (cond, m) => (cond ? ok() : bad(m));
+const run = createGateRun({ name: 'eval-approval-queue (Runner 5, offline, deterministic)' });
+const { check, equal } = run;
 
-const baseRow = readJson(join(DIR, 'base-row.json'));
-const labels = readJson(join(DIR, 'labels.json'));
-const files = readdirSync(CASES).filter((f) => f.endsWith('.json')).sort();
+const baseRow = JSON.parse(read(join(DIR, 'base-row.json')));
 
-const seenGuardReasons = new Set();
+// `base-row.json` and `labels.json` live beside the cases directory, so only the
+// case files are loaded. An unlabelled case is never asserted and an orphan
+// label is a rule nobody checks — both are gate failures, not silent skips.
+const corpus = loadCorpus({ dir: DIR, casesDir: CASES, name: 'fixtures/queue' });
+run.corpusParity(corpus);
+check(corpus.cases.length >= 19, `fixtures/queue shrank to ${corpus.cases.length} cases — coverage was removed, not refactored`);
+
 const allRows = [];
 
 // ---------------------------------------------------------------------------
 // Per-case labels
 // ---------------------------------------------------------------------------
 
-for (const f of files) {
-  const label = labels[f];
-  if (!label) { bad(`${f} has no entry in labels.json`); continue; }
-
-  let c;
-  try { c = readJson(join(CASES, f)); }
-  catch (e) { bad(`${f} is not valid JSON: ${e.message}`); continue; }
+for (const { name: f, data: c, label } of corpus.cases) {
+  if (label === null) continue; // already reported by the parity gate
 
   // Cases state only what they are testing; everything else is the base row.
   const row = { ...baseRow, ...(c.row ?? {}) };
@@ -97,56 +101,63 @@ for (const f of files) {
     capabilities: c.capabilities ?? { userId: null, roles: {} },
   };
 
-  const g1 = decisionGuard(input);
-  const g2 = decisionGuard(input);
-  check(JSON.stringify(g1) === JSON.stringify(g2), `${f} decisionGuard is non-deterministic`);
+  // HARD determinism gate: compared by canonical bytes, so key order cannot
+  // mask a difference and a hidden clock/random dependency cannot pass.
+  run.deterministic(() => decisionGuard(input), `${f} decisionGuard`);
 
+  const g1 = decisionGuard(input);
   check(g1.allowed === label.guard_allowed,
     `${f} guard allowed=${g1.allowed} expected ${label.guard_allowed} (${g1.reason})`);
   check((g1.reason ?? null) === (label.guard_reason ?? null),
     `${f} guard reason=${g1.reason} expected ${label.guard_reason}`);
   if (g1.reason) {
-    seenGuardReasons.add(g1.reason);
-    check(GUARD_REASONS.includes(g1.reason), `${f} guard reason '${g1.reason}' is outside the vocabulary`);
+    run.record('guard_reason', g1.reason);
+    run.member(g1.reason, GUARD_REASONS, `${f} guard reason vocabulary`);
+    // Cross-engine check: the reason must also be registered in the platform
+    // union, so one string cannot mean two things across route/gate/queue.
+    check(platformReasons.has(g1.reason),
+      `${f} guard reason '${g1.reason}' is not in the platform reason union`);
     check(typeof g1.detail === 'string' && g1.detail.length > 0,
       `${f} refusal carries no human-readable detail`);
   }
 
   const planInput = { ...input, decision: c.decision, reason: c.reason ?? null };
-  const p1 = planDecision(planInput);
-  const p2 = planDecision(planInput);
-  check(JSON.stringify(p1) === JSON.stringify(p2), `${f} planDecision is non-deterministic`);
+  run.deterministic(() => planDecision(planInput), `${f} planDecision`);
 
+  const p1 = planDecision(planInput);
   check(p1.ok === label.plan_ok, `${f} plan ok=${p1.ok} expected ${label.plan_ok} (${p1.reason})`);
 
   if (label.plan_ok) {
     check(p1.rpc !== null, `${f} an allowed decision produced no RPC payload`);
     if (p1.rpc) {
       check(p1.rpc.p_message === row.id, `${f} RPC targets the wrong message`);
-      check(p1.rpc.p_decision === label.rpc.p_decision,
-        `${f} RPC decision=${p1.rpc.p_decision} expected ${label.rpc.p_decision}`);
-      check((p1.rpc.p_reason ?? null) === (label.rpc.p_reason ?? null),
-        `${f} RPC reason=${JSON.stringify(p1.rpc.p_reason)} expected ${JSON.stringify(label.rpc.p_reason)}`);
+      equal(p1.rpc.p_decision, label.rpc.p_decision, `${f} RPC decision`);
+      equal(p1.rpc.p_reason ?? null, label.rpc.p_reason ?? null, `${f} RPC reason`);
       check(Object.keys(p1.rpc).length === 3,
         `${f} RPC payload carries fields record_approval() does not accept`);
     }
   } else {
     // HARD: a refused decision must produce NOTHING that could be sent.
     check(p1.rpc === null, `${f} a refused decision still produced an RPC payload`);
-    check(p1.reason === label.plan_reason,
-      `${f} plan reason=${p1.reason} expected ${label.plan_reason}`);
-    if (p1.reason) seenGuardReasons.add(p1.reason);
+    equal(p1.reason, label.plan_reason, `${f} plan reason`);
+    if (p1.reason) {
+      run.record('guard_reason', p1.reason);
+      check(platformReasons.has(p1.reason),
+        `${f} plan reason '${p1.reason}' is not in the platform reason union`);
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Coverage: every refusal in the vocabulary is exercised by a fixture
+// Coverage: every refusal in the vocabulary is exercised by a fixture. HARD —
+// an unexercised refusal is an unproven refusal.
 // ---------------------------------------------------------------------------
 
-for (const reason of GUARD_REASONS) {
-  check(seenGuardReasons.has(reason), `guard reason '${reason}' is never exercised by a fixture`);
-}
-const coverage = `${seenGuardReasons.size}/${GUARD_REASONS.length}`;
+run.coverage('guard_reason', [...GUARD_REASONS], { label: 'guard-reason coverage' });
+
+// Every reason this engine can produce is registered in the platform union —
+// the same gate Runner 4 applies to the routing vocabulary.
+run.includesAll(platformReasons.all(), [...GUARD_REASONS], 'queue reasons missing from the platform union');
 
 // ---------------------------------------------------------------------------
 // Duplicate-decision protection, stated as an invariant over every status
@@ -197,7 +208,7 @@ const partitioned = QUEUE_TABS.reduce((n, t) => n + filterTab(allRows, t).length
 check(partitioned === allRows.length,
   `tabs do not partition the queue (${partitioned} placed vs ${allRows.length} rows)`);
 for (const r of allRows) {
-  check(QUEUE_TABS.includes(tabOf(r)), `row with status '${r.status}' lands outside the tab vocabulary`);
+  run.member(tabOf(r), [...QUEUE_TABS], `row with status '${r.status}' tab`);
 }
 const summary = summarizeQueue(allRows);
 check(summary.total === allRows.length, 'summary total disagrees with the row count');
@@ -234,9 +245,8 @@ const fullRow = {
   sender: { full_name: 'Jack Admin' },
 };
 const trail = buildAuditTrail(fullRow);
-const steps = trail.map((e) => e.step);
-check(JSON.stringify(steps) === JSON.stringify(['draft_created', 'escalated', 'approved', 'sent']),
-  `audit trail out of order or incomplete: ${steps.join(' -> ')}`);
+equal(trail.map((e) => e.step), ['draft_created', 'escalated', 'approved', 'sent'],
+  'audit trail order and completeness');
 check(trail.every((e) => typeof e.step === 'string' && typeof e.actor === 'string' && e.actor.length > 0),
   'an audit entry has no attributed actor');
 check(trail.find((e) => e.step === 'approved').actor === 'Jack Admin',
@@ -256,8 +266,7 @@ const blockedTrail = buildAuditTrail({
 check(blockedTrail[0].step === 'blocked' && /missing_approver_role/.test(blockedTrail[0].detail ?? ''),
   'a blocked row does not explain itself in the audit trail');
 
-check(JSON.stringify(buildAuditTrail(fullRow)) === JSON.stringify(trail),
-  'buildAuditTrail is non-deterministic');
+run.deterministic(() => buildAuditTrail(fullRow), 'buildAuditTrail');
 
 // ---------------------------------------------------------------------------
 // Presentation helpers (no crashes, no invented data)
@@ -269,8 +278,7 @@ check(recipientLine({ ...baseRow, to_addrs: [] }) === '—', 'no recipient must 
 check(requesterLine({ ...baseRow, work_requests: null }) === '—', 'a message with no work request must not invent a requester');
 check(/escalated/.test(escalationLine({ ...baseRow, escalated: true, escalation_reason: 'over limit' })),
   'escalation state is not surfaced');
-check(requiredRoles(allRows).every((r) => BUSINESS_ROLES.includes(r)),
-  'a required approver role is outside the business-role vocabulary');
+run.includesAll([...BUSINESS_ROLES], requiredRoles(allRows), 'required approver roles outside the business-role vocabulary');
 
 // ---------------------------------------------------------------------------
 // Mode resolution — fail closed
@@ -295,15 +303,13 @@ function enumValues(sql, name) {
   return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
 }
 
-const sameSet = (a, b) => a && b && [...a].sort().join(',') === [...b].sort().join(',');
-
-check(sameSet(enumValues(sql0015, 'outbound_message_status'), OUTBOUND_STATUSES),
+run.sameSet(enumValues(sql0015, 'outbound_message_status'), OUTBOUND_STATUSES,
   'OUTBOUND_STATUSES has drifted from the outbound_message_status enum in 0015');
-check(sameSet(enumValues(sql0015, 'business_role'), BUSINESS_ROLES),
+run.sameSet(enumValues(sql0015, 'business_role'), BUSINESS_ROLES,
   'BUSINESS_ROLES has drifted from the business_role enum in 0015');
-check(sameSet(enumValues(sql0015, 'outbound_message_type'), MESSAGE_TYPES),
+run.sameSet(enumValues(sql0015, 'outbound_message_type'), MESSAGE_TYPES,
   'MESSAGE_TYPES has drifted from the outbound_message_type enum in 0015');
-check(DECIDABLE_STATUSES.length === 1 && DECIDABLE_STATUSES[0] === 'draft',
+equal(DECIDABLE_STATUSES, ['draft'],
   "DECIDABLE_STATUSES must stay ['draft'] — 0015 refuses any other status");
 
 // ---------------------------------------------------------------------------
@@ -392,52 +398,58 @@ for (const t of SERVICE_ROLE_ONLY) {
 // Source purity — the UI cannot send, cannot escalate privilege, holds no secret
 // ---------------------------------------------------------------------------
 
-const UI_FILES = {
-  'apps/web/src/lib/approval-queue.ts': read(join(ROOT, 'apps/web/src/lib/approval-queue.ts')),
-  'apps/web/src/app/approvals/page.tsx': read(join(ROOT, 'apps/web/src/app/approvals/page.tsx')),
-};
-
-// Comments explain the boundaries, so purity is asserted against code only.
-const stripComments = (s) =>
-  s.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !/^\s*(\/\/|\*)/.test(l)).join('\n');
-
-const FORBIDDEN_IN_UI = [
-  [/mark_message_sent/, 'a send-marking call (B5 has no send action)'],
-  [/\bcreate_outbound_draft\b/, 'a draft-creation call (the queue only decides)'],
-  [/service_role|SERVICE_ROLE|sb_secret_|SUPABASE_ACCESS_TOKEN/, 'a service-role or management credential'],
-  [/eyJ[A-Za-z0-9_-]{10,}/, 'a hard-coded JWT'],
-  [/graph\.microsoft\.com|smtp|nodemailer|sendMail/i, 'mail transport machinery'],
-  [/\.from\(\s*['"]outbound_messages['"]\s*\)\s*\.(insert|update|delete|upsert)/, 'a direct write to outbound_messages'],
-  [/\.from\(\s*['"]integration_events['"]\s*\)/, 'a read of the service-role-only event log'],
+const UI_PATHS = [
+  'apps/web/src/lib/approval-queue.ts',
+  'apps/web/src/app/approvals/page.tsx',
 ];
 
-for (const [name, src] of Object.entries(UI_FILES)) {
-  const code = stripComments(src);
-  for (const [re, what] of FORBIDDEN_IN_UI) {
-    check(!re.test(code), `${name} contains ${what}`);
-  }
-}
+// Comments explain the boundaries, so purity is asserted against code only. The
+// kernel's stripper is a state scanner, not a regex: a forbidden call hidden in
+// a string literal still trips the lint, and a URL inside a string is not
+// mistaken for a comment.
+run.sourcePurity(
+  UI_PATHS.map((p) => join(ROOT, p)),
+  [
+    { name: 'mark_message_sent', pattern: /mark_message_sent/, message: 'a send-marking call (B5 has no send action)' },
+    { name: 'create_outbound_draft', pattern: /\bcreate_outbound_draft\b/, message: 'a draft-creation call (the queue only decides)' },
+    { name: 'privileged credential', pattern: /service_role|SERVICE_ROLE|sb_secret_|SUPABASE_ACCESS_TOKEN/, message: 'a service-role or management credential' },
+    { name: 'hard-coded JWT', pattern: /eyJ[A-Za-z0-9_-]{10,}/, message: 'a hard-coded JWT' },
+    { name: 'mail transport', pattern: /graph\.microsoft\.com|smtp|nodemailer|sendMail/i, message: 'mail transport machinery' },
+    { name: 'direct outbound write', pattern: /\.from\(\s*['"]outbound_messages['"]\s*\)\s*\.(insert|update|delete|upsert)/, message: 'a direct write to outbound_messages' },
+    { name: 'event-log read', pattern: /\.from\(\s*['"]integration_events['"]\s*\)/, message: 'a read of the service-role-only event log' },
+  ],
+  { label: 'queue UI purity' },
+);
+
+const uiCode = UI_PATHS.map((p) => stripComments(read(join(ROOT, p))));
 
 // The queue may call exactly two RPCs, and no others.
-const rpcCalls = [...Object.values(UI_FILES).join('\n').matchAll(/\.rpc\(\s*['"]([a-z_]+)['"]/g)]
-  .map((m) => m[1]);
+const rpcCalls = [...uiCode.join('\n').matchAll(/\.rpc\(\s*['"]([a-z_]+)['"]/g)].map((m) => m[1]);
 const allowedRpcs = ['record_approval', 'business_role_matches'];
 for (const r of rpcCalls) {
-  check(allowedRpcs.includes(r), `the queue calls an unexpected RPC '${r}'`);
+  run.member(r, allowedRpcs, 'the queue calls an unexpected RPC');
 }
 check(rpcCalls.includes('record_approval'), 'the queue never calls record_approval — the approval gate is bypassed');
 
 // The page must route every decision through planDecision: an .rpc('record_approval')
 // that is not fed by a plan would skip every guard above.
-const pageCode = stripComments(UI_FILES['apps/web/src/app/approvals/page.tsx']);
+const pageCode = uiCode[1];
 check(/planDecision\(/.test(pageCode), 'the page does not call planDecision — guards are bypassable');
 check(/plan\.rpc/.test(pageCode), 'the page does not pass the planned payload to record_approval');
 check(/verifyDecisionApplied\(/.test(pageCode), 'the page does not verify the decision after refresh');
 
 // ---------------------------------------------------------------------------
 
-console.log(`guard-reason coverage ${coverage}`);
-console.log(
-  `eval-approval-queue (Runner 5, offline, deterministic): passed=${pass} failed=${fail}  [${files.length} fixtures]`,
-);
-process.exit(fail === 0 ? 0 : 1);
+const report = run.summary({ fixtures: corpus.cases.length });
+
+// Durable evidence: this run's own verdict, as a run-report artifact, through
+// the same scaffolding every AWE workflow uses. `AWE_ARTIFACTS=off` opts out.
+const persisted = await persistSuiteReport(report, { workflowId: 'approval_queue' });
+if (persisted.skipped) console.log('run artifact: skipped (AWE_ARTIFACTS=off)');
+else if (persisted.ok) console.log(`run artifact: ${persisted.ref} [${persisted.final_state}]`);
+else console.log(`FAIL  run artifact was not written — ${persisted.error}`);
+
+// A durable record that did not land is a failure of this run, not a warning:
+// the report is the evidence. It cannot be counted in the summary above (it
+// records that summary), so it is a hard gate on the exit code instead.
+process.exit(run.exitCode || (persisted.skipped || persisted.ok ? 0 : 1));
