@@ -2,6 +2,38 @@
 
 Append-only. Newest first. Format: date — decision — why — supersedes (if any).
 
+## 2026-07-27 — Phase 1 C2 uses the exact shipped-call-site allow-list
+
+- Authenticated application RPCs are exactly
+  `business_role_matches(uuid,business_role)` and
+  `record_approval(uuid,text,text)`.
+- `current_org_id()` and `current_role_is(user_role)` remain client-executable
+  RLS helpers and are documented separately.
+- `apply_timecard_correction(uuid)` and `mark_message_sent(uuid)` are removed
+  from authenticated execution and remain service-only pending reviewed routes.
+- C2 uses exact identity arguments, denies same-name overloads, and requires the
+  executor to own public functions before changing owner-specific defaults.
+- Migrations 0001-0015 were applied as raw SQL outside the Supabase ledger. No
+  live history repair is authorized; canonical replay is a deployment gate.
+- C2 narrows ACLs but does not close remaining unsafe `SECURITY DEFINER`
+  `search_path` findings.
+
+## 2026-07-27 — Security Phase 1 is tenant-bound and repository-only
+
+- Keep `security/c1-policy-cleanup` unchanged; selectively reuse only its
+  verified C1 inventory, drop set, and post-conditions.
+- Split C1-C4 into four ordered migration boundaries. C4 includes a database
+  startup assertion because a tenant-filtered server must fail closed when its
+  database contract is absent.
+- Treat one MCP process as one tenant. Tenant identity comes only from
+  deployment configuration (`MCP_ORG_ID`), never a tool input.
+- Replace broad foreman authority with declared crew membership and enforce
+  same-tenant foreign references at write time.
+- Revoke function execution by default and restore only documented browser and
+  service-role paths.
+- Do not apply or dry-run against live state in this task. Deployment remains a
+  separate explicit approval gate.
+
 ## 2026-07-26 (Task B5 — approval queue UI)
 
 - **B5 ships the approval queue only; the requests inbox is split out as B5b.**

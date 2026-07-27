@@ -56,6 +56,9 @@ c() { curl -s --retry 2 --retry-all-errors "$@"; }
 as_user() { # as_user <user-uuid> <sql>
   printf "begin;\nset local role authenticated;\nset local request.jwt.claims = '{\"sub\":\"%s\",\"role\":\"authenticated\"}';\n%s\n" "$1" "$2"
 }
+as_service_user() { # internal service path with explicit human attribution
+  printf "begin;\nset local role service_role;\nset local request.jwt.claims = '{\"sub\":\"%s\",\"role\":\"service_role\"}';\n%s\ncommit;\n" "$1" "$2"
+}
 
 echo "--- slice 4 setup (org $ORG, run $RUN) ---"
 
@@ -156,8 +159,8 @@ ERR=$(sql "$(as_user "$WORKER" "select record_approval('$MID','approve');")")
 check "4c. worker record_approval refused (does not hold approver role)" \
   $(grep -q 'does not hold the approver role' <<<"$ERR"; echo $?)
 ERR=$(sql "$(as_user "$WORKER" "select mark_message_sent('$MID');")")
-check "4d. worker mark_message_sent refused" \
-  $(grep -qE 'does not hold the role|approval gate' <<<"$ERR"; echo $?)
+check "4d. authenticated worker cannot execute internal mark_message_sent" \
+  $(grep -qi 'permission denied' <<<"$ERR"; echo $?)
 ERR=$(sql "$(as_user "$WORKER" "update outbound_messages set status='approved' where id='$MID';
 select count(*) c from outbound_messages where id='$MID' and status='approved';
 rollback;")")
@@ -182,8 +185,8 @@ check "5. service-role (no human) approval refused: automation has no authority"
 # 6. `sent` is unreachable without an approval row — three independent paths.
 # ---------------------------------------------------------------------------
 ERR=$(c -X POST "$URL/rest/v1/rpc/mark_message_sent" "${AUTH[@]}" -d "{\"p_message\":\"$MID\"}")
-check "6. mark_message_sent on a DRAFT refused (approval gate)" \
-  $(grep -q 'approval gate' <<<"$ERR"; echo $?)
+check "6. authenticated admin cannot execute internal mark_message_sent" \
+  $(grep -qi 'permission denied' <<<"$ERR"; echo $?)
 ERR=$(sql "update outbound_messages set status='sent' where id='$MID'")
 check "6b. direct draft→sent transition refused (transition guard)" \
   $(grep -q 'illegal outbound_messages transition' <<<"$ERR"; echo $?)
@@ -223,9 +226,9 @@ check "7d. re-approving a non-draft refused (only a draft can be decided)" \
 # ---------------------------------------------------------------------------
 # 8. Manual send bookkeeping: approved → sent, with manual_send evidence.
 # ---------------------------------------------------------------------------
-R=$(c -X POST "$URL/rest/v1/rpc/mark_message_sent" "${AUTH[@]}" -d "{\"p_message\":\"$MID\"}")
+R=$(sql "$(as_service_user "$ADMIN_ID" "select mark_message_sent('$MID');")")
 ROW=$(sql "select status, sent_at, sent_marked_by from outbound_messages where id='$MID'")
-check "8. approved message marked sent by the approver → status=sent" \
+check "8. approved message marked sent through internal service path → status=sent" \
   $([ "$(jq -r '.[0].status' <<<"$ROW")" = "sent" ] \
     && [ "$(jq -r '.[0].sent_at' <<<"$ROW")" != "null" ] \
     && [ "$(jq -r '.[0].sent_marked_by' <<<"$ROW")" = "$ADMIN_ID" ]; echo $?)
