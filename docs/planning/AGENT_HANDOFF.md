@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-27T14:30:00Z
+2026-07-27T14:00:25Z
 
 ## agent
 
@@ -18,19 +18,19 @@ chore/agent-handoff-clean
 
 ## commit
 
-Pending final task commit.
+Branch `HEAD`; resolve with `git rev-parse HEAD` after the final handoff update.
 
 ## current objective
 
-Create and verify a clean, `main`-based handoff integration draft PR that supersedes PR #1. Do not begin Security Remediation Phase 1.
+Completed: created and verified a clean, `main`-based handoff integration draft PR that supersedes closed PR #1. Do not begin Security Remediation Phase 1.
 
 ## pull request
 
-- Replacement PR: pending creation.
+- Replacement PR: `#2` — https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/pull/2
 - Base: `main`
 - Head: `chore/agent-handoff-clean`
-- Intended state: draft
-- PR #1 remains open until the replacement PR exists and its diff is verified.
+- State: open draft; mergeable; checks passed.
+- PR #1: closed without merge after a comment linked PR #2; old branch preserved.
 
 ## default branch
 
@@ -52,6 +52,10 @@ Create and verify a clean, `main`-based handoff integration draft PR that supers
 - Created a separate linked worktree and `chore/agent-handoff-clean` directly from `origin/main`.
 - Cherry-picked only the verified handoff integration commits.
 - Confirmed the branch diff against `main` contains exactly the four intended files.
+- Pushed `chore/agent-handoff-clean` without force.
+- Opened draft PR #2 targeting `main` and verified its remote diff contains exactly the four intended files.
+- Commented on PR #1 with the replacement link and ancestry explanation, then closed it without merge.
+- Waited for both replacement PR validation runs; both passed.
 
 ## files changed
 
@@ -82,11 +86,29 @@ None created, applied, moved, or modified by this task.
 - `git cherry-pick 2d0ae97 6a5a99d 7d6d7f9 d9c400a e12eac2`
 - `git diff --name-status main...HEAD`
 - `git log --graph --decorate --oneline main..HEAD`
+- `bash -n scripts/validate-agent-handoff.sh`
+- `bash scripts/validate-agent-handoff.sh`
+- `git diff --check`
+- `ruby -e 'require "yaml"; YAML.load_file(...)'`
+- `git merge-base --is-ancestor main HEAD`
+- `git push -u origin chore/agent-handoff-clean`
+- `gh pr create --draft --base main --head chore/agent-handoff-clean ...`
+- `gh pr view 2 --json ...`
+- `gh pr diff 2 --name-only`
+- `gh pr comment 1 --body ...`
+- `gh pr close 1`
+- `gh pr checks 2 --watch --interval 5`
 
 ## tests passed
 
 - Pre-commit branch diff contains exactly the four intended handoff files.
 - The clean branch is based directly on `origin/main`.
+- Bash syntax validation passed.
+- Agent handoff required-heading and secret-value validation passed.
+- Git whitespace validation passed.
+- Workflow YAML parsed successfully.
+- Ancestry checks confirmed `main` is the branch merge base and security-preparation commit `3e617f2` is not an ancestor of the clean branch.
+- GitHub Actions `validate` passed for both the push and pull-request runs.
 
 ## tests failed
 
@@ -94,7 +116,7 @@ None.
 
 ## live changes
 
-- GitHub: fetched current remote state only; replacement PR actions are pending.
+- GitHub: pushed `chore/agent-handoff-clean`, opened draft PR #2, commented on PR #1, and closed PR #1 without merge. No branch was deleted or rewritten.
 - Supabase/database: no live change.
 - n8n/external APIs/production: no live change.
 
