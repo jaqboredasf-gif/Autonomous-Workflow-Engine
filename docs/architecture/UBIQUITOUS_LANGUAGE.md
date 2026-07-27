@@ -196,3 +196,57 @@ database entity / key invariant.
   (fixtures + labels.json + runners; docs/testing/EVAL_STRATEGY.md). NOT an
   acceptance test (those verify behavior/invariants). Invariant: labels change
   only by reviewed decision; hard gates block regressions.
+
+---
+
+## Agent Harness terms — PROPOSED (H0, 2026-07-27; authority only once ADR-0001 is Accepted)
+
+Source: `docs/architecture/AGENT_HARNESS_DESIGN.md`, `AGENT_HARNESS_CONTRACTS.md`,
+`decisions/ADR-0001…0008`. Until ratification these are drafting vocabulary, not
+authority.
+
+- **Agent Harness** — the subsystem around the model that owns session lifecycle,
+  tool dispatch, context assembly/compaction, model abstraction, failure policy,
+  guardrail enforcement, and observability. NOT a workflow engine: no
+  `workflow_definitions`-style tables, no DSL, no user-authored graphs. Entity: the
+  `agent_*` table set + `packages/harness`. Invariant: every side effect crosses one
+  dispatcher edge; the database stays the enforcement layer wherever it can be.
+
+- **Agent session** — one bounded, resumable unit of agent work for one org, with
+  durable state. NOT a conversation and NOT a background job. Entity:
+  `agent_sessions`. Invariant: `completed` is unreachable while any non-read tool
+  call is unverified; in-memory state is never authoritative.
+
+- **Session type** — the config row that bounds a session: allowed tools, effect
+  ceiling, model tier, five budgets, gates. NOT code. Entity:
+  `agent_session_types`. Invariant: every budget column is NOT NULL and > 0 — an
+  unbounded session cannot be configured.
+
+- **Step** — one immutable ledger row per attempt (including retries and refusals).
+  NOT a summary of what happened. Entity: `agent_steps`. Invariant: insert-only; a
+  retry is a new step, never an overwrite.
+
+- **Tool descriptor** — the code-authored contract for one callable tool: identity,
+  schemas, tenancy, authz actor, effect class, timeout, retry eligibility,
+  idempotency, verify kind, audit and redaction. Entity: code + mirrored
+  `agent_tools` row. Invariant: unregistered ⇒ refused, not "unimplemented";
+  code↔row drift fails regression.
+
+- **Effect class** — the side-effect ladder `read` < `write_internal` <
+  `human_visible` < `external`. Entity: `agent_tools.effect_class`,
+  `agent_session_types.max_effect_class`. Invariant: `external` has no descriptor,
+  no permitted ceiling and no code path in v1; the ceiling is enforced in code and
+  in the schema.
+
+- **Context item / packet** — a typed, trust-labeled, provenance-carrying unit of
+  context, assembled into one packet per model call. Invariant: untrusted content
+  stays untrusted through every compaction level; instructions inside it are data.
+
+- **Compaction snapshot** — the durable record of a compaction (level, coverage,
+  summary, pinned set, digest). Entity: `agent_context_snapshots`. Invariant: a
+  derived summary is never evidence for a Verify Step; pinned guardrails are never
+  compacted.
+
+- **Blocked reason** (harness) — the structured refusal vocabulary of the
+  dispatcher, extending B3's existing routing/gate reasons rather than re-spelling
+  them. Invariant: a refusal is never retried automatically.
