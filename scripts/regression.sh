@@ -35,6 +35,18 @@ if [ -f scripts/acceptance-slice3.sh ]; then
   bash scripts/acceptance-slice3.sh || fails=$((fails+1))
 fi
 
+if [ -f scripts/acceptance-slice4.sh ]; then
+  step "acceptance slice 4 (B3 live DB gates: RLS, approval events, send gate, parity)"
+  bash scripts/acceptance-slice4.sh || fails=$((fails+1))
+  # Slices 1-4 together burn most of the management-API per-minute budget. The
+  # suites that follow are also mgmt-heavy (eval-intake, Runner 2A) and a 429
+  # there reports as a fake test failure, so let the window drain first. The
+  # runners retry with backoff too (scripts/lib/db.mjs); this just avoids paying
+  # for it on every fixture.
+  echo "   (mgmt-API cooldown 45s before the mgmt-heavy runners)"
+  sleep 45
+fi
+
 if [ -f scripts/eval-intake.sh ]; then
   step "intake eval (baseline, deterministic)"
   bash scripts/eval-intake.sh || fails=$((fails+1))
@@ -53,6 +65,16 @@ fi
 if [ -f scripts/eval-approval-diff.sh ]; then
   step "approval-diff eval (Runner 3, offline deterministic — no keys, no DB, no network)"
   bash scripts/eval-approval-diff.sh || fails=$((fails+1))
+fi
+
+if [ -f scripts/lib/validate-migration-0015.mjs ]; then
+  step "migration 0015 structural validation (offline lint + engine/SQL parity — no DB)"
+  node scripts/lib/validate-migration-0015.mjs >/dev/null 2>&1 && echo OK || { node scripts/lib/validate-migration-0015.mjs; fails=$((fails+1)); }
+fi
+
+if [ -f scripts/eval-approval-matrix.sh ]; then
+  step "approval-matrix + outbound-draft eval (Runner 4, offline deterministic — no keys, no DB, no network)"
+  bash scripts/eval-approval-matrix.sh || fails=$((fails+1))
 fi
 
 echo; echo "regression: $([ $fails = 0 ] && echo ALL GREEN || echo "$fails FAILURES")"

@@ -1,0 +1,16 @@
+{
+  "description": "Primary approver unavailable -> the configured backup owner takes the responsibility. Approval is re-routed, never skipped.",
+  "policy_set": "configured",
+  "action": "create_draft",
+  "message_type": "service_call_confirmation",
+  "amount_cents": null,
+  "unavailable_roles": ["office_admin"],
+  "work_request_key": "WR-FIX-006",
+  "existing_draft_keys": [],
+  "is_fixture": true,
+  "context": {
+    "customer_name": "Dana Fixture",
+    "customer_email": "dana.fixture@example.invalid",
+    "service_location": "12 Test Row, Fixtureville"
+  }
+}

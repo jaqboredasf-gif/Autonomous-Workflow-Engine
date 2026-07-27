@@ -112,10 +112,29 @@ hallucinated fields = 0. Idempotent rerun proven (01 self-heals). Regression:
   locked rule that fuzzy/content duplicates are never auto-closed; a human sets
   `duplicate`. Classification (the gated field) still matches the label.
 
+## Runner 4 — approval matrix + outbound drafts (B3, added 2026-07-26)
+
+`scripts/eval-approval-matrix.sh` → `scripts/eval-approval-matrix.mjs`. Pure
+offline (no keys, no DB, no network, no Graph), in regression. Runs the routing
+engine (`scripts/lib/approval-matrix.mjs`) and draft generator
+(`scripts/lib/outbound-draft.mjs`) over `fixtures/outbound/` (5 policy sets, 16
+labelled cases). Hard gates: every label; determinism; **no-send** (no case may
+yield approved/sent, no ok draft may claim send capability); fixture-recipient
+safety (`@example.invalid`); fail-closed coverage (all 11 blocked reasons
+exercised); template coverage (10/10 render clean); source purity (engine modules
+contain no network/send machinery); matrix-seed parity. Evidence 2026-07-26:
+`passed=314 failed=0`, coverage 11/11 and 10/10; verified non-vacuous by label
+perturbation. Full contract: docs/testing/APPROVAL_MATRIX.md.
+
+This closes two previously deferred evals: **approval-policy compliance** and
+**routing accuracy** are now measured against the seeded matrix, offline.
+Unsafe-send prevention remains structural (there is still no send path) but is
+now asserted by an explicit gate rather than by absence alone.
+
 ## Explicitly deferred
 
-Approval-policy compliance eval (needs B3 rows), routing accuracy (needs B3
-matrix seed), duplicate-detection eval beyond exact-match (fuzzy is
-human-confirmed in MVP), unsafe-send prevention eval (no send path exists —
-covered structurally; becomes a real eval at I1), latency-to-draft SLA (needs
-B3+B5 end-to-end path).
+Duplicate-detection eval beyond exact-match (fuzzy is human-confirmed in MVP),
+end-to-end send prevention against a real provider (becomes a real eval at I1),
+latency-to-draft SLA (needs B3+B5 end-to-end path), and **DB-side approval-gate
+behavior** — the constraints, triggers and RPCs in 0015 are lint-verified only
+until acceptance slice 4 runs live (TASK_BACKLOG B3-live).

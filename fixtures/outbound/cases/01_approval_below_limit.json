@@ -1,0 +1,17 @@
+{
+  "description": "Amount under the configured approval limit routes to the primary responsible role, no escalation.",
+  "policy_set": "configured",
+  "action": "create_draft",
+  "message_type": "estimate_proposal",
+  "amount_cents": 150000,
+  "unavailable_roles": [],
+  "work_request_key": "WR-FIX-001",
+  "existing_draft_keys": [],
+  "is_fixture": true,
+  "context": {
+    "customer_name": "Dana Fixture",
+    "customer_email": "dana.fixture@example.invalid",
+    "service_location": "12 Test Row, Fixtureville",
+    "scope_summary": "Replace two synthetic fixture circuits (test data)"
+  }
+}

@@ -20,6 +20,20 @@ typecheck+build (T). Manual items need a device or browser.
 | 10 | MCP server boots, lists 10 tools, live tool call works | JSON-RPC smoke in regression.sh | ✔ |
 | 11 | Punch idempotency (device_id, client_uuid) | duplicate insert → 23505 handled | A1 (implicit) |
 | 12 | Punch-time immutability + correction flow | added this slice | A2 |
+| 13 | Approval-diff engine (ADR) + migration 0014 shape | `eval-approval-diff.sh` (Runner 3) + `validate-migration-0014.mjs` | ✔ offline |
+| 14 | Approval-matrix routing, outbound drafting, no-send gate (B3) | `eval-approval-matrix.sh` (Runner 4) — labels, determinism, no-send, fixture recipients, 11/11 blocked reasons, 10/10 templates, source purity | ✔ offline |
+| 15 | Migration 0015 shape + engine/SQL routing parity (B3) | `validate-migration-0015.mjs` (64 checks) | ✔ offline |
+| 16 | B3 live DB gates: RLS denial for non-approvers, approve → `message.approved`, `sent` unreachable without approval, invoice refuses auto, duplicate `draft_key` → 23505, no hard deletes, fail-closed routing | `acceptance-slice4.sh` (49 checks) | ✔ B3-live |
+| 17 | Live SQL `route_outbound()` == offline JS `route()`, both on the seeded matrix and on a fully-configured one (limit/backup/escalation branches) | `parity-route-live.mjs` via slice 4 checks 14–14d (460 cases, 2946 field comparisons) | ✔ B3-live |
+
+Rows 13–15 need no keys, no database and no network — they are the subset that can
+run when the live project must not be touched. Rows 16–17 require the live project
+(`.env.acceptance` sourced) and migrations 0014+0015 applied.
+
+Slice 4 is management-API heavy (~60 queries). regression.sh pauses 45s after it so the
+per-minute rate-limit window drains; `scripts/lib/db.mjs` and slice 4 also retry 429s
+with backoff. **A 429 is a throttle, not a test failure** — if a runner reports one,
+re-run it rather than treating it as a regression.
 
 ## Manual (spot-check when touched area changes)
 

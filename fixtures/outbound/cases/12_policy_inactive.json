@@ -1,0 +1,16 @@
+{
+  "description": "Matrix row switched off. A deactivated responsibility blocks the message; it does not fall back to another role.",
+  "policy_set": "inactive",
+  "action": "create_draft",
+  "message_type": "service_call_confirmation",
+  "amount_cents": null,
+  "unavailable_roles": [],
+  "work_request_key": "WR-FIX-012",
+  "existing_draft_keys": [],
+  "is_fixture": true,
+  "context": {
+    "customer_name": "Dana Fixture",
+    "customer_email": "dana.fixture@example.invalid",
+    "service_location": "12 Test Row, Fixtureville"
+  }
+}

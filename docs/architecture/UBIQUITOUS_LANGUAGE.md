@@ -31,8 +31,47 @@ database entity / key invariant.
   per-role, never per-person.
 
 - **Responsibility (approver role)** — which role may approve/send a given
-  message type. Entity: `message_policies.approver_role` (B3). Invariant:
-  customer-facing sends require an approval row from an authorized role.
+  message type. Entity: `message_policies.approver_role` (B3, built 2026-07-26).
+  Invariant: customer-facing sends require an approval row from an authorized
+  role; an unconfigured responsibility blocks the message
+  (`missing_approver_role`) and never falls back to a default approver.
+
+- **Message policy (approval-matrix row)** — one stored row per (org, message
+  type) carrying mode, approver role, backup approver, escalation role, approval
+  limit, confidence threshold. NOT code: graduating a type draft→auto is a data
+  change. Entity: `message_policies`. Invariant: every v1 row is `mode='draft'`;
+  `final_invoice` can never hold `auto`; `auto` requires both a named approver
+  and a configured limit.
+
+- **Outbound message** — one drafted customer- or crew-facing message and the
+  human decision recorded on it. NOT an email that was sent, and NOT an
+  `email_messages` row (that table is the audit-grade record of real mail).
+  Entity: `outbound_messages`. Invariant: `sent` is unreachable without a
+  recorded approval; content is frozen once it leaves `draft`.
+
+- **Approval limit** — the highest amount the primary approver role may approve
+  for a message type; above it the message routes to the escalation role.
+  Entity: `message_policies.approval_limit_cents` (NULL = unconfigured).
+  Invariant: an amount-bearing message with no configured limit fails closed
+  (`missing_approval_limit`) — a ceiling is never guessed.
+
+- **Backup approver** — the role that takes a responsibility when the primary is
+  unavailable. NOT an escalation (that is amount-driven). Entity:
+  `message_policies.backup_approver_role`. Invariant: no usable backup blocks the
+  message (`no_backup_approver`); approval is re-routed, never skipped.
+
+- **Blocked state** — a message the matrix could not route safely, written with a
+  `blocked_reason` so a human sees it in the queue. NOT a rejection (that is a
+  human decision) and NOT a silent drop. Entity:
+  `outbound_messages.status='blocked'` + `message.blocked`. Invariant: gate-level
+  refusals (unauthorized action, duplicate, build failure, forbidden content,
+  TEST-mode violation) refuse before any write; routing-level refusals persist a
+  blocked row.
+
+- **Manual send (mark-sent)** — a human copied an approved draft into Outlook,
+  sent it, and recorded that fact. NOT a transmission by the system: no send
+  machinery exists. Entity: `outbound_messages.sent_at` / `sent_marked_by` via
+  `mark_message_sent()`. Invariant: only an `approved` message can be marked sent.
 
 - **Work request** — one distinct customer ask, however many emails carry it.
   NOT an email, NOT a job. Entity: `work_requests` (originating

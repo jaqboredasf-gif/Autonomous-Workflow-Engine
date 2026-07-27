@@ -1,0 +1,17 @@
+{
+  "description": "Amount over the primary role's approval limit must not be approvable by that role — it routes to the escalation role and flags escalated.",
+  "policy_set": "configured",
+  "action": "create_draft",
+  "message_type": "estimate_proposal",
+  "amount_cents": 900000,
+  "unavailable_roles": [],
+  "work_request_key": "WR-FIX-002",
+  "existing_draft_keys": [],
+  "is_fixture": true,
+  "context": {
+    "customer_name": "Dana Fixture",
+    "customer_email": "dana.fixture@example.invalid",
+    "service_location": "12 Test Row, Fixtureville",
+    "scope_summary": "Synthetic panel upgrade (test data)"
+  }
+}

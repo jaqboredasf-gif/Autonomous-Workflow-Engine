@@ -1,0 +1,16 @@
+{
+  "description": "No matrix row for this message type at all. Unroutable -> blocked row in the queue, not a silent drop.",
+  "policy_set": "no_escalation_role",
+  "action": "create_draft",
+  "message_type": "completion_notice",
+  "amount_cents": null,
+  "unavailable_roles": [],
+  "work_request_key": "WR-FIX-011",
+  "existing_draft_keys": [],
+  "is_fixture": true,
+  "context": {
+    "customer_name": "Dana Fixture",
+    "customer_email": "dana.fixture@example.invalid",
+    "service_location": "12 Test Row, Fixtureville"
+  }
+}

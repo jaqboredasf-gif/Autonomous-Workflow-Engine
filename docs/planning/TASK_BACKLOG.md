@@ -78,14 +78,78 @@ deferred until a geocoder exists. Original goal text below.
 - **Deps**: B1 (done). Design agreed 2026-07-20 (SESSION_HANDOFF).
 - **Acceptance**: Runner 3 deterministic + green; migration additive/validated; ≥1 labelled pair per edit class + unchanged/multi/ambiguous/malformed/missing-optional; no B1/B2 regression.
 - **SHIPPED (2026-07-20)**: migration `0014_approval_evidence.sql` (approval_drafts / approval_outcomes / category_authority; is_fixture, fixture namespace, RLS, no-hard-delete + immutability guards, `approval.diff_recorded`/`approval.material_edit` events, human-set authority_level); `scripts/lib/approval-diff.mjs` (pure, deterministic, contract `{unchanged,edit_ratio,field_deltas,edit_classes,material}` + `ambiguous`/`errors`); `fixtures/approvals/*.json` (15) + labels.json; Runner 3 `scripts/eval-approval-diff.sh`+`.mjs` **passed=120 failed=0, coverage 10/10**, in regression; offline `scripts/lib/validate-migration-0014.mjs` **PASS**, in regression; docs/testing/APPROVAL_DIFF.md. Decisions in DECISION_LOG 2026-07-20 ADR.
-- **REMAINING**: 0014 not applied to live DB (no psql/supabase/docker in-env; live apply = human-gated, like B2's 2B). Known limits (APPROVAL_DIFF.md §7): heuristic English-only classifier; factual-vs-tone fuzzy; attachment compare by name only; engine takes an already-paired draft/sent — it does not find the pair.
-- **NEXT (separate session)**: Microsoft Graph Sent-Items subscription + draft→sent mailbox pairing that feeds real captures into this schema/engine. Only after 0014 is applied live.
+- **0014 APPLIED LIVE 2026-07-26** (with 0015, under B3-live). Slice 4 checks 13/13b confirm the three tables are present and that no category has graduated past `draft_only`; check 12c confirms the `approval_drafts` no-hard-delete guard fires against a real row. Known limits (APPROVAL_DIFF.md §7) unchanged: heuristic English-only classifier; factual-vs-tone fuzzy; attachment compare by name only; engine takes an already-paired draft/sent — it does not find the pair.
+- **NEXT (separate session)**: Microsoft Graph Sent-Items subscription + draft→sent mailbox pairing that feeds real captures into this schema/engine. Unblocked on the schema side now that 0014 is live; still blocked on **I1 (Entra app registration)**.
 
-## B3 — Approval matrix + outbound drafts — `ready`
+## B3 — Approval matrix + outbound drafts — `DONE` (offline 2026-07-26; live-verified 2026-07-26)
 - **Goal**: migration: message_policies seeded from REQUIREMENTS matrix + outbound_messages + approve/reject RPCs + events; acceptance script.
 - **Deps**: B1.
 - **Acceptance**: policy row flips draft→auto without code change; non-approver blocked by RLS; approve emits message.approved; invoice type refuses auto mode (constraint) in v1.
 - **Handoff**: matrix seed values, RPC names.
+- **Shipped (2026-07-26)**: `0015_approval_matrix_outbound.sql` (message_policies +
+  outbound_messages + `route_outbound()` / `create_outbound_draft()` /
+  `record_approval()` / `mark_message_sent()` + transition guard + no-delete guards +
+  6 events + v1 matrix seed, every row `draft`); pure engines
+  `scripts/lib/approval-matrix.mjs` (routing) and `scripts/lib/outbound-draft.mjs`
+  (10 templates + the `prepareOutbound` gate); `fixtures/outbound/` (5 policy sets,
+  16 labelled cases); **Runner 4** `scripts/eval-approval-matrix.{sh,mjs}` and
+  `scripts/lib/validate-migration-0015.mjs`, both in regression.
+  Evidence: Runner 4 `passed=314 failed=0`, blocked-reason coverage 11/11, template
+  coverage 10/10; 0015 lint PASS (64 checks incl. engine/SQL parity). Detail:
+  docs/testing/APPROVAL_MATRIX.md.
+- **Closed live (2026-07-26, B3-live)**: 0014 + 0015 applied to the live database and
+  `scripts/acceptance-slice4.sh` (**49 checks, all green**) proves every DB-side gate.
+  All four acceptance criteria now have executed evidence — see B3-live below.
+
+## B3-live — Apply 0014+0015 + acceptance slice 4 — `DONE` (2026-07-26)
+- **Goal**: apply `0014_approval_evidence.sql` + `0015_approval_matrix_outbound.sql` to
+  the live project, then add `scripts/acceptance-slice4.sh` proving the DB-side gates
+  offline lint cannot.
+- **Shipped (2026-07-26)**: both migrations applied live (dry-run first: both files in one
+  `begin; … rollback;` against the live schema — zero errors, zero residue; then applied
+  with Jack's explicit authorization). `scripts/acceptance-slice4.sh` (49 checks) and
+  `scripts/parity-route-live.mjs`, both wired into regression.
+- **Acceptance criteria — all four now have executed live evidence**:
+  1. *policy row flips draft→auto without a code change* — slice 4 checks 11/11b: the
+     flip succeeds by data alone and the flipped row still routes
+     `effective_mode=draft` (zero v1 auto-sends holds). Done in a rolled-back
+     transaction; check 11c re-asserts the live matrix still has zero `auto` rows.
+  2. *non-approver blocked by RLS* — checks 4–4g: the fixture `worker` sees 0
+     `outbound_messages` and 0 `message_policies`; `record_approval` and
+     `mark_message_sent` both refuse it; a direct table update writes nothing (no
+     insert/update policy exists); anon is blocked from both tables.
+  3. *approve emits `message.approved`* — checks 7/7b: status→approved with approver +
+     timestamp recorded, event emitted exactly once carrying `approved_by`.
+  4. *invoice type refuses auto mode (constraint)* — checks 10/10b/10c:
+     `message_policies_invoice_never_auto` raises, the row stays `draft`, and
+     `mode='auto'` without an approval limit is refused too.
+- **Also proven live**: duplicate `draft_key` → RPC idempotent (same id, no 2nd row) and
+  direct insert → **23505** (checks 2/2b); `sent` unreachable three independent ways —
+  RPC approval gate, transition guard, and check constraint — plus a global invariant
+  that zero `sent` rows lack a full approval record (6–6d); automation has zero approval
+  authority (service role, no JWT → refused, check 5); content frozen after leaving
+  draft (7c); rejection needs a reason and is terminal (9–9d); hard deletes refused on
+  `outbound_messages`, `message_policies`, `approval_drafts` (12–12c); fail-closed paths
+  execute live — `estimate_proposal` → `blocked/missing_approver_role`, amount-bearing
+  message with NULL limit → `blocked/missing_approval_limit` (3–3c).
+- **Dual-implementation risk RETIRED** (checks 14–14d): `scripts/parity-route-live.mjs`
+  routes every (message_type × amount × unavailable-roles) case through **both** the live
+  `route_outbound()` and the offline JS `route()` over the same live policy rows.
+  Pass 1: 160 cases / 642 field comparisons / 0 mismatches. Pass 2 (14b): the same matrix
+  with limits + backup + escalation roles configured inside a rolled-back transaction —
+  300 cases / 2304 comparisons / 0 mismatches — because the live matrix has every
+  `approval_limit_cents` NULL, so pass 1 alone never reaches the limit/escalation
+  branches. Check 14c asserts those branches were actually exercised (esc=78, backup=32)
+  so the parity claim can't pass vacuously; 14d re-asserts the live matrix stays
+  fail-closed.
+- **Non-vacuity verified by perturbation**: `path='backup'` → `'secondary'` in the JS
+  engine produced exactly 7 mismatches in pass 1; `amountCents >` → `>=` produced
+  **0** mismatches in pass 1 (invisible — the reason 14b exists) and 39 in pass 2. Engine
+  restored, `git diff` clean.
+- **Deps**: B3. Human gate satisfied 2026-07-26 (Jack authorized the live apply).
+- **Acceptance**: 0014+0015 applied ✅; slice 4 green (49/49) ✅; regression ALL GREEN ✅
+  (twice consecutively — slice 4 is re-runnable/idempotent); drift check clean ✅
+  (24 live base tables = 19 + 5).
 
 ## B4 — Emergency escalation config — `ready`
 - **Goal**: emergency_contacts + escalation rules + halt-auto-scheduling enforcement + events.

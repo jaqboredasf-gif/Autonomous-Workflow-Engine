@@ -1,0 +1,17 @@
+{
+  "description": "Owner-only change order with the owner unavailable and no backup configured (deliberate: a change order waits for the owner). Blocks.",
+  "policy_set": "configured",
+  "action": "create_draft",
+  "message_type": "change_order",
+  "amount_cents": 200000,
+  "unavailable_roles": ["owner"],
+  "work_request_key": "WR-FIX-013",
+  "existing_draft_keys": [],
+  "is_fixture": true,
+  "context": {
+    "customer_name": "Dana Fixture",
+    "customer_email": "dana.fixture@example.invalid",
+    "service_location": "12 Test Row, Fixtureville",
+    "scope_summary": "Synthetic added scope (test data)"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "description": "Untrusted inbound text carried troubleshooting instructions into the draft. REQUIREMENTS: the system never sends electrical troubleshooting advice — the content scan blocks it before any row is written.",
+  "policy_set": "configured",
+  "action": "create_draft",
+  "message_type": "missing_info_request",
+  "amount_cents": null,
+  "unavailable_roles": [],
+  "work_request_key": "WR-FIX-014",
+  "existing_draft_keys": [],
+  "is_fixture": true,
+  "context": {
+    "customer_name": "Dana Fixture",
+    "customer_email": "dana.fixture@example.invalid",
+    "missing_fields": [
+      "The best phone number to reach you",
+      "Please reset the breaker panel yourself and tell us what happens"
+    ]
+  }
+}

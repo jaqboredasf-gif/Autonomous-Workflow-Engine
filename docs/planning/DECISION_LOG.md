@@ -273,3 +273,111 @@ Append-only. Newest first. Format: date — decision — why — supersedes (if 
   deterministic structural lint (PASS, in regression); live apply left to a human,
   same posture as B2's Runner 2B credential gate. Runner 3 (the slice's completion
   bar) is fully offline and passes independently.
+
+## 2026-07-26 (Task B3-live — 0014+0015 applied live, acceptance slice 4)
+
+- **Live schema apply is gated on authorization, not on tooling.** Earlier sessions
+  recorded live apply as impossible in-session ("no psql/supabase CLI/docker"). Half
+  true: there is no CLI, but the Supabase **management query API executes DDL** with the
+  token already in `.env.acceptance`. Verified by probe (`begin; create table …;
+  rollback;` → executed, no residue). So the standing rule is restated: applying schema
+  to the live project is a **human-gated outward action requiring Jack's explicit
+  go-ahead per migration**, not a capability limit. Jack authorized 0014 + 0015 on
+  2026-07-26 and they were applied in that order.
+- **Dry-run every live migration inside a rolled-back transaction first.** Both files
+  (1005 lines) were piped as one `begin; 0014; 0015; rollback;` against the live schema
+  before the real apply: zero errors, and a follow-up query confirmed zero tables and
+  zero enum types left behind. This is now the documented pre-apply step in CONTEXT.md.
+  Why: it converts "the lint says the SQL is well-formed" into "the live database has
+  actually executed this SQL", at no risk.
+- **RLS is testable without provisioning a second real login.** Inside an uncommitted
+  transaction, `set local role authenticated` + `set local request.jwt.claims` makes
+  RLS evaluate as any chosen user (`auth.uid()` reads the claim; `current_role_is()` /
+  `business_role_matches()` read `public.users`, which has no FK to `auth.users`). Slice
+  4's `as_user()` helper uses this, so proving "non-approver blocked" needed no new auth
+  user, no password, and no permanent grant. One fixture `users` row (role `worker`) is
+  the only live footprint.
+- **A guard that fires on zero rows proves nothing.** The first slice-4 run failed on
+  "approval_drafts hard delete refused" — not a schema defect: the table was empty, so
+  the `before delete` trigger never fired and the delete trivially succeeded. Fixed by
+  seeding a row and asserting the row exists before attempting the delete. Standing
+  lesson: every negative test must assert it actually targeted something.
+- **Parity over vocabularies is not parity over logic — and coverage must be asserted.**
+  `route_outbound()` (SQL) and `route()` (JS) are now compared branch-by-branch on live
+  data by `scripts/parity-route-live.mjs`. Perturbation exposed a hole: because every
+  live `approval_limit_cents` is NULL, changing the JS engine's `amountCents >` to `>=`
+  caused **zero** mismatches — the limit/escalation branches were unreachable. So a
+  second pass routes a fully-configured matrix inside a rolled-back transaction (39
+  mismatches under the same perturbation), and check 14c asserts the escalation and
+  backup branches were actually exercised. B3's dual-implementation risk is retired.
+- **A 429 from the management API is a throttle, not a test result.** Adding slice 4
+  (~60 mgmt queries) pushed Runner 2A over the per-minute limit and it reported a fake
+  0/12. Fixed at the source: `scripts/lib/db.mjs` retries 429/5xx with capped
+  exponential backoff, slice 4 backs off on throttle, and regression.sh pauses 45s after
+  slice 4. This also explains the "transient 429 on 2A" the ADR session saw and worked
+  around by re-running.
+- **The open questions stay open and stay fail-closed.** Real approval limits (boss §3)
+  and the `estimate_proposal` approver remain unknown; the live matrix keeps every
+  `approval_limit_cents` NULL and that approver NULL, and slice 4 checks 3/3c/14d assert
+  the resulting blocks are real. The draft→auto graduation test runs in a rolled-back
+  transaction precisely so the live matrix stays all-draft. Entra (I1) remains blocked —
+  no Graph work was started.
+
+## 2026-07-26 (Task B3 — approval matrix + outbound drafts, offline slice)
+
+- **B3 built offline-first, same posture as ADR.** Migration `0015_approval_matrix_
+  outbound.sql` + two pure engines (`scripts/lib/approval-matrix.mjs`,
+  `scripts/lib/outbound-draft.mjs`) + labelled `fixtures/outbound/` + deterministic
+  Runner 4, with ZERO Graph, ZERO network, ZERO send, ZERO live-DB writes. Why: the
+  routing rules, the draft templates and the gate are fully evaluable with no mailbox,
+  no model key and no database, and the environment has no psql/supabase CLI/docker.
+  Applying schema to live Supabase from an isolated session stays a human-gated
+  outward action (B3-live in TASK_BACKLOG).
+- **An unconfigured responsibility is a first-class blocked state, never a default.**
+  `approver_role` and `approval_limit_cents` are nullable and the v1 seed leaves the
+  limits NULL everywhere and `estimate_proposal.approver_role` NULL (its approver is
+  still an open [ASSUMPTION], B2/§3). Routing then fails closed with
+  `missing_approver_role` / `missing_approval_limit` rather than guessing a ceiling or
+  falling back to "any admin". A guessed spend limit is worse than a blocked draft.
+- **Blocked ≠ dropped.** Gate-level refusals (unauthorized action, duplicate key,
+  draft build failure, forbidden content, TEST-mode violation) refuse BEFORE any write.
+  Routing-level refusals deliberately WRITE a `blocked` row with `blocked_reason` +
+  `message.blocked`, so an unroutable message surfaces in the human queue instead of
+  vanishing. The distinction is asserted per fixture (`persist: none|blocked_row`).
+- **`effective_mode` is always `draft`, even when the policy row says `auto`.** The
+  graduation flip is stored and REPORTED (`policy_mode`, `auto_downgraded`) — that is
+  the backlog's "flips draft→auto without a code change" criterion — but zero v1
+  auto-sends is enforced in code, in both the engine and `route_outbound()`. Storing a
+  future decision and acting on it are separate things. `final_invoice` can never hold
+  `auto` at all (CHECK), and `auto` anywhere requires both a named approver and a
+  configured limit.
+- **`mark_message_sent()` is a ledger entry, not a transmission.** It records that a
+  human copied an approved draft into Outlook and sent it — identical to the v1
+  invoice flow. It refuses any message not in `approved`, so the send ledger can never
+  contain a message nobody approved. No send machinery exists in this slice, and
+  Runner 4 asserts that structurally (source-purity gate over both engine modules).
+- **Automation cannot approve, enforced by the auth boundary.** `record_approval()`
+  requires `auth.uid()` to resolve to a `users` row holding the assigned approver role;
+  a service-role runner has no JWT and raises. There is deliberately NO insert/update
+  RLS policy on `outbound_messages` — every state change goes through the
+  security-definer RPCs so the transition guard, authorization check and audit event
+  cannot be bypassed.
+- **Content safety is enforced, not prompted.** Every rendered draft is scanned for
+  electrical troubleshooting instructions (REQUIREMENTS: never sent) and blocked with
+  `forbidden_content`. The scan covers interpolated customer text, because inbound
+  email content is untrusted data, never instructions.
+- **TEST mode is a hard gate, not a convention.** Recipients must be `@example.invalid`
+  (RFC 6761, permanently unresolvable) and rows must be `is_fixture`; violations refuse
+  before any write. Fixture-safe synthetic identities only — no real customer or
+  employee data was used.
+- **Business roles get a vocabulary now, a join table later.** `business_role` enum (9
+  roles — the 10 STAKEHOLDERS roles minus `customer`, an email-only actor with no login
+  who can never be an approver) is what `message_policies.approver_role` references, and
+  `business_role_matches()` is the SINGLE interim mapping onto today's
+  worker/foreman/admin. The Phase 5 `user_roles` migration replaces that one function
+  and nothing else.
+- **Dual implementation accepted, with a parity lint.** Routing exists in SQL
+  (`route_outbound()`) and JS (Runner 4 needs zero DB access). `validate-migration-0015.mjs`
+  asserts identical message-type, business-role and blocked-reason vocabularies (missing
+  OR extra both fail). Branch-logic divergence is still possible and is exactly what
+  acceptance slice 4 (B3-live) must retire.

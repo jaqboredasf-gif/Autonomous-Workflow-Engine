@@ -3,6 +3,134 @@
 Read CONTEXT.md first, then this, then all docs/planning/*.md. One approved task per session.
 Vocabulary authority: docs/architecture/UBIQUITOUS_LANGUAGE.md (2026-07-17).
 
+## Current state (2026-07-26, Task B3 COMPLETE — live-verified, slice 4 green)
+
+**B3 is done.** 0014 + 0015 are applied to the live project and every B3 acceptance
+criterion now has executed live evidence. Migrations 0001–0015 and the repo are in sync.
+
+### What B3-live shipped
+- **0014 + 0015 applied live** (in that order, with Jack's explicit authorization). Both
+  were dry-run first as one `begin; 0014; 0015; rollback;` against the live schema — zero
+  errors, zero residue — then applied for real. Live now: `approval_drafts`,
+  `approval_outcomes`, `category_authority`, `message_policies`, `outbound_messages`;
+  4 enums; 5 RPCs; 10 seed policy rows, **all `mode='draft'`**, all limits NULL,
+  `estimate_proposal.approver_role` NULL. Drift check clean: 24 base tables = 19 + 5.
+- **`scripts/acceptance-slice4.sh`** — 49 live DB checks, in regression. Proves what the
+  offline lint could not: RLS denial for a non-approver, approve → `message.approved`,
+  `sent` unreachable without an approval row (three independent paths + a global
+  invariant), `final_invoice` refusing `mode='auto'`, duplicate `draft_key` → **23505**,
+  draft→auto flipping by data alone, automation having zero approval authority,
+  content freeze after draft, terminal states, no hard deletes, and the fail-closed
+  routing blocks executing live.
+- **`scripts/parity-route-live.mjs`** — routes every (type × amount × unavailable-roles)
+  case through both the live `route_outbound()` and the offline JS `route()` over the
+  same live policy rows. **B3's dual-implementation risk is retired.**
+- Harness reliability fix: 429 backoff in `scripts/lib/db.mjs` + slice 4, and a 45s
+  mgmt-API cooldown in regression.sh.
+
+### B3 evidence (2026-07-26, live)
+Acceptance slice 4 **passed=49 failed=0**, green on two consecutive runs (re-runnable).
+Parity: pass 1 = 160 cases / 642 field comparisons / 0 mismatches; pass 2 (configured
+matrix, rolled back) = 300 cases / 2304 comparisons / 0 mismatches, with escalation (78)
+and backup (32) branches asserted exercised. Full regression **ALL GREEN**: mobile tsc,
+web build (14 routes), MCP 10 tools, slices 1–4 (9 + 10 + 20 + 49), Runner 1 24/24,
+Runner 2A 20/20 accuracy 12/12, Runner 3 120/0, Runner 4 314/0, both migration lints PASS.
+Non-vacuity re-verified by perturbation (see DECISION_LOG 2026-07-26 B3-live).
+Detail: docs/testing/APPROVAL_MATRIX.md "Live evidence".
+
+### Two things worth carrying forward
+- **Live apply is authorization-gated, not tooling-gated.** No psql/supabase CLI/docker
+  here, but the management query API executes DDL with the `.env.acceptance` token. Still
+  ask Jack per migration; always dry-run in a rolled-back transaction first (recipe in
+  CONTEXT.md).
+- **A negative test must assert it targeted something.** Slice 4's first run "failed" on
+  the `approval_drafts` delete guard only because the table was empty and a `before
+  delete` trigger cannot fire on zero rows. Same class of bug as the parity hole that
+  pass 2 exists to close.
+
+### Still open (unchanged, all deliberately fail-closed)
+- **Approval limits (boss §3) unknown** → every live `approval_limit_cents` stays NULL,
+  so every amount-bearing message blocks with `missing_approval_limit`. Verified live.
+- **`estimate_proposal` approver unknown** ([ASSUMPTION], B2/§3) → blocks live with
+  `missing_approver_role`. Verified live.
+- **I1 (Entra app registration) still blocks all real-mail work.** No Graph work started;
+  slice 4 asserts `graph_message_id` is NULL on every row.
+- One live fixture user exists for slice 4: `f1000000-0000-4000-8000-000000000001`
+  "FIXTURE Non-Approver (slice4)", role `worker`. Do not delete it.
+
+### Next session — B5 (recommended) or B4
+**B5** (requests inbox + approval queue UI) is now fully unblocked: the tables its queue
+reads exist live and their RLS/RPC behavior is proven. **B4** (emergency escalation
+config) is also ready and independent. Do not start ADR Graph work (blocked on I1).
+
+## Prior state (2026-07-26, Task B3 offline slice COMPLETE — Runner 4 green)
+
+B3 (approval matrix + outbound drafts) built and committed this session, offline-first,
+advancing from ADR commit `c6bd92f`. ZERO Graph, ZERO network, ZERO send, ZERO live-DB
+writes — as scoped. TEST/fixture mode throughout; every fixture recipient is
+`@example.invalid`.
+
+### What B3 shipped
+- **0015_approval_matrix_outbound.sql** — additive over 0001–0014. `message_policies`
+  (the REQUIREMENTS matrix as data: mode, approver_role, backup_approver_role,
+  escalation_role, approval_limit_cents, confidence_threshold, escalation_after_hours,
+  active) + `outbound_messages` (draft/approved/rejected/sent/failed/**blocked**,
+  routing evidence, draft_key idempotency, approval + manual-send attribution).
+  Enums `outbound_message_type` / `message_mode` / `outbound_message_status` /
+  `business_role` (9 approver roles — the 10 STAKEHOLDERS roles minus `customer`, who has no login). `route_outbound()`,
+  `create_outbound_draft()`, `record_approval()`, `mark_message_sent()`,
+  `business_role_matches()` (the single interim role mapping until Phase 5
+  `user_roles`). Transition guard + content-freeze-after-draft, no-delete guards on
+  both tables, RLS admin-read only (no insert/update policy — RPCs are the only
+  writers), 6 events on the emit_event spine (`message.draft_created` / `blocked` /
+  `escalated` / `approved` / `rejected` / `sent`), and the v1 matrix seed — **every
+  row `mode='draft'`**, limits NULL (boss §3 unanswered), `estimate_proposal`
+  approver NULL (open [ASSUMPTION]) so it fails closed instead of guessing.
+- **scripts/lib/approval-matrix.mjs** — pure/offline/deterministic routing engine, the
+  JS mirror of `route_outbound()`: primary → backup (when unavailable) → escalation
+  (over limit), with 6 fail-closed route reasons. `effective_mode` is ALWAYS `draft`;
+  a row already flipped to `auto` is reported (`policy_mode`, `auto_downgraded`) and
+  still drafted.
+- **scripts/lib/outbound-draft.mjs** — 10 deterministic templates + `prepareOutbound()`,
+  the gate every outbound action passes through (action registry → duplicate key →
+  template build → forbidden-content scan → TEST mode → routing), with an ordered
+  audit trail on every path.
+- **fixtures/outbound/** — 5 policy sets + 16 labelled cases + labels.json.
+- **scripts/eval-approval-matrix.{sh,mjs}** — Runner 4, pure offline, in regression.
+- **scripts/lib/validate-migration-0015.mjs** — offline structural lint + engine/SQL
+  parity, in regression.
+- **docs/testing/APPROVAL_MATRIX.md** — contract, routing rules, gate order, status
+  machine, gates, limits, deliberate exclusions.
+
+### B3 evidence (2026-07-26)
+Runner 4 `passed=314 failed=0, 16 fixtures, blocked-reason coverage 11/11, template
+coverage 10/10`; determinism + no-send + fixture-recipient + source-purity + seed-parity
+gates all hard. Migration 0015 lint PASS (64 checks). Both runners verified non-vacuous
+by perturbation (2 label flips → exactly 2 failures; `effective_mode`→`auto` + constraint
+rename → exactly 2 lint failures; both restored). No regression: Runner 3
+`passed=120 failed=0`, 0014 lint PASS, mobile tsc clean, web build green (14 routes),
+MCP smoke 10 tools. Live-DB steps (acceptance slices 1–3, eval-intake, Runner 2A) were
+**deliberately not run** — this session was constrained to write nothing to the live
+project.
+
+### B3 open dependencies (NOT blockers)
+- **0015 (and still 0014) never applied to the live DB** — no psql/supabase CLI/docker
+  in-env; applying schema to live Supabase from an isolated session is a human-gated
+  outward action. Apply: `source .env.acceptance` then the mgmt query API recipe in
+  CONTEXT.md.
+- **Backlog acceptance criteria 2 + 3 (non-approver blocked by RLS; approve emits
+  `message.approved`) are lint-verified only** until acceptance slice 4 runs live.
+  Tracked as **B3-live** in TASK_BACKLOG.
+- **Dual-implementation risk**: routing exists in SQL and JS. The parity lint covers
+  vocabularies, not branch logic — slice 4 is what retires it.
+
+### Next session — B3-live (safest) or B5
+**B3-live** (human applies 0014+0015, then `scripts/acceptance-slice4.sh` proves the
+DB-side gates) is the safest next task and closes B3's open criteria. **B5** (requests
+inbox + approval queue UI) is the next build task and is unblocked by B3 offline, but
+its queue reads tables that do not exist live yet. Do not start ADR Graph work; Entra
+(I1) is still blocked.
+
 ## Current state (2026-07-20, Task ADR offline slice COMPLETE — Runner 3 green)
 
 ADR offline evidence slice built and committed this session. Repo advanced from

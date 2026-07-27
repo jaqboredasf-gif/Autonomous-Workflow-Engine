@@ -1,0 +1,15 @@
+{
+  "description": "Template requires a service location and the context has none. Draft generation fails cleanly into a blocked state — never a draft with a hole in it.",
+  "policy_set": "configured",
+  "action": "create_draft",
+  "message_type": "service_call_confirmation",
+  "amount_cents": null,
+  "unavailable_roles": [],
+  "work_request_key": "WR-FIX-009",
+  "existing_draft_keys": [],
+  "is_fixture": true,
+  "context": {
+    "customer_name": "Dana Fixture",
+    "customer_email": "dana.fixture@example.invalid"
+  }
+}

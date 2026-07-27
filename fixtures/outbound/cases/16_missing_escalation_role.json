@@ -1,0 +1,17 @@
+{
+  "description": "Over the limit with no escalation role configured. There is nobody with the authority, so it blocks instead of silently staying with the under-limit approver.",
+  "policy_set": "no_escalation_role",
+  "action": "create_draft",
+  "message_type": "estimate_proposal",
+  "amount_cents": 900000,
+  "unavailable_roles": [],
+  "work_request_key": "WR-FIX-016",
+  "existing_draft_keys": [],
+  "is_fixture": true,
+  "context": {
+    "customer_name": "Dana Fixture",
+    "customer_email": "dana.fixture@example.invalid",
+    "service_location": "12 Test Row, Fixtureville",
+    "scope_summary": "Synthetic large scope (test data)"
+  }
+}

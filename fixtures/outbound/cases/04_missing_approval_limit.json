@@ -1,0 +1,16 @@
+{
+  "description": "Money-bearing message against a policy with no configured ceiling (boss §3 unanswered). Blocks rather than inventing an authority limit.",
+  "policy_set": "seed_v1",
+  "action": "create_draft",
+  "message_type": "final_invoice",
+  "amount_cents": 120000,
+  "unavailable_roles": [],
+  "work_request_key": "WR-FIX-004",
+  "existing_draft_keys": [],
+  "is_fixture": true,
+  "context": {
+    "customer_name": "Dana Fixture",
+    "customer_email": "dana.fixture@example.invalid",
+    "invoice_reference": "FIX-INV-0004"
+  }
+}

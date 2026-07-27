@@ -25,21 +25,43 @@ function textArray(arr) {
   return `ARRAY[${arr.map(lit).join(',')}]::text[]`;
 }
 
-export async function sql(query) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The Supabase management query API rate-limits per minute. A full regression run
+// puts several mgmt-heavy suites back to back (acceptance slice 4 alone issues
+// ~60 queries), so a 429 here is a harness throttle, NOT a test result — retrying
+// it is correct, and failing on it makes the suite report false negatives.
+// Retries ONLY on 429/5xx; a real SQL error still fails immediately.
+export async function sql(query, { retries = 5 } = {}) {
   const token = process.env.SUPABASE_ACCESS_TOKEN;
   if (!token) throw new Error('SUPABASE_ACCESS_TOKEN is not set (source .env.acceptance)');
-  const res = await fetch(QUERY_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
-  });
-  const text = await res.text();
-  let body;
-  try { body = JSON.parse(text); } catch { throw new Error(`Non-JSON DB response (${res.status}): ${text.slice(0, 300)}`); }
-  if (!res.ok || (body && body.message && !Array.isArray(body))) {
-    throw new Error(`DB error (${res.status}): ${body.message || text.slice(0, 300)}`);
+
+  let lastErr = '';
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(QUERY_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    const text = await res.text();
+
+    if (res.status === 429 || res.status >= 500) {
+      lastErr = `DB error (${res.status}): ${text.slice(0, 300)}`;
+      if (attempt === retries) break;
+      // Exponential backoff, capped. The mgmt-API window is per minute, so the
+      // later waits are deliberately long enough to outlast it.
+      await sleep(Math.min(2000 * 2 ** attempt, 30000));
+      continue;
+    }
+
+    let body;
+    try { body = JSON.parse(text); } catch { throw new Error(`Non-JSON DB response (${res.status}): ${text.slice(0, 300)}`); }
+    if (!res.ok || (body && body.message && !Array.isArray(body))) {
+      throw new Error(`DB error (${res.status}): ${body.message || text.slice(0, 300)}`);
+    }
+    return Array.isArray(body) ? body : [];
   }
-  return Array.isArray(body) ? body : [];
+  throw new Error(`${lastErr} (after ${retries} retries)`);
 }
 
 // --- Deterministic tool results for the context packet (B1 functions) ---

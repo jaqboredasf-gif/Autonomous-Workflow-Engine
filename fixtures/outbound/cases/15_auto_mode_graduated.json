@@ -1,0 +1,16 @@
+{
+  "description": "A policy row already flipped to mode=auto (the post-B5 graduation path). The flip is honored as DATA and reported, and the engine still produces a draft — zero v1 auto-sends is enforced in code, not by refusing to store the decision.",
+  "policy_set": "graduated",
+  "action": "create_draft",
+  "message_type": "out_of_territory_decline",
+  "amount_cents": null,
+  "unavailable_roles": [],
+  "work_request_key": "WR-FIX-015",
+  "existing_draft_keys": [],
+  "is_fixture": true,
+  "context": {
+    "customer_name": "Dana Fixture",
+    "customer_email": "dana.fixture@example.invalid",
+    "service_location": "99 Far Away Lane, Outsideville"
+  }
+}

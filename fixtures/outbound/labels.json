@@ -1,0 +1,105 @@
+{
+  "_readme": "Ground truth for Runner 4 (scripts/eval-approval-matrix.mjs). Changing a label is a REVIEWED DECISION (DECISION_LOG), never a test fix. persist='none' means the gate refused before any row would be written; persist='blocked_row' means an unroutable message is deliberately written as a blocked row so a human sees it in the queue.",
+
+  "01_approval_below_limit.json": {
+    "ok": true, "status": "draft", "persist": "draft_row", "blocked_reason": null,
+    "approver_role": "estimator", "routing_path": "primary", "escalated": false,
+    "policy_mode": "draft", "effective_mode": "draft",
+    "events": ["message.draft_created"],
+    "draft_key": "fixture:estimate_proposal:WR-FIX-001"
+  },
+  "02_approval_above_limit.json": {
+    "ok": true, "status": "draft", "persist": "draft_row", "blocked_reason": null,
+    "approver_role": "owner", "routing_path": "escalation", "escalated": true,
+    "policy_mode": "draft", "effective_mode": "draft",
+    "events": ["message.draft_created", "message.escalated"],
+    "draft_key": "fixture:estimate_proposal:WR-FIX-002"
+  },
+  "03_missing_owner.json": {
+    "ok": false, "status": "blocked", "persist": "blocked_row",
+    "blocked_reason": "missing_approver_role",
+    "events": ["message.blocked"],
+    "draft_key": "fixture:estimate_proposal:WR-FIX-003"
+  },
+  "04_missing_approval_limit.json": {
+    "ok": false, "status": "blocked", "persist": "blocked_row",
+    "blocked_reason": "missing_approval_limit",
+    "events": ["message.blocked"],
+    "draft_key": "fixture:final_invoice:WR-FIX-004"
+  },
+  "05_escalation_to_manager.json": {
+    "ok": true, "status": "draft", "persist": "draft_row", "blocked_reason": null,
+    "approver_role": "owner", "routing_path": "escalation", "escalated": true,
+    "policy_mode": "draft", "effective_mode": "draft",
+    "events": ["message.draft_created", "message.escalated"],
+    "draft_key": "fixture:final_invoice:WR-FIX-005"
+  },
+  "06_backup_owner_routing.json": {
+    "ok": true, "status": "draft", "persist": "draft_row", "blocked_reason": null,
+    "approver_role": "owner", "routing_path": "backup", "escalated": false,
+    "policy_mode": "draft", "effective_mode": "draft",
+    "events": ["message.draft_created"],
+    "draft_key": "fixture:service_call_confirmation:WR-FIX-006"
+  },
+  "07_duplicate_request.json": {
+    "ok": false, "status": "blocked", "persist": "none",
+    "blocked_reason": "duplicate_draft",
+    "events": [],
+    "draft_key": "fixture:service_call_confirmation:WR-FIX-007"
+  },
+  "08_unauthorized_external_action.json": {
+    "ok": false, "status": "blocked", "persist": "none",
+    "blocked_reason": "unauthorized_external_action",
+    "events": [],
+    "draft_key": "fixture:service_call_confirmation:WR-FIX-008"
+  },
+  "09_draft_creation_failure.json": {
+    "ok": false, "status": "blocked", "persist": "none",
+    "blocked_reason": "draft_build_failed",
+    "events": [],
+    "draft_key": "fixture:service_call_confirmation:WR-FIX-009"
+  },
+  "10_test_mode_enforcement.json": {
+    "ok": false, "status": "blocked", "persist": "none",
+    "blocked_reason": "test_mode_violation",
+    "events": [],
+    "draft_key": "fixture:service_call_confirmation:WR-FIX-010"
+  },
+  "11_no_policy.json": {
+    "ok": false, "status": "blocked", "persist": "blocked_row",
+    "blocked_reason": "no_policy",
+    "events": ["message.blocked"],
+    "draft_key": "fixture:completion_notice:WR-FIX-011"
+  },
+  "12_policy_inactive.json": {
+    "ok": false, "status": "blocked", "persist": "blocked_row",
+    "blocked_reason": "policy_inactive",
+    "events": ["message.blocked"],
+    "draft_key": "fixture:service_call_confirmation:WR-FIX-012"
+  },
+  "13_no_backup_approver.json": {
+    "ok": false, "status": "blocked", "persist": "blocked_row",
+    "blocked_reason": "no_backup_approver",
+    "events": ["message.blocked"],
+    "draft_key": "fixture:change_order:WR-FIX-013"
+  },
+  "14_forbidden_content.json": {
+    "ok": false, "status": "blocked", "persist": "none",
+    "blocked_reason": "forbidden_content",
+    "events": [],
+    "draft_key": "fixture:missing_info_request:WR-FIX-014"
+  },
+  "15_auto_mode_graduated.json": {
+    "ok": true, "status": "draft", "persist": "draft_row", "blocked_reason": null,
+    "approver_role": "office_admin", "routing_path": "primary", "escalated": false,
+    "policy_mode": "auto", "effective_mode": "draft", "auto_downgraded": true,
+    "events": ["message.draft_created"],
+    "draft_key": "fixture:out_of_territory_decline:WR-FIX-015"
+  },
+  "16_missing_escalation_role.json": {
+    "ok": false, "status": "blocked", "persist": "blocked_row",
+    "blocked_reason": "missing_escalation_role",
+    "events": ["message.blocked"],
+    "draft_key": "fixture:estimate_proposal:WR-FIX-016"
+  }
+}

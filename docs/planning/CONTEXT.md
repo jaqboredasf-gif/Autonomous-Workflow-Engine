@@ -21,13 +21,40 @@ apps/web             Next.js 16 app router + Tailwind. Admin dashboard, 14 route
                      sites, employees, payroll, settings, api/employees.
                      Key files: src/app/*/page.tsx, src/components/Nav.tsx
 packages/shared      shared types
-packages/mcp-server  stdio MCP server (ESM JS), 12 tools, service-role key via env
-supabase/migrations  0001–0010, applied to live project (source of truth for schema)
-scripts/             regression.sh, acceptance-slice1.sh, acceptance-slice2.sh
+packages/mcp-server  stdio MCP server (ESM JS), 10 tools, service-role key via env
+supabase/migrations  0001–0015 ALL applied to the live project (0014 + 0015 applied
+                     2026-07-26; see "Migration state" below)
+scripts/             regression.sh, acceptance-slice1..4.sh, classify.mjs,
+                     eval-intake.sh (Runner 1), eval-classification*.sh (2A/2B),
+                     eval-approval-diff.sh (Runner 3), eval-approval-matrix.sh (Runner 4),
+                     parity-route-live.mjs (live SQL/JS routing parity, used by slice 4)
+scripts/lib/         pure offline engines: classification.mjs, model-adapters.mjs,
+                     db.mjs, approval-diff.mjs (ADR), approval-matrix.mjs +
+                     outbound-draft.mjs (B3), validate-migration-0014/0015.mjs
+fixtures/            emails/ (intake, 12 + labels), approvals/ (ADR diff, 15 + labels),
+                     outbound/ (B3 matrix + drafts: 5 policy sets, 16 cases + labels)
 docs/                ROADMAP.md, API_CONTRACT.md, AUTOMATION_SYNERGY.md,
                      GAP_ANALYSIS.md, REGRESSION_CHECKLIST.md
+docs/testing/        EVAL_STRATEGY.md, APPROVAL_DIFF.md (ADR), APPROVAL_MATRIX.md (B3)
 docs/planning/       THIS folder — scope/requirements/roadmap/backlog/handoff
 ```
+
+## Migration state
+
+**0001–0015 are all applied to the live project.** 0014 + 0015 were applied 2026-07-26
+with Jack's explicit authorization, after a full dry-run (both files executed inside one
+`begin; … rollback;` transaction against the live schema — zero errors, zero residue).
+Drift check after apply: 24 public base tables = 19 (0001–0013) + 5 (0014 `approval_drafts`
+/ `approval_outcomes` / `category_authority`, 0015 `message_policies` / `outbound_messages`).
+`message_policies` holds 10 seed rows, all `mode='draft'`.
+
+Applying schema to live Supabase remains a **human-gated outward action** — get Jack's
+go-ahead per migration, and dry-run inside a rolled-back transaction first.
+
+Correction to a claim earlier sessions carried: this environment has no psql/supabase
+CLI/docker, but the **management query API does execute DDL** with the token in
+`.env.acceptance`. Live apply is therefore possible in-session; the gate is
+authorization, not capability. Recipe below.
 
 ## Live infrastructure
 
@@ -48,7 +75,15 @@ curl -s -X POST "https://api.supabase.com/v1/projects/qgoiacwdntaqeghcyjlw/datab
 ```
 
 Run from repo root. Migrations: additive only; destructive changes require stopping
-and asking Jack first (standing rule).
+and asking Jack first (standing rule). Before any live apply, dry-run it:
+
+```bash
+{ echo "begin;"; cat supabase/migrations/00XX_name.sql; echo "rollback;"; } | \
+jq -Rs '{query: .}' | curl -s -X POST "https://api.supabase.com/v1/projects/qgoiacwdntaqeghcyjlw/database/query" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @-
+```
+
+An empty `[]` means it executes cleanly and left nothing behind.
 
 ## How to test
 
@@ -56,11 +91,40 @@ and asking Jack first (standing rule).
 source .env.acceptance && bash scripts/regression.sh
 ```
 
-Runs: mobile tsc, web build, MCP smoke (expects ≥10 tools), acceptance slice 1
-(9 checks) + slice 2 (10 checks) against the LIVE project. Must be ALL GREEN before
+Runs: mobile tsc, web build, MCP smoke (expects ≥10 tools), acceptance slices 1–4
+(9 + 10 + 20 + 49 checks) against the LIVE project, Runners 1–4, and the 0014/0015
+offline lints. Slice 4 is mgmt-API heavy, so regression pauses 45s after it to let the
+per-minute rate-limit window drain — a 429 in a later runner is a throttle, not a test
+result (`scripts/lib/db.mjs` and slice 4 both retry throttles with backoff).
+
+**Offline-only subset** (no keys, no DB, no network — safe when you must not touch the
+live project):
+
+```bash
+node scripts/lib/validate-migration-0014.mjs   # ADR migration lint
+node scripts/lib/validate-migration-0015.mjs   # B3 migration lint + engine/SQL parity
+bash scripts/eval-approval-diff.sh             # Runner 3 (ADR diff engine)
+bash scripts/eval-approval-matrix.sh           # Runner 4 (B3 matrix + drafts)
+(cd apps/mobile && npx tsc --noEmit) && (cd apps/web && npm run build)
+```
+
+Everything else in regression (slices 1–4, Runner 1 eval-intake, Runner 2A) reads AND
+WRITES the live project and needs `.env.acceptance` sourced. Must be ALL GREEN before
 and after every change. Gotcha already fixed — keep it fixed: time_entries has a
 `clock_out > clock_in` check constraint; acceptance scripts back-date clock_in 1h.
 Scripts use macOS `date -v` (not Linux-portable).
+
+Live-DB test fixtures you will see and should not delete: a `users` row
+`f1000000-0000-4000-8000-000000000001` "FIXTURE Non-Approver (slice4)" with role
+`worker` (slice 4 needs a non-approver to prove RLS denial; no `auth.users` row exists
+for it, and none is needed — `auth.uid()` reads the JWT claim, and
+`current_role_is()` / `business_role_matches()` read `public.users`).
+
+**Testing RLS without a second real login:** inside an uncommitted transaction,
+`set local role authenticated;` plus
+`set local request.jwt.claims = '{"sub":"<user-uuid>","role":"authenticated"}';`
+makes RLS apply as that user. End with `rollback` (or let a raising statement abort the
+transaction) and nothing persists. Slice 4's `as_user()` helper is this pattern.
 
 ## Schema conventions (standing rules)
 

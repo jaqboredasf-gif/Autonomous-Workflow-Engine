@@ -1,0 +1,37 @@
+{
+  "_readme": "Fixture approval-matrix (message_policies) row sets for Runner 4. Synthetic only — no real thresholds. 'seed_v1' mirrors the seed in supabase/migrations/0015_approval_matrix_outbound.sql (every row draft; limits deliberately NULL until boss §3 answers; estimate_proposal approver NULL until B2/§3 names one). The other sets exist to exercise routing branches that the honest v1 seed cannot reach yet.",
+
+  "seed_v1": [
+    { "id": "p-seed-decline", "message_type": "out_of_territory_decline", "mode": "draft", "approver_role": "office_admin", "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": null, "confidence_threshold": 0.9, "active": true },
+    { "id": "p-seed-service", "message_type": "service_call_confirmation", "mode": "draft", "approver_role": "office_admin", "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": null, "escalation_after_hours": 4, "active": true },
+    { "id": "p-seed-missing", "message_type": "missing_info_request", "mode": "draft", "approver_role": "office_admin", "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": null, "active": true },
+    { "id": "p-seed-estimate", "message_type": "estimate_proposal", "mode": "draft", "approver_role": null, "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": null, "active": true },
+    { "id": "p-seed-sched", "message_type": "scheduling_confirmation", "mode": "draft", "approver_role": "office_admin", "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": null, "active": true },
+    { "id": "p-seed-dispatch", "message_type": "crew_dispatch", "mode": "draft", "approver_role": "dispatcher", "backup_approver_role": "office_admin", "escalation_role": "owner", "approval_limit_cents": null, "active": true },
+    { "id": "p-seed-co", "message_type": "change_order", "mode": "draft", "approver_role": "owner", "backup_approver_role": null, "escalation_role": "owner", "approval_limit_cents": null, "active": true },
+    { "id": "p-seed-completion", "message_type": "completion_notice", "mode": "draft", "approver_role": "office_admin", "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": null, "active": true },
+    { "id": "p-seed-invoice", "message_type": "final_invoice", "mode": "draft", "approver_role": "office_admin", "backup_approver_role": "accountant", "escalation_role": "owner", "approval_limit_cents": null, "active": true },
+    { "id": "p-seed-uncertain", "message_type": "uncertain_flagged", "mode": "draft", "approver_role": "owner", "backup_approver_role": null, "escalation_role": "owner", "approval_limit_cents": null, "active": true }
+  ],
+
+  "configured": [
+    { "id": "p-cfg-estimate", "message_type": "estimate_proposal", "mode": "draft", "approver_role": "estimator", "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": 500000, "active": true },
+    { "id": "p-cfg-invoice", "message_type": "final_invoice", "mode": "draft", "approver_role": "office_admin", "backup_approver_role": "accountant", "escalation_role": "owner", "approval_limit_cents": 250000, "active": true },
+    { "id": "p-cfg-service", "message_type": "service_call_confirmation", "mode": "draft", "approver_role": "office_admin", "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": 100000, "escalation_after_hours": 4, "active": true },
+    { "id": "p-cfg-co", "message_type": "change_order", "mode": "draft", "approver_role": "owner", "backup_approver_role": null, "escalation_role": "owner", "approval_limit_cents": 750000, "active": true },
+    { "id": "p-cfg-missing", "message_type": "missing_info_request", "mode": "draft", "approver_role": "office_admin", "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": null, "active": true },
+    { "id": "p-cfg-decline", "message_type": "out_of_territory_decline", "mode": "draft", "approver_role": "office_admin", "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": null, "active": true }
+  ],
+
+  "no_escalation_role": [
+    { "id": "p-noesc-estimate", "message_type": "estimate_proposal", "mode": "draft", "approver_role": "estimator", "backup_approver_role": "owner", "escalation_role": null, "approval_limit_cents": 500000, "active": true }
+  ],
+
+  "inactive": [
+    { "id": "p-off-service", "message_type": "service_call_confirmation", "mode": "draft", "approver_role": "office_admin", "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": null, "active": false }
+  ],
+
+  "graduated": [
+    { "id": "p-grad-decline", "message_type": "out_of_territory_decline", "mode": "auto", "approver_role": "office_admin", "backup_approver_role": "owner", "escalation_role": "owner", "approval_limit_cents": 0, "confidence_threshold": 0.9, "active": true, "notes": "Hypothetical post-B5 graduation flip. The engine must REPORT mode=auto and still produce a draft — zero v1 auto-sends is enforced in code, not by refusing to store the flip." }
+  ]
+}
