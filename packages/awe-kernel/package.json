@@ -1,0 +1,24 @@
+{
+  "name": "@exattime/awe-kernel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic workflow kernel for the Autonomous Workflow Engine: outcome envelope, blocked-reason registry, audit events, Verify Steps, labelled corpora, gate runs, suite registry. Zero runtime dependencies.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./canonical": "./src/canonical.mjs",
+    "./errors": "./src/errors.mjs",
+    "./reasons": "./src/reasons.mjs",
+    "./outcome": "./src/outcome.mjs",
+    "./events": "./src/events.mjs",
+    "./verify": "./src/verify.mjs",
+    "./corpus": "./src/corpus.mjs",
+    "./gates": "./src/gates.mjs",
+    "./suite": "./src/suite.mjs",
+    "./registry": "./src/registry.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
