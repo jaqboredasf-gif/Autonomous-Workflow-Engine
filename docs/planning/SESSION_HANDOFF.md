@@ -4,6 +4,85 @@ Read CONTEXT.md first, then this, then all docs/planning/*.md. One approved task
 Vocabulary authority: docs/architecture/UBIQUITOUS_LANGUAGE.md (2026-07-17; harness
 terms appended 2026-07-27 marked PROPOSED).
 
+## Current state (2026-07-27, K4/C1 — kernelized MCP + context primitives, COMMITTED on `feat/kernelized-mcp-context`)
+
+Code-only session. **No database call, no migration, no credential, no network,
+no push.** Nine local commits on a new branch; nothing else was touched.
+
+### The branch question the previous session flagged, answered
+`chore/agent-handoff-integration` is **not** superseded by
+`chore/agent-handoff-clean`. The two carry equivalent handoff docs, but the
+integration branch uniquely carries the C1/S1 security work (SECURITY_FINDINGS,
+`acceptance-s1-security.sh`, the S1 rehearsal/rollback SQL, migration 0016),
+none of which reached `clean` or `main`. Acting on "superseded" would have
+discarded it. The previous session's uncommitted tree is now preserved in five
+reviewable commits.
+
+### Shipped
+- **MCP on the kernel.** All ten tools run through `runWorkflow`: explicit
+  execution context, standardized outcome envelope, sanitized audit events,
+  durable run report, explicit final state. `packages/mcp-server/src/index.js`
+  is wiring only — 409 offline assertions cover the rest without a credential.
+- **The `orgs limit 1` tenant defect is gone.** A tenant is stated (`org_id`
+  argument or `AWE_ORG_ID`), never discovered. Refused before any data access
+  when absent; refused when the call and the process disagree. Reads were also
+  previously unscoped against a service role that bypasses RLS — every read now
+  filters `org_id`, every write sets it, and the written row's tenant is
+  asserted afterwards.
+- **Context primitives** (`context-item.mjs`, `assembly.mjs`): tenant binding,
+  declared trust, sensitivity, provenance, priority, deterministic token
+  estimate; deterministic assembly with **complete exclusion accounting** —
+  nothing is dropped without a recorded reason.
+- **Deterministic compaction** (`compaction.mjs`): six model-independent
+  mechanisms, a full ledger, no declassification, no trust promotion, no growth,
+  byte-identical reproducibility. A `summarizer` hook admits a model-assisted
+  compactor later without making one mandatory.
+- **Context checkpoints**: `awe.context_checkpoint/v1`, tenant- and
+  workflow-bound, refusing a cross-tenant restore.
+- **Neutral Tool Registry boundary** (`tools.mjs`): descriptor, catalog,
+  side-effect classification, lifecycle. No authorization field exists, and
+  Runner M asserts their absence.
+- **`@exattime/awe-runtime`**: the app-server-ready service layer — submit,
+  inspect, artifact, audit, assemble, compact, checkpoint, resume. No HTTP.
+
+### Evidence (offline, this tree)
+`regression.sh --exclude-kinds=db`: **ALL GREEN, 12 ran, 8 skipped.**
+Runner K **553/0**, Runner C **138/0** (new), Runner M **410/0** (new), Runner 3
+**121/0**, Runner 4 **327/0**, Runner 5 **349/0**, Runner E **376/0**, web build
+OK, mobile typecheck OK.
+
+**`mcp-smoke` now passes — `OK (10 tools)`, credential-free.** It was the one
+failing suite in the previous session's tree. It is fixed by making the server
+startable in TEST mode rather than by relabelling the suite.
+
+Seven non-vacuity perturbations each fired and were reverted. One of them
+(cross-tenant checkpoint restore) initially passed with the guard deleted,
+because the assembler's own per-item check masked it; the test was strengthened
+to pin the specific guard.
+
+### Two real defects found by the new tests, not by review
+1. An MCP failure message could carry a provider's raw error — connection
+   string, bearer token, `password=` value — into the tool response. Now
+   redacted and bounded, and the kernel's redaction was extended to scrub
+   assigned secrets inside free text.
+2. A fixture row id built by interpolating the caller's text carried a customer
+   name into audit events and gate decisions. Ids are now content-addressed.
+
+### Deliberately NOT done
+Capability model, tool permissions, tenant authorization policy, approval
+thresholds, production enablement (**ADR-0002, unratified** — no assumption was
+made, and the absence is asserted mechanically). Non-filesystem artifact
+persistence. Any live-path proof of the Supabase data port. Any frontend.
+
+### Highest-leverage next task
+**Prove the LIVE data port.** Runner M proves the tenant, outcome, audit,
+artifact and context behaviour offline against the fixture port; nothing yet
+proves the Supabase implementation. A credential-gated `db`-kind suite that runs
+each read tool against a live project bound to one tenant, asserts every
+returned row carries that `org_id`, and includes one cross-tenant negative case,
+is the last gap between "tenant safety is code-enforced and tested" and "tenant
+safety is code-enforced and tested against the code that actually runs".
+
 ## Current state (2026-07-27, K2 — execution-kernel adoption + durable run artifacts, CODE COMPLETE, uncommitted)
 
 Code-only session on `chore/agent-handoff-integration`. **No database call, no

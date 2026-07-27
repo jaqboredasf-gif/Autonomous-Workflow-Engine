@@ -250,3 +250,63 @@ authority.
 - **Blocked reason** (harness) — the structured refusal vocabulary of the
   dispatcher, extending B3's existing routing/gate reasons rather than re-spelling
   them. Invariant: a refusal is never retried automatically.
+
+## Context and execution-surface terms (2026-07-27, IMPLEMENTED)
+
+Unlike the harness terms above, these name things that exist in code today
+(`packages/awe-kernel`, `packages/awe-runtime`, `packages/mcp-server`) and are
+covered by Runner C and Runner M.
+
+- **Context item** — one unit of context carrying the facts a later consumer
+  cannot re-derive: stable id, kind, source, tenant binding, declared trust,
+  sensitivity, priority, timestamp, content or artifact reference, estimated
+  token cost, provenance and a content fingerprint. Entity:
+  `packages/awe-kernel/src/context-item.mjs`. Invariant: trust defaults to
+  `false` and sensitivity to `internal` — a source that does not say is treated
+  as the riskier case.
+
+- **Execution context bundle** — the deterministic, serializable record of what
+  ONE run was given: run metadata, ordered items, budget, exclusions,
+  provenance, compaction state, self-digest. Schema `awe.context_bundle/v1`.
+  Invariant: every item that was offered either appears in `items` or appears in
+  `exclusions` with a reason. There is no third outcome and no silent
+  truncation.
+
+- **Exclusion reason** — the closed vocabulary explaining why an item is not in
+  a bundle: `tenant_mismatch`, `duplicate_id`, `duplicate_content`,
+  `sensitivity_ceiling`, `budget_tokens`, `budget_items`, `provider_error`,
+  `item_invalid`. Invariant: an operator can always distinguish "we chose not
+  to" from "it did not fit" from "something upstream broke".
+
+- **Compaction ledger** — the per-item record of what compaction did:
+  `retained`, `dropped_duplicate`, `dropped_expired`, `dropped_priority`,
+  `dropped_budget`, `summarized`, `substituted_artifact`, `created_summary`.
+  Invariant: a summary inherits the MAXIMUM sensitivity and the MINIMUM trust of
+  its inputs, so compaction can never launder untrusted or restricted material
+  into a less restricted class — enforced by the kernel regardless of whether a
+  model wrote the summary text.
+
+- **Context checkpoint** — the resumable form of a compacted bundle, bound to a
+  tenant and a workflow. Schema `awe.context_checkpoint/v1`. Invariant:
+  restoring into a different tenant or a different workflow is refused, which is
+  what makes resumable unattended work safe in a multi-tenant system.
+
+- **Tool descriptor** (implemented, neutral) — transport-independent tool
+  identity: name, version, workflow id, schema REFERENCES, side-effect
+  classification, `requires_tenant`, lifecycle, self-digest. Entity:
+  `packages/awe-kernel/src/tools.mjs`. Invariant: it classifies and declares; it
+  never authorizes. `side_effect` describes what a tool does to the world and
+  `requires_tenant` says a run must NAME a tenant — neither says who may invoke
+  it. That remains ADR-0002 and is asserted absent by Runner M.
+
+- **Data port** — the org-scoped data-access boundary an execution surface is
+  handed. Entity: `packages/mcp-server/src/data-port.mjs`. Invariant: every
+  method takes `org_id` and REFUSES without it. Not "defaults to", not "falls
+  back to". A tenant is never inferred, discovered, or remembered from a
+  previous call.
+
+- **Platform service** — the composition layer between the pure kernel and any
+  surface: submit run, inspect outcome, retrieve report and audit trail,
+  assemble and compact context, checkpoint and resume. Entity:
+  `packages/awe-runtime/src/service.mjs`. Invariant: it executes what it is
+  asked to execute and decides nothing about whether the caller may.

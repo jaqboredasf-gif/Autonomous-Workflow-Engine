@@ -2,11 +2,11 @@
 
 ## updated_at
 
-2026-07-27T18:30:00Z
+2026-07-27T19:10:00Z
 
 ## agent
 
-Codex
+Claude (Claude Code, Opus 5)
 
 ## repository
 
@@ -14,22 +14,266 @@ jaqboredasf-gif/Autonomous-Workflow-Engine
 
 ## branch
 
+`feat/kernelized-mcp-context`, created from `chore/agent-handoff-integration` at
+`e12eac2`. Nothing was pushed. No existing branch was moved, reset, merged,
+rebased or deleted.
+
+**Branch relationship, established before any write:**
+
+- `chore/agent-handoff-integration` = `security/c1-policy-cleanup` (`3e617f2`)
+  plus five agent-handoff docs commits.
+- `chore/agent-handoff-clean` carries equivalent handoff docs (different hashes)
+  plus two more, and is merged into `main`.
+- The two are **not** duplicates. The integration branch uniquely carries the
+  C1/S1 security work — `docs/SECURITY_FINDINGS.md`,
+  `scripts/acceptance-s1-security.sh`, the S1 rehearsal/rollback SQL, and
+  migration `0016_drop_undeclared_client_policies.sql` — none of which exist on
+  `clean` or on `main`. The previous session's note that this branch was
+  "superseded" is incorrect, and acting on it would have discarded that work.
+
+## commit
+
+Nine commits on `feat/kernelized-mcp-context`, none pushed:
+
+| commit | scope |
+|---|---|
+| `6270ee3` | preservation: `@exattime/awe-kernel` + registry-driven regression |
+| `45345be` | preservation: standardized outcomes + durable run-report artifacts |
+| `240e745` | preservation: Runners 3/4/5 migrated onto the kernel gate run |
+| `f896808` | preservation: H0 doctrine/contracts/guardrails + ADRs 0001-0009 |
+| `6c72acb` | preservation: planning docs |
+| `a95825b` | new: context assembly, compaction, checkpoints, tool descriptors |
+| `f4b7835` | new: `@exattime/awe-runtime` platform service layer |
+| `33cc32c` | new: MCP server on the shared execution kernel |
+| _(this one)_ | new: planning and architecture docs for the above |
+
+Commits 1-5 preserve the previous session's uncommitted tree, which was at real
+risk: the kernel, the H0 doc set and the runner migrations were entirely
+untracked.
+
+## current objective
+
+Completed **Kernelized MCP Execution and Context Primitive Foundation**. MCP is
+now the first external execution surface fully powered by the AWE kernel, and
+the provider-neutral context assembly and compaction subsystem exists as working
+code with an offline suite.
+
+## completed work
+
+- **Preserved** the previous session's uncommitted execution-kernel milestone in
+  five reviewable commits on a new branch, after establishing that the branch it
+  sat on is not superseded.
+- **MCP on the kernel.** All ten tools execute through `runWorkflow`: explicit
+  execution context, shared gates, standardized outcome envelope, sanitized
+  audit events, durable run report, explicit final state. Tool bodies contain
+  business logic only.
+- **Removed implicit tenant selection.** `from('orgs').select('id').limit(1)` is
+  gone. A tenant is stated (call argument or `AWE_ORG_ID`), never discovered.
+  Every data-port method requires `org_id` and refuses without it; every read
+  filters it, every write sets it, and the written row's tenant is asserted
+  afterwards.
+- **Context primitives.** Context Item, Execution Context Bundle, provider
+  interface, and deterministic assembly with complete exclusion accounting.
+- **Deterministic compaction.** Six model-independent mechanisms with a full
+  ledger, no sensitivity declassification, no trust promotion, no growth, and
+  byte-identical reproducibility. A `summarizer` hook admits a future
+  model-assisted compactor without making one mandatory.
+- **Context checkpoints.** `awe.context_checkpoint/v1`, tenant- and
+  workflow-bound, refusing a cross-tenant restore.
+- **Neutral Tool Registry boundary.** Descriptor, catalog, side-effect
+  classification, lifecycle. No authorization field exists, and Runner M asserts
+  their absence mechanically.
+- **App-server-ready service layer** (`@exattime/awe-runtime`): submit, inspect,
+  artifact, audit, assemble, compact, checkpoint, resume. No HTTP, no framework.
+- **Two real leaks found by the new tests and fixed** (see `risks`).
+
+## files changed
+
+Created:
+
+```
+packages/awe-kernel/src/context-item.mjs   Context Item, token estimate, ordering
+packages/awe-kernel/src/assembly.mjs       bundle assembly, exclusions, providers, rendering
+packages/awe-kernel/src/compaction.mjs     deterministic compaction + checkpoints
+packages/awe-kernel/src/tools.mjs          neutral tool descriptor + catalog
+packages/awe-runtime/package.json          new workspace package
+packages/awe-runtime/src/index.mjs
+packages/awe-runtime/src/service.mjs       the platform service
+packages/awe-runtime/src/file-sinks.mjs    moved from scripts/lib/artifact-store.mjs
+packages/mcp-server/src/data-port.mjs      org-scoped data boundary (supabase + fixture)
+packages/mcp-server/src/tenant.mjs         explicit tenant + mode resolution
+packages/mcp-server/src/tools.mjs          ten descriptors + kernel-outcome bodies
+packages/mcp-server/src/runtime.mjs        executeTool, context provider, response mapping
+packages/mcp-server/src/fixtures.mjs       deterministic two-tenant corpus
+scripts/eval-context.mjs, scripts/eval-context.sh   Runner C
+scripts/eval-mcp.mjs, scripts/eval-mcp.sh           Runner M
+```
+
+Modified: `packages/awe-kernel/src/execute.mjs`, `events.mjs`, `sinks.mjs`,
+`index.mjs`, `registry.mjs`; `packages/awe-kernel/package.json`;
+`packages/mcp-server/src/index.js` (wiring only);
+`scripts/lib/artifact-store.mjs` (now a re-export);
+`scripts/lib/awe-reasons.mjs`; `scripts/eval-kernel.mjs`; `scripts/smoke-mcp.sh`.
+
+## migrations
+
+None. No SQL file was created, edited or applied. `supabase/` is untouched.
+
+## commands run
+
+```
+git status / branch -vv / log --graph --all / merge-base / diff --stat
+bash scripts/regression.sh --kinds=unit,offline,static   (baseline, before any edit)
+bash scripts/eval-context.sh
+bash scripts/eval-mcp.sh
+bash scripts/eval-kernel.sh
+bash scripts/smoke-mcp.sh
+bash scripts/regression.sh --exclude-kinds=db
+seven non-vacuity perturbations, each reverted
+```
+
+## tests passed
+
+`bash scripts/regression.sh --exclude-kinds=db` — **ALL GREEN, 12 ran, 8 skipped.**
+
+| suite | result |
+|---|---|
+| Runner K (kernel unit) | 553 / 0 |
+| Runner C (context primitives) | 138 / 0 — new |
+| mobile typecheck | OK |
+| web production build | OK |
+| MCP smoke (initialize + tools/list) | OK (10 tools) — **was FAIL (tools=0)** |
+| migration 0014 structural validation | OK |
+| Runner 3 (approval diff) | 121 / 0 |
+| migration 0015 structural validation | OK |
+| Runner 4 (approval matrix + outbound) | 327 / 0 |
+| Runner 5 (approval queue) | 349 / 0 |
+| Runner M (kernelized MCP surface) | 410 / 0 — new |
+| Runner E (execution outcomes + artifacts) | 376 / 0 |
+
+Non-vacuity: seven deliberate perturbations were each confirmed to fail the
+suite and then reverted — implicit tenant fallback restored; data port stops
+filtering by tenant; response stops redacting provider error text; compaction
+declassifies a summary; assembly drops over-budget items silently; cross-tenant
+context filtered instead of refused; checkpoint restores into any tenant. The
+seventh initially passed with the guard deleted — the assembler's own per-item
+check was masking it — so the test was strengthened to pin that specific guard
+before the perturbation fired.
+
+## tests failed
+
+None.
+
+**Not run, deliberately:** every `db`-kind suite (acceptance slices 1-5, S1
+security, intake eval, classification eval) requires `SUPABASE_ACCESS_TOKEN` and
+live project access. No live-credential, n8n, Outlook, OneDrive, service-role or
+production-workflow test was executed. No test was skipped, weakened or deleted
+to make the build pass.
+
+## live changes
+
+None. No database call, no migration, no n8n change, no workflow publication, no
+external API call, no credential used, no push.
+
+## approvals required
+
+- **ADR-0002 ratification** (harness database access path). Until it is
+  `Accepted`, no capability model, tool permission, tenant authorization policy,
+  approval threshold or production-enablement policy may be implemented. Neutral
+  boundaries exist and are asserted to be empty of those decisions.
+- **Push and PR** for `feat/kernelized-mcp-context`.
+- The Phase 1 deployment gates in the archived section below remain open and are
+  unaffected by this session.
+
+## risks
+
+- **Two real leaks were found by the new tests and fixed in this session.**
+  (1) An MCP failure message could carry a provider's raw error — including a
+  connection string, a bearer token or a `password=` value — into the tool
+  response. Now redacted and bounded. (2) A fixture row id built by
+  interpolating the caller's text carried a customer name into audit events and
+  gate decisions; ids are now content-addressed. The kernel's redaction was also
+  extended to scrub assigned secrets inside free text, not only
+  credential-shaped object keys.
+- **MCP TEST mode now serves fixture data instead of exiting at startup.**
+  Strictly safer — the process holds no credential in TEST — but it is a
+  behaviour change: an operator who relied on the server dying without
+  credentials now gets a server that runs. Mitigated by a loud stderr banner and
+  by `mode` and `is_fixture` on every response.
+- The service role still bypasses RLS, so MCP tenant safety is **code-enforced**
+  (ADR-0002, knowing acceptance, guardrail G1). It is now enforced at four
+  layers — entry gate, data port, query filter, post-write assertion — and every
+  one has a refusal test.
+- Run artifacts are written to a gitignored local directory. That is the first
+  backend, not the permanent one.
+
+## blockers
+
+1. **ADR-0002 is unratified.** Blocks the Tool Registry's authorization model,
+   the capability system, tenant authorization policy and approval thresholds.
+   Nothing in this session assumed an outcome.
+2. **Phase 1 deployment remains blocked**, carried forward unchanged and
+   untouched by this session: repository migration history and live migration
+   history disagree; the C2 allow-list/documentation contradiction, unproven RPC
+   compatibility, incomplete Auth/control-plane inventory, and unverified C4
+   coordinated rollout are all still open. Do not deploy Phase 1. Full detail is
+   preserved in the archived section below.
+3. `feat/kernelized-mcp-context` is based on `chore/agent-handoff-integration`,
+   which is **not** in `main`. Landing this work also lands the C1/S1 security
+   commit. That is a sequencing decision for the operator, not a defect.
+
+## exact next prompt
+
+Implement the LIVE-path proof for the kernelized MCP surface. Runner M covers
+the tenant, outcome, audit, artifact and context behaviour offline against the
+fixture data port; nothing yet proves the Supabase data port itself. Add a
+credential-gated smoke suite (registry kind `db`, declaring `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY` and `AWE_ORG_ID`) that runs each read tool against a
+live project bound to one tenant and asserts every returned row carries that
+`org_id`, plus one cross-tenant negative case proving a second tenant's rows are
+unreachable. Do not run it without explicit approval, do not add it to the
+default regression path, and do not use the `sbp_` management token. Do not
+implement any capability, permission or approval behaviour — ADR-0002 is still
+unratified.
+
+## archived — Phase 1 deployment readiness review (2026-07-27, Codex)
+
+Preserved verbatim, headings demoted one level. **Its blockers are still
+active**; this session neither addressed nor invalidated them. It was a
+read-only review of `chore/agent-handoff-integration` and PR #3, and it made no
+change to the repository.
+
+
+### updated_at
+
+2026-07-27T18:30:00Z
+
+### agent
+
+Codex
+
+### repository
+
+jaqboredasf-gif/Autonomous-Workflow-Engine
+
+### branch
+
 `chore/agent-handoff-integration` (read-only deployment review performed from
 the existing worktree; PR #3 was inspected at immutable head
 `30d222d00b1ac48121bd52a1ff67dcdf07aa5cde`).
 
-## commit
+### commit
 
 No commit created. The user explicitly prohibited commits, pushes, merges, and
 code changes.
 
-## current objective
+### current objective
 
 Completed a read-only Phase 1 deployment-readiness review. Do not deploy Phase
 1. Repository declarations, migration history, and live state disagree, so the
 mandatory repository stop condition is active.
 
-## completed work
+### completed work
 
 - Read every requested repository planning/security source, all four Phase 1
   migrations, the migration chain, and the validation harnesses.
@@ -42,7 +286,7 @@ mandatory repository stop condition is active.
   rollback checkpoints, risks, confidence scores, approval gates, and next
   prompt in this handoff.
 
-## pull request
+### pull request
 
 - Draft PR #3: https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/pull/3
 - Base: `main` at `dbf8f1755f1afefa8f7e44caa6c59bdf7e2863b1`
@@ -52,7 +296,7 @@ mandatory repository stop condition is active.
 - Deployment review result: not deployable; passing checks are repository-only
   and do not prove live compatibility.
 
-## deployment readiness review
+### deployment readiness review
 
 Deployment readiness score: **38/100**.
 
@@ -117,7 +361,7 @@ Blocking disagreements and unknowns:
   configuration, database advisors, backups/PITR, and rollback scripts require
   explicit review before approval.
 
-## migration deployment matrix
+### migration deployment matrix
 
 ### C1 — remove undeclared policies
 
@@ -196,7 +440,7 @@ verify startup binding. Stop and restore the last known-safe application
 version at any failed checkpoint; do not use vulnerable policy recreation as a
 routine rollback.
 
-## exact verification commands
+### exact verification commands
 
 Run against the explicitly confirmed production ref
 `qgoiacwdntaqeghcyjlw`. Every statement below is read-only.
@@ -363,7 +607,7 @@ blocking evidence. Auth control-plane settings must additionally be exported
 read-only from the Supabase dashboard/API because SQL cannot fully inventory
 them.
 
-## approval gates
+### approval gates
 
 1. Confirm the exact production project ref is `qgoiacwdntaqeghcyjlw`, not the
    second project named `AWE`.
@@ -384,17 +628,17 @@ them.
 10. Obtain explicit approval for PR merge, migration execution, and coordinated
     C4 server rollout. These are three distinct approvals.
 
-## files changed
+### files changed
 
 - `docs/planning/AGENT_HANDOFF.md` only.
 
 All pre-existing modified and untracked user files were preserved.
 
-## migrations
+### migrations
 
 No migration was created, modified, applied, rehearsed, or rolled back.
 
-## commands run
+### commands run
 
 - Read-only local file and Git status inspection.
 - Read-only GitHub PR #3 metadata, immutable file-content, and diff inspection.
@@ -403,42 +647,42 @@ No migration was created, modified, applied, rehearsed, or rolled back.
 - Live `SELECT` catalog and aggregate tenant-integrity queries only.
 - Official Supabase documentation/changelog lookup.
 
-## tests passed
+### tests passed
 
 - Live target correlation to repository project ref.
 - C1 exact policy-name and RLS prerequisite verification.
 - C3 schema prerequisite and aggregate tenant-integrity verification.
 - PR #3 remains draft and its existing GitHub validation checks pass.
 
-## tests failed
+### tests failed
 
 - Migration-history reconciliation: live history is empty/absent while the
   schema materially reflects repository migrations.
 - Deployment-readiness review: failed closed.
 
-## live changes
+### live changes
 
 None. Supabase was queried read-only. GitHub was queried read-only. No code,
 migration, Git ref, PR state, or external service was modified.
 
-## approvals required
+### approvals required
 
 All gates in `approval gates` above. No deployment approval should be issued
 until migration history is reconciled and C2's contract is made internally
 consistent.
 
-## risks
+### risks
 
 See `deployment readiness review` and `migration deployment matrix`.
 
-## blockers
+### blockers
 
 Primary blocker: repository migration history and live migration history
 disagree. Secondary blockers: C2 allow-list/documentation contradiction,
 unproven RPC compatibility, incomplete Auth/control-plane inventory, and
 unverified C4 coordinated rollout.
 
-## exact next prompt
+### exact next prompt
 
 Perform a read-only migration-history forensics task for Supabase project
 `qgoiacwdntaqeghcyjlw`. Determine exactly how repository migrations 0001-0015

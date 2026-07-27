@@ -5,6 +5,41 @@ Template per task: goal / why / files / deps / acceptance / testing / done / han
 
 ---
 
+
+## K4 — MCP server on the shared execution kernel — `done` (2026-07-27)
+All ten MCP tools execute through `runWorkflow`. The `orgs limit 1` tenant defect is removed: a tenant is stated (`org_id` argument or `AWE_ORG_ID`), never discovered, and is refused before any data access when absent or contradicted. Reads were previously unscoped against a service role that bypasses RLS; every read now filters `org_id`, every write sets it, and the written row's tenant is asserted afterwards. The server starts credential-free in TEST mode on a two-tenant fixture corpus, which is what makes `mcp-smoke` pass (`OK (10 tools)`) where it previously reported `FAIL (tools=0)`.
+- **Files**: `packages/mcp-server/src/{data-port,tenant,tools,runtime,fixtures}.mjs`, `index.js` (wiring only), `scripts/eval-mcp.{mjs,sh}`, `scripts/smoke-mcp.sh`, `scripts/lib/awe-reasons.mjs`.
+- **Acceptance**: Runner M 410/0 offline; `regression.sh --exclude-kinds=db` ALL GREEN; three perturbations fired and reverted.
+- **Handoff**: two real leaks found and fixed — provider error text in the MCP response, and a fixture row id carrying a customer name into audit events.
+
+## C1 — Context assembly, compaction and checkpoints — `done` (2026-07-27)
+Provider-neutral context subsystem in the kernel. Context Item (tenant binding, declared trust, sensitivity, provenance, priority, deterministic token estimate), deterministic assembly with complete exclusion accounting, six model-independent compaction mechanisms with a full ledger, and tenant/workflow-bound resumable checkpoints. `runWorkflow` accepts a preassembled bundle or providers and passes the bundle as a second argument, so every existing single-argument workflow body is unchanged.
+- **Files**: `packages/awe-kernel/src/{context-item,assembly,compaction,tools}.mjs`, `execute.mjs`, `events.mjs`, `sinks.mjs`, `index.mjs`, `scripts/eval-context.{mjs,sh}`.
+- **Acceptance**: Runner C 138/0; four perturbations fired and reverted.
+- **Handoff**: a model-assisted compactor is a `summarizer` hook, held to the kernel's sensitivity/trust invariants; it is not on the critical path.
+
+## S1 — Platform service layer — `done` (2026-07-27)
+`@exattime/awe-runtime`: submit run, inspect outcome, retrieve report and audit trail, assemble and compact context, checkpoint and resume. Every impure boundary injected. No HTTP, no framework — deliberately, since there is no server yet. The local-filesystem sinks moved here from `scripts/lib/artifact-store.mjs`, which now re-exports them.
+- **Files**: `packages/awe-runtime/**`, `scripts/lib/artifact-store.mjs`.
+- **Acceptance**: covered by Runner M; a source-purity gate asserts the layer reaches no database and decides no authorization.
+
+## K5 — LIVE data-port proof — `ready` (needs explicit approval + credentials)
+- **Goal**: a credential-gated `db`-kind suite that runs each MCP read tool against a live project bound to one tenant, asserts every returned row carries that `org_id`, and includes one cross-tenant negative case.
+- **Why**: Runner M proves the tenant boundary against the FIXTURE port. Nothing yet proves `createSupabaseDataPort`, which is the code that actually runs, and the service role bypasses RLS so those filters are the only boundary.
+- **Files**: `scripts/eval-mcp-live.{mjs,sh}`, a registry descriptor requiring `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AWE_ORG_ID`.
+- **Deps**: K4. Must NOT use the `sbp_` management token.
+- **Acceptance**: every row's `org_id` matches the bound tenant; the second tenant's rows are unreachable; not in the default regression path.
+
+## K6 — Durable artifact backend — `BLOCKED(ADR-0002)`
+- **Goal**: replace the local-filesystem `ArtifactSink`/`AuditSink` with a durable backend (`integration_events` for audit, a table or object store for reports).
+- **Why**: run evidence currently lives in a gitignored local directory, which does not survive a deployment and cannot be queried.
+- **Blocked on**: ADR-0002 — choosing the backend means choosing the harness DB access path.
+
+## K7 — Tool Registry authorization — `BLOCKED(ADR-0002)`
+- **Goal**: who may invoke a tool; tenant authorization policy; capability grant semantics; approval thresholds; production enablement.
+- **Why**: the neutral descriptor and catalog exist and are asserted to carry none of these. Adding them is the next real capability, and inventing them now would pre-empt a ratification.
+- **Blocked on**: ADR-0002 ratification (all eight ADRs still read `Proposed`; doctrine D2 forbids automation approving its own work).
+
 ## A1 — Fix slice-2 acceptance failures — `done` (2026-07-16)
 Root cause: test-data bugs, not schema. (1) insert + same-second clock-out PATCH violated `clock_out > clock_in` check constraint → setup silently failed; (2) hardcoded corrected clock_out predated clock_in → constraint aborted apply RPC. Fixed scripts (clock_in −1h, NEWOUT now+30m). Schema unchanged. Also corrects the earlier "transient network flake" diagnosis in slice 1 — same constraint race. Regression ALL GREEN.
 - **Goal**: scripts/acceptance-slice2.sh passes 10/10 (corrections apply path).

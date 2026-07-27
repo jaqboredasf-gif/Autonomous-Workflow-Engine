@@ -2,6 +2,68 @@
 
 Append-only. Newest first. Format: date — decision — why — supersedes (if any).
 
+## 2026-07-27 (K4/C1 — kernelized MCP surface + context primitives)
+
+Code-only session on `feat/kernelized-mcp-context`. No database call, no
+migration, no live change, no push. Committed locally (AGENTS.md permits it).
+
+- **A tenant is stated, never discovered.** The MCP server's
+  `from('orgs').select('id').limit(1)` is replaced by explicit resolution: an
+  `org_id` argument on the call, or `AWE_ORG_ID` for the process. Both present
+  and disagreeing is refused (`tenant_mismatch`); neither present is refused
+  (`tenant_required`) before any data access. Rejected: keeping a single-tenant
+  default "because there is only one org today" — that is precisely the
+  assumption that fails silently rather than loudly on the day it stops holding.
+- **The MCP server starts without credentials, in TEST mode, on fixture data.**
+  It used to `process.exit(1)` on a missing key, which meant its tool surface
+  could not be listed or tested anywhere the key was absent — including
+  regression, where `mcp-smoke` had been failing. A server that enumerates its
+  tools offline and refuses to touch live data without an explicit LIVE plus a
+  stated tenant is both more testable and more fail-closed than one that dies at
+  startup. Rejected: leaving the exit and permanently labelling the suite as
+  credential-blocked.
+- **A blocked MCP outcome is returned with `isError: true`.** A blocked run is a
+  CORRECT run, so this is a deliberate slight abuse of the field: `isError` is
+  how MCP tells a model "this did not give you what you asked for, read the
+  body". A refusal returned as a success is a refusal a model will summarize as
+  a result. The distinction is preserved where it matters, in the
+  machine-readable `status` and `code`. Rejected: `isError: false` for blocked.
+- **Context assembly refuses cross-tenant items by default; it does not filter
+  them.** "We dropped the other tenant's row" and "we never had it" must not
+  look the same afterwards. Filtering is available as an explicit opt-in
+  (`on_tenant_mismatch: 'exclude'`) for an operator inspecting a mixed pool.
+- **Nothing leaves assembly unaccounted for.** Every item that does not reach
+  the bundle appears in `exclusions` with a reason from a closed vocabulary.
+  Rejected: silent truncation to a budget, which is the standard behaviour and
+  makes "the model didn't know" un-diagnosable.
+- **Compaction is deterministic and model-independent, and a model-assisted
+  compactor is a hook rather than a plan.** Six mechanisms, a full ledger, and
+  three invariants the kernel enforces regardless of who wrote the summary text:
+  a summary inherits the maximum sensitivity and the minimum trust of its
+  inputs, and compaction never grows the context. Rejected: making an LLM
+  summarizer the primary path, which would make replay impossible and bind the
+  platform's memory to one vendor.
+- **The token budget uses a pure character-based estimate, deliberately
+  over-counting.** A budget that depends on a provider's tokenizer changes when
+  the vendor does, which would make an assembled bundle unreplayable. Running
+  out of budget early is recoverable; discovering the overflow at the provider
+  is not.
+- **`Date.parse` is permitted in the kernel; `Date.now()` and `new Date()` stay
+  forbidden.** The ban is on READING the clock, not on parsing a timestamp the
+  caller supplied. Age-based pruning needs to compare moments, and comparing ISO
+  strings is wrong the moment two instants carry different UTC offsets.
+- **The platform service layer is not a web server.** `@exattime/awe-runtime`
+  exposes submit/inspect/artifact/audit/assemble/compact/checkpoint/resume as
+  typed operations with every impure boundary injected. No HTTP, no routes, no
+  framework: this repo has no server to hang them on, and speculative endpoints
+  rot. Rejected: scaffolding routes now "so the app server has somewhere to go".
+- **Still not decided, still ADR-0002:** who may invoke a tool, tenant
+  authorization policy, capability grant semantics, approval thresholds,
+  production enablement. The tool descriptor classifies a side effect and
+  declares whether a tenant is structurally required; it carries no permission.
+  Runner M asserts the absence of those fields mechanically rather than by
+  review, so the boundary cannot erode quietly.
+
 ## 2026-07-27 (K2 — execution-kernel adoption + durable run artifacts)
 
 Code-only session. No database call, no migration, no live change, no commit.
