@@ -18,10 +18,19 @@ communications.
 2. `20260727142120_phase1_c2_restrict_privileged_rpcs.sql`
    - Revoke default `PUBLIC`, `anon`, and `authenticated` execution on public
      functions.
-   - Restore `authenticated` execution only for the RLS identity helpers and
-     the two intentional browser RPCs (`business_role_matches` and
-     `record_approval`), while explicitly preserving service-role execution.
-   - Pin future public-function defaults to no client execution.
+   - Restore `anon`/`authenticated` execution only for the two RLS identity
+     helpers, which are not application RPCs.
+   - Restore `authenticated` execution only for
+     `business_role_matches(uuid,business_role)` and
+     `record_approval(uuid,text,text)`.
+   - Keep `apply_timecard_correction(uuid)` and `mark_message_sent(uuid)`
+     service-only pending reviewed internal routes.
+   - Revoke and verify by exact identity arguments so overloads fail closed.
+   - Require the executor to own every public function before changing its
+     owner-specific default privileges.
+   - Harden `set_geo_flags()` as a fixed-path definer trigger so its internal
+     `haversine_m()` dependency stays closed to clients; require that API roles
+     cannot create objects in `public`.
 3. `20260727142121_phase1_c3_bind_time_and_crew_authorization.sql`
    - Replace broad time-entry policies with tenant-bound worker, assigned-crew
      foreman, and admin policies using both `USING` and `WITH CHECK`.
@@ -37,10 +46,11 @@ communications.
 
 - Policies: the 16 undeclared C1 policies; all `time_entries`, `crews`, and
   `crew_members` policies.
-- Functions/RPCs: every function in `public` for privilege reconciliation;
-  explicit browser grants for `current_org_id`, `current_role_is`,
-  `business_role_matches`, and `record_approval`; new tenant-reference guards
-  and `assert_mcp_tenant`.
+- Functions/RPCs: every function in `public` for exact-signature privilege
+  reconciliation; client RLS helpers `current_org_id()` and
+  `current_role_is(user_role)`; authenticated application RPCs
+  `business_role_matches(uuid,business_role)` and
+  `record_approval(uuid,text,text)`; new tenant guards and `assert_mcp_tenant`.
 - Triggers: tenant-reference validation on `time_entries`, `crews`, and
   `crew_members`.
 - Grants: function execution for `PUBLIC`, `anon`, `authenticated`, and
@@ -71,9 +81,11 @@ task.
   `crew_members`; after C3, a foreman may act only for members of a crew they
   lead. Existing empty crew tables mean crew mode will remain denied until
   legitimate assignments are created by an admin/service workflow.
-- Browser approvals retain the two RPCs they currently use.
-- Service-role jobs retain explicit function execution, but service-role table
-  access remains outside RLS and therefore must be tenant-filtered in code.
+- Browser approvals retain exactly the two RPCs they currently use.
+- Corrections and send-marking need a reviewed internal route before their UI
+  workflows can ship; direct authenticated RPC execution is denied.
+- Service-role jobs retain only explicitly listed entry points. Service-role
+  table access remains outside RLS and must be tenant-filtered in code.
 - One MCP process serves exactly one organization. `MCP_ORG_ID` is trusted
   deployment configuration, never a tool argument or model-controlled value.
 - User, crew, job-site, and cost-code references must belong to the same
@@ -86,8 +98,9 @@ task.
 - RLS scenarios: worker own-row success; cross-user and cross-tenant denial;
   foreman assigned-crew success; unassigned-crew denial; admin same-tenant
   success; cross-tenant reference rejection.
-- RPC scenarios: anonymous and ordinary authenticated denial for privileged
-  RPCs; intentional browser RPC success; service-role availability.
+- RPC scenarios: exact-signature allow-list success; overload denial; anonymous
+  and authenticated denial for every other signature; trigger/internal denial;
+  and explicitly justified service paths.
 - MCP scenarios: missing/invalid tenant fails startup, tenant override is
   rejected, every read is scoped, every insert is forced to the bound tenant,
   and startup rejects an unknown tenant.
@@ -98,9 +111,17 @@ task.
 
 ## Pre-deployment verification and approval gate
 
+Historical migrations 0001-0015 were applied as raw SQL outside
+`supabase_migrations`; no live history repair is authorized. Complete
+`MIGRATION_HISTORY_RECONCILIATION_PLAN.md` before deployment.
+
 Immediately before any future live apply, compare the live policy/function/grant
 inventory and migration history with this branch. Stop on any mismatch. Dry-run
 all four migrations inside an explicitly rolled-back transaction, run the full
 pre-change regression, obtain explicit approval, then apply in order. Afterward,
 run RLS/RPC cross-tenant tests, MCP tenant-binding tests, database advisors, and
 the full regression suite. No part of that live procedure is authorized here.
+
+C2 narrows execution privileges only. It does not claim the entire RPC surface
+is secure: remaining `SECURITY DEFINER` functions without a fixed safe
+`search_path` must be remediated or explicitly gated before deployment.

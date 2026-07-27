@@ -25,8 +25,8 @@ apps/web             Next.js 16 app router + Tailwind. Admin dashboard, 15 route
                      scripts/lib/approval-matrix.mjs; Runner 5 tests it directly)
 packages/shared      shared types
 packages/mcp-server  stdio MCP server (ESM JS), 10 tools, service-role key via env
-supabase/migrations  0001–0015 ALL applied to the live project (0014 + 0015 applied
-                     2026-07-26; see "Migration state" below)
+supabase/migrations  0001–0015 materially present live, but historically applied
+                     as raw SQL outside the Supabase migration ledger
 scripts/             regression.sh, acceptance-slice1..5.sh, classify.mjs,
                      eval-intake.sh (Runner 1), eval-classification*.sh (2A/2B),
                      eval-approval-diff.sh (Runner 3), eval-approval-matrix.sh (Runner 4),
@@ -47,12 +47,16 @@ docs/planning/       THIS folder — scope/requirements/roadmap/backlog/handoff
 
 ## Migration state
 
-**0001–0015 are all applied to the live project.** 0014 + 0015 were applied 2026-07-26
+**0001–0015 are materially present in the live project, but there is no
+application migration ledger.** They were applied as raw SQL through management
+or manual SQL paths. 0014 + 0015 were applied 2026-07-26
 with Jack's explicit authorization, after a full dry-run (both files executed inside one
 `begin; … rollback;` transaction against the live schema — zero errors, zero residue).
 Drift check after apply: 24 public base tables = 19 (0001–0013) + 5 (0014 `approval_drafts`
 / `approval_outcomes` / `category_authority`, 0015 `message_policies` / `outbound_messages`).
-`message_policies` holds 10 seed rows, all `mode='draft'`.
+`message_policies` holds 10 seed rows, all `mode='draft'`. Do not backfill
+migration history merely because final object names exist. No history repair is
+authorized; complete the canonical replay plan before deployment.
 
 Applying schema to live Supabase remains a **human-gated outward action** — get Jack's
 go-ahead per migration, and dry-run inside a rolled-back transaction first.
@@ -174,6 +178,13 @@ ordered migrations plus server code. The exact plan and compatibility boundary
 are in `docs/planning/SECURITY_PHASE1_PLAN.md`. A live policy/function/grant and
 migration-history comparison, rolled-back dry run, and explicit approval are
 mandatory before any apply.
+
+The verified shipped browser RPC surface is exactly
+`business_role_matches(uuid,business_role)` and
+`record_approval(uuid,text,text)`. `current_org_id()` and
+`current_role_is(user_role)` are client-executable RLS helpers, not application
+RPCs. `apply_timecard_correction(uuid)` and `mark_message_sent(uuid)` are not
+authenticated client RPCs and require reviewed internal routes.
 
 Live policy drift is worth re-checking after any externally-made change:
 

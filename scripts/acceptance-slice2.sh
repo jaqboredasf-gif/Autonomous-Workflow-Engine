@@ -18,6 +18,9 @@ check() { if [ "$2" = "0" ]; then echo "PASS  $1"; pass=$((pass+1)); else echo "
 sql() { jq -Rs '{query: .}' <<<"$1" | curl -s --retry 2 --retry-all-errors -X POST "$MGMT" \
   -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @-; }
 c() { curl -s --retry 2 --retry-all-errors "$@"; }
+as_service_user() {
+  printf "begin;\nset local role service_role;\nset local request.jwt.claims = '{\"sub\":\"%s\",\"role\":\"service_role\"}';\n%s\ncommit;\n" "$1" "$2"
+}
 
 TOK=$(c -X POST "$URL/auth/v1/token?grant_type=password" -H "apikey: $ANON" -H "Content-Type: application/json" \
   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" | jq -r .access_token)
@@ -55,14 +58,18 @@ check "3. request created, originals captured" $([ "$CID" != "null" ] && [ "$ORI
 EV=$(sql "select count(*) c from integration_events where event_type='timecard.correction_requested' and entity_id='$CID'" | jq -r '.[0].c')
 check "3b. correction_requested event" $([ "$EV" = "1" ]; echo $?)
 
-# 4. anon cannot apply
+# 4. neither client role can execute the internal correction RPC
 R=$(c -X POST "$URL/rest/v1/rpc/apply_timecard_correction" -H "apikey: $ANON" -H "Content-Type: application/json" \
   -d "{\"p_correction_id\":\"$CID\"}")
-check "4. anon blocked from applying" $(grep -q 'admin' <<<"$R"; echo $?)
-
-# 5. admin applies via RPC → entry updated, correction approved, event emitted
+check "4. anon blocked from applying" $(grep -qi 'permission denied' <<<"$R"; echo $?)
 R=$(c -X POST "$URL/rest/v1/rpc/apply_timecard_correction" "${AUTH[@]}" -d "{\"p_correction_id\":\"$CID\"}")
-check "5. admin apply succeeds" $(jq -e '.applied == true' >/dev/null 2>&1 <<<"$R"; echo $?)
+check "4b. authenticated admin blocked from direct RPC execution" \
+  $(grep -qi 'permission denied' <<<"$R"; echo $?)
+
+# 5. explicitly internal service path carries human attribution and applies.
+R=$(sql "$(as_service_user "$USER_ID" "select apply_timecard_correction('$CID') applied;")")
+check "5. service-only correction path succeeds" \
+  $(jq -e '.[0].applied.applied == true' >/dev/null 2>&1 <<<"$R"; echo $?)
 GOT=$(c "$URL/rest/v1/time_entries?id=eq.$ID&select=clock_out" "${AUTH[@]}" | jq -r '.[0].clock_out')
 check "5b. entry clock_out corrected" $([ "$GOT" = "$NEWOUT" ]; echo $?)
 ST=$(c "$URL/rest/v1/timecard_corrections?id=eq.$CID&select=status,approved_by,applied_at" "${AUTH[@]}" | jq -r '.[0].status')
@@ -70,8 +77,8 @@ check "5c. correction marked approved" $([ "$ST" = "approved" ]; echo $?)
 EV2=$(sql "select count(*) c from integration_events where event_type='timecard.correction_applied' and entity_id='$CID'" | jq -r '.[0].c')
 check "5d. correction_applied event" $([ "$EV2" = "1" ]; echo $?)
 
-# 6. double-apply rejected
-R=$(c -X POST "$URL/rest/v1/rpc/apply_timecard_correction" "${AUTH[@]}" -d "{\"p_correction_id\":\"$CID\"}")
+# 6. double-apply rejected through the same internal path
+R=$(sql "$(as_service_user "$USER_ID" "select apply_timecard_correction('$CID');")")
 check "6. double-apply rejected (idempotent)" $(grep -q 'already' <<<"$R"; echo $?)
 
 echo; echo "passed=$pass failed=$fail"

@@ -2,6 +2,22 @@
 
 Append-only. Newest first. Format: date — decision — why — supersedes (if any).
 
+## 2026-07-27 — Phase 1 C2 uses the exact shipped-call-site allow-list
+
+- Authenticated application RPCs are exactly
+  `business_role_matches(uuid,business_role)` and
+  `record_approval(uuid,text,text)`.
+- `current_org_id()` and `current_role_is(user_role)` remain client-executable
+  RLS helpers and are documented separately.
+- `apply_timecard_correction(uuid)` and `mark_message_sent(uuid)` are removed
+  from authenticated execution and remain service-only pending reviewed routes.
+- C2 uses exact identity arguments, denies same-name overloads, and requires the
+  executor to own public functions before changing owner-specific defaults.
+- Migrations 0001-0015 were applied as raw SQL outside the Supabase ledger. No
+  live history repair is authorized; canonical replay is a deployment gate.
+- C2 narrows ACLs but does not close remaining unsafe `SECURITY DEFINER`
+  `search_path` findings.
+
 ## 2026-07-27 — Security Phase 1 is tenant-bound and repository-only
 
 - Keep `security/c1-policy-cleanup` unchanged; selectively reuse only its

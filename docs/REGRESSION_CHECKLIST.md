@@ -71,6 +71,11 @@ re-run it rather than treating it as a regression.
   Required scenarios are worker-own success, cross-user/cross-tenant denial,
   assigned-crew foreman success, unassigned-crew denial, same-tenant admin
   success, unauthorized privileged-RPC denial, and service-role continuity.
+- C2 client execution is signature-exact: authenticated application RPCs are
+  only `business_role_matches(uuid,business_role)` and
+  `record_approval(uuid,text,text)`; client RLS helpers are separately limited
+  to `current_org_id()` and `current_role_is(user_role)`. Authenticated calls to
+  correction/send-marking, trigger/internal functions, and overloads must fail.
 - The approval queue writes only through `record_approval()`; `outbound_messages` has
   no client insert/update/delete policy, and no UI file may reference
   `mark_message_sent` (Runner 5 asserts this).

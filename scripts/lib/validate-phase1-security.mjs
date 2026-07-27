@@ -23,22 +23,43 @@ for (const table of [
 assert.match(c1, /c\.relrowsecurity/);
 assert.doesNotMatch(c1, /\b(insert|update|delete)\s+from\b/i);
 
-assert.match(
+const authenticated = new Set([
+  'public.current_org_id()',
+  'public.current_role_is(user_role)',
+  'public.business_role_matches(uuid, business_role)',
+  'public.record_approval(uuid, text, text)',
+]);
+const anon = new Set([
+  'public.current_org_id()',
+  'public.current_role_is(user_role)',
+]);
+const exactAllowed = (role, identity) =>
+  (role === 'authenticated' ? authenticated : anon).has(identity);
+
+assert.equal(exactAllowed('authenticated', 'public.business_role_matches(uuid, business_role)'), true);
+assert.equal(exactAllowed('authenticated', 'public.record_approval(uuid, text, text)'), true);
+assert.equal(exactAllowed('authenticated', 'public.apply_timecard_correction(uuid)'), false);
+assert.equal(exactAllowed('authenticated', 'public.mark_message_sent(uuid)'), false);
+assert.equal(exactAllowed('authenticated', 'public.record_approval(uuid, text)'), false);
+assert.equal(exactAllowed('authenticated', 'public.record_approval(uuid, text, text, text)'), false);
+assert.equal(exactAllowed('anon', 'public.business_role_matches(uuid, business_role)'), false);
+
+assert.match(c2, /pg_get_function_identity_arguments\(p\.oid\)/);
+assert.match(c2, /has_function_privilege\('authenticated', fn\.oid, 'EXECUTE'\)/);
+assert.match(c2, /has_function_privilege\('anon', fn\.oid, 'EXECUTE'\)/);
+assert.match(c2, /p\.prorettype = 'trigger'::regtype/);
+assert.match(c2, /alter function public\.set_geo_flags\(\)[\s\S]+security definer[\s\S]+set search_path = pg_catalog, public/i);
+assert.match(c2, /has_schema_privilege\('authenticated', 'public', 'CREATE'\)/);
+assert.match(c2, /p\.proowner <> \(select oid from pg_roles where rolname = current_user\)/);
+assert.match(c2, /alter default privileges in schema public[\s\S]+service_role/i);
+assert.doesNotMatch(c2, /grant execute on all functions/i);
+assert.doesNotMatch(
   c2,
-  /revoke execute on all functions in schema public from public, anon, authenticated/i
+  /grant execute on function public\.(?:apply_timecard_correction|mark_message_sent)\([^;]+to authenticated/is
 );
-for (const privileged of [
-  'create_outbound_draft',
-  'route_outbound',
-  'emit_event',
-  'capture_correction_original',
-]) {
-  assert.doesNotMatch(
-    c2,
-    new RegExp(`grant execute on function public\\.${privileged}[^;]+to authenticated`, 'is')
-  );
+for (const identity of authenticated) {
+  assert.ok(c2.includes(`'${identity}'`), `missing exact authenticated identity: ${identity}`);
 }
-assert.match(c2, /grant execute on all functions in schema public to service_role/i);
 
 for (const predicate of [
   'org_id = (select public.current_org_id())',

@@ -23,9 +23,18 @@ apply path for Phase 1.
 Postgres grants function execution to `PUBLIC` by default. Existing migrations
 create security-definer and mutation RPCs without a complete privilege
 declaration, making the exposed surface depend on project defaults. C2 revokes
-client execution across `public`, explicitly restores only required identity
-helpers and authenticated-human RPCs, preserves service-role execution, and
-changes future defaults to fail closed.
+client execution across `public`, separately restores two client RLS helpers
+(`current_org_id()`, `current_role_is(user_role)`) and exactly two authenticated
+application RPCs (`business_role_matches(uuid,business_role)`,
+`record_approval(uuid,text,text)`), and changes future defaults to fail closed.
+`apply_timecard_correction(uuid)` and `mark_message_sent(uuid)` are service-only
+pending reviewed internal routes. Exact identity checks reject overloads.
+The geofence trigger becomes a fixed-path definer so its `haversine_m()` helper
+can remain internal; C2 fails if an API role can create objects in `public`.
+
+C2 is not a complete `SECURITY DEFINER` repair. Existing functions still lack a
+fixed safe `search_path`; deployment remains gated on resolving or explicitly
+accepting those findings.
 
 ## C3 — Broad time-entry and crew authorization
 
@@ -55,5 +64,7 @@ one tenant.
 No Phase 1 migration has been applied by this task. The documented C1 live
 inventory was last verified on 2026-07-27 on the preserved preparation branch.
 C2-C4 require a fresh authorized live inventory and rolled-back dry run before
-deployment. Repository declarations and live state must be compared again at
-that approval gate; any disagreement stops the deployment.
+deployment. Historical migrations 0001-0015 were applied as raw SQL outside the
+Supabase migration ledger; no live history repair is authorized. Canonical
+isolated replay and schema reconciliation are mandatory. Any disagreement stops
+the deployment.
