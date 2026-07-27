@@ -6,3 +6,6 @@ node_modules/
 dist/
 .DS_Store
 !.env.example
+# Durable run-report artifacts (scripts/lib/artifact-store.mjs). Evidence of a
+# run, not source — committing them would make every regression run a diff.
+artifacts/
