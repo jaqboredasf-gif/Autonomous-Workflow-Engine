@@ -2,8 +2,8 @@
 
 A provider-neutral AI operating system for deterministic, policy-controlled
 business automation. The workforce applications are one business surface on
-top of the reusable workflow, context, control-plane, MCP, agent-runtime, and memory
-infrastructure.
+top of the reusable workflow, context, control-plane, MCP, agent-runtime,
+memory, and durable-execution infrastructure.
 
 ## Repo layout
 
@@ -14,6 +14,7 @@ packages/awe-kernel/ Deterministic outcomes, events, context, tools, reports, re
 packages/awe-control-plane/ Workflow registry, policy, approvals, dispatch, journals
 packages/awe-agent-runtime/ Versioned bounded agent loop and hash-chained transcripts
 packages/awe-memory/ Tenant-bound versioned memory, retrieval snapshots, retention
+packages/awe-execution/ Durable jobs, leases, checkpoints, workers, recovery, replay
 packages/awe-runtime/ Reusable application services and reference compositions
 packages/mcp-server/ MCP execution surface
 packages/shared/    Shared TypeScript types + domain constants
@@ -29,6 +30,13 @@ docs/               Roadmap, API contract
    - `npx create-expo-app@latest apps/mobile --template blank-typescript`
    - `npx create-next-app@latest apps/web --typescript --app`
 4. `npm install` at the root (npm workspaces).
+
+The complete credential-free Durable Execution Plane reference run is:
+
+```bash
+node scripts/awe-execution.mjs demo
+bash scripts/eval-durable-execution.sh
+```
 
 ## Key design decisions
 

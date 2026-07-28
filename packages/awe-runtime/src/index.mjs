@@ -36,6 +36,12 @@ export { createAgentService } from './agent-service.mjs';
 export { createMemoryService } from './memory-service.mjs';
 
 export {
+  createAgentRuntimeExecutionAdapter,
+  createDurableExecutionService,
+  createWorkflowRuntimeExecutionAdapter,
+} from './execution-service.mjs';
+
+export {
   DEFAULT_ARTIFACT_ROOT,
   createFileArtifactSink,
   createFileAuditSink,
@@ -71,3 +77,9 @@ export {
   operationsValidators,
   operationsWorkflow,
 } from './reference/operations-agent.mjs';
+
+export {
+  createDurableOperationsExecutor,
+  createDurableOperationsMemory,
+  createSyntheticEffectAdapter,
+} from './reference/durable-operations.mjs';
