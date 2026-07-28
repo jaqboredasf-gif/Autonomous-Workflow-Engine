@@ -28,14 +28,20 @@
 import { memoryArtifactSink } from '../packages/awe-kernel/src/index.mjs';
 import {
   createControlPlaneService, createFileAuditSink, createFileJournalStore,
-  createFileResultStore, createSteppingClock,
+  createFileLeaseStore, createFileResultStore, createSteppingClock,
 } from '../packages/awe-runtime/src/index.mjs';
 import {
   REFERENCE_ORG, createSyntheticLedger, invoiceIntakeManifest, referenceContextItems,
   referenceGrants, referenceTools, referenceValidators, tenantPolicyManifest,
 } from '../packages/awe-runtime/src/reference/invoice-intake.mjs';
 
-const ROOT = 'artifacts/control-plane';
+// Where this operator's runs are persisted. Honours `AWE_ARTIFACT_ROOT` like
+// the MCP server does, and takes `--root` for a one-off — a demo that could
+// only ever write into the repo could not be run twice against different state,
+// and could not be run at all by someone who should not be writing there.
+const ROOT = process.env.AWE_ARTIFACT_ROOT
+  ? `${process.env.AWE_ARTIFACT_ROOT}/control-plane`
+  : 'artifacts/control-plane';
 
 // --- argument parsing --------------------------------------------------------
 
@@ -68,6 +74,12 @@ function buildService({ start = '2026-07-28T09:00:00.000Z', ledger = createSynth
     validators: referenceValidators(),
     journals: createFileJournalStore({ root: ROOT }),
     results: createFileResultStore({ root: ROOT }),
+    // A FILE lease store and a per-process holder, so two operators running
+    // `resume` against the same root genuinely exclude each other rather than
+    // both advancing the run. This is the composition the memory default is
+    // explicitly not: see lease-store.mjs on what each store guarantees.
+    leases: createFileLeaseStore({ root: ROOT }),
+    holder: `cli_${process.pid}`,
     artifacts: memoryArtifactSink(),
     audit: createFileAuditSink({ root: ROOT }),
     clock,
@@ -79,9 +91,33 @@ function buildService({ start = '2026-07-28T09:00:00.000Z', ledger = createSynth
 
 const line = (label, value) => console.log(`${label.padEnd(20)} ${value}`);
 
+/**
+ * A refusal that never produced a run — no lease, a tenant that does not own
+ * the run, a colliding run id. It has a reason and a detail and nothing else,
+ * so rendering it through `renderRun` used to crash on the first absent field
+ * and hide the actual answer behind a TypeError.
+ */
+function renderRefusal(result, { title = 'RUN' } = {}) {
+  console.log(`\n=== ${title} — REFUSED ===`);
+  line('run id', result.run_id ?? '-');
+  line('reason', result.reason ?? result.blocked_reason ?? 'unknown');
+  line('detail', result.detail ?? '-');
+  if (result.held_by) line('held by', result.held_by);
+  console.log(`\nVERDICT: REFUSED (${result.reason ?? result.blocked_reason ?? 'unknown'})\n`);
+}
+
 function renderRun(run, { title = 'RUN' } = {}) {
+  // Every mutating operation can answer with a refusal instead of a run. One
+  // check here rather than at each of the five call sites.
+  if (run === null || run === undefined || run.ok === false || run.timeline === undefined) {
+    renderRefusal(run ?? {}, { title });
+    return;
+  }
   console.log(`\n=== ${title} ===`);
   line('run id', run.run_id);
+  if (run.duplicate_submission === true) {
+    line('duplicate', 'an identical submission was already recorded — the existing run is shown');
+  }
   line('workflow', `${run.workflow_id} v${run.workflow_version}`);
   line('manifest digest', run.manifest_digest ?? '-');
   line('tenant', run.org_id);
@@ -203,9 +239,16 @@ async function cmdResume(args) {
 
 // The whole slice in one process, for a single reproducible command. Uses the
 // same service and the same three calls the subcommands make.
-async function cmdDemo() {
+async function cmdDemo(args = {}) {
   const ledger = createSyntheticLedger();
-  const { service } = buildService({ ledger });
+  // A run id is derived from the workflow, the inputs and the START INSTANT, so
+  // a demo pinned to one instant produces the same run id every time — and now
+  // that an identical submission is recognised as a duplicate, the second run
+  // of the demo would replay the first one's journal and execute nothing. Each
+  // invocation therefore gets its own instant unless `--start` pins one, which
+  // is what a reproducible investigation wants.
+  const start = typeof args.start === 'string' ? args.start : new Date().toISOString();
+  const { service } = buildService({ ledger, start });
 
   console.log('### 1. discovery');
   await cmdWorkflows();

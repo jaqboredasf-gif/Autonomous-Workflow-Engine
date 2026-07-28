@@ -1345,6 +1345,43 @@ await groupAsync('quorum — one approval is not enough, and one person is not t
   run.record('run_event_type', types);
 });
 
+await groupAsync('an identical submission executes ONCE', async () => {
+  const manifest = invoiceIntakeManifest({ approval_threshold: null, risk: 'medium' });
+  const { service, ledger } = compose({ manifest });
+
+  // A run id is derived from workflow + inputs + START INSTANT, so the same
+  // submission a millisecond later is legitimately a different run. The
+  // duplicate case is the same submission at the same instant, which is what
+  // two workers pulling one queue message produce — so both calls are pinned to
+  // one instant rather than left to the stepping clock.
+  const AT = '2026-07-28T09:00:00.000Z';
+
+  // Ungated so the run goes all the way through and the consequential step
+  // really commits — a duplicate that only re-ran the read steps would prove
+  // nothing about the effect that matters.
+  const first = await startReference(service, { now: AT });
+  equal(first.state, 'completed', 'the first submission completes');
+  equal(ledger.instructions().length, 1, 'and issues one payment instruction');
+
+  const second = await startReference(service, { now: AT });
+  equal(second.duplicate_submission, true, 'an identical resubmission is recognised as a duplicate');
+  equal(second.run_id, first.run_id, 'and names the same run');
+  equal(second.journal_head, first.journal_head, 'whose history is UNCHANGED');
+  equal(
+    ledger.instructions().length, 1,
+    'THE PAYMENT INSTRUCTION WAS NOT ISSUED TWICE — the duplicate is caught before any step runs, not at the commit',
+  );
+  equal(second.event_count, first.event_count, 'and no event was appended');
+
+  // A different tenant deriving the same id must not be handed the run.
+  const collision = await service.startRun({
+    workflow_id: 'invoice_intake_approval', version: '^1.2.0', org_id: OTHER_ORG, run_id: first.run_id,
+    context_items: referenceContextItems({ org_id: OTHER_ORG }),
+  });
+  equal(collision.ok, false, 'another tenant colliding on the run id is refused');
+  equal(collision.reason, 'journal_write_conflict', 'rather than being shown the run');
+});
+
 await groupAsync('G4 is checked before the run is looked up', async () => {
   const { service } = compose();
   const started = await startReference(service);

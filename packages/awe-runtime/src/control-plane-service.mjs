@@ -371,6 +371,42 @@ export function createControlPlaneService({
       if (!claimed.ok) return notClaimed(context.run_id, claimed);
 
       try {
+        // IDEMPOTENT SUBMIT, and it has to be here rather than at the commit.
+        //
+        // A run id is derived from the workflow, the inputs and the start
+        // instant, so an identical resubmission derives an identical id. The
+        // commit-time compare-and-set below would catch it — but only AFTER
+        // every step had run a second time, which for a workflow that issues a
+        // payment instruction is the worst possible ordering: the effect lands
+        // twice and the record of the second one is then refused.
+        //
+        // Returning the existing run is the same semantic the tool dispatcher
+        // already applies to a repeated tool invocation, one level up. The flag
+        // is explicit so a caller can tell "your submission ran" from "your
+        // submission was already here" rather than having to infer it.
+        const already = journals === null ? null : journals.read(context.run_id);
+        if (already !== null) {
+          if (already.org_id !== org_id) {
+            // Same derived id, different tenant. Not a duplicate — a collision,
+            // and answering with the other tenant's run would be the worst
+            // possible response to it.
+            return Object.freeze({
+              ok: false,
+              run_id: context.run_id,
+              reason: 'journal_write_conflict',
+              detail: `run '${context.run_id}' already exists and is not accessible to this tenant`,
+            });
+          }
+          const existing = summarize({ document: already, manifest: manifestOf(already) });
+          return Object.freeze({
+            ...existing,
+            duplicate_submission: true,
+            advance: existing.terminal ? existing.state : 'paused',
+            blocked_reason: null,
+            detail: 'an identical submission is already recorded; the existing run is returned unchanged',
+          });
+        }
+
         // Assembly can fail closed (a cross-tenant item is a refusal, not a
         // filter), and that must be reported as a run that did not start rather
         // than as an exception escaping the service.
