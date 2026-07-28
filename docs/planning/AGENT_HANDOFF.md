@@ -4,7 +4,7 @@
 
 ### updated_at
 
-2026-07-28T14:08:40Z
+2026-07-28T14:11:06Z
 
 ### agent / branch
 
@@ -131,9 +131,13 @@ deployed until repository history, live history, and the applicable ADRs agree.
 
 ### publication status
 
-Pending at this handoff write: implementation commit, push, and draft PR.
-The intended PR base is `codex/agent-runtime`, so the review diff contains only
-the Memory Layer milestone.
+Implementation commit `535e246` (`feat: add tenant-bound memory layer`) is
+pushed on `codex/memory-layer`. Draft PR
+[#6](https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/pull/6)
+targets `codex/agent-runtime`; GitHub reports it open, draft, and mergeable.
+The review diff therefore contains only the Memory Layer milestone. One handoff
+validation check was green and the second was queued when this status was
+recorded.
 
 ### remaining technical debt
 
