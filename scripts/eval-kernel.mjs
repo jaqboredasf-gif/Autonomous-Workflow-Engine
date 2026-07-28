@@ -211,12 +211,17 @@ group('blocked-reason registry', () => {
   equal(shared.sharedInUse(), ['test_mode_violation'], 'declared share reported');
   equal(shared.namespacesOf('test_mode_violation'), ['a', 'b'], 'both owners recorded');
 
-  // The REAL platform union (route + gate + queue + classify + mcp). Loading it
-  // at all is the collision check; these gates pin its shape. A new execution
-  // surface adding a namespace is expected — a new surface adding a reason that
-  // COLLIDES with an existing one is what this catches.
+  // The REAL platform union (route + gate + queue + classify + mcp +
+  // control_plane). Loading it at all is the collision check; these gates pin
+  // its shape. A new execution surface adding a namespace is expected — a new
+  // surface adding a reason that COLLIDES with an existing one is what this
+  // catches, and it is why the list below is exact rather than a subset check.
   check(platformReasons.all().length >= 15, `platform union has ${platformReasons.all().length} reasons`);
-  equal(platformReasons.listNamespaces(), ['classify', 'gate', 'mcp', 'queue', 'route'], 'platform namespaces');
+  equal(
+    platformReasons.listNamespaces(),
+    ['classify', 'control_plane', 'gate', 'mcp', 'queue', 'route'],
+    'platform namespaces',
+  );
   equal(platformReasons.sharedInUse(), SHARED_REASONS, 'only the declared reason is shared across namespaces');
   check(platformReasons.has('no_policy') && platformReasons.has('not_pending') && platformReasons.has('duplicate_draft'),
     'platform union spans all three engines');

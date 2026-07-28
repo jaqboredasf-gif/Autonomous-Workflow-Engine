@@ -22,6 +22,11 @@
 //            (packages/mcp-server/src/tenant.mjs): a call that states no tenant,
 //            states the wrong one, names an ambiguous record, or asks for LIVE
 //            on a process with no live data port.
+//   control_plane — refusals from the execution control plane
+//            (packages/awe-control-plane/src/policy.mjs): registry resolution,
+//            promotion and dependency gates, the deny-by-default tool policy,
+//            the approval gate, idempotency, and the execution semantics
+//            (timeout, cancellation, compensation).
 //
 // PURE OFFLINE: no DB, no network, no keys. Node 24 strips the types from the
 // imported .ts module, the same way Runner 5 imports it.
@@ -30,6 +35,7 @@
 import { createReasonRegistry } from '../../packages/awe-kernel/src/reasons.mjs';
 import { GATE_BLOCKED_REASONS, ROUTE_BLOCKED_REASONS } from './approval-matrix.mjs';
 import { MCP_BLOCKED_REASONS } from '../../packages/mcp-server/src/tenant.mjs';
+import { CONTROL_PLANE_BLOCKED_REASONS } from '../../packages/awe-control-plane/src/policy.mjs';
 import { GUARD_REASONS } from '../../apps/web/src/lib/approval-queue.ts';
 
 // `test_mode_violation` is deliberately shared: the fixture-safety rule is one
@@ -53,5 +59,6 @@ reasons.register('gate', GATE_BLOCKED_REASONS);
 reasons.register('queue', [...GUARD_REASONS]);
 reasons.register('classify', CLASSIFY_BLOCKED_REASONS);
 reasons.register('mcp', MCP_BLOCKED_REASONS);
+reasons.register('control_plane', CONTROL_PLANE_BLOCKED_REASONS);
 
 export default reasons;

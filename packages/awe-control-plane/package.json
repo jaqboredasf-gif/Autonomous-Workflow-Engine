@@ -1,0 +1,20 @@
+{
+  "name": "@exattime/awe-control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The AWE execution control plane: versioned workflow manifests, the Workflow Registry, the deterministic policy and approval engines, the append-only run journal with its state projection, the controlled tool-invocation boundary, and the step engine that gives a run retry, timeout, cancellation, pause/resume and compensation. Pure and provider-neutral; depends only on @exattime/awe-kernel.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./manifest": "./src/manifest.mjs",
+    "./workflow-registry": "./src/workflow-registry.mjs",
+    "./policy": "./src/policy.mjs",
+    "./journal": "./src/journal.mjs",
+    "./dispatch": "./src/dispatch.mjs",
+    "./engine": "./src/engine.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
