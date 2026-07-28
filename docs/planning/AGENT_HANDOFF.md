@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-28T12:44:32Z
+2026-07-28T12:46:28Z
 
 ## agent
 
@@ -38,6 +38,7 @@ Relevant published commits:
 | `19f5e1c` | control-plane milestone handoff |
 | `8675b6b` | opt-in LIVE MCP tenant-boundary proof |
 | `8155987` | LIVE-boundary handoff before the concurrent-base merge |
+| `b1bcd4d` | verified merge of the completed control-plane base |
 
 ## current objective
 
