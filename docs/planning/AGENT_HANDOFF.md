@@ -2,11 +2,11 @@
 
 ## updated_at
 
-2026-07-28T18:40:00Z
+2026-07-28T12:46:28Z
 
 ## agent
 
-Claude (Claude Code, Opus 5)
+Codex (Platform Architect)
 
 ## repository
 
@@ -14,8 +14,12 @@ jaqboredasf-gif/Autonomous-Workflow-Engine
 
 ## branch
 
-`feat/kernelized-mcp-context`, continuing from `b038598`. Nothing was pushed.
-No branch was moved, reset, merged, rebased or deleted. No PR was opened.
+`codex/live-mcp-data-boundary`, created from `b038598` and now merged forward
+with `feat/kernelized-mcp-context` at `19f5e1c` after Claude Code completed the
+control-plane milestone concurrently. Both branches are pushed. Draft PR #4
+targets `feat/kernelized-mcp-context`, so its review diff contains the LIVE
+data-boundary infrastructure without presenting Claude's work as a deletion.
+No existing branch was moved, reset, rebased or deleted.
 
 Branch relationships established last session still hold: this branch uniquely
 carries the C1/S1 security work and is **not** superseded by
@@ -23,7 +27,7 @@ carries the C1/S1 security work and is **not** superseded by
 
 ## commit
 
-Four new commits, none pushed:
+Relevant published commits:
 
 | commit | scope |
 |---|---|
@@ -31,17 +35,37 @@ Four new commits, none pushed:
 | `2a2ba23` | `@exattime/awe-runtime` — control-plane service, journal/result stores, injected clocks, reference workflow, operator CLI |
 | `81fede2` | Runner P — 372 offline gates, registered in the suite registry and the reason union |
 | `13a81a0` | `docs/architecture/EXECUTION_CONTROL_PLANE.md` |
+| `19f5e1c` | control-plane milestone handoff |
+| `8675b6b` | opt-in LIVE MCP tenant-boundary proof |
+| `8155987` | LIVE-boundary handoff before the concurrent-base merge |
+| `b1bcd4d` | verified merge of the completed control-plane base |
 
 ## current objective
 
-Completed **AWE Execution Control Plane Integration**. A registered workflow is
-now validated, authorized, executed through a controlled tool boundary, paused
-for human approval, resumed by a different process, audited from an append-only
-hash-chained journal, and evaluated — with no n8n, no Supabase and no external
-model anywhere in the path.
+Completed **Credential-Gated LIVE MCP Data-Boundary Proof**, integrated over the
+completed **AWE Execution Control Plane** base. The shared suite registry now
+has a reusable explicit opt-in gate; the MCP data port exposes a mechanically
+testable read/write taxonomy and tenant-labelled row contract; and Runner
+M-LIVE covers all eight read tools without permitting any write method to reach
+Supabase.
 
 ## completed work
 
+- **Reusable opt-in suite gate.** `defineSuite` accepts `optInEnv`; the planner
+  skips unless the named variable equals `1`. Runner K proves opt-in and
+  credential gates independently.
+- **Read/write data-port taxonomy.** `READ_DATA_PORT_METHODS` and
+  `WRITE_DATA_PORT_METHODS` partition the complete MCP port. Live and fixture
+  intermediate rows retain `org_id`, including punches, shift conflicts and
+  service areas.
+- **Runner M-LIVE.** All eight read tools run through
+  `executeTool`/`runWorkflow`. Its injected port observes every source row and
+  hard-refuses both write methods. A SELECT-only oracle requires a real
+  second-tenant job-site sentinel, verifies the bound result excludes it, and
+  proves a cross-tenant request is refused before port access.
+- **Safe concurrent integration.** The work was isolated before Claude's
+  control-plane commits appeared, then merged forward once the base advanced.
+  Both `eval-mcp-live` and `eval-control-plane` remain registered.
 - **`@exattime/awe-control-plane`** (new package, pure, zero dependencies).
   - **Workflow Manifest** `awe.workflow_manifest/v1` — versioned and
     runtime-validated with a **closed key set**, so a typo'd `aproval_policy` is
@@ -81,7 +105,20 @@ model anywhere in the path.
 
 ## files changed
 
-Created:
+Created by the LIVE-boundary task:
+
+```
+scripts/eval-mcp-live.mjs
+scripts/eval-mcp-live.sh
+```
+
+Modified by the LIVE-boundary task:
+`packages/awe-kernel/src/suite.mjs`,
+`packages/awe-kernel/src/registry.mjs`,
+`packages/mcp-server/src/data-port.mjs`, `scripts/eval-kernel.mjs`,
+`scripts/eval-mcp.mjs`, and this handoff.
+
+Created by the control-plane base:
 
 ```
 packages/awe-control-plane/package.json
@@ -103,13 +140,14 @@ scripts/eval-control-plane.mjs, scripts/eval-control-plane.sh   Runner P
 docs/architecture/EXECUTION_CONTROL_PLANE.md
 ```
 
-Modified: `packages/awe-kernel/src/registry.mjs` (one suite descriptor);
+Control-plane base modifications: `packages/awe-kernel/src/registry.mjs`;
 `packages/awe-runtime/src/index.mjs` and `package.json` (exports);
 `scripts/lib/awe-reasons.mjs` (registers the `control_plane` namespace);
 `scripts/eval-kernel.mjs` (the exact-set namespace assertion now expects it).
 
-**No kernel behaviour was changed.** `packages/awe-kernel/src/*.mjs` is untouched
-apart from adding one suite descriptor to the registry.
+The control-plane base changed no kernel behaviour. This task changes only the
+generic suite-planning contract in `suite.mjs` by adding the explicit opt-in
+gate, plus descriptors in the suite registry.
 
 ## migrations
 
@@ -125,15 +163,27 @@ bash scripts/regression.sh --exclude-kinds=db            (final)
 node scripts/awe-control-plane.mjs demo
 node scripts/awe-control-plane.mjs start | approve | resume   (three separate processes)
 14 deliberate guard-removal perturbations, each reverted
+bash scripts/eval-kernel.sh
+bash scripts/eval-mcp.sh
+bash scripts/regression.sh --only=eval-mcp-live --dry-run
+AWE_RUN_LIVE_MCP=1 bash scripts/regression.sh --only=eval-mcp-live --dry-run
+bash scripts/eval-mcp-live.sh  # refused as designed; exit 2, no network
+bash scripts/regression.sh --exclude-kinds=db,build
+npm run build  # apps/web, network-approved font fetch
+git merge --no-edit feat/kernelized-mcp-context
 ```
 
 ## tests passed
 
-`bash scripts/regression.sh --exclude-kinds=db` — **ALL GREEN, 13 ran, 8 skipped.**
+Combined non-database result — **ALL GREEN, 13 runnable suites, 9 db suites
+skipped**. The isolated worktree ran the 10 non-build suites together plus the
+mobile and MCP build gates. Turbopack rejects the worktree's out-of-root
+dependency symlink, so the unchanged web source was built separately in the
+primary checkout and passed.
 
 | suite | result |
 |---|---|
-| Runner K (kernel unit) | 557 / 0 |
+| Runner K (kernel unit) | 567 / 0 |
 | Runner C (context primitives) | 138 / 0 |
 | mobile typecheck | OK |
 | web production build | OK |
@@ -143,7 +193,7 @@ node scripts/awe-control-plane.mjs start | approve | resume   (three separate pr
 | migration 0015 structural validation | OK |
 | Runner 4 (approval matrix + outbound) | 327 / 0 |
 | Runner 5 (approval queue) | 349 / 0 |
-| Runner M (kernelized MCP surface) | 410 / 0 |
+| Runner M (kernelized MCP surface) | 420 / 0 |
 | **Runner P (execution control plane)** | **372 / 0 — new** |
 | Runner E (execution outcomes + artifacts) | 376 / 0 |
 
@@ -160,18 +210,20 @@ they were not — see `## risks`.
 
 ## tests failed
 
-None.
+No product or platform suite failed. One worktree-only web attempt failed
+because Turbopack rejects an out-of-root `node_modules` symlink; an initial
+sandboxed primary build could not fetch Google Fonts. The network-approved
+primary build passed.
 
-**Not run, deliberately:** every `db`-kind suite (acceptance slices 1-5, S1
-security, intake eval, classification eval) requires `SUPABASE_ACCESS_TOKEN` and
-live project access. No live-credential, n8n, Outlook, OneDrive, service-role or
-production-workflow test was executed. No test was skipped, weakened or deleted
-to make the build pass.
+**Not run, deliberately:** Runner M-LIVE and every other `db`-kind suite. No
+live credential was read and no live project was contacted.
 
 ## live changes
 
-None. No database call, no migration, no n8n change, no workflow publication, no
-external API call, no credential used, no push, no PR.
+No database call, migration, n8n change, workflow publication, MCP live tool
+call or live credential use. Git changes: pushed
+`feat/kernelized-mcp-context` and `codex/live-mcp-data-boundary`; opened draft
+PR #4. The web build fetched its declared Google Font assets.
 
 ## approvals required
 
@@ -179,12 +231,19 @@ external API call, no credential used, no push, no PR.
   depend on it: it grants nothing, touches no database, and refuses `LIVE` mode
   outright (`live_mode_unratified`). Flipping `allow_live` is the single named
   switch that would change that, and it must not be flipped before ratification.
-- **Push and PR** for `feat/kernelized-mcp-context` (now nine + four commits).
+- **Explicit live-test approval** before setting `AWE_RUN_LIVE_MCP=1` with
+  `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `AWE_ORG_ID`.
 - The Phase 1 deployment gates in the archived sections below remain open and
   are unaffected by this session.
 
 ## risks
 
+- Supabase's 2026 Data API default no longer auto-grants access to new public
+  tables. Runner M-LIVE reports provider code `42501` as grant/setup drift; this
+  branch does not add or apply a grant.
+- The second-tenant negative intentionally requires at least one foreign
+  `job_sites` row. Absence fails the non-vacuity precondition instead of
+  producing a misleading green result.
 - **One architectural conflict, resolved and documented.**
   `awe-kernel/src/registry.mjs` is the **suite** registry. A workflow registry
   under the same name in a sibling package would leave every future reader
@@ -234,39 +293,19 @@ reaches no database.
 
 ## exact next prompt
 
-Continue AWE on branch `feat/kernelized-mcp-context`. Read
-`docs/architecture/EXECUTION_CONTROL_PLANE.md` and
-`docs/planning/AGENT_HANDOFF.md` first, then verify the baseline with
-`bash scripts/regression.sh --exclude-kinds=db` (expect ALL GREEN, 13 ran, 8
-skipped) before editing anything.
+After explicit operator approval, run only:
 
-Deliver one vertical slice: **make the execution control plane durable and
-concurrency-safe, and put a real surface on it.**
+```
+source .env.acceptance
+AWE_RUN_LIVE_MCP=1 bash scripts/regression.sh --only=eval-mcp-live
+```
 
-1. **Lease and claim (ADR-0003).** Add `claimed_by` / `lease_expires_at` /
-   `expire_leases()` semantics to the run journal and the control-plane service,
-   so two processes cannot advance the same run concurrently. Today they both
-   would. Cover: claim, contended claim, expiry, resume-after-crash, and a
-   double-resume race — all deterministic, using the injected clock.
-2. **Enforce `approval_policy.quorum`.** It is validated and reported but not
-   enforced; the engine proceeds on the first valid approval. Add multi-approver
-   accumulation, distinct-principal enforcement (one person may not satisfy a
-   quorum of two), and a denial that overrides accumulated approvals.
-3. **Put the control plane on the MCP surface.** `packages/mcp-server` already
-   runs on the kernel via `packages/awe-runtime`. Add tools for
-   `list_workflows`, `start_workflow_run`, `get_run`, and `decide_approval`,
-   reusing the existing tenant resolution and the neutral tool descriptors.
-   Extend Runner M rather than creating a parallel suite.
-4. Keep every guarantee: deny by default, LIVE refused, G4 (automation approves
-   nothing), tenant binding as an argument, append-only history, and the
-   two-store split (the journal carries digests, never bodies).
-
-Constraints: do not ratify or act on ADR-0002; do not enable `allow_live`; do
-not touch `supabase/`, n8n, or any external service; use synthetic data only; do
-not push or open a PR. Run `bash scripts/regression.sh --exclude-kinds=db` and
-`bash scripts/eval-control-plane.sh` and report exact results. For every new
-guard, delete it once, confirm the suite fails, and restore it — a guard that
-can be removed with the suite still green is not covered.
+Review provider codes without logging provider messages (`42501` means a
+missing explicit Data API grant). Do not add or apply a grant without separate
+migration approval. If green, record the exact tool/row coverage here and
+update draft PR #4. Do not implement capabilities, permissions or approval
+thresholds; ADR-0002 remains unratified. Claude Code retains ownership of the
+feature roadmap in `docs/architecture/EXECUTION_CONTROL_PLANE.md`.
 
 ## archived — kernelized MCP surface and context primitives (2026-07-27, Claude)
 
@@ -303,33 +342,44 @@ rebased or deleted.
 
 ### commit
 
-Nine commits on `feat/kernelized-mcp-context`, none pushed:
+`8675b6b` — `test(mcp): add opt-in live tenant-boundary proof`
 
-| commit | scope |
-|---|---|
-| `6270ee3` | preservation: `@exattime/awe-kernel` + registry-driven regression |
-| `45345be` | preservation: standardized outcomes + durable run-report artifacts |
-| `240e745` | preservation: Runners 3/4/5 migrated onto the kernel gate run |
-| `f896808` | preservation: H0 doctrine/contracts/guardrails + ADRs 0001-0009 |
-| `6c72acb` | preservation: planning docs |
-| `a95825b` | new: context assembly, compaction, checkpoints, tool descriptors |
-| `f4b7835` | new: `@exattime/awe-runtime` platform service layer |
-| `33cc32c` | new: MCP server on the shared execution kernel |
-| _(this one)_ | new: planning and architecture docs for the above |
-
-Commits 1-5 preserve the previous session's uncommitted tree, which was at real
-risk: the kernel, the H0 doc set and the runner migrations were entirely
-untracked.
+Its parent is `b038598`, the ninth and final commit of
+`feat/kernelized-mcp-context`. The branch therefore carries the complete
+kernel/MCP foundation plus only the LIVE data-boundary proof described below.
+This handoff correction is a documentation-only follow-up commit.
 
 ### current objective
 
-Completed **Kernelized MCP Execution and Context Primitive Foundation**. MCP is
-now the first external execution surface fully powered by the AWE kernel, and
-the provider-neutral context assembly and compaction subsystem exists as working
-code with an offline suite.
+Completed **Credential-Gated LIVE MCP Data-Boundary Proof**. The shared
+regression framework can now represent suites that require an explicit
+per-invocation opt-in, and the MCP data port has a mechanically testable
+read/write classification plus a tenant-labelled row contract. Runner M-LIVE
+exercises all eight read tools through the real kernel/Supabase path without
+writing.
 
 ### completed work
 
+- **Reusable opt-in suite gate.** `defineSuite` now accepts `optInEnv`; the
+  planner refuses the suite unless that environment variable equals `1`.
+  Runner K proves opt-in and credential gates independently. This is reusable
+  for future live probes, not special-case shell branching.
+- **Read/write data-port taxonomy.** `READ_DATA_PORT_METHODS` and
+  `WRITE_DATA_PORT_METHODS` partition the complete MCP data surface. Runner M
+  asserts the partition and probes the row contract across every read method.
+- **Tenant-labelled intermediate rows.** Live and fixture implementations of
+  recent punches, shift conflicts and service areas now retain `org_id`, so
+  downstream transformations cannot erase the evidence needed to verify
+  confinement.
+- **Runner M-LIVE.** All eight read-classified tools execute through
+  `executeTool`/`runWorkflow` with memory sinks. An observing port asserts every
+  source row carries the bound tenant and replaces every write method with a
+  hard refusal. A SELECT-only oracle finds a real second-tenant job-site
+  sentinel; the bound tool must exclude it, and a call naming that tenant must
+  be refused before any port access.
+- **No default or accidental live path.** The registry requires
+  `AWE_RUN_LIVE_MCP=1`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and
+  `AWE_ORG_ID`; the shell runner independently enforces the same gate.
 - **Preserved** the previous session's uncommitted execution-kernel milestone in
   five reviewable commits on a new branch, after establishing that the branch it
   sat on is not superseded.
@@ -359,31 +409,17 @@ code with an offline suite.
 
 ### files changed
 
-Created:
+Created this session:
 
 ```
-packages/awe-kernel/src/context-item.mjs   Context Item, token estimate, ordering
-packages/awe-kernel/src/assembly.mjs       bundle assembly, exclusions, providers, rendering
-packages/awe-kernel/src/compaction.mjs     deterministic compaction + checkpoints
-packages/awe-kernel/src/tools.mjs          neutral tool descriptor + catalog
-packages/awe-runtime/package.json          new workspace package
-packages/awe-runtime/src/index.mjs
-packages/awe-runtime/src/service.mjs       the platform service
-packages/awe-runtime/src/file-sinks.mjs    moved from scripts/lib/artifact-store.mjs
-packages/mcp-server/src/data-port.mjs      org-scoped data boundary (supabase + fixture)
-packages/mcp-server/src/tenant.mjs         explicit tenant + mode resolution
-packages/mcp-server/src/tools.mjs          ten descriptors + kernel-outcome bodies
-packages/mcp-server/src/runtime.mjs        executeTool, context provider, response mapping
-packages/mcp-server/src/fixtures.mjs       deterministic two-tenant corpus
-scripts/eval-context.mjs, scripts/eval-context.sh   Runner C
-scripts/eval-mcp.mjs, scripts/eval-mcp.sh           Runner M
+scripts/eval-mcp-live.mjs
+scripts/eval-mcp-live.sh
 ```
 
-Modified: `packages/awe-kernel/src/execute.mjs`, `events.mjs`, `sinks.mjs`,
-`index.mjs`, `registry.mjs`; `packages/awe-kernel/package.json`;
-`packages/mcp-server/src/index.js` (wiring only);
-`scripts/lib/artifact-store.mjs` (now a re-export);
-`scripts/lib/awe-reasons.mjs`; `scripts/eval-kernel.mjs`; `scripts/smoke-mcp.sh`.
+Modified this session: `packages/awe-kernel/src/suite.mjs`,
+`packages/awe-kernel/src/registry.mjs`,
+`packages/mcp-server/src/data-port.mjs`, `scripts/eval-kernel.mjs`,
+`scripts/eval-mcp.mjs`, and this handoff.
 
 ### migrations
 
@@ -392,58 +428,61 @@ None. No SQL file was created, edited or applied. `supabase/` is untouched.
 ### commands run
 
 ```
-git status / branch -vv / log --graph --all / merge-base / diff --stat
-bash scripts/regression.sh --kinds=unit,offline,static   (baseline, before any edit)
-bash scripts/eval-context.sh
-bash scripts/eval-mcp.sh
 bash scripts/eval-kernel.sh
-bash scripts/smoke-mcp.sh
-bash scripts/regression.sh --exclude-kinds=db
-seven non-vacuity perturbations, each reverted
+bash scripts/eval-mcp.sh
+bash scripts/regression.sh --only=eval-mcp-live --dry-run
+AWE_RUN_LIVE_MCP=1 bash scripts/regression.sh --only=eval-mcp-live --dry-run
+bash scripts/eval-mcp-live.sh  # refused as designed; exit 2, no network
+bash scripts/regression.sh --exclude-kinds=db,build
+npm run build  # apps/web, network-approved font fetch
+git diff --check
+bash -n scripts/eval-mcp-live.sh
+node --check scripts/eval-mcp-live.mjs
 ```
 
 ### tests passed
 
-`bash scripts/regression.sh --exclude-kinds=db` — **ALL GREEN, 12 ran, 8 skipped.**
+All runnable non-database platform suites are green. The worktree cannot run
+Turbopack through out-of-root dependency symlinks, so the unchanged web build
+was run in the primary checkout and passed.
 
 | suite | result |
 |---|---|
-| Runner K (kernel unit) | 553 / 0 |
-| Runner C (context primitives) | 138 / 0 — new |
+| Runner K (kernel unit) | 562 / 0 |
+| Runner C (context primitives) | 138 / 0 |
 | mobile typecheck | OK |
 | web production build | OK |
-| MCP smoke (initialize + tools/list) | OK (10 tools) — **was FAIL (tools=0)** |
+| MCP smoke (initialize + tools/list) | OK (10 tools) |
 | migration 0014 structural validation | OK |
 | Runner 3 (approval diff) | 121 / 0 |
 | migration 0015 structural validation | OK |
 | Runner 4 (approval matrix + outbound) | 327 / 0 |
 | Runner 5 (approval queue) | 349 / 0 |
-| Runner M (kernelized MCP surface) | 410 / 0 — new |
+| Runner M (kernelized MCP surface) | 420 / 0 |
 | Runner E (execution outcomes + artifacts) | 376 / 0 |
 
-Non-vacuity: seven deliberate perturbations were each confirmed to fail the
-suite and then reverted — implicit tenant fallback restored; data port stops
-filtering by tenant; response stops redacting provider error text; compaction
-declassifies a summary; assembly drops over-budget items silently; cross-tenant
-context filtered instead of refused; checkpoint restores into any tenant. The
-seventh initially passed with the guard deleted — the assembler's own per-item
-check was masking it — so the test was strengthened to pin that specific guard
-before the perturbation fired.
+Runner M-LIVE was not run. Its direct invocation without opt-in refused with
+exit 2, and both planner states were checked: no opt-in skips with an exact
+instruction; opt-in without credentials still skips and reports all missing
+credentials.
 
 ### tests failed
 
-None.
+No product or platform suite failed. One worktree-only web build attempt failed
+because Turbopack rejects a dependency symlink that points outside its filesystem
+root; the same committed web source passed in the primary checkout. An initial
+sandboxed primary build could not fetch Google Fonts; the approved network run
+passed.
 
-**Not run, deliberately:** every `db`-kind suite (acceptance slices 1-5, S1
-security, intake eval, classification eval) requires `SUPABASE_ACCESS_TOKEN` and
-live project access. No live-credential, n8n, Outlook, OneDrive, service-role or
-production-workflow test was executed. No test was skipped, weakened or deleted
-to make the build pass.
+**Not run, deliberately:** Runner M-LIVE and every other `db`-kind suite. No
+live credential was read and no live project was contacted.
 
 ### live changes
 
-None. No database call, no migration, no n8n change, no workflow publication, no
-external API call, no credential used, no push.
+No database call, migration, n8n change, workflow publication, MCP live tool
+call or live credential use. Git changes: pushed
+`feat/kernelized-mcp-context` and `codex/live-mcp-data-boundary`; opened draft
+PR #4. The web build fetched its declared Google Font assets.
 
 ### approvals required
 
@@ -451,13 +490,21 @@ external API call, no credential used, no push.
   `Accepted`, no capability model, tool permission, tenant authorization policy,
   approval threshold or production-enablement policy may be implemented. Neutral
   boundaries exist and are asserted to be empty of those decisions.
-- **Push and PR** for `feat/kernelized-mcp-context`.
+- **Explicit live-test approval** before setting `AWE_RUN_LIVE_MCP=1` with the
+  three required credentials.
 - The Phase 1 deployment gates in the archived section below remain open and are
   unaffected by this session.
 
 ### risks
 
-- **Two real leaks were found by the new tests and fixed in this session.**
+- Supabase announced that new public tables no longer receive automatic Data
+  API grants by default. Runner M-LIVE reports provider code `42501` explicitly
+  as grant/setup drift rather than misclassifying it as a tenant-boundary
+  failure. No grant is added by this branch.
+- The second-tenant negative intentionally requires at least one `job_sites`
+  row for another tenant. Absence is a failed non-vacuity precondition, not a
+  green isolation result.
+- **Two real leaks were found and fixed in the prior kernel session.**
   (1) An MCP failure message could carry a provider's raw error — including a
   connection string, a bearer token or a `password=` value — into the tool
   response. Now redacted and bounded. (2) A fixture row id built by
@@ -494,16 +541,17 @@ external API call, no credential used, no push.
 
 ### exact next prompt
 
-Implement the LIVE-path proof for the kernelized MCP surface. Runner M covers
-the tenant, outcome, audit, artifact and context behaviour offline against the
-fixture data port; nothing yet proves the Supabase data port itself. Add a
-credential-gated smoke suite (registry kind `db`, declaring `SUPABASE_URL`,
-`SUPABASE_SERVICE_ROLE_KEY` and `AWE_ORG_ID`) that runs each read tool against a
-live project bound to one tenant and asserts every returned row carries that
-`org_id`, plus one cross-tenant negative case proving a second tenant's rows are
-unreachable. Do not run it without explicit approval, do not add it to the
-default regression path, and do not use the `sbp_` management token. Do not
-implement any capability, permission or approval behaviour — ADR-0002 is still
+After explicit operator approval, run only:
+
+```
+source .env.acceptance
+AWE_RUN_LIVE_MCP=1 bash scripts/regression.sh --only=eval-mcp-live
+```
+
+Review the provider code if it fails (`42501` means missing explicit Data API
+grant), but do not add or apply a grant without separate migration approval.
+If green, record row/tool coverage in this handoff and update draft PR #4. Do
+not implement capability, permission or approval behaviour; ADR-0002 remains
 unratified.
 
 ## archived — Phase 1 deployment readiness review (2026-07-27, Codex)

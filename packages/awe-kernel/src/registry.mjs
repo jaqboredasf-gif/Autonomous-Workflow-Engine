@@ -22,6 +22,7 @@ import { createSuiteRegistry } from './suite.mjs';
 // for reporting only: a missing token still runs the suite and fails it loudly,
 // which is the behaviour the regression harness has always had.
 const MGMT = ['SUPABASE_ACCESS_TOKEN'];
+const MCP_LIVE = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'AWE_ORG_ID'];
 
 export const SUITES = [
   {
@@ -198,6 +199,18 @@ export const SUITES = [
     description: 'MCP tools on the shared kernel: explicit tenant binding, cross-tenant confinement, outcome-to-response mapping, sanitized audit and artifacts, and the neutral tool-descriptor and platform-service boundaries.',
     skipIfMissing: ['scripts/eval-mcp.sh'],
     tags: ['eval', 'runner-m', 'mcp', 'security'],
+  },
+  {
+    id: 'eval-mcp-live',
+    name: 'kernelized MCP LIVE data-boundary proof (Runner M-LIVE, read-only, explicit opt-in)',
+    kind: 'db',
+    command: 'bash scripts/eval-mcp-live.sh',
+    description: 'Runs every read-only MCP tool through the shared kernel against the Supabase data port, asserts every source row is tenant-labelled and confined, and proves a real second-tenant sentinel is unreachable.',
+    requires: MCP_LIVE,
+    skipIfMissing: ['scripts/eval-mcp-live.sh'],
+    skipIfEnvMissing: true,
+    optInEnv: 'AWE_RUN_LIVE_MCP',
+    tags: ['eval', 'runner-m', 'mcp', 'security', 'live-proof'],
   },
   {
     id: 'eval-control-plane',
