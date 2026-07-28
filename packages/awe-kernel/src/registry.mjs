@@ -240,6 +240,15 @@ export const SUITES = [
     tags: ['eval', 'runner-y', 'memory', 'context', 'replay', 'security'],
   },
   {
+    id: 'eval-durable-execution',
+    name: 'durable execution plane eval (Runner D, offline deterministic — no keys, DB, network, provider or live effect)',
+    kind: 'offline',
+    command: 'bash scripts/eval-durable-execution.sh',
+    description: 'Versioned execution contracts, optimistic state transitions, priority queueing, atomic leases and fencing, checkpoints, durable wakes, retry and recovery, cancellation, compensation, effect idempotency, dead letters, Agent/Workflow Runtime integration, Memory snapshots and control-decision replay.',
+    skipIfMissing: ['scripts/eval-durable-execution.sh'],
+    tags: ['eval', 'runner-d', 'durable-execution', 'agent-runtime', 'memory', 'replay', 'security'],
+  },
+  {
     id: 'eval-execution',
     name: 'execution-outcome + durable-artifact eval (Runner E, offline deterministic — no keys, no DB, no network)',
     kind: 'offline',

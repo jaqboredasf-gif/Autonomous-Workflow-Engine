@@ -1321,3 +1321,156 @@ non-mutating reconciliation plan. Also resolve the PR #3 C2 RPC allow-list
 contradiction with a complete application call-site inventory. Do not modify
 code or documentation, do not commit/push/merge, do not apply or repair
 migration history, and do not modify Supabase.
+
+---
+
+## 2026-07-28 — Durable Execution Plane
+
+### status
+
+The reusable offline Durable Execution Plane is implemented and verified in
+the isolated worktree `/private/tmp/awe-durable-execution` on branch
+`codex/durable-execution-plane`, stacked on `codex/memory-layer` at `cf3335d`.
+The original checkout and its unrelated changes were not modified.
+
+The new `@exattime/awe-execution` package owns canonical execution contracts,
+optimistic state transitions, the storage/queue port, a complete deterministic
+in-memory adapter, scheduling, atomic leases and monotonic fencing,
+checkpoints, durable wakes, retry classification, workers, idempotent effects,
+compensation, recovery, cancellation, dead letters and hash-chained replay.
+`@exattime/awe-runtime` composes it with the existing Workflow Runtime, bounded
+Agent Runtime, Memory Layer and reference operations fixtures.
+
+### dependency direction
+
+```text
+@exattime/awe-kernel
+  ├─ @exattime/awe-control-plane
+  ├─ @exattime/awe-memory
+  ├─ @exattime/awe-agent-runtime
+  └─ @exattime/awe-execution
+       └─ @exattime/awe-runtime
+            └─ CLI / workers / scheduler / future surfaces
+```
+
+The execution core imports only its local kernel seam. It contains no storage
+provider SDK, network call, ambient clock/randomness/environment access,
+filesystem storage or external process execution.
+
+### complete reference slice
+
+The credential-free CLI accepts a synthetic tenant-bound agent job, makes it
+eligible, lets Worker A claim it, retrieves an approved Memory Layer record,
+runs two bounded Agent Runtime safe reads, captures a versioned checkpoint,
+requests digest-bound human approval, releases the lease, simulates a cold
+runtime restart, resumes on Worker B, restores the checkpoint, performs one
+fake effect through an idempotent receipt, completes and replays the control
+path with zero model/tool calls.
+
+### verification
+
+- Runner D: 309 passed / 0 failed; 16 synthetic fixture compositions; 0 skips.
+- Runner K: 582 passed / 0 failed.
+- Runner A: 127 passed / 0 failed.
+- Runner Y: 91 passed / 0 failed.
+- Full non-database regression: all green; 16 ran / 9 skipped.
+- Web production build: passed with non-secret build-only Supabase placeholders.
+- Mobile typecheck: passed.
+- Web ESLint: failed on 7 pre-existing app errors (six
+  `react-hooks/set-state-in-effect`, one
+  `@next/next/no-html-link-for-pages`). `git diff codex/memory-layer --
+  apps/web` is empty, so this subsystem branch did not introduce or change
+  them. The npm workspace layout also required the existing
+  `apps/web/node_modules` directory on `NODE_PATH` for the Next parser.
+- MCP TEST-mode smoke: passed; 10 tools.
+- CLI durable demonstration: passed; one fake effect; replay tools/models 0/0.
+- JavaScript syntax checks and `git diff --check`: passed.
+
+The full regression also passed the existing context, approval, control-plane,
+MCP and execution-artifact suites. No credential-backed Supabase suite was run.
+
+### non-vacuity
+
+Seven temporary source mutations were applied independently and restored.
+Runner D failed when each guard was removed:
+
+1. closed-contract unknown-key refusal;
+2. optimistic state-version equality;
+3. lease fencing-token validation;
+4. human/automation approval actor separation;
+5. uncertain-effect duplicate refusal;
+6. event replay digest validation;
+7. worker tenant-partition validation.
+
+The final restored tree is the 309/309 result above.
+
+### files
+
+Created:
+
+- `packages/awe-execution/`
+- `packages/awe-runtime/src/execution-service.mjs`
+- `packages/awe-runtime/src/reference/durable-operations.mjs`
+- `scripts/awe-execution.mjs`
+- `scripts/eval-durable-execution.mjs`
+- `scripts/eval-durable-execution.sh`
+- `docs/architecture/DURABLE_EXECUTION_PLANE.md`
+- all required `docs/guides/EXECUTION_*.md` guides
+- `docs/planning/EXECUTION_HANDOFF.md`
+
+Modified:
+
+- `README.md`
+- `package-lock.json`
+- `packages/awe-kernel/src/registry.mjs`
+- `packages/awe-runtime/package.json`
+- `packages/awe-runtime/src/index.mjs`
+- `scripts/eval-kernel.mjs`
+- `scripts/lib/awe-reasons.mjs`
+- `docs/planning/AGENT_HANDOFF.md`
+
+### safety and live state
+
+No migration was created, modified, applied, rehearsed or rolled back. No live
+Supabase project, real tenant, customer/employee data, n8n workflow, provider,
+model, external tool, message, deployment or production configuration was
+accessed or changed. LIVE execution remains refused by default.
+
+The previously documented repository/live migration-history disagreement
+remains unresolved and continues to block any production persistence adapter
+or migration work. This task did not inspect or change that state.
+
+### known limitations
+
+- The complete in-memory adapter is deterministic and feature-complete for
+  offline reference use; process durability requires a future transactional
+  adapter.
+- Atomic claim guarantees are in-process. A production adapter must implement
+  transactional compare-and-swap, monotonic fencing and tenant predicates.
+- Interval recurrence is implemented; cron/calendar semantics remain an
+  adapter boundary.
+- Lease expiry is the authoritative missing-heartbeat safety boundary.
+- Arbitrary JavaScript state is intentionally not serialized; checkpoints
+  contain explicit platform state only.
+- No external provider or real effect was exercised.
+
+### publication
+
+- `96467af` — `feat(execution): add durable execution core`
+- `523788c` — `feat(runtime): integrate durable workers and evals`
+- `24d2acc` — `docs(execution): document durable execution plane`
+- Branch `codex/durable-execution-plane` is pushed to `origin`.
+- Stacked draft PR #7 targets `codex/memory-layer`.
+- Both Agent handoff validation checks were green when this handoff was
+  finalized.
+
+### exact next prompt
+
+Continue from `codex/durable-execution-plane` after its stacked draft PR is
+published. Perform a read-only design task for the first production-grade
+Durable Execution repository/queue adapter. Reconcile the existing migration
+history blocker before proposing any SQL. Specify transactional claim and CAS
+semantics, monotonic fencing, tenant predicates, encrypted checkpoint storage,
+event append rules, queue indexes, recovery scans, rollback strategy and
+adapter conformance tests. Do not create or apply migrations, access real
+tenant data, deploy, invoke providers, or enable LIVE execution.

@@ -38,6 +38,7 @@ import { MCP_BLOCKED_REASONS } from '../../packages/mcp-server/src/tenant.mjs';
 import { CONTROL_PLANE_BLOCKED_REASONS } from '../../packages/awe-control-plane/src/policy.mjs';
 import { AGENT_RUNTIME_BLOCKED_REASONS } from '../../packages/awe-agent-runtime/src/runtime.mjs';
 import { MEMORY_BLOCKED_REASONS } from '../../packages/awe-memory/src/layer.mjs';
+import { DURABLE_EXECUTION_REASONS } from '../../packages/awe-execution/src/contracts.mjs';
 import { GUARD_REASONS } from '../../apps/web/src/lib/approval-queue.ts';
 
 // `test_mode_violation` is deliberately shared: the fixture-safety rule is one
@@ -64,5 +65,6 @@ reasons.register('mcp', MCP_BLOCKED_REASONS);
 reasons.register('control_plane', CONTROL_PLANE_BLOCKED_REASONS);
 reasons.register('agent_runtime', AGENT_RUNTIME_BLOCKED_REASONS);
 reasons.register('memory', MEMORY_BLOCKED_REASONS);
+reasons.register('durable_execution', DURABLE_EXECUTION_REASONS);
 
 export default reasons;

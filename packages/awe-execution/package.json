@@ -1,0 +1,24 @@
+{
+  "name": "@exattime/awe-execution",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Provider-neutral durable execution contracts, state machines, leases, checkpoints, scheduling, recovery, effects and replay for AWE.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./contracts": "./src/contracts.mjs",
+    "./state-machine": "./src/state-machine.mjs",
+    "./repository": "./src/repository.mjs",
+    "./retry": "./src/retry.mjs",
+    "./effects": "./src/effects.mjs",
+    "./scheduler": "./src/scheduler.mjs",
+    "./worker": "./src/worker.mjs",
+    "./recovery": "./src/recovery.mjs",
+    "./replay": "./src/replay.mjs",
+    "./service": "./src/service.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
