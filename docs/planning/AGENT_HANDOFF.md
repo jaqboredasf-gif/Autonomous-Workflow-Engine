@@ -1,5 +1,169 @@
 # Agent Handoff
 
+## Current session — Memory Layer
+
+### updated_at
+
+2026-07-28T14:11:06Z
+
+### agent / branch
+
+Codex on `codex/memory-layer`, based on the completed Agent Runtime tip
+`bfcb679` (`codex/agent-runtime`). This is one isolated major task. The original
+checkout at `/Users/jackdaly/Autonomous-Workflow-Engine` was left on
+`feat/kernelized-mcp-context`; its unrelated uncommitted control-plane work was
+not touched.
+
+### objective and outcome
+
+Completed the **AWE Memory Layer**, the recommended subsystem after the Agent
+Runtime. The new `@exattime/awe-memory` package supplies:
+
+- versioned, closed, self-authenticating memory manifests;
+- exact tenant scope, lifecycle, Context Item labels, write policy, retention
+  policy, and provider-neutral retrieval profiles;
+- immutable versioned records with content digests, provenance, sensitivity,
+  expiry, predecessor binding, and optimistic compare-and-swap;
+- proposal-first writes with no automatic mode and human authorizations bound
+  to proposal digest, tenant, principal, role, and approval instant;
+- a storage-neutral record-store contract plus an in-memory reference store;
+- storage-neutral lexical/vector retrieval adapters with validated hit refs,
+  scores, uniqueness, deterministic ordering, limits, and score floors;
+- self-contained tenant-bound retrieval snapshots that replay exact Context
+  Items without querying a retrieval adapter or record store;
+- explicit expiry including legal-hold semantics;
+- a transport-free `createMemoryService()` composition in `@exattime/awe-runtime`.
+
+Memory reads become ordinary kernel Context Items. Memory writes were exercised
+through the existing controlled tool dispatcher: the write adapter is
+unreachable before the existing approval engine validates a human decision.
+
+Full design: `docs/architecture/MEMORY_LAYER.md`.
+
+### files created
+
+```
+packages/awe-memory/package.json
+packages/awe-memory/src/kernel.mjs
+packages/awe-memory/src/manifest.mjs
+packages/awe-memory/src/memory-registry.mjs
+packages/awe-memory/src/record.mjs
+packages/awe-memory/src/store.mjs
+packages/awe-memory/src/retrieval.mjs
+packages/awe-memory/src/layer.mjs
+packages/awe-memory/src/index.mjs
+packages/awe-runtime/src/memory-service.mjs
+scripts/eval-memory.mjs
+scripts/eval-memory.sh
+docs/architecture/MEMORY_LAYER.md
+```
+
+### files modified
+
+```
+README.md
+packages/awe-kernel/src/registry.mjs
+packages/awe-runtime/package.json
+packages/awe-runtime/src/index.mjs
+scripts/eval-kernel.mjs
+scripts/lib/awe-reasons.mjs
+docs/planning/AGENT_HANDOFF.md
+```
+
+### verification
+
+- Runner Y: **91 passed, 0 failed**, 9 fixture compositions.
+- Runner K: **577 passed, 0 failed**.
+- Runner A: **127 passed, 0 failed**, 16 fixtures, 15/15 agent events.
+- Credential-free registered regression:
+  `bash scripts/regression.sh --kinds=unit,offline,static` —
+  **ALL GREEN, 12 ran, 12 skipped**.
+- Web production build: compiler, TypeScript, prerender, and all 15 routes
+  passed when run separately with the existing local build environment.
+- Every new/modified JavaScript module passes `node --check`.
+- `git diff --check` passes.
+
+Seven non-vacuity perturbations were each confirmed to fail Runner Y and then
+restored: tenant-scope resolution, missing authorization, approver-role
+enforcement, collection-scoped expiry, unknown retrieval references, snapshot
+digest verification, and the retention TTL ceiling. The unknown-reference
+test was initially masked by a downstream record-contract check; it was
+strengthened to pin the adapter boundary, then the perturbation failed.
+
+The first `--exclude-kinds=db` attempt failed four environment-only checks
+because this isolated worktree had no dependency tree. Reusing the already
+installed dependency versions reduced that to the web build, whose first
+attempt could not fetch public Google Fonts and whose second lacked the
+original checkout's local build environment. The web build then passed
+separately. A request to propagate that real app environment across the entire
+regression was rejected as broader than this synthetic task, so it was not
+retried; the credential-free registered plan above is the authoritative
+combined result.
+
+No DB suite or LIVE MCP suite was run.
+
+### defects found and fixed
+
+1. Collection expiry initially filtered by tenant but not by `memory_id`, so
+   expiring one collection could retire another collection for the same tenant.
+   Expiry is now tenant- and collection-bound, with a dedicated regression.
+2. A storage adapter could return a valid record for the wrong tenant or memory
+   unless each result was revalidated. The adapter wrapper now checks every
+   read, latest, list, and successful write result against the request identity
+   and rejects expired list output.
+3. Secret-shaped retrieval query text would have been stored verbatim in a
+   replay snapshot. Queries are now redacted before digesting and persistence.
+4. An evidence metadata field named `write_authorization_digest` triggered the
+   kernel's secret-key redactor and collapsed to `[redacted]`. It is now the
+   accurately named, non-secret `approval_evidence_digest`.
+
+### migrations and live state
+
+None. No SQL file was created, edited, or applied. `supabase/` is untouched.
+No model provider, vector provider, application API, database query, production
+configuration, workflow publication, or deployment occurred. The web build
+fetched its configured public Google Fonts; no application data was read or
+written.
+
+The previously documented repository/live migration disagreement remains
+unresolved. A durable RLS-backed memory adapter must not be implemented or
+deployed until repository history, live history, and the applicable ADRs agree.
+
+### publication status
+
+Implementation commit `535e246` (`feat: add tenant-bound memory layer`) is
+pushed on `codex/memory-layer`. Draft PR
+[#6](https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/pull/6)
+targets `codex/agent-runtime`; GitHub reports it open, draft, and mergeable.
+The review diff therefore contains only the Memory Layer milestone. One handoff
+validation check was green and the second was queued when this status was
+recorded.
+
+### remaining technical debt
+
+- Durable encrypted/RLS-backed record and retrieval-snapshot storage.
+- Distributed transactions/leases around optimistic record commits.
+- A scheduler for expiry and retention evidence.
+- Production lexical/vector index adapters, embedding generation, hybrid
+  search, reranking, and provider failover.
+- Memory consolidation, contradiction detection, compaction, and
+  cross-collection query planning.
+- A surface-specific authenticated approval-to-authorization mapper; the core
+  consumes validated evidence but does not authenticate identities.
+
+### compact next-session handoff
+
+Start from `codex/memory-layer`. Read
+`docs/architecture/MEMORY_LAYER.md`, then run `bash scripts/eval-memory.sh`.
+Keep database/vector SDKs outside `packages/awe-memory`; implement them only as
+injected store/retrieval adapters. Do not add an automatic memory-write mode.
+The next useful vertical slice is a memory-enabled agent reference composition
+that retrieves a snapshot before the bounded loop and maps an authenticated
+approval handoff into a write authorization without allowing model-supplied
+approval evidence.
+
+---
+
 ## Current session — Agent Runtime
 
 ### updated_at

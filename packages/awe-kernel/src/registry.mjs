@@ -231,6 +231,15 @@ export const SUITES = [
     tags: ['eval', 'runner-a', 'agent-runtime', 'replay'],
   },
   {
+    id: 'eval-memory',
+    name: 'memory layer eval (Runner Y, offline deterministic — no keys, DB or network)',
+    kind: 'offline',
+    command: 'bash scripts/eval-memory.sh',
+    description: 'Tenant-bound versioned memory, provenance and retention, proposal-first human-controlled writes, storage-neutral lexical/vector retrieval, standard Context Items and exact self-contained retrieval replay.',
+    skipIfMissing: ['scripts/eval-memory.sh'],
+    tags: ['eval', 'runner-y', 'memory', 'context', 'replay', 'security'],
+  },
+  {
     id: 'eval-execution',
     name: 'execution-outcome + durable-artifact eval (Runner E, offline deterministic — no keys, no DB, no network)',
     kind: 'offline',

@@ -2,7 +2,7 @@
 
 A provider-neutral AI operating system for deterministic, policy-controlled
 business automation. The workforce applications are one business surface on
-top of the reusable workflow, context, control-plane, MCP, and agent-runtime
+top of the reusable workflow, context, control-plane, MCP, agent-runtime, and memory
 infrastructure.
 
 ## Repo layout
@@ -13,6 +13,7 @@ apps/web/           Next.js admin dashboard — timesheets, map, payroll, report
 packages/awe-kernel/ Deterministic outcomes, events, context, tools, reports, replay
 packages/awe-control-plane/ Workflow registry, policy, approvals, dispatch, journals
 packages/awe-agent-runtime/ Versioned bounded agent loop and hash-chained transcripts
+packages/awe-memory/ Tenant-bound versioned memory, retrieval snapshots, retention
 packages/awe-runtime/ Reusable application services and reference compositions
 packages/mcp-server/ MCP execution surface
 packages/shared/    Shared TypeScript types + domain constants
