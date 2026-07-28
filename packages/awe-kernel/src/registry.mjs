@@ -222,6 +222,15 @@ export const SUITES = [
     tags: ['eval', 'runner-p', 'control-plane', 'security'],
   },
   {
+    id: 'eval-agent-runtime',
+    name: 'agent runtime eval (Runner A, offline deterministic — no keys, DB or network)',
+    kind: 'offline',
+    command: 'bash scripts/eval-agent-runtime.sh',
+    description: 'Versioned agent manifests, bounded provider-neutral model turns, controlled policy/approval-gated tools, tenant-safe context evolution, hash-chained transcripts, durable run records and exact deterministic replay.',
+    skipIfMissing: ['scripts/eval-agent-runtime.sh'],
+    tags: ['eval', 'runner-a', 'agent-runtime', 'replay'],
+  },
+  {
     id: 'eval-execution',
     name: 'execution-outcome + durable-artifact eval (Runner E, offline deterministic — no keys, no DB, no network)',
     kind: 'offline',

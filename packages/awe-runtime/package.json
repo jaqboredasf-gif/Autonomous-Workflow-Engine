@@ -9,11 +9,13 @@
     ".": "./src/index.mjs",
     "./service": "./src/service.mjs",
     "./control-plane-service": "./src/control-plane-service.mjs",
+    "./agent-service": "./src/agent-service.mjs",
     "./journal-store": "./src/journal-store.mjs",
     "./result-store": "./src/result-store.mjs",
     "./clock": "./src/clock.mjs",
     "./file-sinks": "./src/file-sinks.mjs",
-    "./reference/invoice-intake": "./src/reference/invoice-intake.mjs"
+    "./reference/invoice-intake": "./src/reference/invoice-intake.mjs",
+    "./reference/operations-agent": "./src/reference/operations-agent.mjs"
   },
   "engines": {
     "node": ">=20"

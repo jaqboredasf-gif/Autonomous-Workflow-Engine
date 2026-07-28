@@ -1,0 +1,21 @@
+{
+  "name": "@exattime/awe-agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Provider-neutral, bounded and replayable autonomous-agent runtime for AWE. Composes versioned agent manifests with the workflow registry, context engine, controlled tool dispatcher, policy engine, audit events and deterministic transcripts.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./action": "./src/action.mjs",
+    "./manifest": "./src/manifest.mjs",
+    "./agent-registry": "./src/agent-registry.mjs",
+    "./model": "./src/model.mjs",
+    "./transcript": "./src/transcript.mjs",
+    "./run-store": "./src/run-store.mjs",
+    "./runtime": "./src/runtime.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

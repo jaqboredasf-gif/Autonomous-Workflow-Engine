@@ -1,14 +1,20 @@
-# Exattime
+# Autonomous Workflow Engine (AWE)
 
-Workforce time tracking, job site GPS verification, and payroll pipeline.
-Recreation of ExakTime's core feature set, built API-first so every operation
-is callable by AI agents in the larger calendar-automation project.
+A provider-neutral AI operating system for deterministic, policy-controlled
+business automation. The workforce applications are one business surface on
+top of the reusable workflow, context, control-plane, MCP, and agent-runtime
+infrastructure.
 
 ## Repo layout
 
 ```
 apps/mobile/        React Native (Expo) field app — clock in/out, GPS, offline queue
 apps/web/           Next.js admin dashboard — timesheets, map, payroll, reports
+packages/awe-kernel/ Deterministic outcomes, events, context, tools, reports, replay
+packages/awe-control-plane/ Workflow registry, policy, approvals, dispatch, journals
+packages/awe-agent-runtime/ Versioned bounded agent loop and hash-chained transcripts
+packages/awe-runtime/ Reusable application services and reference compositions
+packages/mcp-server/ MCP execution surface
 packages/shared/    Shared TypeScript types + domain constants
 supabase/           Postgres migrations, RLS policies
 docs/               Roadmap, API contract

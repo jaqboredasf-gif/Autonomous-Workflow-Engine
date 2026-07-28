@@ -219,7 +219,7 @@ group('blocked-reason registry', () => {
   check(platformReasons.all().length >= 15, `platform union has ${platformReasons.all().length} reasons`);
   equal(
     platformReasons.listNamespaces(),
-    ['classify', 'control_plane', 'gate', 'mcp', 'queue', 'route'],
+    ['agent_runtime', 'classify', 'control_plane', 'gate', 'mcp', 'queue', 'route'],
     'platform namespaces',
   );
   equal(platformReasons.sharedInUse(), SHARED_REASONS, 'only the declared reason is shared across namespaces');
