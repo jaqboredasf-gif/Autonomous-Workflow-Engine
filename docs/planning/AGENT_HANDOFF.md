@@ -1448,6 +1448,16 @@ or migration work. This task did not inspect or change that state.
   contain explicit platform state only.
 - No external provider or real effect was exercised.
 
+### publication
+
+- `96467af` — `feat(execution): add durable execution core`
+- `523788c` — `feat(runtime): integrate durable workers and evals`
+- `24d2acc` — `docs(execution): document durable execution plane`
+- Branch `codex/durable-execution-plane` is pushed to `origin`.
+- Stacked draft PR #7 targets `codex/memory-layer`.
+- Both Agent handoff validation checks were green when this handoff was
+  finalized.
+
 ### exact next prompt
 
 Continue from `codex/durable-execution-plane` after its stacked draft PR is

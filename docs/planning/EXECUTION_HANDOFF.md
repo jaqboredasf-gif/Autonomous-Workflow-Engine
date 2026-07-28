@@ -51,6 +51,16 @@ separation, uncertain-effect replay refusal, per-event replay digest
 validation, and worker tenant partitioning. The restored tree is the 309/309
 result above.
 
+## Publication
+
+- Core commit: `96467af`
+- Runtime/eval commit: `523788c`
+- Documentation commit: `24d2acc`
+- Branch: `codex/durable-execution-plane`
+- Remote branch: pushed to `origin`
+- Stacked draft PR: #7, targeting `codex/memory-layer`
+- PR validation: green at handoff
+
 Focused commands:
 
 ```bash
