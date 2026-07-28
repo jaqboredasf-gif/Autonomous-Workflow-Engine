@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-28T12:35:34Z
+2026-07-28T12:40:14Z
 
 ## agent
 
@@ -17,8 +17,10 @@ jaqboredasf-gif/Autonomous-Workflow-Engine
 `codex/live-mcp-data-boundary`, created from the completed kernel foundation at
 `b038598`. It is isolated in `/private/tmp/awe-live-mcp` so Claude Code's active
 uncommitted control-plane work in the primary checkout remains untouched.
-Nothing has been pushed. No existing branch was moved, reset, merged, rebased
-or deleted.
+Both this branch and its stacked base `feat/kernelized-mcp-context` were pushed.
+Draft PR #4 targets the stacked base, so its diff contains only this session's
+LIVE-boundary task. No existing branch was moved, reset, merged, rebased or
+deleted.
 
 **Branch relationship, established before any write:**
 
@@ -35,10 +37,12 @@ or deleted.
 
 ## commit
 
-Pending one verified task commit on `codex/live-mcp-data-boundary`. Its parent is
-`b038598`, the ninth and final commit of `feat/kernelized-mcp-context`. The
-branch therefore carries the complete kernel/MCP foundation plus only the LIVE
-data-boundary proof described below.
+`8675b6b` — `test(mcp): add opt-in live tenant-boundary proof`
+
+Its parent is `b038598`, the ninth and final commit of
+`feat/kernelized-mcp-context`. The branch therefore carries the complete
+kernel/MCP foundation plus only the LIVE data-boundary proof described below.
+This handoff correction is a documentation-only follow-up commit.
 
 ## current objective
 
@@ -170,9 +174,10 @@ live credential was read and no live project was contacted.
 
 ## live changes
 
-None. No database call, migration, n8n change, workflow publication, MCP live
-tool call, credential use or GitHub mutation. The web build fetched its declared
-Google Font assets only.
+No database call, migration, n8n change, workflow publication, MCP live tool
+call or live credential use. Git changes: pushed
+`feat/kernelized-mcp-context` and `codex/live-mcp-data-boundary`; opened draft
+PR #4. The web build fetched its declared Google Font assets.
 
 ## approvals required
 
@@ -182,10 +187,6 @@ Google Font assets only.
   boundaries exist and are asserted to be empty of those decisions.
 - **Explicit live-test approval** before setting `AWE_RUN_LIVE_MCP=1` with the
   three required credentials.
-- **GitHub re-authentication.** Local `gh auth status` reports the active token
-  is invalid. Commit can proceed locally, but push and draft PR require
-  `gh auth login -h github.com`.
-- **Push and draft PR** for `codex/live-mcp-data-boundary`.
 - The Phase 1 deployment gates in the archived section below remain open and are
   unaffected by this session.
 
@@ -232,7 +233,6 @@ Google Font assets only.
 3. `feat/kernelized-mcp-context` is based on `chore/agent-handoff-integration`,
    which is **not** in `main`. Landing this work also lands the C1/S1 security
    commit. That is a sequencing decision for the operator, not a defect.
-4. GitHub publishing is blocked until `gh` is re-authenticated.
 
 ## exact next prompt
 
@@ -245,9 +245,9 @@ AWE_RUN_LIVE_MCP=1 bash scripts/regression.sh --only=eval-mcp-live
 
 Review the provider code if it fails (`42501` means missing explicit Data API
 grant), but do not add or apply a grant without separate migration approval.
-If green, record row/tool coverage in this handoff, re-authenticate GitHub, push
-`codex/live-mcp-data-boundary`, and open a draft PR. Do not implement capability,
-permission or approval behaviour; ADR-0002 remains unratified.
+If green, record row/tool coverage in this handoff and update draft PR #4. Do
+not implement capability, permission or approval behaviour; ADR-0002 remains
+unratified.
 
 ## archived — Phase 1 deployment readiness review (2026-07-27, Codex)
 
