@@ -1,5 +1,151 @@
 # Agent Handoff
 
+## Current session — Agent Runtime
+
+### updated_at
+
+2026-07-28T13:24:16Z
+
+### agent / branch
+
+Codex (Platform Architect) on `codex/agent-runtime`, based on the completed
+`codex/live-mcp-data-boundary` tip `cf37090`. This is one isolated major task.
+
+### objective and outcome
+
+Selected and completed the **Agent Runtime**, the largest missing reusable
+subsystem after analyzing the dependency graph of the kernel, context engine,
+tool registry, control plane, policy/approval engine, audit/report framework,
+and deterministic replay infrastructure.
+
+The new `@exattime/awe-agent-runtime` package supplies:
+
+- versioned, closed, runtime-validated agent manifests and registry resolution;
+- provider-neutral model request/response contracts and adapter registry;
+- typed `tool`, `finish`, and `request_human` actions with no reasoning field;
+- a bounded turn/model/tool/token loop;
+- workflow/tool/agent contract intersection;
+- controlled tool dispatch through existing tenant grants, policy, approvals,
+  schema validation, idempotency, and timeout enforcement;
+- tenant-bound context evolution after every tool result;
+- canonical audit events on every execution path;
+- append-only hash-chained transcripts and state projection;
+- deterministic response replay and full simulation replay;
+- a tenant-checked run store contract plus working memory implementation.
+
+`@exattime/awe-runtime` now exposes `createAgentService()` and a fully synthetic
+operations investigator example. The example performs two tenant-bound reads,
+feeds their results back through the Context Engine, and returns a recommendation.
+
+### architecture
+
+```
+awe-kernel
+  outcomes/events/context/tools/reports/runWorkflow
+        ▲
+awe-control-plane
+  workflow registry/policy/approval/controlled dispatch
+        ▲
+awe-agent-runtime
+  manifests/model contracts/bounded loop/transcript/replay
+        ▲
+awe-runtime Agent Service
+        ▲
+CLI / MCP / web / workers / scheduler / n8n
+```
+
+Full design: `docs/architecture/AGENT_RUNTIME.md`.
+
+### files created
+
+```
+packages/awe-agent-runtime/package.json
+packages/awe-agent-runtime/src/action.mjs
+packages/awe-agent-runtime/src/agent-registry.mjs
+packages/awe-agent-runtime/src/index.mjs
+packages/awe-agent-runtime/src/manifest.mjs
+packages/awe-agent-runtime/src/model.mjs
+packages/awe-agent-runtime/src/run-store.mjs
+packages/awe-agent-runtime/src/runtime.mjs
+packages/awe-agent-runtime/src/transcript.mjs
+packages/awe-runtime/src/agent-service.mjs
+packages/awe-runtime/src/reference/operations-agent.mjs
+scripts/awe-agent-runtime.mjs
+scripts/eval-agent-runtime.mjs
+scripts/eval-agent-runtime.sh
+docs/architecture/AGENT_RUNTIME.md
+```
+
+### files modified
+
+```
+README.md
+packages/awe-kernel/src/registry.mjs
+packages/awe-runtime/package.json
+packages/awe-runtime/src/index.mjs
+scripts/eval-kernel.mjs
+scripts/lib/awe-reasons.mjs
+docs/planning/AGENT_HANDOFF.md
+```
+
+### verification
+
+- Runner A: **127 passed, 0 failed**, 16 fixtures, 15/15 event types covered.
+- Runner K: **572 passed, 0 failed**.
+- Combined non-database/non-build regression: **ALL GREEN**, 11 suites run,
+  12 skipped.
+- Exact replay reproduced the same outcome, model records, and transcript digest.
+- Demo CLI completed two controlled tenant-bound tool calls and replayed its
+  transcript.
+- All new JavaScript modules pass `node --check`; `git diff --check` passes.
+
+No DB suites, production deployment, production configuration, migration,
+live data access, secrets, provider calls, n8n publication, or workflow
+publication occurred.
+
+### migrations
+
+None created, edited, or applied. `supabase/` is untouched.
+
+### publication status
+
+Implementation is verified but not yet staged, committed, pushed, or opened as
+a draft PR. `gh auth status` reports the active `jaqboredasf-gif` token is
+invalid. Per the repository publishing workflow, re-authenticate with
+`gh auth login -h github.com`, then continue on this same branch. The intended
+stacked PR base is `codex/live-mcp-data-boundary`, whose tip `cf37090` is the
+merge base, so the PR contains only the Agent Runtime subsystem.
+
+### remaining technical debt
+
+- Durable RLS-backed agent run/transcript storage.
+- Distributed pause/resume delivery and execution leases.
+- Cost/latency/quality model routing and failover.
+- Cross-run memory with explicit write/retention policy.
+- Optional transcript signing (v1 hash chains detect mutation but do not attest
+  producer identity).
+
+### recommended next subsystem
+
+Build the **Memory Layer** next: tenant-bound, versioned memory with provenance,
+retention, explicit write policy, replayable retrieval snapshots, and adapters
+for lexical/vector stores. Integrate reads as Context Items and write proposals
+as approval-controlled actions; do not put storage-specific retrieval inside
+the agent loop.
+
+### compact next-session handoff
+
+Start from `codex/agent-runtime`. Read
+`docs/architecture/AGENT_RUNTIME.md`, then run
+`bash scripts/eval-agent-runtime.sh`. Treat the model profile and run store as
+injected adapter seams. Do not add provider SDKs to
+`packages/awe-agent-runtime`. The next high-leverage task is the Memory Layer,
+not a workflow-specific agent. No migration or deployment is pending.
+
+---
+
+## Previous handoff history
+
 ## updated_at
 
 2026-07-28T12:46:28Z

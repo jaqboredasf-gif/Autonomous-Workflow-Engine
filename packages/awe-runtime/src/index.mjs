@@ -29,6 +29,8 @@ export { createPlatformService } from './service.mjs';
 
 export { createControlPlaneService } from './control-plane-service.mjs';
 
+export { createAgentService } from './agent-service.mjs';
+
 export {
   DEFAULT_ARTIFACT_ROOT,
   createFileArtifactSink,
@@ -51,3 +53,17 @@ export {
 } from './result-store.mjs';
 
 export { createFixedClock, createSteppingClock } from './clock.mjs';
+
+export {
+  OPERATIONS_ORG,
+  OTHER_OPERATIONS_ORG,
+  createOperationsAgentFixture,
+  operationsAgent,
+  operationsAgentContext,
+  operationsGrants,
+  operationsModelAdapter,
+  operationsRunRequest,
+  operationsTools,
+  operationsValidators,
+  operationsWorkflow,
+} from './reference/operations-agent.mjs';
