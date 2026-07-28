@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-28T15:05:00Z
+2026-07-28T16:20:00Z
 
 ## agent
 
@@ -19,20 +19,23 @@ No branch was moved, reset, merged, rebased or deleted. No PR was opened.
 
 ## commit
 
-Three new commits, none pushed:
+Five new commits, none pushed:
 
 | commit | scope |
 |---|---|
 | `6166d01` | run leases, fencing, journal compare-and-set, enforced approval quorum |
 | `e46e35d` | the execution control plane as six MCP tools |
 | `26ff74f` | idempotent submit; an operator CLI that survives a refusal |
+| `09a4c06` | architecture, handoff and backlog brought up to the implementation |
+| `064dced` | conditional steps — `when` predicates, `step.skipped`, loop-progress invariant |
 
 ## current objective
 
-Delivered the vertical slice the previous session specified: **make the
+Delivered the vertical slice the previous session specified — **make the
 execution control plane concurrency-safe, enforce the approval quorum it
-declared, and put a real surface on it.** All three, plus the defects each one
-exposed.
+declared, and put a real surface on it** — plus the defects each one exposed,
+and then the next slice this session identified: **conditional steps**, so a
+governed workflow can branch.
 
 ## completed work
 
@@ -159,6 +162,39 @@ identity decisions this repo has deliberately not made.
    `git diff` reported them as binary and they could not be reviewed. Replaced
    with `\\u0000` escapes; identical semantics.
 
+### 5. Conditional steps — a workflow that can branch
+
+Identified after the brief's three items were delivered: `steps` was a straight
+line, so "if the amount is under the tenant's threshold, skip the approval step"
+could only be modelled as two near-identical registered workflows chosen between
+OUTSIDE the control plane — putting the branch condition somewhere the journal
+never records, the policy engine never sees, and the manifest digest does not
+cover.
+
+- **`packages/awe-control-plane/src/predicate.mjs`** (new, pure) — `when` as
+  DATA: `{ path, op, value }` leaves composed with `all` / `any` / `not`, twelve
+  operators, three closed path roots (`results.<earlier_step>`, `input`, `run`),
+  no arithmetic and no user code path. A closure would have been simpler and
+  would have retired four properties at once — the manifest digest, the
+  reviewability of a diff, the ability to store a manifest in a table, and the
+  journal's ability to say *why* a branch was taken.
+- **Fails closed in four specific ways**, each with a case only it catches: an
+  absent path compares false under `eq` **and** `ne` (a typo cannot open either
+  branch); comparisons are strictly numeric (`'10' > 9` is how a threshold gate
+  gets opened by a string from a model); `is_true` requires the boolean; paths
+  do not walk the prototype chain.
+- **The graph check** — a condition reading a step that runs LATER can never be
+  satisfied, so it is refused at manifest build rather than surfacing as a
+  silent skip in production. A **conditional compensation** is refused outright.
+- **`step.skipped`** is a first-class event carrying the predicate digest and
+  every comparison made, with the DECLARED value and a DIGEST of the actual
+  value — never the actual value. A history that merely omits the approval step
+  cannot be told apart from one where the step was removed from the manifest.
+- **A loop-progress invariant** on the engine's forward loop. Perturbing the
+  skipped-step bookkeeping turned a test failure into a HANG; every
+  non-returning iteration must now move one step out of the remaining set, and a
+  violation throws.
+
 ## files changed
 
 ```
@@ -180,7 +216,11 @@ packages/mcp-server/src/runtime.mjs                   the `needs` discriminator
 packages/mcp-server/src/index.js                      control-plane composition (TEST only)
 packages/awe-kernel/src/{gates,compaction}.mjs        NUL-byte fix
 packages/awe-kernel/src/registry.mjs                  mcp-smoke description
-scripts/eval-control-plane.mjs                        Runner P: 372 -> 491
+packages/awe-control-plane/src/predicate.mjs          NEW — `when` conditions as data
+packages/awe-control-plane/src/manifest.mjs           the `when` key + reachability check
+packages/awe-control-plane/src/journal.mjs            step.skipped, skipped_steps
+packages/awe-control-plane/src/engine.mjs             evaluate-before-dispatch, loop progress
+scripts/eval-control-plane.mjs                        Runner P: 372 -> 568
 scripts/eval-mcp.mjs                                  Runner M: 410 -> 462
 scripts/smoke-mcp.sh                                  drives a real control-plane run
 scripts/awe-control-plane.mjs                         artifact root, lease store, refusals
@@ -208,12 +248,12 @@ node scripts/awe-control-plane.mjs start | approve | resume   (three separate pr
 | Runner 4 (approval matrix) | 327 / 0 |
 | Runner 5 (approval queue) | 349 / 0 |
 | **Runner M (MCP surface)** | **462 / 0 — was 410** |
-| **Runner P (control plane)** | **491 / 0 — was 372** |
+| **Runner P (control plane)** | **568 / 0 — was 372** |
 | Runner E (execution outcomes) | 376 / 0 |
 | mcp-smoke | `OK (16 tools, control plane reachable, approval refused)` |
 | **regression `--exclude-kinds=db`** | **ALL GREEN [13 ran, 8 skipped]** |
 
-**Sixteen new guards were each deleted once, the suite confirmed to fail, and
+**Thirty new guards were each deleted once, the suite confirmed to fail, and
 the guard restored.** Two were initially VACUOUS and were fixed rather than
 accepted:
 
@@ -275,8 +315,16 @@ external API call, no credential used, no push, no PR.
   `workflow_not_registered`, which is the correct fail-closed state — but it
   also means the MCP control-plane surface does nothing useful until a real
   workflow manifest exists.
-- **Steps are still a sequential list, not a graph.** This is now the largest
-  reusable gap; see the next prompt.
+- **Fan-out and loops do not exist.** Conditional execution does (a step may be
+  skipped), but steps still run one at a time in declared order and no step runs
+  twice. Deferred deliberately: parallel steps interact with the run budget, the
+  step budget, idempotency and compensation ordering, and arbitrary `next` edges
+  admit cycles. See the next prompt.
+- **A predicate reads step RESULTS, not assembled context.** `predicateScope`
+  exposes `results`, `input` and `run`. Branching on a context item (a tenant
+  policy document, say) is not expressible; whether it should be is an open
+  question, because context items carry sensitivity labels and a condition that
+  read one would need to respect them.
 
 ## blockers
 
@@ -290,43 +338,54 @@ reaches no database.
 ## exact next prompt
 
 Continue AWE on branch `feat/kernelized-mcp-context`. Read
-`docs/architecture/EXECUTION_CONTROL_PLANE.md` (sections 8-10 are new) and this
+`docs/architecture/EXECUTION_CONTROL_PLANE.md` (sections 8-11 are new) and this
 handoff first, then verify the baseline with
 `bash scripts/regression.sh --exclude-kinds=db` (expect ALL GREEN, 13 ran,
 8 skipped) before editing anything.
 
-Deliver one vertical slice: **make a workflow manifest a GRAPH rather than a
-list.**
+Deliver one vertical slice: **fan-out — a step group that runs several steps
+concurrently.**
 
-This is the largest remaining reusable gap. Every governed workflow today is a
-straight line: `steps` is an ordered array and the engine walks it start to
-finish. A workflow that needs "if the amount is under the tenant's threshold,
-skip the approval step and go straight to payment" cannot express it, so the
-only way to model a decision is to register two near-identical workflows and
-choose between them outside the control plane — which puts the branch condition
-somewhere the journal never records and the policy engine never sees.
+Conditional execution landed this session and covers "should this step run".
+Fan-out covers "these three are independent", which is what every enrichment,
+multi-recipient or multi-supplier workflow needs and which no registered
+workflow can currently express. It is the remaining half of the graph, and it is
+harder than the conditional half — most of the work is deciding semantics, not
+writing the loop.
 
-1. **Declarative edges, validated at manifest build.** Add a `when` or `next` to
-   the step contract and validate the graph closed: every edge names a step that
-   exists, there is exactly one entry, no cycle, every step reachable, and every
-   compensation still names a step that can precede it. A graph that cannot
-   terminate must be refused at `defineWorkflowManifest`, not discovered at run
-   time.
-2. **Conditions are DATA, not code.** A predicate over prior step results and
-   assembled context, evaluated deterministically — not a function in the
-   manifest. A manifest carrying executable code cannot be versioned, digested,
-   reviewed or stored in a table, and every one of those is a property the
-   control plane currently has.
-3. **The journal must record which branch was taken and why.** A run whose
-   history does not say why it skipped the approval step is not auditable.
-   Consider a `step.skipped` event with the predicate and the values it read.
-4. **Fan-out is a separate decision — say which way you went and why.** Parallel
-   steps interact with the run budget, the step budget, idempotency and
-   compensation ordering. If you defer it, record that as a limitation.
-5. Keep every existing guarantee: a sequential manifest must behave EXACTLY as
-   it does today (the whole reference slice is the regression), deny by default,
-   LIVE refused, G4, tenant binding, append-only history, one run one writer,
-   and the two-store split.
+Decide and STATE each of these; a wrong answer recorded is worth more than a
+right one assumed:
+
+1. **Journal ordering.** The journal is a hash chain and admits exactly one
+   order. Concurrent branches produce events with no natural total order.
+   Either serialize every append through the single writer (and say what that
+   costs in fidelity — two `tool.invoked` events will be ordered by when the
+   writer got them, not by when the effects landed), or give the chain a
+   different shape. Do not leave this implicit.
+2. **Budgets.** `run_timeout_ms` currently bounds active execution. For a
+   fan-out, is that wall time across the group or the sum of the branches?
+   `step_timeout_ms` per branch is probably obvious; the run budget is not.
+3. **Partial failure.** One branch fails and two succeed. Does the group fail?
+   Does `on_failure: 'compensate'` roll back the two that succeeded, and in what
+   order, given they completed concurrently and `compensatorsFor` currently
+   relies on declaration order being execution order?
+4. **Idempotency.** Two branches invoking the same tool with different inputs is
+   fine. Two branches racing to the same effect identity is `idempotency_conflict`
+   — verify that still holds when the two invocations overlap in time rather
+   than being separated by a resume.
+5. **Resume.** A run that pauses mid-fan-out — one branch approved, two still
+   running — must resume correctly from the journal alone. This is the case most
+   likely to be got wrong.
+
+Keep every existing guarantee: a sequential manifest must behave EXACTLY as it
+does today (the whole reference slice is the regression), conditional steps must
+keep working inside and outside a group, deny by default, LIVE refused, G4,
+tenant binding, append-only history, one run one writer, the two-store split,
+and the loop-progress invariant.
+
+If, having worked through the semantics, fan-out turns out to be the wrong next
+thing — say so with the reasoning and build the next item on the backlog
+instead. A recorded "we decided not to, because" is a real deliverable.
 
 Constraints: do not ratify or act on ADR-0002; do not enable `allow_live`; do
 not touch `supabase/`, n8n, or any external service; use synthetic data only; do
@@ -334,7 +393,9 @@ not push or open a PR. Run `bash scripts/regression.sh --exclude-kinds=db`,
 `bash scripts/eval-control-plane.sh` and `bash scripts/eval-mcp.sh` and report
 exact results. For every new guard, delete it once, confirm the suite fails, and
 restore it — and when a guard's test still passes with the guard removed, fix
-the test rather than the record, as two vacuous cases were fixed this session.
+the test rather than the record. Three vacuous cases were found and fixed this
+session, and one perturbation surfaced as a HANG rather than a failure, which is
+why the engine now has a loop-progress invariant.
 
 ## archived — execution control plane, first slice (2026-07-28, Claude)
 

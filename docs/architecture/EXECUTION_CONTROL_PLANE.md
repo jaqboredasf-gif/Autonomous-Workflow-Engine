@@ -1,6 +1,6 @@
 # AWE Execution Control Plane
 
-**Status:** implemented and verified offline (Runner P, 491 gates, 0 failures;
+**Status:** implemented and verified offline (Runner P, 568 gates, 0 failures;
 Runner M, 462 gates, 0 failures).
 **Scope:** local, synthetic, TEST-only. No database, no n8n, no model provider,
 no external service, no credential.
@@ -20,6 +20,7 @@ answer:
 | What actually happened, provably? | `journal.mjs` |
 | What happens on failure, timeout, cancellation or denial? | `engine.mjs` |
 | Who is allowed to be writing this run right now? | `lease.mjs` |
+| Must this step run at all, given what the earlier ones produced? | `predicate.mjs` |
 
 Before this milestone AWE could execute *a body function under a workflow id*.
 It could not state which tools that workflow was allowed to touch, which tenants
@@ -130,7 +131,7 @@ and has its own regression case *and* its own non-vacuity perturbation.
 Append-only, hash-chained, with **state projected rather than stored**. There is
 no state setter anywhere in the package, and a source lint asserts there is none.
 
-Eighteen event types, each with an explicit `{ from: [...], to }` transition.
+Nineteen event types, each with an explicit `{ from: [...], to }` transition.
 An event type absent from the table cannot be appended at all. **No event lists a
 terminal state as a legal predecessor**, so post-terminal appends are impossible
 by construction rather than by a separate check.
@@ -328,6 +329,64 @@ after `loadOwned`, so a service actor submitting a guessed run id was told
 over run ids, and a doctrine rule supposed to be unconditional made conditional
 on a lookup succeeding.
 
+### 11. Conditional steps — a workflow that can branch
+
+A step may declare `when`: a predicate over what earlier steps produced. If it
+does not hold, the step is **skipped** and the run continues.
+
+Before this, `steps` was a straight line, so a decision could only be modelled
+as two near-identical registered workflows chosen between *outside* the control
+plane — which put the branch condition somewhere the journal never records, the
+policy engine never sees, and the manifest digest does not cover.
+
+**Conditions are data.** The obvious implementation is a closure on the step,
+and it would retire four properties at once: a manifest is digested and a
+closure has no stable digest; a manifest is reviewed, and a diff of two closures
+tells a reviewer nothing about which runs change behaviour; a manifest is meant
+to live in a table (ADR-0002) and code does not; and the journal has to record
+*why* a branch was taken, which "a function returned false" is not.
+
+```
+leaf:  { path, op, value }        composed with:  { all: [...] } { any: [...] } { not: ... }
+paths: results.<earlier_step>.<field>   input.<field>   run.{org_id,workflow_id,mode,actor}
+ops:   eq ne in not_in lt lte gt gte exists not_exists is_true is_false
+```
+
+Four fail-closed rules, each with a regression case only it catches:
+
+| Rule | The failure it prevents |
+|---|---|
+| an absent path is `MISSING`, and compares **false under `eq` *and* `ne`** | a mistyped path silently opening one branch or the other. `exists` / `not_exists` is how absence is asked deliberately |
+| comparisons are **strictly numeric**, and a non-numeric declared value is refused at build | `'10' > 9` being true — a threshold gate opened by a string that came from a model |
+| `is_true` requires the boolean | a non-empty string opening a gate through truthiness |
+| paths do **not** walk the prototype chain | `input.__proto__` resolving to something the manifest author did not put there |
+
+**The graph check.** A condition reading `results.<step>` where that step runs
+*later*, or does not exist, can never be satisfied — the step would be silently
+skipped on every run. Refused when the manifest is built. A **conditional
+compensation** is refused outright: a rollback that depends on the state it is
+rolling back is how a run ends up half-undone.
+
+**The journal explains the branch.** `step.skipped` is a first-class event, not
+an absence — a history that simply omits the approval step cannot be told apart
+from one where the step was removed from the manifest, and *"why did this
+payment go out without an approval?"* is exactly what an audit has to answer. It
+carries the predicate digest and every comparison made, with the **declared**
+value (manifest data, already inside the manifest digest) and a **digest** of
+the actual value, never the actual value. That asymmetry is the two-store rule
+applied to conditions.
+
+A skipped step is *done* for the purposes of advancing but is deliberately not
+in `completed_steps`, so a compensator never rolls back something that never
+ran.
+
+**Loop progress.** Every non-returning iteration of the engine's forward loop
+must move exactly one step out of the remaining set. A violation throws — it is
+a wiring bug no manifest can cause and no operator can fix. It exists because
+perturbing the skipped-step bookkeeping turned a test failure into a *hang*: the
+loop re-picked the same step forever and only the run budget would eventually
+have stopped it, after an unbounded number of journal appends.
+
 ## ADR-0002 boundary — the architectural conflict, and how it was resolved
 
 `tools.mjs`, `context.mjs`, `sinks.mjs` and `service.mjs` each state that **no
@@ -375,6 +434,8 @@ session for the B5 queue).
 | an agent may never approve | `control-plane-tools.mjs` | behavioural refusal + a source lint forbidding a caller-supplied actor |
 | discovery discloses no other tenant | `control-plane-service.mjs` | perturbation on both the filter and the `tenant_scope` redaction |
 | a duplicate submission executes once | `control-plane-service.mjs` | the ledger still holds exactly one payment instruction after a resubmit |
+| a condition cannot open a gate by accident | `predicate.mjs` | perturbation on each of: absent-value, numeric strictness, `is_true` strictness, prototype-chain, closed roots, closed keys |
+| a skipped branch is explained, not merely absent | `journal.mjs` + `engine.mjs` | `step.skipped` carries the predicate digest and its comparisons; the actual value is asserted NOT to appear |
 
 ## Known limitations
 
@@ -384,10 +445,12 @@ session for the B5 queue).
    over an EXPIRED lease is read-decide-rename and is not. What closes that gap
    is the layer above — the monotonic fence and the journal's compare-and-set —
    and the file that implements it says so rather than implying otherwise.
-2. **Steps are sequential.** No fan-out, no conditional branching, no loops. The
-   manifest's `steps` is a list, not a graph. This is now the single largest
-   reusable gap: every future workflow that needs "if the invoice is under the
-   threshold, skip the approval step" has to express it as a separate workflow.
+2. **No fan-out and no loops.** Conditional execution exists (section 11); a
+   step may be skipped, but steps still run one at a time in declared order and
+   no step can run twice. Parallel steps interact with the run budget, the step
+   budget, idempotency and compensation ordering; arbitrary `next` edges admit
+   cycles that interact badly with both budgets. Deferred deliberately rather
+   than half-built.
 3. **The reference ledger is process-local.** A `resume` in a fresh process gets
    an empty ledger; what survives is the journal and the result store. Real.
 4. **`compensation_failed`, `journal_corrupted` and `manifest_invalid`** have no
