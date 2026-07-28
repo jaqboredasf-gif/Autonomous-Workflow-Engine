@@ -1376,6 +1376,12 @@ path with zero model/tool calls.
 - Full non-database regression: all green; 16 ran / 9 skipped.
 - Web production build: passed with non-secret build-only Supabase placeholders.
 - Mobile typecheck: passed.
+- Web ESLint: failed on 7 pre-existing app errors (six
+  `react-hooks/set-state-in-effect`, one
+  `@next/next/no-html-link-for-pages`). `git diff codex/memory-layer --
+  apps/web` is empty, so this subsystem branch did not introduce or change
+  them. The npm workspace layout also required the existing
+  `apps/web/node_modules` directory on `NODE_PATH` for the Next parser.
 - MCP TEST-mode smoke: passed; 10 tools.
 - CLI durable demonstration: passed; one fake effect; replay tools/models 0/0.
 - JavaScript syntax checks and `git diff --check`: passed.

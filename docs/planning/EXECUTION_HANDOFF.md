@@ -39,6 +39,11 @@ Verified on 2026-07-28:
 - Web production build: passed with non-secret build-only Supabase placeholders;
   compilation, TypeScript and all 15 prerendered/dynamic routes completed.
 - Mobile typecheck: passed.
+- Web ESLint: 7 pre-existing errors (six `react-hooks/set-state-in-effect`,
+  one `@next/next/no-html-link-for-pages`). The stacked diff contains no
+  `apps/web` change; these are recorded, not changed on this subsystem branch.
+  npm workspace hoisting required `apps/web/node_modules` on `NODE_PATH` for
+  the configured parser to resolve.
 - MCP TEST-mode smoke: passed with 10 tools.
 - Reference CLI: passed; Worker A paused, Worker B resumed, one fake external
   effect executed, and replay invoked zero tools and zero models.
