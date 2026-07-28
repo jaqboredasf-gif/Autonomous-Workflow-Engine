@@ -109,12 +109,13 @@ None created, edited, or applied. `supabase/` is untouched.
 
 ### publication status
 
-Implementation is verified but not yet staged, committed, pushed, or opened as
-a draft PR. `gh auth status` reports the active `jaqboredasf-gif` token is
-invalid. Per the repository publishing workflow, re-authenticate with
-`gh auth login -h github.com`, then continue on this same branch. The intended
-stacked PR base is `codex/live-mcp-data-boundary`, whose tip `cf37090` is the
-merge base, so the PR contains only the Agent Runtime subsystem.
+Published commit `f5e5c6e` (`feat: add bounded agent runtime`) on
+`codex/agent-runtime`. The branch is pushed and draft PR
+[#5](https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/pull/5)
+targets `codex/live-mcp-data-boundary`, whose tip `cf37090` is the merge base,
+so the review diff contains only the Agent Runtime subsystem. The connected
+GitHub app returned a repository 404 during PR creation; the authenticated
+`gh pr create` fallback succeeded.
 
 ### remaining technical debt
 
