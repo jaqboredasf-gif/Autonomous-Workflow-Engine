@@ -28,6 +28,7 @@ export const SUITE_KINDS = [
 ];
 
 const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
+const ENV_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 
 export function defineSuite({
   id,
@@ -38,6 +39,7 @@ export function defineSuite({
   requires = [],
   skipIfMissing = [],
   skipIfEnvMissing = false,
+  optInEnv = null,
   cooldownAfterSeconds = 0,
   echoOk = false,
   quietOnSuccess = false,
@@ -50,6 +52,11 @@ export function defineSuite({
   invariant(!command.includes('\t') && !command.includes('\n'), 'invalid_input', `suite '${id}' command must be a single line without tabs`, { id });
   invariant(Array.isArray(requires), 'invalid_input', `suite '${id}' requires must be an array`, { id });
   invariant(Array.isArray(skipIfMissing), 'invalid_input', `suite '${id}' skipIfMissing must be an array`, { id });
+  invariant(
+    optInEnv === null || (typeof optInEnv === 'string' && ENV_PATTERN.test(optInEnv)),
+    'invalid_input', `suite '${id}' optInEnv must be null or an uppercase environment variable name`,
+    { id, optInEnv },
+  );
   invariant(
     Number.isInteger(cooldownAfterSeconds) && cooldownAfterSeconds >= 0,
     'invalid_input', `suite '${id}' cooldownAfterSeconds must be a non-negative integer`, { id },
@@ -71,6 +78,7 @@ export function defineSuite({
     requires: Object.freeze([...requires]),
     skipIfMissing: Object.freeze([...skipIfMissing]),
     skipIfEnvMissing,
+    optInEnv,
     cooldownAfterSeconds,
     echoOk,
     quietOnSuccess,
@@ -131,6 +139,9 @@ export function planRegression(suites, {
     } else if (excluded.has(suite.kind)) {
       status = 'skipped';
       skipReason = `kind '${suite.kind}' excluded`;
+    } else if (suite.optInEnv !== null && env[suite.optInEnv] !== '1') {
+      status = 'skipped';
+      skipReason = `requires explicit opt-in: ${suite.optInEnv}=1`;
     } else if (missingFiles.length > 0) {
       status = 'skipped';
       skipReason = `missing file(s): ${missingFiles.join(', ')}`;

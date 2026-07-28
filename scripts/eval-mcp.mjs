@@ -41,7 +41,10 @@ import {
   createGateRun, createToolCatalog, memoryArtifactSink, memoryAuditSink, succeeded,
 } from '../packages/awe-kernel/src/index.mjs';
 import { createPlatformService } from '../packages/awe-runtime/src/index.mjs';
-import { assertDataPort, createFixtureDataPort } from '../packages/mcp-server/src/data-port.mjs';
+import {
+  DATA_PORT_METHODS, READ_DATA_PORT_METHODS, WRITE_DATA_PORT_METHODS,
+  assertDataPort, createFixtureDataPort,
+} from '../packages/mcp-server/src/data-port.mjs';
 import { FIXTURE_ORG_A, FIXTURE_ORG_B, FIXTURE_ROWS } from '../packages/mcp-server/src/fixtures.mjs';
 import { executeTool, toolContextProvider } from '../packages/mcp-server/src/runtime.mjs';
 import { MCP_BLOCKED_REASONS, resolveExecution, resolveMode, resolveTenant } from '../packages/mcp-server/src/tenant.mjs';
@@ -137,6 +140,11 @@ group('no implicit tenant selection — structural proof', () => {
 
 await groupAsync('data port — a tenant is never optional', async () => {
   assertDataPort(port, { at: 'runner-m' });
+  run.sameSet(
+    [...READ_DATA_PORT_METHODS, ...WRITE_DATA_PORT_METHODS],
+    DATA_PORT_METHODS,
+    'read/write classifications partition the complete data-port surface',
+  );
   const methods = [
     ['listTimeEntries', { from: '2026-07-01', to: '2026-07-31' }],
     ['listOpenTimeEntries', { since: '2026-07-01T00:00:00Z' }],
@@ -153,6 +161,22 @@ await groupAsync('data port — a tenant is never optional', async () => {
     let code = null;
     try { await port[method]({ ...args }); } catch (e) { code = e?.code ?? null; }
     equal(code, 'invalid_input', `${method}() refuses a call with no org_id`);
+  }
+
+  const reads = [
+    ['listTimeEntries', { from: '2026-07-01', to: '2026-07-31' }],
+    ['listOpenTimeEntries', { since: '2026-07-01T00:00:00Z' }],
+    ['listRecentPunches', { since: '2026-07-01T00:00:00Z' }],
+    ['listJobSites', { include_inactive: true }],
+    ['listEmployees', { include_inactive: true }],
+    ['listShifts', { from: '2026-07-01', to: '2026-08-31', include_cancelled: true }],
+    ['findShiftConflicts', { starts_at: '2026-07-28T11:00:00Z', ends_at: '2026-07-28T19:00:00Z' }],
+    ['listServiceAreas', {}],
+  ];
+  run.sameSet(reads.map(([method]) => method), READ_DATA_PORT_METHODS, 'the row contract probes every read method');
+  for (const [method, args] of reads) {
+    const rows = await port[method]({ org_id: FIXTURE_ORG_A, ...args });
+    check(rows.every((row) => row.org_id === FIXTURE_ORG_A), `${method} returns only tenant-labelled rows`);
   }
 });
 

@@ -31,10 +31,17 @@
 import { KernelError, invariant } from '../../awe-kernel/src/index.mjs';
 import { fixtureId } from './fixtures.mjs';
 
-export const DATA_PORT_METHODS = [
+export const READ_DATA_PORT_METHODS = [
   'listTimeEntries', 'listOpenTimeEntries', 'listRecentPunches',
   'listJobSites', 'listEmployees', 'listShifts', 'findShiftConflicts',
-  'createShift', 'listServiceAreas', 'createLead',
+  'listServiceAreas',
+];
+
+export const WRITE_DATA_PORT_METHODS = ['createShift', 'createLead'];
+
+export const DATA_PORT_METHODS = [
+  ...READ_DATA_PORT_METHODS,
+  ...WRITE_DATA_PORT_METHODS,
 ];
 
 // Columns the tools read. Kept here, once, so a schema change is one edit and
@@ -123,7 +130,7 @@ export function createSupabaseDataPort(client, { name = 'supabase' } = {}) {
     },
 
     async listRecentPunches({ org_id, since }) {
-      const q = await client.from('time_entries').select('user_id, in_lat, in_lng, clock_in')
+      const q = await client.from('time_entries').select('org_id, user_id, in_lat, in_lng, clock_in')
         .eq('org_id', requireOrg(org_id, 'listRecentPunches'))
         .not('in_lat', 'is', null)
         .gte('clock_in', since)
@@ -155,7 +162,7 @@ export function createSupabaseDataPort(client, { name = 'supabase' } = {}) {
     },
 
     async findShiftConflicts({ org_id, starts_at, ends_at }) {
-      const q = await client.from('shifts').select('user_id, starts_at, ends_at')
+      const q = await client.from('shifts').select('org_id, user_id, starts_at, ends_at')
         .eq('org_id', requireOrg(org_id, 'findShiftConflicts'))
         .neq('status', 'cancelled')
         .lt('starts_at', ends_at)
@@ -184,7 +191,7 @@ export function createSupabaseDataPort(client, { name = 'supabase' } = {}) {
     },
 
     async listServiceAreas({ org_id }) {
-      const q = await client.from('service_areas').select('kind, value, note')
+      const q = await client.from('service_areas').select('org_id, kind, value, note')
         .eq('org_id', requireOrg(org_id, 'listServiceAreas'));
       return unwrap(q, 'listServiceAreas');
     },
@@ -233,7 +240,13 @@ export function createFixtureDataPort({ rows = {}, name = 'fixture' } = {}) {
     async listRecentPunches({ org_id, since }) {
       return scoped('time_entries', org_id, 'listRecentPunches')
         .filter((r) => r.in_lat !== null && r.in_lat !== undefined && r.clock_in >= since)
-        .map((r) => ({ user_id: r.user_id, in_lat: r.in_lat, in_lng: r.in_lng, clock_in: r.clock_in }))
+        .map((r) => ({
+          org_id: r.org_id,
+          user_id: r.user_id,
+          in_lat: r.in_lat,
+          in_lng: r.in_lng,
+          clock_in: r.clock_in,
+        }))
         .sort((a, b) => (a.clock_in < b.clock_in ? 1 : -1));
     },
     async listJobSites({ org_id, include_inactive = false }) {
@@ -255,7 +268,12 @@ export function createFixtureDataPort({ rows = {}, name = 'fixture' } = {}) {
     async findShiftConflicts({ org_id, starts_at, ends_at }) {
       return scoped('shifts', org_id, 'findShiftConflicts')
         .filter((r) => r.status !== 'cancelled' && r.starts_at < ends_at && r.ends_at > starts_at)
-        .map((r) => ({ user_id: r.user_id, starts_at: r.starts_at, ends_at: r.ends_at }));
+        .map((r) => ({
+          org_id: r.org_id,
+          user_id: r.user_id,
+          starts_at: r.starts_at,
+          ends_at: r.ends_at,
+        }));
     },
     async createShift({ org_id, user_id, job_site_id, starts_at, ends_at, notes }) {
       requireOrg(org_id, 'createShift');

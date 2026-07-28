@@ -796,6 +796,8 @@ group('suite registry + regression plan', () => {
   run.throwsKernel(() => defineSuite({ id: 'Bad_Id', name: 'x', kind: 'unit', command: 'true' }), 'invalid_input', 'non-kebab id refused');
   run.throwsKernel(() => defineSuite({ id: 'x', name: 'x', kind: 'nope', command: 'true' }), 'invalid_input', 'unknown kind refused');
   run.throwsKernel(() => defineSuite({ id: 'x', name: 'x', kind: 'unit', command: 'a\tb' }), 'invalid_input', 'tab in a command refused (breaks the plan format)');
+  run.throwsKernel(() => defineSuite({ id: 'x', name: 'x', kind: 'db', command: 'true', optInEnv: 'bad-name' }),
+    'invalid_input', 'opt-in gate must name an uppercase environment variable');
   run.throwsKernel(() => createSuiteRegistry([
     { id: 'dup', name: 'a', kind: 'unit', command: 'true' },
     { id: 'dup', name: 'b', kind: 'unit', command: 'true' },
@@ -803,7 +805,16 @@ group('suite registry + regression plan', () => {
   run.throwsKernel(() => registry.get('does-not-exist'), 'unregistered_suite', 'unknown suite id refused');
 
   // Plan mechanics.
-  const fullPlan = registry.plan({ exists: () => true, env: { SUPABASE_ACCESS_TOKEN: 'x' } });
+  const fullPlan = registry.plan({
+    exists: () => true,
+    env: {
+      SUPABASE_ACCESS_TOKEN: 'x',
+      SUPABASE_URL: 'https://example.invalid',
+      SUPABASE_SERVICE_ROLE_KEY: 'x',
+      AWE_ORG_ID: 'org-1',
+      AWE_RUN_LIVE_MCP: '1',
+    },
+  });
   equal(fullPlan.length, SUITES.length, 'every suite appears in the plan');
   check(fullPlan.every((p) => p.status === 'run'), 'nothing is skipped when files and env are present');
   equal(fullPlan.map((p) => p.id), registry.ids(), 'plan preserves declaration order');
@@ -830,6 +841,17 @@ group('suite registry + regression plan', () => {
   const slice1 = noEnv.find((p) => p.id === 'acceptance-slice1');
   equal(slice1.status, 'run', 'a missing token does not silently skip a db suite');
   equal(slice1.missing_env, ['SUPABASE_ACCESS_TOKEN'], 'missing env is reported');
+  const liveMcp = noEnv.find((p) => p.id === 'eval-mcp-live');
+  equal(liveMcp.status, 'skipped', 'a LIVE proof is absent from the default regression path');
+  equal(liveMcp.skip_reason, 'requires explicit opt-in: AWE_RUN_LIVE_MCP=1',
+    'the LIVE proof names the exact opt-in needed');
+
+  const optedInWithoutCredentials = registry.plan({
+    exists: () => true,
+    env: { AWE_RUN_LIVE_MCP: '1' },
+  }).find((p) => p.id === 'eval-mcp-live');
+  equal(optedInWithoutCredentials.status, 'skipped', 'opt-in alone cannot run a credentialed proof');
+  check(optedInWithoutCredentials.skip_reason.includes('missing env'), 'missing LIVE credentials are reported after opt-in');
 
   run.deterministic(() => registry.plan({ exists: () => true }), 'plan is deterministic');
 });
