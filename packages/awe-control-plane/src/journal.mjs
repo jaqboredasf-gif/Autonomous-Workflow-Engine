@@ -65,7 +65,19 @@ export const TRANSITIONS = Object.freeze({
   'step.failed': { from: ['running'], to: 'running' },
   'approval.requested': { from: ['running'], to: 'awaiting_approval' },
   'workflow.paused': { from: ['awaiting_approval'], to: 'paused' },
+  // ONE principal's vote, and it deliberately moves nothing (`to: null`). A
+  // quorum above one means several people vote before the gate opens, and a
+  // state that flipped to `approved` on the first vote could not express "one
+  // of the two required approvals has been received" — the run would already be
+  // resumable. Separating the votes from the gate is what makes a quorum a gate
+  // rather than a label.
+  'approval.recorded': { from: ['paused', 'awaiting_approval'], to: null },
+  // The gate itself. Appended by the engine only once the quorum is satisfied,
+  // so its presence in a journal IS the proof that enough distinct people said
+  // yes — a reader does not have to count votes to know.
   'approval.granted': { from: ['paused', 'awaiting_approval'], to: 'approved' },
+  // One rejection closes the gate whatever has accumulated: an approval quorum
+  // is a floor on agreement, not a majority vote.
   'approval.denied': { from: ['paused', 'awaiting_approval'], to: 'rejected' },
   'workflow.resumed': { from: ['paused', 'approved'], to: 'running' },
   // `paused` and `awaiting_approval` are here because cancelling a run that is
@@ -285,6 +297,7 @@ export function projectRunState(entries, { genesis = null, run_id = null, verify
   const failed_steps = [];
   const executed_tools = [];
   const approvals = [];
+  const approval_votes = [];
   const compensations = [];
   const timeline = [];
   let pending_approval = null;
@@ -343,16 +356,48 @@ export function projectRunState(entries, { genesis = null, run_id = null, verify
           org_id: event.org_id,
           approver_roles: p.approver_roles ?? [],
           quorum: p.quorum ?? 1,
+          // The accumulator. `votes` is what makes "one person may not satisfy a
+          // quorum of two" checkable by the approval rules without those rules
+          // needing to re-read the journal themselves.
+          votes: [],
+          outstanding: p.quorum ?? 1,
           requested_at: event.occurred_at,
           reason: p.reason ?? null,
         };
         break;
+      case 'approval.recorded': {
+        const vote = {
+          approval_id: p.approval_id ?? null,
+          decision: p.decision ?? null,
+          principal: p.principal ?? null,
+          roles: p.roles ?? [],
+          note: p.note ?? null,
+          recorded_at: event.occurred_at,
+          seq: entry.seq,
+        };
+        approval_votes.push(vote);
+        if (pending_approval !== null) {
+          pending_approval.votes = [...pending_approval.votes, vote];
+          const yes = pending_approval.votes.filter((v) => v.decision === 'approve').length;
+          pending_approval.outstanding = Math.max(0, pending_approval.quorum - yes);
+        }
+        break;
+      }
       case 'approval.granted':
-      case 'approval.denied':
+      case 'approval.denied': {
+        const forThis = approval_votes.filter((v) => v.approval_id === (p.approval_id ?? null));
         approvals.push({
           approval_id: p.approval_id ?? null,
           decision: event.event_type === 'approval.granted' ? 'approve' : 'reject',
+          // The principal who CLOSED the gate. `principals` is who satisfied it
+          // — for a quorum of one those are the same person, and a report that
+          // showed only the last name for a quorum of three would understate
+          // who is accountable.
           principal: p.principal ?? null,
+          principals: forThis
+            .filter((v) => v.decision === (event.event_type === 'approval.granted' ? 'approve' : 'reject'))
+            .map((v) => v.principal),
+          quorum: p.quorum ?? 1,
           roles: p.roles ?? [],
           note: p.note ?? null,
           decided_at: event.occurred_at,
@@ -360,6 +405,7 @@ export function projectRunState(entries, { genesis = null, run_id = null, verify
         });
         pending_approval = null;
         break;
+      }
       case 'compensation.requested':
         compensations.push({ step_id: p.step_id ?? null, compensates: p.compensates ?? null, status: 'requested', seq: entry.seq });
         break;
@@ -402,6 +448,7 @@ export function projectRunState(entries, { genesis = null, run_id = null, verify
     failed_steps,
     executed_tools,
     approvals,
+    approval_votes,
     pending_approval,
     compensations,
     failure,

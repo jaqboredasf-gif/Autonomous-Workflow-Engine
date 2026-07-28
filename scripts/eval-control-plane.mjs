@@ -48,13 +48,15 @@ import {
 import {
   ADVANCE_OUTCOMES, CONTROL_PLANE_BLOCKED_REASONS, POLICY_DECISIONS, PROMOTION_STATES,
   RESOLUTION_REASONS, RISK_CLASSES, RUN_EVENT_TYPES, RUN_STATES, TERMINAL_STATES, TRANSITIONS,
-  createPolicyEngine, createRunEngine, createRunJournal, createToolDispatcher,
-  createWorkflowRegistry, defineToolGrant, defineWorkflowManifest, evaluateApprovalDecision,
-  loadRunJournal, projectRunState, satisfiesVersion, validateContextRequirements, verifyChain,
+  assertRunLease, createPolicyEngine, createRunEngine, createRunJournal, createToolDispatcher,
+  createWorkflowRegistry, defineRunLease, defineToolGrant, defineWorkflowManifest,
+  evaluateApprovalDecision, evaluateClaim, evaluateHold, evaluateRelease, isExpired,
+  loadRunJournal, projectRunState, remainingMs, satisfiesVersion, validateContextRequirements,
+  verifyChain,
 } from '../packages/awe-control-plane/src/index.mjs';
 import {
-  createControlPlaneService, createMemoryJournalStore, createMemoryResultStore,
-  createSteppingClock,
+  createControlPlaneService, createMemoryJournalStore, createMemoryLeaseStore,
+  createMemoryResultStore, createSteppingClock,
 } from '../packages/awe-runtime/src/index.mjs';
 import {
   OTHER_ORG, REFERENCE_ORG, createSyntheticLedger, invoiceIntakeManifest,
@@ -1254,6 +1256,334 @@ await groupAsync('service — pause and resume across a COLD store', async () =>
 // 7. LAYERING AND PURITY
 // =============================================================================
 
+// =============================================================================
+// 6a. APPROVAL QUORUM — a gate several people have to open
+// =============================================================================
+
+group('quorum — the manifest rule counts people, not roles', () => {
+  const spec = {
+    workflow_id: 'w', version: '1.0.0', description: 'd', risk: 'low',
+    tenant_scope: { mode: 'allow_list', org_ids: ['o'] },
+    required_tools: [{ name: 't', version: '1.0.0' }],
+    steps: [{ id: 's', tool: 't' }],
+  };
+  const two_owners = defineWorkflowManifest({
+    ...spec,
+    approval_policy: { requires_approval_at_or_above: 'external', approver_roles: ['owner'], quorum: 2 },
+  });
+  equal(two_owners.approval_policy.quorum, 2, '"two owners must both sign off" is expressible with ONE named role');
+  run.throwsKernel(
+    () => defineWorkflowManifest({ ...spec, approval_policy: { quorum: 2 } }),
+    'invalid_input', 'a quorum above one with no eligible approver role is refused',
+  );
+  run.throwsKernel(
+    () => defineWorkflowManifest({ ...spec, approval_policy: { approver_roles: ['owner'], quorum: 0 } }),
+    'invalid_input', 'a quorum of zero is refused',
+  );
+});
+
+await groupAsync('quorum — one approval is not enough, and one person is not two', async () => {
+  const manifest = invoiceIntakeManifest({ approval_quorum: 2 });
+  const { service, ledger } = compose({ manifest });
+  const started = await startReference(service);
+  equal(started.state, 'paused', 'the run paused at the consequential step');
+  equal(started.pending_approval.quorum, 2, 'the pending approval states the quorum it needs');
+  equal(started.pending_approval.outstanding, 2, 'and that nothing has been recorded yet');
+
+  const first = await service.decideApproval({
+    run_id: started.run_id, org_id: REFERENCE_ORG, decision: 'approve',
+    actor: 'human', principal: 'jack', principal_roles: ['owner'], note: 'PO matches',
+  });
+  equal(first.ok, true, 'the first approver is accepted');
+  equal(first.quorum_satisfied, false, 'but the quorum is NOT satisfied');
+  equal(first.outstanding, 1, 'and one approval is still outstanding');
+  equal(first.state, 'paused', 'so the run is still paused, not approved');
+
+  // THE case the whole mechanism exists for.
+  const again = await service.decideApproval({
+    run_id: started.run_id, org_id: REFERENCE_ORG, decision: 'approve',
+    actor: 'human', principal: 'jack', principal_roles: ['owner'], note: 'still me',
+  });
+  equal(again.ok, false, 'the same person voting twice is refused');
+  equal(again.reason, 'approval_duplicate_principal', 'with a reason that names why — a quorum counts distinct people');
+
+  // A resume between the two approvals must NOT execute anything.
+  const early = await service.resumeRun({ run_id: started.run_id, org_id: REFERENCE_ORG });
+  equal(early.advance, 'paused', 'resuming a partially-approved run advances nothing');
+  equal(early.blocked_reason, 'approval_required', 'and says it is still waiting for a human');
+  equal(ledger.instructions().length, 0, 'NO PAYMENT INSTRUCTION — one of two approvals does not open the gate');
+
+  const second = await service.decideApproval({
+    run_id: started.run_id, org_id: REFERENCE_ORG, decision: 'approve',
+    actor: 'human', principal: 'dana', principal_roles: ['accountant'], note: 'second pair of eyes',
+  });
+  equal(second.ok, true, 'a DIFFERENT eligible person approves');
+  equal(second.quorum_satisfied, true, 'which satisfies the quorum');
+  equal(second.outstanding, 0, 'with nothing outstanding');
+  equal(second.principals, ['jack', 'dana'], 'and both approvers are named — not just the last one');
+  equal(second.state, 'running', 'only now is the run runnable again');
+
+  const resumed = await service.resumeRun({ run_id: started.run_id, org_id: REFERENCE_ORG });
+  equal(resumed.advance, 'completed', 'the resumed run completes');
+  equal(ledger.instructions().length, 1, 'and the payment instruction is issued exactly once');
+
+  const rebuilt = service.getRun({ run_id: started.run_id, org_id: REFERENCE_ORG });
+  equal(rebuilt.approval_votes.map((v) => v.principal), ['jack', 'dana'], 'every vote is in the append-only history');
+  equal(
+    rebuilt.approvals[0].principals, ['jack', 'dana'],
+    'and the granted gate records who satisfied it, so accountability survives the run',
+  );
+  const types = rebuilt.timeline.map((t) => t.event_type);
+  equal(
+    types.filter((t) => t === 'approval.recorded').length, 2,
+    'two votes are recorded as two separate events',
+  );
+  equal(
+    types.filter((t) => t === 'approval.granted').length, 1,
+    'and the gate opened once — the votes and the gate are not the same event',
+  );
+  run.record('run_event_type', types);
+});
+
+await groupAsync('quorum — one denial overrides accumulated approvals', async () => {
+  const manifest = invoiceIntakeManifest({ approval_quorum: 3 });
+  const { service, ledger } = compose({ manifest });
+  const started = await startReference(service);
+
+  for (const [principal, role] of [['jack', 'owner'], ['dana', 'accountant']]) {
+    const vote = await service.decideApproval({
+      run_id: started.run_id, org_id: REFERENCE_ORG, decision: 'approve',
+      actor: 'human', principal, principal_roles: [role],
+    });
+    equal(vote.ok, true, `${principal} approves`);
+    equal(vote.quorum_satisfied, false, `and the run is still short of its quorum after ${principal}`);
+  }
+
+  const veto = await service.decideApproval({
+    run_id: started.run_id, org_id: REFERENCE_ORG, decision: 'reject',
+    actor: 'human', principal: 'sam', principal_roles: ['owner'], note: 'supplier bank details changed',
+  });
+  equal(veto.ok, true, 'the third approver rejects');
+  equal(veto.state, 'rejected', 'and TWO standing approvals do not out-vote one refusal');
+
+  const resumed = await service.resumeRun({ run_id: started.run_id, org_id: REFERENCE_ORG });
+  equal(resumed.advance, 'failed', 'continuing a rejected run rolls it back rather than executing');
+  equal(resumed.blocked_reason, 'approval_rejected', 'with the denial as the reason');
+  equal(ledger.instructions().length, 0, 'no payment instruction was ever issued');
+  equal(ledger.drafts()[0].status, 'void', 'and the internal draft was compensated');
+});
+
+// =============================================================================
+// 6b. ONE RUN, ONE WRITER — the lease, its expiry and its fence
+// =============================================================================
+
+group('run lease — the pure claim rules', () => {
+  const RUN = 'run_alpha';
+  const T0 = '2026-07-28T09:00:00.000Z';
+  const T30 = '2026-07-28T09:00:30.000Z';
+  const T60 = '2026-07-28T09:01:00.000Z';
+  const T90 = '2026-07-28T09:01:30.000Z';
+  const claim = (over = {}) => evaluateClaim({
+    run_id: RUN, org_id: REFERENCE_ORG, holder: 'worker_a', now: T0, expires_at: T60, ...over,
+  });
+
+  const first = claim();
+  equal(first.ok, true, 'an unheld run is claimable');
+  equal(first.mode, 'acquired', 'and the claim is an acquisition');
+  equal(first.lease.fence, 1, 'the first fence is 1');
+  equal(first.lease.org_id, REFERENCE_ORG, 'the lease carries the tenant it was taken for');
+
+  const contended = claim({ current: first.lease, holder: 'worker_b', now: T30, expires_at: T90 });
+  equal(contended.ok, false, 'a SECOND worker is refused while the lease is live');
+  equal(contended.reason, 'run_lease_held', 'with the registered reason');
+  equal(contended.held_by, 'worker_a', 'and is told who holds it, so it can log something useful');
+
+  const renewed = claim({ current: first.lease, holder: 'worker_a', now: T30, expires_at: T90 });
+  equal(renewed.ok, true, 'the holder may renew');
+  equal(renewed.mode, 'renewed', 'which is a renewal, not a re-acquisition');
+  equal(renewed.lease.fence, 1, 'and a renewal does NOT move the fence — nothing downstream is invalidated');
+
+  const stolen = claim({ current: first.lease, holder: 'worker_b', now: T60, expires_at: T90 });
+  equal(stolen.ok, true, 'once expired, another worker may take the run — a crashed worker cannot strand it');
+  equal(stolen.mode, 'stolen', 'and the takeover is visible as such');
+  equal(stolen.lease.fence, 2, 'taking over ALWAYS bumps the fence');
+  equal(stolen.previous_holder, 'worker_a', 'naming who lapsed');
+
+  const selfSteal = claim({ current: first.lease, holder: 'worker_a', now: T60, expires_at: T90 });
+  equal(
+    selfSteal.lease.fence, 2,
+    'even the ORIGINAL holder gets a new fence after expiry — it cannot know what happened in the gap',
+  );
+
+  equal(isExpired(first.lease, T60), true, 'a lease is expired AT its deadline, so two holders never overlap');
+  equal(isExpired(first.lease, '2026-07-28T09:00:59.999Z'), false, 'and live one millisecond before it');
+  equal(remainingMs(first.lease, T30), 30_000, 'remaining time is reported for a heartbeat to act on');
+
+  // Commit-time holds. `evaluateHold` has three independent checks and they are
+  // easy to make vacuous: a stolen lease has BOTH a new holder and a new fence,
+  // so a single case testing it proves only that one of the two fired. Each
+  // check below therefore has a case that ONLY it can catch.
+  equal(evaluateHold({ current: first.lease, run_id: RUN, holder: 'worker_a', fence: 1, now: T30 }).ok, true, 'the holder may commit');
+  const rival = evaluateClaim({ run_id: RUN, org_id: REFERENCE_ORG, holder: 'worker_b', now: T0, expires_at: T60 });
+  equal(
+    evaluateHold({ current: rival.lease, run_id: RUN, holder: 'worker_a', fence: null, now: T30 }).reason,
+    'run_lease_lost',
+    'HOLDER only: a caller that tracks no fence is still refused when someone else holds the run',
+  );
+  equal(
+    evaluateHold({ current: selfSteal.lease, run_id: RUN, holder: 'worker_a', fence: 1, now: T60 }).reason,
+    'run_lease_lost',
+    'FENCE only: the same holder, live lease, stale fence — a suspended copy of worker_a may not commit',
+  );
+  equal(
+    evaluateHold({ current: stolen.lease, run_id: RUN, holder: 'worker_a', fence: 1, now: T60 }).reason,
+    'run_lease_lost', 'a worker whose run was taken may NOT commit',
+  );
+  equal(
+    evaluateHold({ current: first.lease, run_id: RUN, holder: 'worker_a', fence: 1, now: T90 }).reason,
+    'run_lease_lost', 'and neither may one whose lease simply expired under it',
+  );
+  equal(
+    evaluateHold({ current: null, run_id: RUN, holder: 'worker_a', fence: 1, now: T0 }).reason,
+    'run_lease_lost', 'committing against a run that holds no lease at all is refused',
+  );
+  equal(
+    evaluateRelease({ current: stolen.lease, run_id: RUN, holder: 'worker_a' }).reason,
+    'run_lease_lost', 'and a lapsed worker may not release its successor\'s lease on the way out',
+  );
+
+  // Fail-closed construction.
+  run.throwsKernel(() => defineRunLease({ run_id: RUN, holder: 'w', fence: 0, acquired_at: T0, expires_at: T60 }), 'invalid_input', 'a fence below 1 is refused');
+  run.throwsKernel(() => defineRunLease({ run_id: RUN, holder: 'w', fence: 1, acquired_at: T60, expires_at: T0 }), 'invalid_input', 'a lease that expires before it starts grants nothing');
+  run.throwsKernel(() => claim({ expires_at: T0 }), 'invalid_input', 'a zero-length claim is refused');
+  run.throwsKernel(
+    () => claim({ current: first.lease, run_id: 'run_beta' }),
+    'contract_violation', 'a lease evaluated against the wrong run is a WIRING BUG, not a contended claim',
+  );
+  run.throwsKernel(
+    () => claim({ current: first.lease, org_id: OTHER_ORG }),
+    'contract_violation', 'and so is one evaluated against the wrong tenant',
+  );
+  run.throwsKernel(
+    () => assertRunLease({ ...first.lease, holder: 'mallory' }),
+    'contract_violation', 'an edited lease record is refused — a lease is evidence about who could write',
+  );
+  run.deterministic(() => claim().lease, 'lease construction is deterministic');
+});
+
+await groupAsync('single writer — a contended resume, a lapsed lease and a stale commit', async () => {
+  // Two SERVICES over one shared pair of stores is the honest model of two
+  // workers: they share the durable state and share no memory.
+  const ledger = createSyntheticLedger();
+  const clock = createSteppingClock({ start: '2026-07-28T09:00:00.000Z', tick_ms: 10 });
+  const journals = createMemoryJournalStore();
+  const results = createMemoryResultStore();
+  const leases = createMemoryLeaseStore({ ttl_ms: 30_000 });
+  const worker = (holder) => createControlPlaneService({
+    manifests: [invoiceIntakeManifest(), tenantPolicyManifest()],
+    tools: referenceTools({ ledger, failures: {}, advance: clock.advance }),
+    grants: referenceGrants(),
+    validators: referenceValidators(),
+    journals, results, leases, holder, lease_ttl_ms: 30_000,
+    artifacts: memoryArtifactSink(), audit: memoryAuditSink(), clock,
+  });
+  fixtures += 1;
+
+  const a = worker('worker_a');
+  const b = worker('worker_b');
+
+  check(a.holder === 'worker_a' && b.holder === 'worker_b', 'two workers with distinct identities share one journal store');
+  let refusedHolder = null;
+  try {
+    createControlPlaneService({ manifests: [], journals, leases });
+  } catch (e) { refusedHolder = String(e.message); }
+  check(
+    refusedHolder !== null && refusedHolder.includes('holder'),
+    'a service given a real lease store but NO worker identity is refused — two processes sharing a holder name would both proceed',
+  );
+
+  const started = await a.startRun({
+    workflow_id: 'invoice_intake_approval', version: '^1.2.0', org_id: REFERENCE_ORG,
+    context_items: referenceContextItems({ org_id: REFERENCE_ORG }),
+  });
+  equal(started.state, 'paused', 'worker_a starts the run and it pauses for a human');
+  equal(leases.list(), [], 'and worker_a RELEASED the lease when it stopped — a paused run is not a held run');
+
+  await a.decideApproval({
+    run_id: started.run_id, org_id: REFERENCE_ORG, decision: 'approve',
+    actor: 'human', principal: 'jack', principal_roles: ['owner'],
+  });
+
+  // --- the contended resume. `b` takes the run and never gives it back, which
+  // is what a worker mid-step looks like from the outside.
+  const held = leases.acquire({
+    run_id: started.run_id, org_id: REFERENCE_ORG, holder: 'worker_b', now: clock.peek(), ttl_ms: 30_000,
+  });
+  equal(held.ok, true, 'worker_b claims the run');
+
+  const blockedResume = await a.resumeRun({ run_id: started.run_id, org_id: REFERENCE_ORG });
+  equal(blockedResume.ok, false, 'worker_a\'s concurrent resume is REFUSED');
+  equal(blockedResume.reason, 'run_lease_held', 'with the registered reason');
+  equal(blockedResume.held_by, 'worker_b', 'naming the holder');
+  equal(ledger.instructions().length, 0, 'and NOTHING executed — this is the double-payment that used to be possible');
+
+  // --- expiry: worker_b dies. The run must not be stranded.
+  clock.advance(31_000);
+  const swept = a.expireLeases();
+  equal(swept.map((s) => s.run_id), [started.run_id], 'the janitor reports the abandoned run');
+  equal(swept[0].holder, 'worker_b', 'and who abandoned it');
+  equal(
+    leases.list(), [started.run_id],
+    'and does NOT delete the record — deleting it would restart the fence at 1 and re-validate the suspended worker',
+  );
+
+  const recovered = await a.resumeRun({ run_id: started.run_id, org_id: REFERENCE_ORG });
+  equal(recovered.ok, true, 'worker_a can now recover the run');
+  equal(recovered.advance, 'completed', 'and it completes');
+  equal(recovered.lease_fence, 2, 'under a NEW fence, because the lease was taken over');
+  equal(ledger.instructions().length, 1, 'the payment instruction is issued exactly once across both workers');
+  equal(leases.list(), [], 'and the lease is released at the end');
+});
+
+await groupAsync('single writer — a zombie worker\'s commit is refused, not applied', async () => {
+  // The case a lease alone cannot catch: worker_a is not racing worker_b, it is
+  // SUSPENDED. Its lease lapses, worker_b finishes the run, and then worker_a
+  // wakes up still believing it holds the run and tries to commit.
+  const { journals, run_id } = await (async () => {
+    const { service, journals: store } = compose();
+    const started = await startReference(service);
+    await service.decideApproval({
+      run_id: started.run_id, org_id: REFERENCE_ORG, decision: 'approve',
+      actor: 'human', principal: 'jack', principal_roles: ['owner'],
+    });
+    await service.resumeRun({ run_id: started.run_id, org_id: REFERENCE_ORG });
+    return { journals: store, run_id: started.run_id };
+  })();
+
+  const current = journals.read(run_id);
+  check(current !== null, 'the completed run is stored');
+
+  // A stale writer holds a document whose head is one entry behind.
+  const stale = {
+    ...current,
+    entries: current.entries.slice(0, -1),
+    entry_count: current.entries.length - 1,
+    head: current.entries[current.entries.length - 2].entry_digest,
+  };
+  const conflict = journals.write(stale, { expected_head: stale.head });
+  equal(conflict.ok, false, 'a compare-and-set against a head the run has moved past is REFUSED');
+  equal(conflict.reason, 'journal_write_conflict', 'with the registered reason');
+  equal(conflict.conflict.actual, current.head, 'and reports the head the run is actually at');
+
+  const create = journals.write(current, { expected_head: null });
+  equal(create.ok, false, 'and a writer that expected to CREATE the run finds it already exists');
+  equal(create.reason, 'journal_write_conflict', 'refused by the same check');
+
+  const ok = journals.write(current, { expected_head: current.head });
+  equal(ok.ok, true, 'a writer at the current head commits normally');
+  equal(journals.write(current).ok, true, 'and a caller that passes no expectation is unaffected');
+});
+
 group('control-plane layering lint', () => {
   const FORBIDDEN = [
     { name: 'network (fetch)', pattern: /\bfetch\s*\(/, message: 'the control plane must never reach the network' },
@@ -1344,7 +1674,9 @@ group('vocabulary coverage', () => {
     'tool_lifecycle_ineligible', 'tool_not_authorized', 'tenant_binding_required',
     'tool_input_invalid', 'tool_output_invalid', 'idempotency_conflict', 'approval_required',
     'approval_rejected', 'approval_actor_invalid', 'approver_role_not_permitted',
-    'approval_tenant_mismatch', 'approval_unknown', 'step_timeout', 'run_timeout',
+    'approval_tenant_mismatch', 'approval_unknown', 'approval_duplicate_principal',
+    'run_lease_held', 'run_lease_lost', 'journal_write_conflict',
+    'step_timeout', 'run_timeout',
     'run_cancelled', 'step_failed', 'live_mode_unratified',
   ];
   run.record('blocked_reason', demonstrated);

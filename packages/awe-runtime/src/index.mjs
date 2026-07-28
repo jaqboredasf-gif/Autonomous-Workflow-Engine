@@ -50,4 +50,10 @@ export {
   createMemoryResultStore,
 } from './result-store.mjs';
 
-export { createFixedClock, createSteppingClock } from './clock.mjs';
+export {
+  DEFAULT_LEASE_TTL_MS,
+  createFileLeaseStore,
+  createMemoryLeaseStore,
+} from './lease-store.mjs';
+
+export { createFixedClock, createSteppingClock, instantPlus } from './clock.mjs';

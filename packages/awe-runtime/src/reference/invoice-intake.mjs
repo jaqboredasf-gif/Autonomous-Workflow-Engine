@@ -458,6 +458,7 @@ export function invoiceIntakeManifest({
   tool_versions = {},
   dependencies = [{ workflow_id: 'tenant_payment_policy', version: '^1.0.0' }],
   approval_threshold = 'external',
+  approval_quorum = 1,
   risk = 'high',
   limits = {},
   extra_steps = [],
@@ -487,7 +488,10 @@ export function invoiceIntakeManifest({
     approval_policy: {
       requires_approval_at_or_above: approval_threshold,
       approver_roles: ['accountant', 'owner'],
-      quorum: 1,
+      // Overridable so the suite can exercise a real multi-party gate. A quorum
+      // counts distinct PEOPLE, not roles: `quorum: 2` here means two named
+      // humans, and both of them may hold `owner`.
+      quorum: approval_quorum,
     },
     limits: { step_timeout_ms: 5000, run_timeout_ms: 120_000, max_attempts: 2, retry_backoff_ms: 100, ...limits },
     dependencies,

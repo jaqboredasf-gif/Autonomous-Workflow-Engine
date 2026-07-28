@@ -236,9 +236,15 @@ function buildApprovalPolicy(policy, workflow_id, risk) {
   ));
   const quorum = source.quorum ?? 1;
   assertPositiveInt(quorum, `workflow '${workflow_id}' approval quorum`);
+  // A quorum counts distinct PEOPLE, not roles — "two owners must both sign
+  // off" is the ordinary case, and an earlier rule requiring one named role per
+  // unit of quorum made exactly that configuration unexpressible while
+  // permitting `quorum: 1` with no role at all. What the rule must actually
+  // prevent is an unattributable multi-party gate: if more than one person has
+  // to agree, the manifest has to say who is eligible to be one of them.
   invariant(
-    quorum <= Math.max(approver_roles.length, 1),
-    'invalid_input', `workflow '${workflow_id}' needs a quorum of ${quorum} but names ${approver_roles.length} approver role(s)`,
+    quorum === 1 || approver_roles.length > 0,
+    'invalid_input', `workflow '${workflow_id}' requires a quorum of ${quorum} but names no approver role, so no principal is eligible to satisfy it`,
     { workflow_id, quorum, roles: approver_roles.length },
   );
 

@@ -286,7 +286,7 @@ export function compactContext(bundle, {
     const groups = new Map();
     for (const item of items) {
       if (!summarize_kinds.includes(item.kind)) continue;
-      const key = `${item.source} ${item.kind}`;
+      const key = `${item.source}\u0000${item.kind}`;
       groups.set(key, [...(groups.get(key) ?? []), item]);
     }
 

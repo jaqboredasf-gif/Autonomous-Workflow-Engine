@@ -62,3 +62,9 @@ export {
 } from './dispatch.mjs';
 
 export { ADVANCE_OUTCOMES, createRunEngine, isRetryable } from './engine.mjs';
+
+export {
+  CLAIM_MODES, RUN_LEASE_SCHEMA,
+  assertRunLease, defineRunLease, evaluateClaim, evaluateHold, evaluateRelease,
+  isExpired, remainingMs,
+} from './lease.mjs';

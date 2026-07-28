@@ -516,6 +516,14 @@ export function createRunEngine({ registry, dispatcher, policy, clock = null } =
    * Records a human decision on a paused run. It does NOT continue the run —
    * `advanceRun` does — so "who decided" and "what happened next" stay two
    * separate, separately auditable calls.
+   *
+   * QUORUM. Every submission appends `approval.recorded` — one vote, no state
+   * change. The gate (`approval.granted`) is appended only when the manifest's
+   * quorum of DISTINCT principals has approved, so a run with `quorum: 2` and
+   * one approval is still paused and still refuses to advance. A single
+   * rejection appends `approval.denied` immediately and terminates the gate
+   * whatever has accumulated: a quorum is a floor on agreement, not a tally to
+   * be out-voted.
    */
   function submitApproval({
     journal, manifest, decision: verb, actor = 'human', principal = null,
@@ -553,17 +561,53 @@ export function createRunEngine({ registry, dispatcher, policy, clock = null } =
     }
 
     const roles = [...(principal_roles ?? [])].sort();
+    const quorum = pending.quorum ?? 1;
+    const votePayload = {
+      approval_id: pending.approval_id,
+      step_id: pending.step_id,
+      tool: pending.tool,
+      decision: verb,
+      principal,
+      roles,
+      note,
+      quorum,
+    };
+
+    // The vote is always recorded, even the one that closes the gate. A journal
+    // where the deciding vote were implicit in `approval.granted` would make
+    // "who was the third approver" a matter of inference.
+    journal.append({ event_type: 'approval.recorded', occurred_at: now(), payload: votePayload });
+
+    // Re-projected rather than counted here: the journal is the authority on
+    // how many distinct approvals are in force, and a second counter in the
+    // engine could disagree with it.
+    const accumulated = journal.state().pending_approval;
+    const outstanding = verb === 'approve' ? (accumulated?.outstanding ?? 0) : 0;
+    const satisfied = verb === 'reject' || outstanding === 0;
+
+    if (!satisfied) {
+      return deepFreeze({
+        ok: true,
+        reason: null,
+        detail: `approval recorded; ${outstanding} of ${quorum} still outstanding`,
+        decision: verb,
+        approval_id: pending.approval_id,
+        step_id: pending.step_id,
+        quorum,
+        outstanding,
+        quorum_satisfied: false,
+        principals: (accumulated?.votes ?? []).filter((v) => v.decision === 'approve').map((v) => v.principal),
+        state: journal.state(),
+      });
+    }
+
+    const principals = (accumulated?.votes ?? [])
+      .filter((v) => v.decision === verb)
+      .map((v) => v.principal);
     journal.append({
       event_type: verb === 'approve' ? 'approval.granted' : 'approval.denied',
       occurred_at: now(),
-      payload: {
-        approval_id: pending.approval_id,
-        step_id: pending.step_id,
-        tool: pending.tool,
-        principal,
-        roles,
-        note,
-      },
+      payload: { ...votePayload, principals },
     });
 
     if (verb === 'approve') {
@@ -581,6 +625,10 @@ export function createRunEngine({ registry, dispatcher, policy, clock = null } =
       decision: verb,
       approval_id: pending.approval_id,
       step_id: pending.step_id,
+      quorum,
+      outstanding: 0,
+      quorum_satisfied: true,
+      principals,
       state: journal.state(),
     });
   }

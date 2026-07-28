@@ -22,6 +22,27 @@
 // journal's own job (`loadRunJournal` re-checks the document digest and the
 // entire hash chain), and a store that also verified would give two answers to
 // one question.
+//
+// WHAT THE STORE *DOES* CHECK is concurrency: `write(document, { expected_head })`
+// is a compare-and-set on the journal's chain head.
+//
+//   expected_head: undefined  — no check (a caller that has not opted in)
+//   expected_head: null       — the run must NOT already be stored
+//   expected_head: '<digest>' — the stored run's head must be exactly this
+//
+// This is the second half of the single-writer guarantee. The run lease
+// (`lease-store.mjs`) stops two workers starting on the same run; the head
+// check stops a worker whose lease lapsed mid-run from committing on top of its
+// successor. Neither alone is sufficient: a lease can expire while its holder
+// is still alive, and a head check alone would let both workers execute the
+// side effects and only then discover one of them was wasted — which, for a
+// step that issued a payment instruction, is far too late.
+//
+// The file store's check is read-compare-rename, so a sufficiently unlucky pair
+// of writers can still interleave inside the window. It is stated here rather
+// than glossed: the durable, genuinely atomic version is a conditional UPDATE
+// in the table this store's successor becomes (ADR-0002), and the lease is what
+// makes the window unreachable in normal operation.
 // ---------------------------------------------------------------------------
 
 import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
@@ -50,12 +71,35 @@ function fileName(run_id) {
   return `${run_id.replace(/:/g, '_')}.json`;
 }
 
+/**
+ * The compare-and-set decision, shared by both stores so the rule is written
+ * once. Returns null when the write may proceed, or the refusal to return.
+ */
+function headConflict({ stored, expected_head, run_id }) {
+  if (expected_head === undefined) return null;
+  const actual = stored === null || stored === undefined ? null : stored.head ?? null;
+  if (actual === expected_head) return null;
+  return {
+    ok: false,
+    ref: null,
+    reason: 'journal_write_conflict',
+    error: expected_head === null
+      ? `run '${run_id}' is already stored; this writer expected to create it`
+      : `run '${run_id}' has moved on — expected head ${expected_head}, stored head ${actual}`,
+    conflict: { expected: expected_head, actual },
+  };
+}
+
 export function createMemoryJournalStore() {
   const documents = new Map();
   return Object.freeze({
     kind: 'journal_store',
     name: 'memory',
-    write(document) {
+    write(document, { expected_head } = {}) {
+      const conflict = headConflict({
+        stored: documents.get(document.run_id) ?? null, expected_head, run_id: document.run_id,
+      });
+      if (conflict !== null) return conflict;
       documents.set(document.run_id, JSON.parse(canonicalJson(document)));
       return { ok: true, ref: document.run_id, error: null };
     },
@@ -73,8 +117,12 @@ export function createFileJournalStore({ root = DEFAULT_JOURNAL_ROOT } = {}) {
     kind: 'journal_store',
     name: 'local_file',
     root: directory,
-    write(document) {
+    write(document, { expected_head } = {}) {
       try {
+        const conflict = headConflict({
+          stored: this.read(document.run_id), expected_head, run_id: document.run_id,
+        });
+        if (conflict !== null) return conflict;
         const target = containedPath(directory, fileName(document.run_id));
         mkdirSync(dirname(target), { recursive: true });
         const temp = `${target}.tmp`;

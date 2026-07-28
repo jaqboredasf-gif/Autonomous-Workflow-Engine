@@ -25,19 +25,29 @@
 // here at the point where it matters most: a resume is a privileged operation
 // on someone else's run.
 //
+// ONE RUN, ONE WRITER. Every operation that MUTATES a run — start, decide,
+// resume, cancel — takes a run lease first and commits under a compare-and-set
+// on the journal's chain head. Without it, two workers resuming the same paused
+// run would both load the same journal, both execute the consequential step,
+// and both write a history that is internally valid; the tenant would see one
+// approval and two payments. The lease is what makes "append-only" imply
+// "single-writer" rather than merely coexist with it. See `lease-store.mjs` for
+// what each store implementation actually guarantees.
+//
 // Everything impure is INJECTED — sinks, journal store, clock. The service
 // reads no ambient state, so two callers with different stores cannot interfere
 // and a test drives the whole thing in memory.
 // ---------------------------------------------------------------------------
 
 import {
-  assembleContext, buildReport, createExecutionContext, createToolCatalog,
+  assembleContext, blocked, buildReport, createExecutionContext, createToolCatalog,
   deriveRunId, finalStateFor, loadContext, reportPath,
 } from '../../awe-kernel/src/index.mjs';
 import {
   createPolicyEngine, createRunEngine, createToolDispatcher, createWorkflowRegistry,
   loadRunJournal,
 } from '../../awe-control-plane/src/index.mjs';
+import { DEFAULT_LEASE_TTL_MS, createMemoryLeaseStore } from './lease-store.mjs';
 
 const TERMINAL_ADVANCES = ['completed', 'failed', 'cancelled', 'timed_out'];
 
@@ -61,11 +71,30 @@ export function createControlPlaneService({
   validators = {},
   journals = null,
   results: resultStore = null,
+  leases = null,
+  holder = null,
+  lease_ttl_ms = DEFAULT_LEASE_TTL_MS,
   artifacts = null,
   audit = null,
   clock = null,
   defaults = {},
 } = {}) {
+  // A lease store is never optional — a service with no exclusion at all would
+  // make the single-writer guarantee depend on the caller remembering to ask
+  // for it. What IS optional is whether that exclusion crosses processes, and
+  // the default (memory) does not. A caller that supplies a real store must
+  // therefore also supply a worker identity: two processes sharing the default
+  // holder name would both "renew" the same lease and both proceed, which is
+  // precisely the bug this is here to prevent, so it is refused rather than
+  // defaulted.
+  if (leases !== null) {
+    if (typeof holder !== 'string' || holder.length === 0) {
+      throw new Error('createControlPlaneService: a supplied lease store also needs a distinct `holder` identity for this worker');
+    }
+  }
+  const leaseStore = leases ?? createMemoryLeaseStore({ ttl_ms: lease_ttl_ms });
+  const workerId = holder ?? 'service';
+
   const registry = createWorkflowRegistry(manifests);
   const catalog = createToolCatalog(tools);
   const policy = createPolicyEngine({ grants });
@@ -103,9 +132,80 @@ export function createControlPlaneService({
       : assembleContext(request);
   }
 
-  function persist(journal) {
+  function persist(journal, { expected_head } = {}) {
     if (journals === null) return { ok: true, ref: null, error: null };
-    return journals.write(journal.toDocument());
+    return journals.write(journal.toDocument(), { expected_head });
+  }
+
+  // --- the single-writer boundary -------------------------------------------
+
+  /**
+   * claim() — take the run before touching it. A refusal is DATA ("someone else
+   * has it"), which is a normal outcome for a worker pulling from a queue, not
+   * an error.
+   */
+  function claim({ run_id, org_id, at }) {
+    return leaseStore.acquire({ run_id, org_id, holder: workerId, now: at, ttl_ms: lease_ttl_ms });
+  }
+
+  const surrender = (run_id) => leaseStore.release({ run_id, holder: workerId });
+
+  /**
+   * commit() — the write, gated twice. `verify` catches a lease that lapsed
+   * while this worker was doing the work (its successor now holds the run); the
+   * store's head check catches the same thing one layer down, in case the lease
+   * was renewed by a clock skew but the journal moved on anyway.
+   *
+   * Both checks happen AFTER the steps ran, so neither can undo a side effect
+   * that has already landed. That is not a gap in this function — it is why the
+   * lease is taken BEFORE the work rather than after it. These two are the
+   * backstop that keeps a lapsed worker from corrupting the history on its way
+   * out.
+   */
+  function commit({ journal, fence, expected_head }) {
+    const hold = leaseStore.verify({ run_id: journal.run_id, holder: workerId, fence, now: now() });
+    if (!hold.ok) {
+      return { ok: false, ref: null, reason: hold.reason, error: hold.detail };
+    }
+    const stored = persist(journal, { expected_head });
+    if (stored.ok === false) {
+      return { ok: false, ref: null, reason: stored.reason ?? 'journal_write_conflict', error: stored.error };
+    }
+    return stored;
+  }
+
+  // The shape every mutating operation returns when it never got the run.
+  const notClaimed = (run_id, claimVerdict) => Object.freeze({
+    ok: false,
+    run_id,
+    reason: claimVerdict.reason,
+    detail: claimVerdict.detail,
+    held_by: claimVerdict.held_by ?? null,
+  });
+
+  /**
+   * The far worse case: the work ran and the commit was refused. The steps that
+   * already executed cannot be recalled from here, so the ONE thing this must
+   * not do is stay quiet. A durable report is written naming the refusal, which
+   * is what an operator reconciling a double-execution will look for.
+   */
+  async function lostMidRun({ context, run_id, org_id, stored, phase }) {
+    const outcome = blocked(stored.reason, {
+      audit: [{ step: `commit_${phase}`, ok: false, detail: stored.error }],
+      meta: { run_id, org_id, holder: workerId, phase },
+    });
+    const written = await report({ context, outcome, advance: 'failed', summary: { phase: `${phase}_commit_refused` } });
+    return Object.freeze({
+      ok: false,
+      run_id,
+      reason: stored.reason,
+      detail: stored.error,
+      state: 'unknown',
+      advance: 'failed',
+      blocked_reason: stored.reason,
+      outcome,
+      ...written,
+    });
   }
 
   // Step outputs go to the DATA store, never to the journal. Two stores, two
@@ -158,6 +258,7 @@ export function createControlPlaneService({
       failed_steps: state.failed_steps,
       compensations: state.compensations,
       approvals: state.approvals,
+      approval_votes: state.approval_votes,
       failure: state.failure,
       timeline: state.timeline,
       event_count: state.event_count,
@@ -236,82 +337,103 @@ export function createControlPlaneService({
         attributes: { entry: 'control_plane.startRun' },
       });
 
-      // Assembly can fail closed (a cross-tenant item is a refusal, not a
-      // filter), and that must be reported as a run that did not start rather
-      // than as an exception escaping the service.
-      let bundle;
+      // The claim comes before ANY work. Run ids are derived from the workflow,
+      // the inputs and the start instant, so two identical submissions landing
+      // on two workers collide here — which makes this the same mechanism that
+      // stops a duplicate submission, not just a duplicate resume.
+      const claimed = claim({ run_id: context.run_id, org_id, at: started_at });
+      if (!claimed.ok) return notClaimed(context.run_id, claimed);
+
       try {
-        bundle = await assembleFor({ context, items: context_items, providers, budget });
-      } catch (e) {
-        return Object.freeze({
-          run_id: context.run_id,
-          workflow_id,
-          state: 'failed',
-          advance: 'failed',
-          outcome: null,
-          error: { code: e?.code ?? 'contract_violation', message: String(e?.message ?? e) },
-          blocked_reason: 'context_requirements_unmet',
+        // Assembly can fail closed (a cross-tenant item is a refusal, not a
+        // filter), and that must be reported as a run that did not start rather
+        // than as an exception escaping the service.
+        let bundle;
+        try {
+          bundle = await assembleFor({ context, items: context_items, providers, budget });
+        } catch (e) {
+          return Object.freeze({
+            run_id: context.run_id,
+            workflow_id,
+            state: 'failed',
+            advance: 'failed',
+            outcome: null,
+            error: { code: e?.code ?? 'contract_violation', message: String(e?.message ?? e) },
+            blocked_reason: 'context_requirements_unmet',
+          });
+        }
+
+        const stepResults = {};
+        const result = await engine.startRun({
+          workflow_id, version, context, bundle, deps, cancel, results: stepResults,
         });
-      }
 
-      const stepResults = {};
-      const result = await engine.startRun({
-        workflow_id, version, context, bundle, deps, cancel, results: stepResults,
-      });
+        // A run refused before its journal existed (unknown workflow, unpromoted,
+        // out of scope, unmet context) still produces a durable report — a
+        // refusal nobody can find is not a fail-closed system.
+        if (result.journal === null || result.journal === undefined) {
+          const written = await report({
+            context,
+            outcome: result.outcome,
+            advance: 'failed',
+            summary: {
+              workflow_id, requested_version: version, phase: 'resolution',
+              resolution_reason: result.resolution?.reason ?? null,
+            },
+          });
+          return Object.freeze({
+            run_id: context.run_id,
+            workflow_id,
+            workflow_version: null,
+            org_id,
+            state: 'failed',
+            advance: 'failed',
+            blocked_reason: result.outcome.blocked_reason,
+            detail: result.outcome.meta ?? null,
+            resolution: result.resolution ?? null,
+            outcome: result.outcome,
+            ...written,
+          });
+        }
 
-      // A run refused before its journal existed (unknown workflow, unpromoted,
-      // out of scope, unmet context) still produces a durable report — a
-      // refusal nobody can find is not a fail-closed system.
-      if (result.journal === null || result.journal === undefined) {
+        // `expected_head: null` — this run must not already be stored. A second
+        // worker that somehow got past the lease and started the same run id
+        // finds its create refused rather than silently replacing a history.
+        const stored = commit({ journal: result.journal, fence: claimed.fence, expected_head: null });
+        if (!stored.ok) return lostMidRun({ context, run_id: context.run_id, org_id, stored, phase: 'start' });
+
+        writeResults({ run_id: context.run_id, org_id, results: stepResults });
         const written = await report({
           context,
           outcome: result.outcome,
-          advance: 'failed',
+          advance: result.advance,
           summary: {
-            workflow_id, requested_version: version, phase: 'resolution',
-            resolution_reason: result.resolution?.reason ?? null,
+            workflow_version: result.manifest.version,
+            manifest_digest: result.manifest.manifest_digest,
+            risk: result.manifest.risk,
+            context_digest: bundle.bundle_digest,
+            journal_head: result.journal.head(),
+            registry_digest: registry.registry_digest(),
+            lease_fence: claimed.fence,
           },
         });
+
         return Object.freeze({
-          run_id: context.run_id,
-          workflow_id,
-          workflow_version: null,
-          org_id,
-          state: 'failed',
-          advance: 'failed',
+          ...summarize({ document: result.journal.toDocument(), manifest: result.manifest }),
+          advance: result.advance,
           blocked_reason: result.outcome.blocked_reason,
-          detail: result.outcome.meta ?? null,
-          resolution: result.resolution ?? null,
           outcome: result.outcome,
+          context_bundle: bundle,
+          journal_ref: stored.ref,
+          lease_fence: claimed.fence,
           ...written,
         });
+      } finally {
+        // Released whatever happened. A worker that threw must not strand the
+        // run for the whole TTL — expiry is the safety net for a process that
+        // died, not the normal path for one that merely failed.
+        surrender(context.run_id);
       }
-
-      const stored = persist(result.journal);
-      writeResults({ run_id: context.run_id, org_id, results: stepResults });
-      const written = await report({
-        context,
-        outcome: result.outcome,
-        advance: result.advance,
-        summary: {
-          workflow_version: result.manifest.version,
-          manifest_digest: result.manifest.manifest_digest,
-          risk: result.manifest.risk,
-          context_digest: bundle.bundle_digest,
-          journal_head: result.journal.head(),
-          registry_digest: registry.registry_digest(),
-        },
-      });
-
-      return Object.freeze({
-        ...summarize({ document: result.journal.toDocument(), manifest: result.manifest }),
-        advance: result.advance,
-        blocked_reason: result.outcome.blocked_reason,
-        outcome: result.outcome,
-        context_bundle: bundle,
-        journal_ref: stored.ref,
-        ...written,
-      });
     },
 
     /**
@@ -325,7 +447,7 @@ export function createControlPlaneService({
      */
     async decideApproval({
       run_id, org_id = null, decision = null, actor = 'human', principal = null,
-      principal_roles = [], approval_id = null, note = null,
+      principal_roles = [], approval_id = null, note = null, now: at = null,
     } = {}) {
       const owned = loadOwned(run_id, org_id, { at: 'decideApproval' });
       if (!owned.ok) return Object.freeze({ ok: false, run_id, ...owned, document: undefined });
@@ -340,23 +462,53 @@ export function createControlPlaneService({
         });
       }
 
-      const verdict = engine.submitApproval({
-        journal, manifest, decision, actor, principal, principal_roles, org_id, note, approval_id,
-      });
-      if (!verdict.ok) {
-        return Object.freeze({ ok: false, run_id, reason: verdict.reason, detail: verdict.detail });
-      }
+      // Recording a vote appends to the journal, so it is a WRITE and takes the
+      // lease like any other. Two approvers deciding at the same instant on a
+      // quorum-of-two run would otherwise each append to their own copy of the
+      // history and the second write would erase the first vote — turning the
+      // quorum into a gate that one person can satisfy by racing.
+      const claimed = claim({ run_id, org_id, at: now(at) });
+      if (!claimed.ok) return notClaimed(run_id, claimed);
 
-      const stored = persist(journal);
-      return Object.freeze({
-        ok: true,
-        run_id,
-        decision: verdict.decision,
-        approval_id: verdict.approval_id,
-        step_id: verdict.step_id,
-        state: verdict.state.state,
-        journal_ref: stored.ref,
-      });
+      try {
+        const verdict = engine.submitApproval({
+          journal, manifest, decision, actor, principal, principal_roles, org_id, note, approval_id,
+        });
+        if (!verdict.ok) {
+          return Object.freeze({ ok: false, run_id, reason: verdict.reason, detail: verdict.detail });
+        }
+
+        const stored = commit({ journal, fence: claimed.fence, expected_head: owned.document.head });
+        if (!stored.ok) {
+          // The vote exists only in this worker's in-memory journal and was
+          // never written, so refusing here loses nothing: the approver retries
+          // against the current history. This is the one commit refusal in the
+          // service with no side effect behind it.
+          return Object.freeze({
+            ok: false, run_id, reason: stored.reason, detail: stored.error, decision: verdict.decision,
+          });
+        }
+
+        return Object.freeze({
+          ok: true,
+          run_id,
+          decision: verdict.decision,
+          approval_id: verdict.approval_id,
+          step_id: verdict.step_id,
+          // A caller that does not read these will simply try to resume and be
+          // told the run is still paused — the gate is enforced by the engine, not
+          // by the caller's cooperation. They exist so an operator surface can say
+          // "1 of 2 approvals recorded" instead of "nothing happened".
+          quorum: verdict.quorum,
+          outstanding: verdict.outstanding,
+          quorum_satisfied: verdict.quorum_satisfied,
+          principals: verdict.principals,
+          state: verdict.state.state,
+          journal_ref: stored.ref,
+        });
+      } finally {
+        surrender(run_id);
+      }
     },
 
     /**
@@ -394,41 +546,56 @@ export function createControlPlaneService({
         attributes: { entry: 'control_plane.resumeRun' },
       });
 
-      const state = journal.state();
-      // Seeded from the DATA store, not from the journal: this process shares
-      // no memory with the one that paused, and the journal holds only digests.
-      const stepResults = readResults({ run_id: journal.run_id, org_id });
+      // THE race this whole mechanism exists for. Two operators, or one operator
+      // and a scheduled worker, both told to continue an approved run: without
+      // the claim they both load the same journal, both dispatch the payment
+      // instruction, and both write a valid-looking history.
+      const claimed = claim({ run_id, org_id, at: started_at });
+      if (!claimed.ok) return notClaimed(run_id, claimed);
 
-      // A rejected approval does not resume — it rolls back. Routing that here
-      // rather than making the caller know is deliberate: an operator who says
-      // "continue" after a denial must not get an execution.
-      const result = state.state === 'rejected'
-        ? await engine.applyDenial({ journal, manifest, context, deps, results: stepResults })
-        : await engine.advanceRun({ journal, manifest, context, deps, cancel, results: stepResults });
+      try {
+        const state = journal.state();
+        // Seeded from the DATA store, not from the journal: this process shares
+        // no memory with the one that paused, and the journal holds only digests.
+        const stepResults = readResults({ run_id: journal.run_id, org_id });
 
-      const stored = persist(journal);
-      writeResults({ run_id: journal.run_id, org_id, results: stepResults });
-      const written = await report({
-        context,
-        outcome: result.outcome,
-        advance: result.advance,
-        summary: {
-          phase: 'resume',
-          workflow_version: manifest.version,
-          manifest_digest: manifest.manifest_digest,
-          journal_head: journal.head(),
-        },
-      });
+        // A rejected approval does not resume — it rolls back. Routing that here
+        // rather than making the caller know is deliberate: an operator who says
+        // "continue" after a denial must not get an execution.
+        const result = state.state === 'rejected'
+          ? await engine.applyDenial({ journal, manifest, context, deps, results: stepResults })
+          : await engine.advanceRun({ journal, manifest, context, deps, cancel, results: stepResults });
 
-      return Object.freeze({
-        ok: true,
-        ...summarize({ document: journal.toDocument(), manifest }),
-        advance: result.advance,
-        blocked_reason: result.outcome.blocked_reason,
-        outcome: result.outcome,
-        journal_ref: stored.ref,
-        ...written,
-      });
+        const stored = commit({ journal, fence: claimed.fence, expected_head: owned.document.head });
+        if (!stored.ok) return lostMidRun({ context, run_id, org_id, stored, phase: 'resume' });
+
+        writeResults({ run_id: journal.run_id, org_id, results: stepResults });
+        const written = await report({
+          context,
+          outcome: result.outcome,
+          advance: result.advance,
+          summary: {
+            phase: 'resume',
+            workflow_version: manifest.version,
+            manifest_digest: manifest.manifest_digest,
+            journal_head: journal.head(),
+            lease_fence: claimed.fence,
+          },
+        });
+
+        return Object.freeze({
+          ok: true,
+          ...summarize({ document: journal.toDocument(), manifest }),
+          advance: result.advance,
+          blocked_reason: result.outcome.blocked_reason,
+          outcome: result.outcome,
+          journal_ref: stored.ref,
+          lease_fence: claimed.fence,
+          ...written,
+        });
+      } finally {
+        surrender(run_id);
+      }
     },
 
     async cancelRun({ run_id, org_id = null, reason = 'operator cancelled', deps = {}, now: at = null } = {}) {
@@ -437,31 +604,46 @@ export function createControlPlaneService({
 
       const journal = loadRunJournal(owned.document);
       const manifest = manifestOf(owned.document);
+      const started_at = now(at);
       const context = contextFor({
         workflow_id: journal.workflow_id,
         org_id,
         run_id: journal.run_id,
         input: null,
-        started_at: now(at),
+        started_at,
         actor: 'human',
         mode: null,
         trace_id: null,
         attributes: { entry: 'control_plane.cancelRun' },
       });
 
-      // Seeded from the DATA store for the same reason a resume is: the
-      // compensators need the outputs of the steps they are undoing, and a
-      // cancellation that cannot roll back is a cancellation that leaves the
-      // tenant half-applied.
-      const stepResults = readResults({ run_id: journal.run_id, org_id });
-      const result = await engine.cancelRun({ journal, manifest, context, deps, reason, results: stepResults });
-      const stored = persist(journal);
-      return Object.freeze({
-        ok: true,
-        ...summarize({ document: journal.toDocument(), manifest }),
-        advance: result.advance,
-        journal_ref: stored.ref,
-      });
+      // A cancellation RUNS the compensators, so it is as consequential as a
+      // resume and takes the lease on the same terms. Cancelling a run another
+      // worker is mid-step on is exactly how a compensator ends up undoing a
+      // step that is about to be re-applied.
+      const claimed = claim({ run_id, org_id, at: started_at });
+      if (!claimed.ok) return notClaimed(run_id, claimed);
+
+      try {
+        // Seeded from the DATA store for the same reason a resume is: the
+        // compensators need the outputs of the steps they are undoing, and a
+        // cancellation that cannot roll back is a cancellation that leaves the
+        // tenant half-applied.
+        const stepResults = readResults({ run_id: journal.run_id, org_id });
+        const result = await engine.cancelRun({ journal, manifest, context, deps, reason, results: stepResults });
+        const stored = commit({ journal, fence: claimed.fence, expected_head: owned.document.head });
+        if (!stored.ok) return lostMidRun({ context, run_id, org_id, stored, phase: 'cancel' });
+
+        return Object.freeze({
+          ok: true,
+          ...summarize({ document: journal.toDocument(), manifest }),
+          advance: result.advance,
+          journal_ref: stored.ref,
+          lease_fence: claimed.fence,
+        });
+      } finally {
+        surrender(run_id);
+      }
     },
 
     // --- inspection ----------------------------------------------------------
@@ -483,5 +665,28 @@ export function createControlPlaneService({
     },
 
     listRuns() { return journals === null ? [] : journals.list(); },
+
+    // --- concurrency ---------------------------------------------------------
+
+    /** Who, if anyone, currently holds this run. Read-only; takes nothing. */
+    getLease({ run_id } = {}) { return leaseStore.read(run_id); },
+
+    listLeases() { return leaseStore.list(); },
+
+    /**
+     * expireLeases({ now }) — which runs were abandoned, and by whom.
+     *
+     * It reports and changes nothing, because nothing needs changing: an
+     * expired lease is ALREADY claimable (`evaluateClaim` compares the deadline
+     * rather than trusting the record's existence), and deleting the record
+     * would reset its fence and hand a suspended worker a valid fence again.
+     * This is a monitoring call, not a repair.
+     */
+    expireLeases({ now: at = null } = {}) { return leaseStore.expire({ now: now(at) }); },
+
+    /** The worker identity every write in this process is attributed to. */
+    holder: workerId,
+    leaseStoreName: leaseStore.name,
+    crossProcessLeases: leaseStore.cross_process === true,
   });
 }

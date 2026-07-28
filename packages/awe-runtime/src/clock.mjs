@@ -37,6 +37,20 @@ function parseInstant(instant) {
 }
 
 /**
+ * instantPlus(instant, ms) -> instant
+ *
+ * Instant arithmetic, exported because the control plane deliberately cannot do
+ * it: formatting an instant needs `new Date(...)`, which the control-plane
+ * purity lint forbids. A lease TTL is therefore turned into a deadline HERE,
+ * beside the clock that produced the instant, and the pure decision rules in
+ * `lease.mjs` are handed both ends.
+ */
+export function instantPlus(instant, ms) {
+  if (!Number.isFinite(ms)) throw new Error('instantPlus needs a finite number of milliseconds');
+  return toInstant(parseInstant(instant) + ms);
+}
+
+/**
  * createFixedClock(instant) -> () => instant
  *
  * Never moves. For a run where elapsed time must not affect the outcome at all.
