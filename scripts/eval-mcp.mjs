@@ -38,9 +38,18 @@ import { fileURLToPath } from 'node:url';
 
 import {
   SIDE_EFFECTS, TOOL_DESCRIPTOR_KEYS, assertContextBundle, assertReport, assertToolDescriptor,
-  createGateRun, createToolCatalog, memoryArtifactSink, memoryAuditSink, succeeded,
+  createGateRun, createToolCatalog, defineContextProvider, memoryArtifactSink, memoryAuditSink,
+  succeeded,
 } from '../packages/awe-kernel/src/index.mjs';
-import { createPlatformService } from '../packages/awe-runtime/src/index.mjs';
+import {
+  createControlPlaneService, createMemoryJournalStore, createMemoryResultStore,
+  createPlatformService, createSteppingClock,
+} from '../packages/awe-runtime/src/index.mjs';
+import {
+  OTHER_ORG, REFERENCE_ORG, createSyntheticLedger, invoiceIntakeManifest, referenceGrants,
+  referenceContextItems, referenceTools, referenceValidators, tenantPolicyManifest,
+} from '../packages/awe-runtime/src/reference/invoice-intake.mjs';
+import { CONTROL_PLANE_TOOLS } from '../packages/mcp-server/src/control-plane-tools.mjs';
 import { assertDataPort, createFixtureDataPort } from '../packages/mcp-server/src/data-port.mjs';
 import { FIXTURE_ORG_A, FIXTURE_ORG_B, FIXTURE_ROWS } from '../packages/mcp-server/src/fixtures.mjs';
 import { executeTool, toolContextProvider } from '../packages/mcp-server/src/runtime.mjs';
@@ -67,7 +76,8 @@ async function groupAsync(title, body) {
 
 const NOW = '2026-07-27T12:00:00Z';
 const port = createFixtureDataPort({ rows: FIXTURE_ROWS });
-const byName = Object.fromEntries(TOOLS.map((t) => [t.descriptor.name, t]));
+const ALL_TOOLS = [...TOOLS, ...CONTROL_PLANE_TOOLS];
+const byName = Object.fromEntries(ALL_TOOLS.map((t) => [t.descriptor.name, t]));
 
 // The ordinary call: a tenant-bound TEST process, artifacts and audit captured
 // in memory so the suite writes nothing to disk.
@@ -79,6 +89,7 @@ async function call(name, input = {}, over = {}) {
     input,
     deps: {
       port: over.port ?? port,
+      control: over.control ?? null,
       env: over.env ?? { AWE_ORG_ID: FIXTURE_ORG_A },
       now: over.now ?? NOW,
       artifacts,
@@ -87,6 +98,48 @@ async function call(name, input = {}, over = {}) {
   });
   return { ...result, artifacts, audit };
 }
+
+/**
+ * A control-plane service wired the way the MCP server wires one: the synthetic
+ * reference workflow, in memory, bound to the reference tenant. Every
+ * control-plane call in this suite goes through the SAME `executeTool` the data
+ * tools use, which is the point of the `needs` discriminator — if the two
+ * diverged, the tenant gate would only be proven on one of them.
+ */
+function controlPlane() {
+  const ledger = createSyntheticLedger();
+  return {
+    ledger,
+    service: createControlPlaneService({
+      manifests: [invoiceIntakeManifest(), tenantPolicyManifest()],
+      tools: referenceTools({ ledger }),
+      grants: referenceGrants(),
+      validators: referenceValidators(),
+      journals: createMemoryJournalStore(),
+      results: createMemoryResultStore(),
+      // The composition supplies the context, not the caller — see
+      // control-plane-tools.mjs:start_workflow_run.
+      defaults: {
+        providers: [defineContextProvider({
+          name: 'reference_context',
+          kind: 'domain_facts',
+          trusted: true,
+          load: (ctx) => referenceContextItems({ org_id: ctx.org_id }),
+        })],
+      },
+      artifacts: memoryArtifactSink(),
+      audit: memoryAuditSink(),
+      clock: createSteppingClock({ start: '2026-07-27T12:00:00.000Z', tick_ms: 10 }),
+    }),
+  };
+}
+
+// A control-plane call bound to the REFERENCE tenant, which is the tenant the
+// synthetic workflow's manifest actually scopes to.
+const controlCall = (name, input, control, over = {}) => {
+  run.record('tool', name);
+  return call(name, input, { control, env: { AWE_ORG_ID: REFERENCE_ORG }, ...over });
+};
 
 const parse = (response) => JSON.parse(response.content[0].text);
 
@@ -615,6 +668,179 @@ await groupAsync('platform service — context assembly, compaction and resumpti
     crossTenant?.message.startsWith('checkpoint belongs to tenant'),
     'the service refuses a cross-tenant resume at the checkpoint boundary',
   );
+});
+
+// --- the execution control plane as an MCP surface --------------------------
+
+await groupAsync('control plane on MCP — discovery is tenant-scoped', async () => {
+  const { service } = controlPlane();
+
+  const listed = await controlCall('list_workflows', {}, service);
+  equal(listed.outcome.status, 'ok', 'a tenant can list the workflows it may run');
+  const catalog = listed.outcome.data.workflows;
+  equal(catalog.map((w) => w.workflow_id).sort(), ['invoice_intake_approval', 'tenant_payment_policy'], 'both in-scope workflows are listed');
+  check(
+    catalog.every((w) => typeof w.tenant_scope === 'string'),
+    'and NO tenant allow-list is returned — a discovery endpoint must not hand out a customer list',
+  );
+  check(
+    !JSON.stringify(catalog).includes(OTHER_ORG),
+    'no other tenant\'s identifier appears anywhere in the catalogue',
+  );
+
+  // The same call, bound to a tenant the workflow does not scope to.
+  const outsider = await call('list_workflows', {}, { control: service, env: { AWE_ORG_ID: OTHER_ORG } });
+  equal(outsider.outcome.status, 'ok', 'an out-of-scope tenant still gets an answer');
+  equal(outsider.outcome.data.workflows, [], 'and it is EMPTY — not another tenant\'s catalogue');
+
+  const noTenant = await call('list_workflows', {}, { control: service, env: {} });
+  equal(noTenant.outcome.blocked_reason, 'tenant_required', 'a call with no tenant is refused by the same gate the data tools use');
+});
+
+await groupAsync('control plane on MCP — start, inspect, and stop at the human gate', async () => {
+  const { service, ledger } = controlPlane();
+
+  const started = await controlCall('start_workflow_run', { workflow_id: 'invoice_intake_approval', version: '^1.2.0' }, service);
+  equal(started.outcome.status, 'ok', 'an agent can start a governed workflow');
+  const view = started.outcome.data;
+  equal(view.state, 'paused', 'and it stops at the consequential step');
+  equal(view.pending_approval.step_id, 'issue_payment', 'naming the step a human must decide');
+  equal(view.pending_approval.quorum, 1, 'and the quorum it needs');
+  equal(ledger.instructions().length, 0, 'NO PAYMENT INSTRUCTION — the agent reached the gate and no further');
+
+  const inspected = await controlCall('get_run', { run_id: view.run_id }, service);
+  equal(inspected.outcome.data.state, 'paused', 'the run can be inspected');
+  equal(inspected.outcome.data.journal_head, view.journal_head, 'and the inspection agrees with the start');
+
+  const pending = await controlCall('list_pending_approvals', {}, service);
+  equal(pending.outcome.data.count, 1, 'the pending approval is discoverable');
+  equal(pending.outcome.data.pending[0].run_id, view.run_id, 'naming the run');
+  equal(pending.outcome.data.pending[0].approver_roles, ['accountant', 'owner'], 'and who may decide it');
+
+  // Another tenant may not see or touch this run.
+  const foreign = await call('get_run', { run_id: view.run_id }, { control: service, env: { AWE_ORG_ID: OTHER_ORG } });
+  equal(foreign.outcome.status, 'blocked', 'another tenant cannot read the run');
+  check(
+    !JSON.stringify(foreign.response).includes(REFERENCE_ORG),
+    'and the refusal does not disclose whose run it is — otherwise it is an existence oracle',
+  );
+  const foreignPending = await call('list_pending_approvals', {}, { control: service, env: { AWE_ORG_ID: OTHER_ORG } });
+  equal(foreignPending.outcome.data.count, 0, 'nor list it as pending');
+
+  // Resuming without an approval must not execute.
+  const early = await controlCall('resume_run', { run_id: view.run_id }, service);
+  equal(early.outcome.blocked_reason, 'approval_required', 'resuming an undecided run is refused');
+  equal(early.response.isError, true, 'and reported as an error, so an agent cannot summarize it as done');
+  equal(ledger.instructions().length, 0, 'still nothing issued');
+
+  // The human decides on the human surface — represented here by a direct
+  // service call, which is the only place `actor: 'human'` can legitimately
+  // come from.
+  const decided = await service.decideApproval({
+    run_id: view.run_id, org_id: REFERENCE_ORG, decision: 'approve',
+    actor: 'human', principal: 'jack', principal_roles: ['owner'],
+  });
+  equal(decided.ok, true, 'a person approves on the human surface');
+
+  const resumed = await controlCall('resume_run', { run_id: view.run_id }, service);
+  equal(resumed.outcome.status, 'ok', 'NOW the agent may resume — resuming is not approving');
+  equal(resumed.outcome.data.state, 'completed', 'and the run completes');
+  equal(ledger.instructions().length, 1, 'the payment instruction is issued exactly once');
+});
+
+await groupAsync('control plane on MCP — an agent can never approve (G4)', async () => {
+  const { service, ledger } = controlPlane();
+  const started = await controlCall('start_workflow_run', { workflow_id: 'invoice_intake_approval' }, service);
+  const run_id = started.outcome.data.run_id;
+
+  for (const decision of ['approve', 'reject']) {
+    const attempt = await controlCall('decide_approval', { run_id, decision }, service);
+    equal(attempt.outcome.status, 'blocked', `an agent's '${decision}' is refused`);
+    equal(attempt.outcome.blocked_reason, 'approval_actor_invalid', 'with the G4 reason');
+    equal(attempt.response.isError, true, 'and an error response');
+  }
+
+  // The refusal must not be cosmetic: the run is untouched.
+  const after = await controlCall('get_run', { run_id }, service);
+  equal(after.outcome.data.state, 'paused', 'the run is still paused after both attempts');
+  equal(after.outcome.data.pending_approval.approved_by, [], 'no vote was recorded');
+  equal(ledger.instructions().length, 0, 'and nothing was executed');
+
+  // Structural: there must be no argument through which a caller asserts
+  // humanity. A behavioural test alone would pass on a tool that simply
+  // defaulted `actor` and could be overridden.
+  const source = readFileSync(join(MCP_SRC, 'control-plane-tools.mjs'), 'utf8');
+  run.sourcePurity([join(MCP_SRC, 'control-plane-tools.mjs')], [
+    {
+      name: 'caller-supplied actor',
+      pattern: /actor:\s*(input|args)?\.?\bactor\b|actor:\s*['"]human['"]/,
+      message: 'no MCP tool may pass a caller-supplied actor, or assert human, into an approval',
+    },
+    {
+      name: 'caller-supplied principal roles',
+      pattern: /principal_roles:\s*(input|args)?\.?\w*roles/,
+      message: 'no MCP tool may pass caller-supplied approver roles into an approval',
+    },
+  ], { label: 'MCP approval-surface purity' });
+  check(source.includes('G4'), 'and the reasoning is recorded at the boundary where it is enforced');
+});
+
+await groupAsync('control plane on MCP — refusals and wiring failures are outcomes', async () => {
+  const { service } = controlPlane();
+
+  const unknown = await controlCall('start_workflow_run', { workflow_id: 'no_such_workflow' }, service);
+  equal(unknown.outcome.blocked_reason, 'workflow_not_registered', 'an unregistered workflow is refused with a registered reason');
+
+  const badVersion = await controlCall('start_workflow_run', { workflow_id: 'invoice_intake_approval', version: '^9.0.0' }, service);
+  equal(badVersion.outcome.blocked_reason, 'workflow_version_incompatible', 'an unsatisfiable version requirement is refused');
+
+  const outOfScope = await call('start_workflow_run', { workflow_id: 'invoice_intake_approval' }, {
+    control: service, env: { AWE_ORG_ID: OTHER_ORG },
+  });
+  equal(outOfScope.outcome.blocked_reason, 'tenant_out_of_scope', 'a tenant outside the manifest scope cannot start it');
+
+  const missing = await controlCall('get_run', { run_id: 'run_that_never_existed' }, service);
+  equal(missing.outcome.status, 'blocked', 'an unknown run is refused');
+
+  // A process with no control-plane service must refuse the tool rather than
+  // throw an unhandled error at the transport.
+  const unwired = await call('list_workflows', {}, { control: null, env: { AWE_ORG_ID: REFERENCE_ORG } });
+  equal(unwired.outcome.status, 'failed', 'a control-plane tool on a process with no control plane fails cleanly');
+  equal(unwired.response.isError, true, 'as an MCP error response');
+  const wiringText = String(unwired.response.content[0].text);
+  check(
+    !wiringText.includes('at Object.') && !wiringText.includes('.mjs:'),
+    'and no stack frame crosses the boundary',
+  );
+  // Pinned on the WORDING, because the alternative is not "no refusal" but a
+  // raw `Cannot read properties of null` from the first property access — which
+  // is also a clean failure and would make this case prove nothing. The check
+  // that names the missing boundary is what a person debugging a misconfigured
+  // server actually needs.
+  check(
+    wiringText.includes('control-plane service'),
+    'and the refusal names the boundary this process is missing, rather than surfacing a null dereference',
+  );
+});
+
+group('every MCP tool — data and control plane — was exercised', () => {
+  // The data-tool coverage gate above runs before the control-plane groups, so
+  // this second gate is what stops a control-plane tool being shipped with no
+  // case at all. Both are over the same recorded vocabulary.
+  run.coverage('tool', ALL_TOOLS.map((t) => t.descriptor.name), {
+    label: 'MCP tool coverage (10 data + 6 control plane)',
+  });
+  equal(ALL_TOOLS.length, 16, 'the surface is sixteen tools');
+  check(
+    CONTROL_PLANE_TOOLS.every((t) => t.needs === 'control_plane'),
+    'every control-plane tool declares the boundary it needs, so the runtime cannot hand it a data port',
+  );
+  check(
+    TOOLS.every((t) => (t.needs ?? 'data_port') === 'data_port'),
+    'and every data tool still needs the data port',
+  );
+  const names = new Set(ALL_TOOLS.map((t) => t.descriptor.name));
+  equal(names.size, ALL_TOOLS.length, 'no tool name is registered twice across the two sets');
 });
 
 group('platform service decides no authorization (ADR-0002)', () => {

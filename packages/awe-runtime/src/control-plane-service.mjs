@@ -45,7 +45,7 @@ import {
 } from '../../awe-kernel/src/index.mjs';
 import {
   createPolicyEngine, createRunEngine, createToolDispatcher, createWorkflowRegistry,
-  loadRunJournal,
+  loadRunJournal, tenantInScope,
 } from '../../awe-control-plane/src/index.mjs';
 import { DEFAULT_LEASE_TTL_MS, createMemoryLeaseStore } from './lease-store.mjs';
 
@@ -127,8 +127,14 @@ export function createControlPlaneService({
       budget: budget ?? defaults.budget ?? {},
       assembled_at: context.started_at,
     };
-    return providers.length > 0
-      ? loadContext({ ...request, providers })
+    // WHERE a workflow's context comes from is a composition decision, not a
+    // caller's. `defaults.providers` is what lets a surface start a run without
+    // being handed the tenant's policy documents to pass through — an MCP
+    // caller that supplied its own context items would be supplying the very
+    // material the workflow is supposed to be grounded in.
+    const effective = providers.length > 0 ? providers : (defaults.providers ?? []);
+    return effective.length > 0
+      ? loadContext({ ...request, providers: effective })
       : assembleContext(request);
   }
 
@@ -296,7 +302,27 @@ export function createControlPlaneService({
   return Object.freeze({
     // --- discovery -----------------------------------------------------------
 
-    listWorkflows() { return registry.describe(); },
+    /**
+     * listWorkflows({ org_id })
+     *
+     * With no tenant this is the OPERATOR view — every registered workflow,
+     * including each one's tenant allow-list. That is the right answer for a
+     * local operator CLI and the wrong one for a multi-tenant surface, so
+     * naming a tenant does two things: it filters to what that tenant may
+     * actually run, and it REMOVES `tenant_scope` from the result. A catalogue
+     * that told tenant A which orgs are in tenant B's allow-list would be a
+     * customer list, handed out by a discovery endpoint.
+     */
+    listWorkflows({ org_id = null } = {}) {
+      const all = registry.describe();
+      if (org_id === null) return all;
+      return all
+        .filter((w) => {
+          const manifest = registry.get(w.workflow_id, w.version);
+          return manifest !== null && tenantInScope(manifest, org_id);
+        })
+        .map(({ tenant_scope, ...rest }) => ({ ...rest, tenant_scope: tenant_scope.mode }));
+    },
     describeWorkflow(workflow_id, version) { return registry.get(workflow_id, version); },
     listTools() { return catalog.describe(); },
     listGrants() { return policy.grants(); },
@@ -449,6 +475,27 @@ export function createControlPlaneService({
       run_id, org_id = null, decision = null, actor = 'human', principal = null,
       principal_roles = [], approval_id = null, note = null, now: at = null,
     } = {}) {
+      // G4 FIRST, before the run is even looked up.
+      //
+      // `policy.mjs` states that "automation approves nothing" is checked before
+      // every other approval rule, and the engine honours that — but the engine
+      // is reached only after `loadOwned`, so a service actor submitting a
+      // guessed run id used to be told `approval_unknown` (this run does not
+      // exist / is not yours) instead of `approval_actor_invalid`. Two problems
+      // in one: the refusal a caller sees depended on a fact it should not
+      // learn, making this an existence oracle over run ids, and the doctrine
+      // rule that is supposed to be unconditional was conditional on the lookup
+      // succeeding. An actor that can never approve anything is refused before
+      // anything is read.
+      if (actor !== 'human') {
+        return Object.freeze({
+          ok: false,
+          run_id,
+          reason: 'approval_actor_invalid',
+          detail: `approvals require actor 'human'; automation may never approve its own work (got '${actor}')`,
+        });
+      }
+
       const owned = loadOwned(run_id, org_id, { at: 'decideApproval' });
       if (!owned.ok) return Object.freeze({ ok: false, run_id, ...owned, document: undefined });
 

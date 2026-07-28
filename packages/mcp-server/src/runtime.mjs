@@ -166,8 +166,13 @@ export function toolContextProvider(tool, input) {
  *   run_id      string | null — supplied for replay; derived otherwise
  */
 export async function executeTool({ tool, input = {}, deps = {} } = {}) {
-  const { port, env = {}, now = null, artifacts = null, audit = null, run_id = null } = deps;
+  const { port, control = null, env = {}, now = null, artifacts = null, audit = null, run_id = null } = deps;
   const name = tool?.descriptor?.name ?? 'unknown';
+  // Which boundary this tool's body needs. A discriminator rather than a second
+  // execute function: the tenant gate, the mode rule, the audit emission and
+  // the response mapping below are the parts that must not be re-implemented,
+  // and a parallel runtime is exactly how one of them ends up subtly different.
+  const needs = tool?.needs ?? 'data_port';
 
   // --- entry gate: tenant and mode, before anything else ---------------------
   // Deliberately ahead of context construction: a refusal here must not need a
@@ -179,7 +184,13 @@ export async function executeTool({ tool, input = {}, deps = {} } = {}) {
 
   let context;
   try {
-    assertDataPort(port, { at: 'executeTool' });
+    if (needs === 'control_plane') {
+      if (control === null || typeof control.startRun !== 'function') {
+        throw new Error(`tool '${name}' needs a control-plane service and this process has none`);
+      }
+    } else {
+      assertDataPort(port, { at: 'executeTool' });
+    }
     context = createExecutionContext({
       run_id: run_id ?? deriveRunId({
         workflow_id: tool.descriptor.workflow_id,
@@ -207,7 +218,7 @@ export async function executeTool({ tool, input = {}, deps = {} } = {}) {
     context,
     contextProviders: [toolContextProvider(tool, input)],
     contextRequest: { assembled_at: now },
-    body: (ctx, { bundle }) => tool.body(input, { context: ctx, port, now, bundle }),
+    body: (ctx, { bundle }) => tool.body(input, { context: ctx, port, control, now, bundle, deps }),
     artifacts,
     audit,
     finished_at: now,

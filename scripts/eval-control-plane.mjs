@@ -1345,6 +1345,35 @@ await groupAsync('quorum — one approval is not enough, and one person is not t
   run.record('run_event_type', types);
 });
 
+await groupAsync('G4 is checked before the run is looked up', async () => {
+  const { service } = compose();
+  const started = await startReference(service);
+
+  // The same submission against a run that EXISTS and one that does not must
+  // give a service actor the identical answer. Any difference is an oracle: a
+  // caller that can never approve anything would still learn which run ids are
+  // real, and whose they are.
+  const real = await service.decideApproval({
+    run_id: started.run_id, org_id: REFERENCE_ORG, decision: 'approve',
+    actor: 'service', principal: 'automation', principal_roles: ['owner'],
+  });
+  const invented = await service.decideApproval({
+    run_id: 'run_that_never_existed', org_id: REFERENCE_ORG, decision: 'approve',
+    actor: 'service', principal: 'automation', principal_roles: ['owner'],
+  });
+  equal(real.reason, 'approval_actor_invalid', 'automation is refused on a real run');
+  equal(invented.reason, 'approval_actor_invalid', 'and identically on an invented one — the refusal reveals nothing');
+  equal(real.detail, invented.detail, 'down to the detail text');
+
+  // A HUMAN, by contrast, is told the run is unknown — which is correct, and is
+  // what proves the check above is ordering rather than a blanket answer.
+  const human = await service.decideApproval({
+    run_id: 'run_that_never_existed', org_id: REFERENCE_ORG, decision: 'approve',
+    actor: 'human', principal: 'jack', principal_roles: ['owner'],
+  });
+  equal(human.reason, 'approval_unknown', 'a human submitting an unknown run id is told so');
+});
+
 await groupAsync('quorum — one denial overrides accumulated approvals', async () => {
   const manifest = invoiceIntakeManifest({ approval_quorum: 3 });
   const { service, ledger } = compose({ manifest });

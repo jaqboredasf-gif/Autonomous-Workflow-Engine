@@ -30,12 +30,17 @@
 // untrusted users can call it.
 // ---------------------------------------------------------------------------
 
+import { defineContextProvider } from '../../awe-kernel/src/index.mjs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createClient } from '@supabase/supabase-js';
 
-import { createFileArtifactSink, createFileAuditSink } from '../../awe-runtime/src/index.mjs';
+import {
+  createControlPlaneService, createFileArtifactSink, createFileAuditSink,
+  createFileJournalStore, createFileLeaseStore, createFileResultStore,
+} from '../../awe-runtime/src/index.mjs';
 
+import { CONTROL_PLANE_TOOLS } from './control-plane-tools.mjs';
 import { createFixtureDataPort, createSupabaseDataPort } from './data-port.mjs';
 import { FIXTURE_ROWS } from './fixtures.mjs';
 import { executeTool } from './runtime.mjs';
@@ -70,9 +75,57 @@ const artifactRoot = env.AWE_ARTIFACT_ROOT ?? 'artifacts';
 const artifacts = createFileArtifactSink({ root: artifactRoot });
 const audit = createFileAuditSink({ root: artifactRoot });
 
+// --- the execution control plane ------------------------------------------
+//
+// Registered workflows, tenant grants and adapters are all INJECTED, and this
+// process injects none of them: there is no production workflow manifest yet,
+// so the registry is empty and `start_workflow_run` refuses everything with
+// `workflow_not_registered`. That is the fail-closed state, and it is the right
+// one — a control plane that shipped with a workflow nobody registered on
+// purpose would be a control plane with a workflow nobody reviewed.
+//
+// TEST mode additionally loads the SYNTHETIC reference workflow, exactly as it
+// loads FIXTURE_ROWS for the data tools, so the surface can be driven end to
+// end offline. Its tenant is `org_synthetic_alpha` and its adapters touch a
+// process-local ledger; it reaches no network, no mailbox and no database.
+//
+// The stores are on the local filesystem for the same reason the artifact sink
+// is: it is the first backend, not the permanent one (ADR-0002). The lease
+// store is the FILE one and the holder names this process, so two servers
+// launched against the same artifact root genuinely exclude each other.
+let control = null;
+if (mode === 'TEST') {
+  const reference = await import('../../awe-runtime/src/reference/invoice-intake.mjs');
+  const ledger = reference.createSyntheticLedger();
+  control = createControlPlaneService({
+    manifests: [reference.invoiceIntakeManifest(), reference.tenantPolicyManifest()],
+    tools: reference.referenceTools({ ledger }),
+    grants: reference.referenceGrants(),
+    validators: reference.referenceValidators(),
+    defaults: {
+      mode: 'TEST',
+      providers: [defineContextProvider({
+        name: 'reference_context',
+        kind: 'domain_facts',
+        trusted: true,
+        load: (ctx) => reference.referenceContextItems({ org_id: ctx.org_id }),
+      })],
+    },
+    journals: createFileJournalStore({ root: artifactRoot }),
+    results: createFileResultStore({ root: artifactRoot }),
+    leases: createFileLeaseStore({ root: artifactRoot }),
+    holder: `mcp_${process.pid}`,
+    artifacts,
+    audit,
+    clock: () => new Date().toISOString(),
+  });
+}
+
 const server = new McpServer({ name: 'exattime', version: '0.1.0' });
 
-for (const tool of TOOLS) {
+const REGISTERED = [...TOOLS, ...(control === null ? [] : CONTROL_PLANE_TOOLS)];
+
+for (const tool of REGISTERED) {
   server.registerTool(
     tool.descriptor.name,
     {
@@ -85,7 +138,7 @@ for (const tool of TOOLS) {
       // run replayable from its artifact.
       const now = new Date().toISOString();
       const { response } = await executeTool({
-        tool, input, deps: { port, env, now, artifacts, audit },
+        tool, input, deps: { port, control, env, now, artifacts, audit },
       });
       return response;
     },
@@ -95,7 +148,8 @@ for (const tool of TOOLS) {
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error(
-  `exattime MCP server running (stdio) — mode=${mode}, tools=${TOOLS.length}, `
+  `exattime MCP server running (stdio) — mode=${mode}, tools=${REGISTERED.length}, `
   + `tenant=${env.AWE_ORG_ID ? 'bound via AWE_ORG_ID' : 'required per call'}`
-  + `${mode === 'TEST' ? ', DATA IS FIXTURE' : ''}`,
+  + `${mode === 'TEST' ? ', DATA IS FIXTURE' : ''}`
+  + `${control === null ? ', control plane OFF (no registered workflows)' : ', control plane ON'}`,
 );

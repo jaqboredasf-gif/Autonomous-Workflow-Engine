@@ -60,7 +60,7 @@ export const SUITES = [
   },
   {
     id: 'mcp-smoke',
-    name: 'MCP server smoke (initialize + tools/list, TEST mode — no credentials)',
+    name: 'MCP server smoke (tools/list + one control-plane run over stdio, TEST mode — no credentials)',
     kind: 'build',
     command: 'bash scripts/smoke-mcp.sh',
     // No longer declares required credentials. The server now starts in TEST
