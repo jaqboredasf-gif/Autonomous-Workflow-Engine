@@ -262,6 +262,7 @@ export function createControlPlaneService({
       executed_tools: state.executed_tools,
       completed_steps: state.completed_steps,
       failed_steps: state.failed_steps,
+      skipped_steps: state.skipped_steps,
       compensations: state.compensations,
       approvals: state.approvals,
       approval_votes: state.approval_votes,

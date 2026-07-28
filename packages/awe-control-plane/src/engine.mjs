@@ -44,6 +44,7 @@ import {
 import { validateContextRequirements } from './manifest.mjs';
 import { createRunJournal, projectRunState } from './journal.mjs';
 import { evaluateApprovalDecision } from './policy.mjs';
+import { evaluatePredicate, predicateDigest, predicateScope } from './predicate.mjs';
 
 // How a call into the engine ended, for a caller that has to decide whether to
 // wait for a human or report a result. Distinct from the run STATE, which is
@@ -188,27 +189,65 @@ export function createRunEngine({ registry, dispatcher, policy, clock = null } =
     // path; the engine reaches them through `compensate()`.
     const forwardSteps = manifest.steps.filter((s) => s.compensates === null);
 
+    // Loop progress. Every iteration that does not return must move exactly one
+    // step out of the "remaining" set — by completing it or by skipping it. If
+    // one does not, the loop would pick the same step again forever, and the
+    // only thing that would eventually stop it is the run budget, after an
+    // unbounded number of journal appends.
+    //
+    // This is a wiring invariant, not a workflow outcome, so it THROWS rather
+    // than returning an envelope: a manifest cannot cause it and no operator can
+    // fix it. It exists because a perturbation of the skipped-step bookkeeping
+    // turned a test failure into a hang, and a control plane that can spin is
+    // worse than one that fails loudly.
+    let lastRemaining = Number.POSITIVE_INFINITY;
+
     for (;;) {
       const state = journal.state();
       if (state.terminal) {
         return finish(state.state === 'completed' ? 'completed' : state.state, terminalOutcome(state, manifest, journal));
       }
 
-      const done = new Set(state.completed_steps.map((s) => s.step_id));
+      // A skipped step is DONE for the purposes of advancing — its condition did
+      // not hold and it is never revisited. It is deliberately not in
+      // `completed_steps`, because a compensator must not roll back a step that
+      // never ran, and `compensatorsFor` reads exactly that list.
+      const done = new Set([
+        ...state.completed_steps.map((s) => s.step_id),
+        ...state.skipped_steps.map((s) => s.step_id),
+      ]);
       const next = forwardSteps.find((s) => !done.has(s.id));
 
+      const remaining = forwardSteps.filter((s) => !done.has(s.id)).length;
+      invariant(
+        remaining < lastRemaining,
+        'contract_violation',
+        `run '${journal.run_id}' made no progress: ${remaining} step(s) still remaining after an iteration that neither completed nor skipped one`,
+        { run_id: journal.run_id, remaining, step_id: next?.id ?? null },
+      );
+      lastRemaining = remaining;
+
       if (next === undefined) {
+        const finalState = journal.state();
         journal.append({
           event_type: 'workflow.completed',
           occurred_at: now(),
-          payload: { steps: forwardSteps.length, manifest_digest: manifest.manifest_digest },
+          payload: {
+            // What RAN, and what was skipped, kept separate. A single `steps`
+            // count that included skipped steps would tell a reader a
+            // conditional run did more than it did.
+            steps: finalState.completed_steps.length,
+            skipped: finalState.skipped_steps.length,
+            manifest_digest: manifest.manifest_digest,
+          },
         });
         return finish('completed', succeeded(
           {
             run_id: journal.run_id,
             workflow_id: manifest.workflow_id,
             workflow_version: manifest.version,
-            steps_completed: forwardSteps.length,
+            steps_completed: journal.state().completed_steps.length,
+            steps_skipped: journal.state().skipped_steps.length,
             results,
           },
           { audit: auditTrail(journal), events: journal.events() },
@@ -247,6 +286,32 @@ export function createRunEngine({ registry, dispatcher, policy, clock = null } =
         return finish('timed_out', blocked('run_timeout', {
           audit: auditTrail(journal), events: journal.events(), meta: { detail: overrun },
         }));
+      }
+
+      // The conditional edge, evaluated BEFORE anything else the step would do
+      // — before the policy check, before the approval gate, before the
+      // dispatcher. A step whose condition does not hold has not been refused;
+      // it was never asked for, and running the authorization machinery on it
+      // would put refusals in the journal for work nobody requested.
+      if (next.when !== null && next.when !== undefined) {
+        const verdict = evaluatePredicate(
+          next.when,
+          predicateScope({ results, input: next.input, context }),
+        );
+        if (!verdict.matched) {
+          journal.append({
+            event_type: 'step.skipped',
+            occurred_at: now(),
+            payload: {
+              step_id: next.id,
+              tool: next.tool,
+              predicate_digest: predicateDigest(next.when),
+              leaves: verdict.leaves,
+              detail: 'the step\'s `when` condition did not hold',
+            },
+          });
+          continue;
+        }
       }
 
       const approvedForStep = approvalGranted(journal.state(), next.id);

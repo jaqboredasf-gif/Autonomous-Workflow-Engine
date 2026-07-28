@@ -48,11 +48,11 @@ import {
 import {
   ADVANCE_OUTCOMES, CONTROL_PLANE_BLOCKED_REASONS, POLICY_DECISIONS, PROMOTION_STATES,
   RESOLUTION_REASONS, RISK_CLASSES, RUN_EVENT_TYPES, RUN_STATES, TERMINAL_STATES, TRANSITIONS,
-  assertRunLease, createPolicyEngine, createRunEngine, createRunJournal, createToolDispatcher,
-  createWorkflowRegistry, defineRunLease, defineToolGrant, defineWorkflowManifest,
-  evaluateApprovalDecision, evaluateClaim, evaluateHold, evaluateRelease, isExpired,
-  loadRunJournal, projectRunState, remainingMs, satisfiesVersion, validateContextRequirements,
-  verifyChain,
+  MISSING, assertRunLease, createPolicyEngine, createRunEngine, createRunJournal,
+  createToolDispatcher, createWorkflowRegistry, defineRunLease, definePredicate, defineToolGrant,
+  defineWorkflowManifest, evaluateApprovalDecision, evaluateClaim, evaluateHold, evaluatePredicate,
+  evaluateRelease, isExpired, loadRunJournal, predicateScope, projectRunState, remainingMs,
+  resolvePath, satisfiesVersion, validateContextRequirements, verifyChain,
 } from '../packages/awe-control-plane/src/index.mjs';
 import {
   createControlPlaneService, createMemoryJournalStore, createMemoryLeaseStore,
@@ -1255,6 +1255,202 @@ await groupAsync('service — pause and resume across a COLD store', async () =>
 // =============================================================================
 // 7. LAYERING AND PURITY
 // =============================================================================
+
+// =============================================================================
+// 5c. CONDITIONAL STEPS — a manifest that can branch, as DATA
+// =============================================================================
+
+group('predicate — the condition language is closed and fails closed', () => {
+  const def = (spec, over = {}) => definePredicate(spec, { earlierSteps: ['classify_risk'], ...over });
+
+  // Structure.
+  equal(def({ path: 'results.classify_risk.band', op: 'eq', value: 'auto' }).op, 'eq', 'a leaf predicate builds');
+  check(def({ all: [{ path: 'input.x', op: 'exists' }, { path: 'run.mode', op: 'eq', value: 'TEST' }] }).all.length === 2, 'all composes');
+  check(def({ any: [{ path: 'input.x', op: 'exists' }] }).any.length === 1, 'any composes');
+  check(def({ not: { path: 'input.x', op: 'exists' } }).not.op === 'exists', 'not composes');
+  run.deterministic(() => def({ path: 'input.x', op: 'eq', value: 1 }), 'predicate construction is deterministic');
+
+  // Fails closed.
+  run.throwsKernel(() => def({ path: 'input.x', op: 'eq', value: 1, extra: true }), 'invalid_input', 'an unknown condition key is refused, not ignored');
+  run.throwsKernel(() => def({ path: 'process.env.SECRET', op: 'exists' }), 'invalid_input', 'a path outside the three declared roots reaches nothing');
+  run.throwsKernel(() => def({ path: 'input.x', op: 'matches', value: 'a' }), 'invalid_input', 'an unknown operator is refused');
+  run.throwsKernel(() => def({ path: 'input.x', op: 'exists', value: 1 }), 'invalid_input', 'a value on a nullary operator reads as a comparison and is refused');
+  run.throwsKernel(() => def({ path: 'input.x', op: 'eq' }), 'invalid_input', 'a comparison with no value is refused');
+  run.throwsKernel(() => def({ path: 'input.x', op: 'in', value: [] }), 'invalid_input', 'an empty membership set is refused');
+  run.throwsKernel(() => def({ path: 'input.x', op: 'gt', value: '10' }), 'invalid_input', 'a numeric comparison against a string is refused at BUILD time');
+  run.throwsKernel(() => def({ all: [] }), 'invalid_input', 'an empty `all` is refused');
+
+  // The graph check: a condition on a step that has not run yet can never hold.
+  run.throwsKernel(
+    () => def({ path: 'results.issue_payment.id', op: 'exists' }),
+    'invalid_input', 'a condition reading a LATER step is refused — it could never be satisfied',
+  );
+  run.throwsKernel(
+    () => def({ path: 'results.no_such_step.x', op: 'exists' }),
+    'invalid_input', 'and so is one reading a step that does not exist',
+  );
+});
+
+group('predicate — evaluation is total, and absence never opens a gate', () => {
+  const scope = predicateScope({
+    results: { classify_risk: { band: 'auto_approve', amount: 120, ok: true, tags: ['a', 'b'] } },
+    input: { threshold: 1000 },
+    context: { org_id: REFERENCE_ORG, workflow_id: 'w', mode: 'TEST', actor: 'service' },
+  });
+  const ev = (spec) => evaluatePredicate(definePredicate(spec, { earlierSteps: ['classify_risk'] }), scope).matched;
+
+  equal(ev({ path: 'results.classify_risk.band', op: 'eq', value: 'auto_approve' }), true, 'eq');
+  equal(ev({ path: 'results.classify_risk.band', op: 'ne', value: 'manual' }), true, 'ne');
+  equal(ev({ path: 'results.classify_risk.amount', op: 'lt', value: 1000 }), true, 'lt');
+  equal(ev({ path: 'results.classify_risk.amount', op: 'gte', value: 120 }), true, 'gte');
+  equal(ev({ path: 'results.classify_risk.band', op: 'in', value: ['auto_approve', 'x'] }), true, 'in');
+  equal(ev({ path: 'results.classify_risk.band', op: 'not_in', value: ['x'] }), true, 'not_in');
+  equal(ev({ path: 'results.classify_risk.ok', op: 'is_true' }), true, 'is_true');
+  equal(ev({ path: 'results.classify_risk.tags', op: 'eq', value: ['a', 'b'] }), true, 'structural equality for arrays');
+  equal(ev({ path: 'run.mode', op: 'eq', value: 'TEST' }), true, 'the run root is reachable');
+  equal(ev({ path: 'input.threshold', op: 'eq', value: 1000 }), true, 'the input root is reachable');
+  equal(ev({ all: [{ path: 'run.mode', op: 'eq', value: 'TEST' }, { path: 'input.threshold', op: 'gt', value: 10 }] }), true, 'all');
+  equal(ev({ any: [{ path: 'run.mode', op: 'eq', value: 'LIVE' }, { path: 'input.threshold', op: 'gt', value: 10 }] }), true, 'any');
+  equal(ev({ not: { path: 'run.mode', op: 'eq', value: 'LIVE' } }), true, 'not');
+
+  // The rules that stop a gate being opened by accident.
+  equal(ev({ path: 'results.classify_risk.typo', op: 'eq', value: 'auto_approve' }), false, 'a MISTYPED path compares false — it never matches');
+  equal(ev({ path: 'results.classify_risk.typo', op: 'ne', value: 'anything' }), false, 'and `ne` against an absent value is ALSO false, so a typo cannot open the negative branch either');
+  equal(ev({ path: 'results.classify_risk.typo', op: 'not_exists' }), true, 'absence is asked deliberately, with not_exists');
+  equal(ev({ path: 'results.classify_risk.band', op: 'is_true' }), false, 'a non-empty string is NOT true — no truthiness');
+  equal(
+    evaluatePredicate(
+      definePredicate({ path: 'results.classify_risk.amount', op: 'gt', value: 9 }, { earlierSteps: ['classify_risk'] }),
+      predicateScope({ results: { classify_risk: { amount: '10' } } }),
+    ).matched,
+    false,
+    'a numeric comparison against a STRING value at run time is false, not a coercion — "10" > 9 must not open a threshold gate',
+  );
+  equal(
+    resolvePath(scope, 'results.classify_risk.constructor'),
+    MISSING,
+    'a path cannot walk the prototype chain',
+  );
+
+  // The audit trail carries the declared value and the actual value's IDENTITY,
+  // never the actual value.
+  const verdict = evaluatePredicate(
+    definePredicate({ path: 'results.classify_risk.band', op: 'eq', value: 'manual' }, { earlierSteps: ['classify_risk'] }),
+    scope,
+  );
+  equal(verdict.matched, false, 'the comparison did not hold');
+  equal(verdict.leaves.length, 1, 'and one comparison was recorded');
+  equal(verdict.leaves[0].declared, 'manual', 'the DECLARED value is recorded — it is manifest data, already inside the manifest digest');
+  equal(verdict.leaves[0].present, true, 'presence is recorded');
+  check(
+    !JSON.stringify(verdict.leaves).includes('auto_approve'),
+    'but the ACTUAL value is NOT — a journal is a control record, not a second copy of the tenant\'s data',
+  );
+  check(typeof verdict.leaves[0].actual_digest === 'string', 'its digest is carried instead, so an investigator can still prove which value was seen');
+});
+
+await groupAsync('conditional steps — a branch the journal can explain', async () => {
+  // The real case: a low-value invoice skips the human approval gate. The
+  // condition reads the classifier's own output, so the branch is decided by
+  // the workflow's data rather than by a caller.
+  const manifest = invoiceIntakeManifest({
+    conditional_payment: { path: 'results.classify_risk.band', op: 'ne', value: 'requires_owner_approval' },
+  });
+  const { service, ledger } = compose({ manifest });
+
+  const run1 = await startReference(service);
+  equal(run1.advance, 'completed', 'the run completes without pausing');
+  equal(run1.state, 'completed', 'because the consequential step was skipped');
+  equal(run1.pending_approval, null, 'no human was ever asked');
+  equal(ledger.instructions().length, 0, 'and no payment instruction was issued');
+  equal(run1.skipped_steps.map((s) => s.step_id), ['issue_payment'], 'the skip is IN the history, not an absence');
+
+  const skip = run1.skipped_steps[0];
+  check(typeof skip.predicate_digest === 'string' && skip.predicate_digest.length > 0, 'naming WHICH condition ran');
+  equal(skip.leaves[0].path, 'results.classify_risk.band', 'and which value it read');
+  equal(skip.leaves[0].declared, 'requires_owner_approval', 'and what it was compared against');
+  equal(skip.leaves[0].matched, false, 'and that it did not hold');
+
+  const types = run1.timeline.map((t) => t.event_type);
+  check(types.includes('step.skipped'), 'step.skipped is a first-class event');
+  check(!types.includes('approval.requested'), 'and no approval was requested for a step that never ran');
+  run.record('run_event_type', types);
+
+  // A step that was SKIPPED must not be compensated: there is nothing to undo.
+  check(run1.compensations.length === 0, 'a skipped step is not rolled back — a compensator would undo something that never happened');
+
+  // And the reconstruction from the journal alone agrees.
+  const rebuilt = service.getRun({ run_id: run1.run_id, org_id: REFERENCE_ORG });
+  equal(rebuilt.skipped_steps.length, 1, 'the skip survives a round trip through the persisted journal');
+});
+
+await groupAsync('conditional steps — the SAME manifest still gates when the condition holds', async () => {
+  // The other half, and the one that matters: a conditional approval gate must
+  // still fire. A test that only proved the skip would pass on a manifest whose
+  // condition was never true.
+  const manifest = invoiceIntakeManifest({
+    conditional_payment: { path: 'results.classify_risk.band', op: 'eq', value: 'requires_owner_approval' },
+  });
+  const { service, ledger } = compose({ manifest });
+
+  const started = await startReference(service);
+  equal(started.advance, 'paused', 'the condition held, so the step ran and hit the approval gate');
+  equal(started.pending_approval.step_id, 'issue_payment', 'the human is asked');
+  equal(started.skipped_steps, [], 'and nothing was skipped');
+  equal(ledger.instructions().length, 0, 'no instruction before the decision');
+
+  await service.decideApproval({
+    run_id: started.run_id, org_id: REFERENCE_ORG, decision: 'approve',
+    actor: 'human', principal: 'jack', principal_roles: ['owner'],
+  });
+  const resumed = await service.resumeRun({ run_id: started.run_id, org_id: REFERENCE_ORG });
+  equal(resumed.advance, 'completed', 'and after approval it completes');
+  equal(ledger.instructions().length, 1, 'issuing exactly one instruction');
+});
+
+group('conditional steps — the manifest refuses what it cannot honour', () => {
+  const base = () => ({
+    workflow_id: 'w', version: '1.0.0', description: 'd', risk: 'low',
+    tenant_scope: { mode: 'allow_list', org_ids: ['o'] },
+    required_tools: [{ name: 't', version: '1.0.0' }, { name: 'c', version: '1.0.0' }],
+    steps: [{ id: 'first', tool: 't' }, { id: 'second', tool: 't' }],
+  });
+  check(defineWorkflowManifest(base()).steps[0].when === null, 'a step with no condition is unconditional — every manifest written before this behaves identically');
+
+  const conditional = defineWorkflowManifest({
+    ...base(),
+    steps: [
+      { id: 'first', tool: 't' },
+      { id: 'second', tool: 't', when: { path: 'results.first.ok', op: 'is_true' } },
+    ],
+  });
+  equal(conditional.steps[1].when.op, 'is_true', 'a condition on an EARLIER step is accepted');
+  check(
+    conditional.manifest_digest !== defineWorkflowManifest(base()).manifest_digest,
+    'and it changes the manifest digest — a branch is part of what was reviewed',
+  );
+
+  run.throwsKernel(
+    () => defineWorkflowManifest({
+      ...base(),
+      steps: [
+        { id: 'first', tool: 't', when: { path: 'results.second.ok', op: 'is_true' } },
+        { id: 'second', tool: 't' },
+      ],
+    }),
+    'invalid_input', 'a condition reading a LATER step is refused at build time, not discovered as a silent skip in production',
+  );
+  run.throwsKernel(
+    () => defineWorkflowManifest({
+      ...base(),
+      steps: [
+        { id: 'first', tool: 't' },
+        { id: 'undo', tool: 'c', compensates: 'first', when: { path: 'results.first.ok', op: 'is_true' } },
+      ],
+    }),
+    'invalid_input', 'a CONDITIONAL COMPENSATION is refused — a rollback that depends on the state it is rolling back leaves a run half-undone',
+  );
+});
 
 // =============================================================================
 // 6a. APPROVAL QUORUM — a gate several people have to open

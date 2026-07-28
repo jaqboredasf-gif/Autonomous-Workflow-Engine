@@ -63,6 +63,12 @@ export const TRANSITIONS = Object.freeze({
   'tool.invoked': { from: ['running', 'compensating'], to: null },
   'step.completed': { from: ['running'], to: 'running' },
   'step.failed': { from: ['running'], to: 'running' },
+  // A conditional step whose `when` did not hold. It is a first-class event
+  // rather than an absence, because a run whose history simply does NOT mention
+  // the approval step cannot be told apart from one where the step was removed
+  // from the manifest — and "why did this payment go out without an approval?"
+  // is exactly the question an audit has to answer.
+  'step.skipped': { from: ['running'], to: 'running' },
   'approval.requested': { from: ['running'], to: 'awaiting_approval' },
   'workflow.paused': { from: ['awaiting_approval'], to: 'paused' },
   // ONE principal's vote, and it deliberately moves nothing (`to: null`). A
@@ -295,6 +301,7 @@ export function projectRunState(entries, { genesis = null, run_id = null, verify
   let state = 'pending';
   const completed_steps = [];
   const failed_steps = [];
+  const skipped_steps = [];
   const executed_tools = [];
   const approvals = [];
   const approval_votes = [];
@@ -346,6 +353,20 @@ export function projectRunState(entries, { genesis = null, run_id = null, verify
         break;
       case 'step.failed':
         failed_steps.push({ step_id: p.step_id ?? null, reason: p.reason ?? null, attempt: p.attempt ?? null, seq: entry.seq });
+        break;
+      case 'step.skipped':
+        skipped_steps.push({
+          step_id: p.step_id ?? null,
+          tool: p.tool ?? null,
+          predicate_digest: p.predicate_digest ?? null,
+          // The comparisons that were made, with the DECLARED (manifest) values
+          // and a digest of what was actually seen — never the actual value.
+          // See predicate.mjs on why that asymmetry is the two-store rule
+          // applied to conditions.
+          leaves: p.leaves ?? [],
+          seq: entry.seq,
+        });
+        current_step = null;
         break;
       case 'approval.requested':
         pending_approval = {
@@ -446,6 +467,7 @@ export function projectRunState(entries, { genesis = null, run_id = null, verify
     attempts,
     completed_steps,
     failed_steps,
+    skipped_steps,
     executed_tools,
     approvals,
     approval_votes,

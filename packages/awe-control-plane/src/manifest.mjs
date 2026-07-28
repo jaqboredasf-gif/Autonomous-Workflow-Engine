@@ -34,6 +34,7 @@
 // ---------------------------------------------------------------------------
 
 import { deepFreeze, digest, invariant, isInstant, SIDE_EFFECTS, SIDE_EFFECT_RANK, CONTEXT_ITEM_KINDS, CONTEXT_SENSITIVITIES, sensitivityRank } from './kernel.mjs';
+import { definePredicate } from './predicate.mjs';
 
 export const WORKFLOW_MANIFEST_SCHEMA = 'awe.workflow_manifest/v1';
 
@@ -70,7 +71,7 @@ const APPROVAL_POLICY_KEYS = ['requires_approval_at_or_above', 'approver_roles',
 const LIMIT_KEYS = ['step_timeout_ms', 'run_timeout_ms', 'max_attempts', 'retry_backoff_ms'];
 const DEPENDENCY_KEYS = ['workflow_id', 'version'];
 const PROMOTION_KEYS = ['status', 'promoted_at', 'promoted_by'];
-const STEP_KEYS = ['id', 'tool', 'description', 'input', 'compensates', 'on_failure', 'idempotency_key'];
+const STEP_KEYS = ['id', 'tool', 'description', 'input', 'compensates', 'on_failure', 'idempotency_key', 'when'];
 
 // --- version requirements ----------------------------------------------------
 
@@ -399,6 +400,28 @@ function buildSteps(list, workflow_id, toolRequirements) {
       'invalid_input', `workflow '${workflow_id}' step '${id}' idempotency_key must be a non-empty string or null`, { workflow_id, id },
     );
 
+    // The conditional edge. `when` absent means unconditional, which is what
+    // every manifest written before this existed means — so a sequential
+    // manifest keeps behaving exactly as it did.
+    //
+    // `earlierSteps` is what makes this a graph check rather than a syntax
+    // check: a condition reading the output of a step that runs LATER can never
+    // be satisfied, so the step would be silently skipped on every run. That is
+    // refused here, at build time.
+    let when = null;
+    if (step.when !== undefined && step.when !== null) {
+      invariant(
+        compensates === null,
+        'invalid_input',
+        `workflow '${workflow_id}' step '${id}' is a compensation and may not declare 'when' — a rollback that is conditional on the state it is rolling back is how a run ends up half-undone`,
+        { workflow_id, id, compensates },
+      );
+      when = definePredicate(step.when, {
+        label: `workflow '${workflow_id}' step '${id}' when`,
+        earlierSteps: [...seen],
+      });
+    }
+
     seen.add(id);
     return {
       id,
@@ -408,6 +431,7 @@ function buildSteps(list, workflow_id, toolRequirements) {
       compensates,
       on_failure,
       idempotency_key,
+      when,
     };
   });
 }

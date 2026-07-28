@@ -64,6 +64,11 @@ export {
 export { ADVANCE_OUTCOMES, createRunEngine, isRetryable } from './engine.mjs';
 
 export {
+  MISSING, PREDICATE_OPS, PREDICATE_ROOTS,
+  definePredicate, evaluatePredicate, isMissing, predicateDigest, predicateScope, resolvePath,
+} from './predicate.mjs';
+
+export {
   CLAIM_MODES, RUN_LEASE_SCHEMA,
   assertRunLease, defineRunLease, evaluateClaim, evaluateHold, evaluateRelease,
   isExpired, remainingMs,

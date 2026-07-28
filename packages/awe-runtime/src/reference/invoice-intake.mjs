@@ -459,6 +459,10 @@ export function invoiceIntakeManifest({
   dependencies = [{ workflow_id: 'tenant_payment_policy', version: '^1.0.0' }],
   approval_threshold = 'external',
   approval_quorum = 1,
+  // A `when` condition on the consequential step, so the suite can drive a
+  // conditional gate through the same reference slice everything else uses
+  // rather than against a second, differently-shaped workflow.
+  conditional_payment = null,
   risk = 'high',
   limits = {},
   extra_steps = [],
@@ -513,6 +517,7 @@ export function invoiceIntakeManifest({
         tool: 'issue_payment_instruction',
         description: 'Issue the payment instruction. Consequential — requires human approval.',
         on_failure: 'compensate',
+        ...(conditional_payment === null ? {} : { when: conditional_payment }),
       },
       {
         id: 'void_draft',
