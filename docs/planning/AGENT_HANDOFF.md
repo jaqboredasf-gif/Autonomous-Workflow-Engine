@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-28T18:40:00Z
+2026-07-28T15:05:00Z
 
 ## agent
 
@@ -14,6 +14,346 @@ jaqboredasf-gif/Autonomous-Workflow-Engine
 
 ## branch
 
+`feat/kernelized-mcp-context`, continuing from `19f5e1c`. Nothing was pushed.
+No branch was moved, reset, merged, rebased or deleted. No PR was opened.
+
+## commit
+
+Three new commits, none pushed:
+
+| commit | scope |
+|---|---|
+| `6166d01` | run leases, fencing, journal compare-and-set, enforced approval quorum |
+| `e46e35d` | the execution control plane as six MCP tools |
+| `26ff74f` | idempotent submit; an operator CLI that survives a refusal |
+
+## current objective
+
+Delivered the vertical slice the previous session specified: **make the
+execution control plane concurrency-safe, enforce the approval quorum it
+declared, and put a real surface on it.** All three, plus the defects each one
+exposed.
+
+## completed work
+
+### 1. One run, one writer
+
+The previous session's own risk list named it: "two processes resuming the same
+run concurrently would both proceed." They did. The journal refuses a
+*contradictory* history, but two workers that each load the same paused journal,
+each execute the consequential step, and each write a valid continuation produce
+two histories that both verify and one payment that went out twice. Append-only
+does not imply single-writer.
+
+- **`packages/awe-control-plane/src/lease.mjs`** (new, pure) — claim, contend,
+  renew, expire, take over, and the commit-time hold check. Refusals are data,
+  because "another worker has this run" is a normal outcome for a worker pulling
+  from a queue. It reads no clock: both `now` and `expires_at` are supplied,
+  because deriving a deadline means formatting an instant means `new Date(...)`,
+  which the control-plane purity lint forbids. The TTL arithmetic lives beside
+  the clock in `awe-runtime/src/clock.mjs` (`instantPlus`); the *decision* stays
+  pure.
+- **`packages/awe-runtime/src/lease-store.mjs`** (new) — memory and file. The
+  file store's first acquisition uses `open(..., 'wx')`, atomic create-or-fail
+  on any POSIX filesystem. Taking over an *expired* lease is
+  read-decide-rename and is **not** atomic; the module says so rather than
+  implying otherwise, and the fence plus the journal's compare-and-set are what
+  close it.
+- **A monotonic fence.** Renewal keeps it; takeover always bumps it, *including*
+  takeover by the original holder — a worker whose lease lapsed cannot know what
+  happened in the gap.
+- **Compare-and-set on the journal store.** `write(document, { expected_head })`
+  where `undefined` means no check, `null` means must-not-exist, and a digest
+  means must-match-exactly.
+- Every mutating service operation — `startRun`, `decideApproval`, `resumeRun`,
+  `cancelRun` — claims the run before doing any work and commits under both
+  checks. A service handed a real lease store but **no `holder`** is refused at
+  construction: two processes sharing a holder name would both renew the same
+  lease and both proceed, which is the exact bug being prevented.
+
+### 2. Approval quorum, actually enforced
+
+`approval_policy.quorum` was validated, carried into the approval request, and
+then ignored — the engine resumed on the first valid approval.
+
+- **Votes and the gate are now separate events.** `approval.recorded` is one
+  principal's vote and moves nothing; `approval.granted` is appended only once a
+  quorum of *distinct* principals has approved. A state that flipped to
+  `approved` on the first vote could not express "one of two received" — the run
+  would already be resumable.
+- **One person may not satisfy a quorum of two.** A second submission from the
+  same principal is refused with `approval_duplicate_principal`, not
+  deduplicated silently: it is either a retry (harmless to refuse) or an attempt
+  to self-satisfy the gate (must be refused, and must be visible).
+- **One rejection closes the gate** whatever has accumulated. A quorum is a
+  floor on agreement, not a majority vote.
+- **The manifest rule was wrong and changed.** It required one named approver
+  role per unit of quorum, which conflated roles with people: "two owners must
+  both sign off" — the ordinary case — was unexpressible, while `quorum: 1` with
+  no role at all was permitted. A quorum counts people. What the rule must
+  prevent is an *unattributable* multi-party gate, so `quorum > 1` now requires
+  at least one approver role and nothing more.
+
+### 3. The control plane on the MCP surface
+
+Six tools in `packages/mcp-server/src/control-plane-tools.mjs`:
+`list_workflows`, `start_workflow_run`, `get_run`, `list_pending_approvals`,
+`resume_run`, `decide_approval`. The MCP server now registers 16 tools.
+
+They reuse the existing surface rather than paralleling it — the same
+`resolveExecution` tenant gate, descriptors, run scaffolding, audit sinks and
+response mapping. `runtime.mjs` grew a `needs` discriminator
+(`'data_port' | 'control_plane'`) instead of a second execute function, because
+a parallel MCP runtime is how one copy of the tenant rule ends up subtly
+different from the other.
+
+**An agent can never approve, and that is the design.** Doctrine G4 is
+"automation approves nothing". An MCP call is made by a model and the server can
+see no person behind it: `resolveExecution` establishes which *tenant* a call is
+for and nothing about *who* made it. A `decide_approval` that accepted
+`actor: 'human'` as an argument would be an argument through which an agent
+asserts its own humanity, and an operator flag would only make the loophole
+configurable. So the tool submits with this surface's real actor (`'service'`)
+and returns the engine's own refusal — meaning if G4 were ever relaxed upstream
+this tool relaxes with it and one test catches that, which a hard-coded refusal
+could not. `list_pending_approvals` exposes the half an agent can legitimately
+do. `resume_run` **is** exposed, because resuming executes what a human already
+authorized; if none has, the engine refuses with `approval_required` and the
+tool reports it as an error rather than a result.
+
+*The future path*, recorded so this is a decision and not an omission: the human
+surface mints a single-use, tenant-bound approval **token** and a relay presents
+it for verification. That needs a signing key and a token store — i.e. the
+identity decisions this repo has deliberately not made.
+
+### 4. Defects found and fixed while building the above
+
+1. **Double execution on a duplicate submission.** `startRun` committed under
+   `expected_head: null`, which correctly refuses a second run with the same
+   derived id — but only at the *commit*, after every step had run. For a
+   workflow whose last step issues a payment instruction that is the worst
+   ordering possible: the effect lands twice and the record of the second is
+   then refused. Duplicates are now detected immediately after the claim and the
+   existing run is returned with `duplicate_submission: true`.
+2. **G4 was conditional on a lookup succeeding.** `decideApproval` loaded the run
+   before checking the actor, so a service actor submitting a *guessed* run id
+   was told `approval_unknown` instead of `approval_actor_invalid` — an
+   existence oracle over run ids, and a doctrine rule meant to be unconditional
+   made conditional. G4 is now evaluated first, before anything is read.
+3. **`listWorkflows()` handed out a customer list.** It returned every workflow
+   with its full tenant allow-list, so a discovery call by tenant A disclosed
+   which orgs are in tenant B's scope. Naming a tenant now filters the catalogue
+   and strips `tenant_scope` to its mode.
+4. **The expiry sweep reset the fence.** Deleting an expired lease record looked
+   like obvious cleanup and restarted the fence at 1, re-validating exactly the
+   zombie the fence exists to catch. The sweep now reports and does not delete.
+5. **The operator CLI ignored `AWE_ARTIFACT_ROOT`** and always wrote to
+   `artifacts/control-plane`, so `demo` was replaying a journal left by a
+   previous session — which is why its timeline lacked `approval.recorded` and
+   its ledger printed empty. It now honours the variable, `demo` takes a fresh
+   instant unless `--start` pins one, and its renderer no longer crashes on a
+   refusal shape (which had been surfacing as `Cannot read properties of
+   undefined` and hiding the real answer).
+6. **Three source files were BINARY to git** — `policy.mjs`, `gates.mjs` and
+   `compaction.mjs` carried literal NUL bytes as template-literal separators, so
+   `git diff` reported them as binary and they could not be reviewed. Replaced
+   with `\\u0000` escapes; identical semantics.
+
+## files changed
+
+```
+packages/awe-control-plane/src/lease.mjs              NEW — pure lease decision rules
+packages/awe-control-plane/src/journal.mjs            approval.recorded, vote accumulation
+packages/awe-control-plane/src/engine.mjs             quorum accumulation in submitApproval
+packages/awe-control-plane/src/policy.mjs             distinct-principal rule, 4 new reasons
+packages/awe-control-plane/src/manifest.mjs           the quorum/role rule, corrected
+packages/awe-control-plane/src/index.mjs              lease exports
+packages/awe-runtime/src/lease-store.mjs              NEW — memory + file lease persistence
+packages/awe-runtime/src/journal-store.mjs            compare-and-set on expected_head
+packages/awe-runtime/src/control-plane-service.mjs    claim/commit/release; G4 first;
+                                                      idempotent submit; tenant-scoped
+                                                      discovery; defaults.providers
+packages/awe-runtime/src/clock.mjs                    instantPlus
+packages/awe-runtime/src/reference/invoice-intake.mjs approval_quorum override
+packages/mcp-server/src/control-plane-tools.mjs       NEW — the six control-plane tools
+packages/mcp-server/src/runtime.mjs                   the `needs` discriminator
+packages/mcp-server/src/index.js                      control-plane composition (TEST only)
+packages/awe-kernel/src/{gates,compaction}.mjs        NUL-byte fix
+packages/awe-kernel/src/registry.mjs                  mcp-smoke description
+scripts/eval-control-plane.mjs                        Runner P: 372 -> 491
+scripts/eval-mcp.mjs                                  Runner M: 410 -> 462
+scripts/smoke-mcp.sh                                  drives a real control-plane run
+scripts/awe-control-plane.mjs                         artifact root, lease store, refusals
+docs/architecture/EXECUTION_CONTROL_PLANE.md          sections 8-10, limitations rewritten
+```
+
+## commands run
+
+```
+bash scripts/regression.sh --exclude-kinds=db      (baseline, and after each slice)
+node scripts/eval-control-plane.mjs                (many times, during development)
+node scripts/eval-mcp.mjs                          (many times, during development)
+bash scripts/smoke-mcp.sh
+node scripts/awe-control-plane.mjs demo
+node scripts/awe-control-plane.mjs start | approve | resume   (three separate processes)
+```
+
+## tests passed
+
+| suite | result |
+|---|---|
+| Runner K (kernel) | 558 / 0 |
+| Runner C (context) | 138 / 0 |
+| Runner 3 (approval diff) | 121 / 0 |
+| Runner 4 (approval matrix) | 327 / 0 |
+| Runner 5 (approval queue) | 349 / 0 |
+| **Runner M (MCP surface)** | **462 / 0 — was 410** |
+| **Runner P (control plane)** | **491 / 0 — was 372** |
+| Runner E (execution outcomes) | 376 / 0 |
+| mcp-smoke | `OK (16 tools, control plane reachable, approval refused)` |
+| **regression `--exclude-kinds=db`** | **ALL GREEN [13 ran, 8 skipped]** |
+
+**Sixteen new guards were each deleted once, the suite confirmed to fail, and
+the guard restored.** Two were initially VACUOUS and were fixed rather than
+accepted:
+
+- `evaluateHold`'s holder and fence checks — a *stolen* lease has both a new
+  holder and a new fence, so the original case proved only that one of the two
+  fired. Each check now has a case only it can catch (a rival holder with no
+  fence tracked; the same holder with a stale fence on a live lease).
+- the MCP control-plane wiring check — with it removed the body still failed
+  cleanly, on a null dereference. The assertion is now pinned on the refusal
+  *naming the missing boundary*, which is what a person debugging a
+  misconfigured server needs.
+
+**Not run, deliberately:** every `db`-kind suite requires `SUPABASE_ACCESS_TOKEN`
+and live project access. No live-credential, n8n, Outlook, OneDrive,
+service-role or production-workflow test was executed. No test was skipped,
+weakened or deleted to make anything pass.
+
+## tests failed
+
+None at rest.
+
+## migrations
+
+None. No migration was created, modified, applied, rehearsed or rolled back.
+`supabase/` was not touched.
+
+## live changes
+
+None. No database call, no migration, no n8n change, no workflow publication, no
+external API call, no credential used, no push, no PR.
+
+## approvals required
+
+- **ADR-0002 ratification** remains open. Nothing in this session depends on it:
+  the control plane still grants nothing, touches no database, and refuses
+  `LIVE` outright (`live_mode_unratified`). `allow_live` is still the single
+  named switch and no shipped composition sets it.
+- **Push and PR** for `feat/kernelized-mcp-context` (now sixteen commits).
+- The Phase 1 deployment gates in the archived sections below remain open and
+  are unaffected.
+
+## risks
+
+- **The file lease store's expired-takeover path is not atomic.** Two workers can
+  both observe one expired lease and both rename; the last rename wins. This is
+  documented in the module, not glossed. What makes it safe is the layer above —
+  the loser's `verify()` returns `run_lease_lost`, and its journal write is
+  refused by the head check even if it skipped `verify()`. The genuinely atomic
+  version is a conditional UPDATE in the table this store's successor becomes
+  (ADR-0002).
+- **Idempotent submit is instant-scoped.** A run id derives from workflow +
+  inputs + start instant, so a resubmission is recognised only at the same
+  instant — the two-workers-one-queue-message case. "The same invoice submitted
+  twice an hour apart" needs a caller-supplied idempotency key, which does not
+  exist.
+- **The MCP server's TEST-mode control plane registers the SYNTHETIC reference
+  workflow.** This mirrors how the data tools load `FIXTURE_ROWS`. In any other
+  mode the registry is empty and `start_workflow_run` refuses everything with
+  `workflow_not_registered`, which is the correct fail-closed state — but it
+  also means the MCP control-plane surface does nothing useful until a real
+  workflow manifest exists.
+- **Steps are still a sequential list, not a graph.** This is now the largest
+  reusable gap; see the next prompt.
+
+## blockers
+
+None for continued local development.
+
+Unchanged from previous sessions: ADR-0002 is unratified; the repository and
+live Supabase migration histories still disagree; the C2 allow-list
+contradiction is unresolved. None of these blocks the control plane, because it
+reaches no database.
+
+## exact next prompt
+
+Continue AWE on branch `feat/kernelized-mcp-context`. Read
+`docs/architecture/EXECUTION_CONTROL_PLANE.md` (sections 8-10 are new) and this
+handoff first, then verify the baseline with
+`bash scripts/regression.sh --exclude-kinds=db` (expect ALL GREEN, 13 ran,
+8 skipped) before editing anything.
+
+Deliver one vertical slice: **make a workflow manifest a GRAPH rather than a
+list.**
+
+This is the largest remaining reusable gap. Every governed workflow today is a
+straight line: `steps` is an ordered array and the engine walks it start to
+finish. A workflow that needs "if the amount is under the tenant's threshold,
+skip the approval step and go straight to payment" cannot express it, so the
+only way to model a decision is to register two near-identical workflows and
+choose between them outside the control plane — which puts the branch condition
+somewhere the journal never records and the policy engine never sees.
+
+1. **Declarative edges, validated at manifest build.** Add a `when` or `next` to
+   the step contract and validate the graph closed: every edge names a step that
+   exists, there is exactly one entry, no cycle, every step reachable, and every
+   compensation still names a step that can precede it. A graph that cannot
+   terminate must be refused at `defineWorkflowManifest`, not discovered at run
+   time.
+2. **Conditions are DATA, not code.** A predicate over prior step results and
+   assembled context, evaluated deterministically — not a function in the
+   manifest. A manifest carrying executable code cannot be versioned, digested,
+   reviewed or stored in a table, and every one of those is a property the
+   control plane currently has.
+3. **The journal must record which branch was taken and why.** A run whose
+   history does not say why it skipped the approval step is not auditable.
+   Consider a `step.skipped` event with the predicate and the values it read.
+4. **Fan-out is a separate decision — say which way you went and why.** Parallel
+   steps interact with the run budget, the step budget, idempotency and
+   compensation ordering. If you defer it, record that as a limitation.
+5. Keep every existing guarantee: a sequential manifest must behave EXACTLY as
+   it does today (the whole reference slice is the regression), deny by default,
+   LIVE refused, G4, tenant binding, append-only history, one run one writer,
+   and the two-store split.
+
+Constraints: do not ratify or act on ADR-0002; do not enable `allow_live`; do
+not touch `supabase/`, n8n, or any external service; use synthetic data only; do
+not push or open a PR. Run `bash scripts/regression.sh --exclude-kinds=db`,
+`bash scripts/eval-control-plane.sh` and `bash scripts/eval-mcp.sh` and report
+exact results. For every new guard, delete it once, confirm the suite fails, and
+restore it — and when a guard's test still passes with the guard removed, fix
+the test rather than the record, as two vacuous cases were fixed this session.
+
+## archived — execution control plane, first slice (2026-07-28, Claude)
+
+### updated_at## archived — execution control plane, first slice (2026-07-28, Claude)
+
+
+
+2026-07-28T18:40:00Z
+
+### agent
+
+Claude (Claude Code, Opus 5)
+
+### repository
+
+jaqboredasf-gif/Autonomous-Workflow-Engine
+
+### branch
+
 `feat/kernelized-mcp-context`, continuing from `b038598`. Nothing was pushed.
 No branch was moved, reset, merged, rebased or deleted. No PR was opened.
 
@@ -21,7 +361,7 @@ Branch relationships established last session still hold: this branch uniquely
 carries the C1/S1 security work and is **not** superseded by
 `chore/agent-handoff-clean`.
 
-## commit
+### commit
 
 Four new commits, none pushed:
 
@@ -32,7 +372,7 @@ Four new commits, none pushed:
 | `81fede2` | Runner P — 372 offline gates, registered in the suite registry and the reason union |
 | `13a81a0` | `docs/architecture/EXECUTION_CONTROL_PLANE.md` |
 
-## current objective
+### current objective
 
 Completed **AWE Execution Control Plane Integration**. A registered workflow is
 now validated, authorized, executed through a controlled tool boundary, paused
@@ -40,7 +380,7 @@ for human approval, resumed by a different process, audited from an append-only
 hash-chained journal, and evaluated — with no n8n, no Supabase and no external
 model anywhere in the path.
 
-## completed work
+### completed work
 
 - **`@exattime/awe-control-plane`** (new package, pure, zero dependencies).
   - **Workflow Manifest** `awe.workflow_manifest/v1` — versioned and
@@ -79,7 +419,7 @@ model anywhere in the path.
   the `control_plane` namespace (no vocabulary conflicts; 52 reasons total).
 - **Four real defects found by the new tests and fixed** — see `## risks`.
 
-## files changed
+### files changed
 
 Created:
 
@@ -111,11 +451,11 @@ Modified: `packages/awe-kernel/src/registry.mjs` (one suite descriptor);
 **No kernel behaviour was changed.** `packages/awe-kernel/src/*.mjs` is untouched
 apart from adding one suite descriptor to the registry.
 
-## migrations
+### migrations
 
 None. No SQL file was created, edited or applied. `supabase/` is untouched.
 
-## commands run
+### commands run
 
 ```
 git status / branch -a / log --oneline
@@ -127,7 +467,7 @@ node scripts/awe-control-plane.mjs start | approve | resume   (three separate pr
 14 deliberate guard-removal perturbations, each reverted
 ```
 
-## tests passed
+### tests passed
 
 `bash scripts/regression.sh --exclude-kinds=db` — **ALL GREEN, 13 ran, 8 skipped.**
 
@@ -158,7 +498,7 @@ tenant-scope gates; and the cross-tenant run-ownership guard.
 Three of those were **initially vacuous** and the tests were strengthened until
 they were not — see `## risks`.
 
-## tests failed
+### tests failed
 
 None.
 
@@ -168,12 +508,12 @@ live project access. No live-credential, n8n, Outlook, OneDrive, service-role or
 production-workflow test was executed. No test was skipped, weakened or deleted
 to make the build pass.
 
-## live changes
+### live changes
 
 None. No database call, no migration, no n8n change, no workflow publication, no
 external API call, no credential used, no push, no PR.
 
-## approvals required
+### approvals required
 
 - **ADR-0002 ratification** remains open. The control plane was built to *not*
   depend on it: it grants nothing, touches no database, and refuses `LIVE` mode
@@ -183,7 +523,7 @@ external API call, no credential used, no push, no PR.
 - The Phase 1 deployment gates in the archived sections below remain open and
   are unaffected by this session.
 
-## risks
+### risks
 
 - **One architectural conflict, resolved and documented.**
   `awe-kernel/src/registry.mjs` is the **suite** registry. A workflow registry
@@ -223,7 +563,7 @@ external API call, no credential used, no push, no PR.
 - **The reference ledger is process-local by design.** What survives a process
   boundary is the journal and the result store, which is the honest model.
 
-## blockers
+### blockers
 
 None for continued local development.
 
@@ -232,7 +572,7 @@ live Supabase migration histories still disagree; the C2 allow-list
 contradiction is unresolved. None of these blocks the control plane, because it
 reaches no database.
 
-## exact next prompt
+### exact next prompt
 
 Continue AWE on branch `feat/kernelized-mcp-context`. Read
 `docs/architecture/EXECUTION_CONTROL_PLANE.md` and

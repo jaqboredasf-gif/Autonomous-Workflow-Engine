@@ -1,6 +1,7 @@
 # AWE Execution Control Plane
 
-**Status:** implemented and verified offline (Runner P, 372 gates, 0 failures).
+**Status:** implemented and verified offline (Runner P, 491 gates, 0 failures;
+Runner M, 462 gates, 0 failures).
 **Scope:** local, synthetic, TEST-only. No database, no n8n, no model provider,
 no external service, no credential.
 
@@ -18,6 +19,7 @@ answer:
 | May this tool run, and must a human say yes first? | `policy.mjs`, `dispatch.mjs` |
 | What actually happened, provably? | `journal.mjs` |
 | What happens on failure, timeout, cancellation or denial? | `engine.mjs` |
+| Who is allowed to be writing this run right now? | `lease.mjs` |
 
 Before this milestone AWE could execute *a body function under a workflow id*.
 It could not state which tools that workflow was allowed to touch, which tenants
@@ -128,7 +130,7 @@ and has its own regression case *and* its own non-vacuity perturbation.
 Append-only, hash-chained, with **state projected rather than stored**. There is
 no state setter anywhere in the package, and a source lint asserts there is none.
 
-Seventeen event types, each with an explicit `{ from: [...], to }` transition.
+Eighteen event types, each with an explicit `{ from: [...], to }` transition.
 An event type absent from the table cannot be appended at all. **No event lists a
 terminal state as a legal predecessor**, so post-terminal appends are impossible
 by construction rather than by a separate check.
@@ -191,12 +193,13 @@ Two deliberate decisions worth knowing:
 Cancellation and denial **compensate before recording the terminal event**,
 because terminal states accept no further events — the journal enforces this.
 
-### 7. Two stores, two jobs
+### 7. Three stores, three jobs
 
 | Store | Holds | Successor |
 |---|---|---|
 | journal store | the append-only CONTROL record. **Digests only.** | append-only control table (ADR-0002) |
 | result store | the tenant-bound DATA record. **Bodies.** | RLS-protected tenant table (ADR-0002) |
+| lease store | who is writing this run right now, and until when. | a row with `SELECT ... FOR UPDATE` or a conditional update (ADR-0002) |
 
 Step outputs are *not* in the journal, and the suite asserts it: the serialized
 journal for the reference run contains neither `INV-2291` nor `Northgate`, only
@@ -205,7 +208,125 @@ as a digest because a control-plane record is read by people and shipped to logs
 while an invoice's supplier and account number belong in tables already under
 RLS. Splitting the stores lets each successor be chosen independently.
 
-Both stores are tenant-checked independently of the service.
+The journal and result stores are tenant-checked independently of the service.
+The lease store is not: the service resolves ownership before it ever reaches a
+lease, so a tenant mismatch there is a wiring bug and is raised as one rather
+than returned as a refusal that would hide it.
+
+### 8. One run, one writer — the lease, the fence and the compare-and-set
+
+Append-only does not imply single-writer, and until this was built it did not
+provide it either: two workers resuming the same paused run each loaded the same
+journal, each executed the consequential step, and each wrote a continuation
+that was internally valid. One approval, two payments, two histories that both
+verify.
+
+Three mechanisms, layered because each alone has a hole:
+
+| Mechanism | Where | The hole it closes | The hole it leaves |
+|---|---|---|---|
+| **lease** | `lease.mjs` + `lease-store.mjs` | two workers starting on one run | a lease can expire while its holder is still alive |
+| **fence** | monotonic integer on the lease | a suspended worker waking up and committing over its successor | needs somewhere to be checked |
+| **compare-and-set** | `journals.write(doc, { expected_head })` | a commit against a history that has moved on | narrow read-compare-rename window in the FILE store |
+
+Rules worth knowing, each with its own regression case:
+
+* a lease is **expired at its deadline**, not after it, so two holders never
+  overlap on the boundary instant;
+* **renewal keeps the fence; takeover always bumps it** — including takeover by
+  the original holder, which cannot know what happened while it was lapsed;
+* the **expiry sweep reports and does not delete**. Deleting an expired record
+  looks like the obvious cleanup and resets the fence to 1, re-validating
+  exactly the zombie the fence exists to catch. This was a real bug, found by
+  perturbation, and a test now pins it;
+* a service given a **real lease store but no `holder`** is refused at
+  construction: two processes sharing a holder name would both renew the same
+  lease and both proceed.
+
+Every mutating operation — `startRun`, `decideApproval`, `resumeRun`,
+`cancelRun` — claims the run before doing any work and commits under both the
+hold check and the head check. The claim is taken *before* the work because
+neither check can undo a side effect that has already landed; they are the
+backstop that stops a lapsed worker corrupting the history on its way out.
+
+**Idempotent submit** falls out of the same machinery. A duplicate submission is
+detected immediately after the claim, before any step runs, and returns the
+existing run with `duplicate_submission: true`. Detecting it at the commit
+instead — which is what the compare-and-set alone did — meant every step ran a
+second time and only *then* was refused.
+
+### 9. Approval quorum — a gate several people open
+
+`approval_policy.quorum` used to be validated, carried into the approval
+request, and then ignored: the engine resumed on the first valid approval.
+
+Votes and the gate are now separate events:
+
+* **`approval.recorded`** — one principal's vote. It moves nothing (`to: null`).
+  A state that flipped to `approved` on the first vote could not express "one of
+  the two required approvals has been received"; the run would already be
+  resumable.
+* **`approval.granted`** — the gate, appended only once a quorum of **distinct**
+  principals has approved. Its presence in a journal *is* the proof that enough
+  people said yes; a reader does not have to count votes.
+* **`approval.denied`** — one rejection closes the gate whatever has
+  accumulated. A quorum is a floor on agreement, not a majority vote.
+
+One person may not satisfy a quorum of two: a second submission from the same
+principal is refused with `approval_duplicate_principal` rather than
+deduplicated silently, because it is either a retry (harmless to refuse) or an
+attempt to self-satisfy the gate (must be refused, and must be visible).
+
+The manifest rule changed with it. It previously required one named approver
+role per unit of quorum, which conflated roles with people and made "two owners
+must both sign off" — the ordinary case — unexpressible, while permitting
+`quorum: 1` with no role at all. A quorum counts people; what the rule must
+prevent is an *unattributable* multi-party gate, so `quorum > 1` now requires at
+least one approver role and nothing more.
+
+### 10. Surfaces
+
+Two, both calling the same transport-neutral service:
+
+| Surface | What it is | Notes |
+|---|---|---|
+| `scripts/awe-control-plane.mjs` | the operator CLI | five subcommands, each a separate process; composes the FILE lease store with a per-process holder |
+| `packages/mcp-server` | six MCP tools | `list_workflows`, `start_workflow_run`, `get_run`, `list_pending_approvals`, `resume_run`, `decide_approval` |
+
+The MCP tools reuse the existing surface rather than paralleling it — the same
+`resolveExecution` tenant gate, descriptors, run scaffolding, audit sinks and
+response mapping. `runtime.mjs` grew a `needs` discriminator
+(`'data_port' | 'control_plane'`) instead of a second execute function, because
+a parallel runtime is how one copy of the tenant rule ends up subtly different
+from the other.
+
+**An agent can never approve.** `decide_approval` exists on the MCP surface and
+refuses, unconditionally. Doctrine G4 is "automation approves nothing"; an MCP
+call is made by a model, and the server can see no person behind it —
+`resolveExecution` establishes which *tenant* a call is for and nothing about
+*who* made it. A tool that accepted `actor: 'human'` as an argument would be an
+argument through which an agent asserts its own humanity, and an operator flag
+would only make the loophole configurable. The tool therefore submits with this
+surface's real actor (`'service'`) and returns the engine's own refusal, so if
+G4 were ever relaxed upstream the tool would relax with it and one test catches
+that — which a hard-coded refusal could not.
+
+`list_pending_approvals` exposes the half an agent can legitimately do: tell a
+person exactly what is waiting and why. `resume_run` **is** exposed, because
+resuming is not approving — it executes what a human already authorized, and if
+none has, the engine refuses it with `approval_required`.
+
+*The future path*, so this is a decision and not an omission: the human surface
+mints a single-use, tenant-bound approval **token**, and a relay presents it
+here for verification. That is delegated authority a server can actually check.
+It needs a signing key and a token store, which means it needs the identity
+decisions this repo has deliberately not made.
+
+G4 is also now evaluated **before the run is looked up**. It previously ran
+after `loadOwned`, so a service actor submitting a guessed run id was told
+`approval_unknown` rather than `approval_actor_invalid` — an existence oracle
+over run ids, and a doctrine rule supposed to be unconditional made conditional
+on a lookup succeeding.
 
 ## ADR-0002 boundary — the architectural conflict, and how it was resolved
 
@@ -249,26 +370,39 @@ session for the B5 queue).
 | no send path in the reference adapters | source lint | `fetch`, sockets, SMTP, Graph, Supabase, n8n, credentials, fs all forbidden |
 | every fixture address unresolvable | source lint | all `@` domains must be `@example.invalid` |
 | append-only history | `journal.mjs` | four integrity checks, each individually load-bearing |
+| one run, one writer | `lease.mjs` + journal CAS | perturbation on each of claim, hold, fence, expiry and head check |
+| a quorum counts distinct people | `policy.mjs` + `engine.mjs` | perturbation: one person voting twice, and a partial quorum that must not resume |
+| an agent may never approve | `control-plane-tools.mjs` | behavioural refusal + a source lint forbidding a caller-supplied actor |
+| discovery discloses no other tenant | `control-plane-service.mjs` | perturbation on both the filter and the `tenant_scope` redaction |
+| a duplicate submission executes once | `control-plane-service.mjs` | the ledger still holds exactly one payment instruction after a resubmit |
 
 ## Known limitations
 
-1. **Nothing is durable beyond the local filesystem.** The journal and result
-   stores are memory or file; the successors are ADR-0002.
+1. **Nothing is durable beyond the local filesystem.** The journal, result and
+   lease stores are memory or file; the successors are ADR-0002. The file lease
+   store's *first* acquisition is genuinely atomic (`open(..., 'wx')`); taking
+   over an EXPIRED lease is read-decide-rename and is not. What closes that gap
+   is the layer above — the monotonic fence and the journal's compare-and-set —
+   and the file that implements it says so rather than implying otherwise.
 2. **Steps are sequential.** No fan-out, no conditional branching, no loops. The
-   manifest's `steps` is a list, not a graph.
-3. **Quorum is declared but not enforced.** `approval_policy.quorum` is validated
-   and carried into the approval request, but the engine proceeds on the first
-   valid approval. A quorum above 1 is currently a statement, not a gate.
-4. **No lease or claim.** ADR-0003's `claimed_by` / `lease_expires_at` design is
-   not wired in, so two processes resuming the same run concurrently would both
-   proceed. Single-operator use only.
-5. **The reference ledger is process-local.** A `resume` in a fresh process gets
+   manifest's `steps` is a list, not a graph. This is now the single largest
+   reusable gap: every future workflow that needs "if the invoice is under the
+   threshold, skip the approval step" has to express it as a separate workflow.
+3. **The reference ledger is process-local.** A `resume` in a fresh process gets
    an empty ledger; what survives is the journal and the result store. Real.
-6. **`compensation_failed`, `journal_corrupted` and `manifest_invalid`** have no
+4. **`compensation_failed`, `journal_corrupted` and `manifest_invalid`** have no
    end-to-end fixture path (they are reachable only structurally); the suite
    names them explicitly rather than hiding them behind a coverage gate.
-7. **No HTTP surface.** The service is transport-neutral by design; the operator
-   surface is a CLI.
+5. **No HTTP surface.** The service is transport-neutral by design. There are
+   now two surfaces on it — the operator CLI and the MCP server — and neither is
+   a web endpoint.
+6. **Idempotent submit is instant-scoped, not a caller-supplied key.** A run id
+   is derived from workflow + inputs + start instant, so an identical
+   resubmission is recognised only when it lands at the same instant. That is
+   the two-workers-one-queue-message case; a genuine caller-supplied
+   idempotency key would also cover "the same invoice submitted twice an hour
+   apart", and does not exist yet.
+7. **Approvals cannot be made from the MCP surface, by design.** See below.
 
 ## Commands
 
@@ -297,6 +431,17 @@ node scripts/awe-control-plane.mjs resume  --run <RUN_ID>
 # discovery, and inspection of any stored run
 node scripts/awe-control-plane.mjs workflows
 node scripts/awe-control-plane.mjs show --run <RUN_ID>
+
+# somewhere other than the repo, and a reproducible (pinned-instant) demo
+AWE_ARTIFACT_ROOT=/tmp/awe node scripts/awe-control-plane.mjs demo
+node scripts/awe-control-plane.mjs demo --start 2026-07-28T09:00:00.000Z
+```
+
+The MCP surface, over the real stdio transport:
+
+```bash
+# lists 16 tools, starts a governed run, and shows it refuse to approve
+bash scripts/smoke-mcp.sh
 ```
 
 Output includes the run id, workflow and version, manifest digest, current
