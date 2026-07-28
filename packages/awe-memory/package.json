@@ -1,0 +1,20 @@
+{
+  "name": "@exattime/awe-memory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tenant-bound, versioned and replayable memory contracts for AWE, with explicit write policy, provenance, retention and storage-neutral retrieval adapters.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./manifest": "./src/manifest.mjs",
+    "./memory-registry": "./src/memory-registry.mjs",
+    "./record": "./src/record.mjs",
+    "./store": "./src/store.mjs",
+    "./retrieval": "./src/retrieval.mjs",
+    "./layer": "./src/layer.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

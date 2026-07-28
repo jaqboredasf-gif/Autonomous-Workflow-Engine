@@ -10,12 +10,12 @@
 // server all call the SAME service rather than each re-implementing the run
 // loop; adding a surface should mean adding a caller, not adding orchestration.
 //
-// Depends on `@exattime/awe-kernel` and `@exattime/awe-control-plane` and
-// nothing else — no database driver, no HTTP framework, no model provider.
-// Which of those it eventually reaches is decided by what a caller injects,
-// which is what keeps ADR-0002 open.
+// Depends on the pure platform packages (`@exattime/awe-kernel`,
+// `@exattime/awe-control-plane`, `@exattime/awe-agent-runtime`, and
+// `@exattime/awe-memory`) and no provider implementation — no database driver,
+// HTTP framework, model SDK, or vector client. Concrete boundaries are injected.
 //
-// Two services live here, and the split is the point:
+// Four services live here, and the split is the point:
 //
 //   createPlatformService       run ONE registered tool through the kernel.
 //   createControlPlaneService   run a REGISTERED WORKFLOW: resolve, authorize,
@@ -23,6 +23,8 @@
 //                               controlled tool boundary, pause for a human,
 //                               resume, compensate, and persist a verifiable
 //                               journal of all of it.
+//   createAgentService          run a bounded provider-neutral agent loop.
+//   createMemoryService         manage tenant-bound versioned long-lived facts.
 // ---------------------------------------------------------------------------
 
 export { createPlatformService } from './service.mjs';
@@ -30,6 +32,8 @@ export { createPlatformService } from './service.mjs';
 export { createControlPlaneService } from './control-plane-service.mjs';
 
 export { createAgentService } from './agent-service.mjs';
+
+export { createMemoryService } from './memory-service.mjs';
 
 export {
   DEFAULT_ARTIFACT_ROOT,
