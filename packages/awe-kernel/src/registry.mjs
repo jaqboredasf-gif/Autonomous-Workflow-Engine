@@ -200,6 +200,15 @@ export const SUITES = [
     tags: ['eval', 'runner-m', 'mcp', 'security'],
   },
   {
+    id: 'eval-control-plane',
+    name: 'execution control plane eval (Runner P, offline deterministic — no keys, no DB, no network)',
+    kind: 'offline',
+    command: 'bash scripts/eval-control-plane.sh',
+    description: 'Registry-backed execution on the synthetic invoice-intake reference workflow: versioned workflow manifests, promotion and dependency gates, deny-by-default tenant policy, the controlled tool-invocation boundary with idempotency, the human approval gate with pause/resume across a cold store, denial, compensation, retry, timeout, cancellation, and refusal of a corrupted run journal.',
+    skipIfMissing: ['scripts/eval-control-plane.sh'],
+    tags: ['eval', 'runner-p', 'control-plane', 'security'],
+  },
+  {
     id: 'eval-execution',
     name: 'execution-outcome + durable-artifact eval (Runner E, offline deterministic — no keys, no DB, no network)',
     kind: 'offline',
