@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Never commit credentials or customer documents.
+.env
+*.env
+fixtures/
+output/
+*.docx
+!assets/templates/*.docx

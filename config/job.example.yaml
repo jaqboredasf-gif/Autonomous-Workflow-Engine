@@ -1,0 +1,14 @@
+# A single ESA report job. Copy this per customer/site/visit.
+#
+#   tegg run --job config/job.example.yaml
+#
+# These four values are everything an operator needs to supply; the rest of the
+# workflow is fixed in config/workflow.yaml.
+
+company: "Acme Manufacturing"
+site: "Plant 3 - Toledo"
+year: 2026
+
+# Selected in the portal's middle dropdowns.
+agreement: "AG-118422"
+site_visit: "2026-05-14"

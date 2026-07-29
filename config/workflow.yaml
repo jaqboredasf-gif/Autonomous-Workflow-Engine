@@ -1,0 +1,140 @@
+# TEGG ESA Report workflow definition.
+#
+# This file is the machine-readable form of the manual SOP in docs/SOP.md.
+# Changing the report set, the parameters, or the assembly order should be a
+# change to THIS file -- not to Python code.
+
+portal:
+  base_url: "https://tegg2.teggpro.com"
+  dashboard_path: "/sales/gm-dashboard"
+  # Credentials are NEVER stored here. They are read from the environment:
+  #   TEGG_USERNAME / TEGG_PASSWORD
+  # See docs/GAPS.md -> "Credential handling".
+
+# Folder layout on the TEGG T shared drive.
+destination:
+  root: "z. TEGG Job Folders (Reports Only)"
+  # Rendered as <root>/<company>/<site>/<year>
+  levels: ["company", "site", "year"]
+
+# ---------------------------------------------------------------------------
+# Stage 1: documents pulled from the TEGG Pro portal.
+# ---------------------------------------------------------------------------
+# Each entry records where the document lives in the portal UI and which
+# dropdowns must be set before exporting. `params` values are resolved against
+# the job file (see config/job.example.yaml).
+
+documents:
+  - key: certificate
+    filename: "Certificates.docx"
+    format: docx
+    nav: ["Documentation", "Document Library", "Certificates"]
+    params:
+      solution: "{agreement}"
+    action: "Print/Generate Document"
+
+  - key: equipment_inventory_short
+    filename: "EquipmentInventoryShortForm.pdf"
+    format: pdf
+    nav: ["Reports", "Standard ESA Reports", "Equipment Inventory and Short Form"]
+    params:
+      agreement: "{agreement}"
+      site_visit: "{site_visit}"
+      order_by: "Locations"
+      images: "Include Images"
+
+  - key: equipment_inventory_long
+    filename: "EquipmentInventoryLongForm.pdf"
+    format: pdf
+    nav: ["Reports", "Standard ESA Reports", "Equipment Inventory and Long Form"]
+    params:
+      agreement: "{agreement}"
+      record_selection: "Site Visits"
+
+  - key: equipment_item_problems
+    filename: "EquipmentItemProblem_AllImages.pdf"
+    format: pdf
+    nav: ["Reports", "Standard ESA Reports", "Equipment Item Problems and Include All Images"]
+    params:
+      contact: "__first_available__"
+      agreement: "{agreement}"
+      site_visit: "{site_visit}"
+
+  - key: problem_count_summary
+    filename: "ProblemCountSummary.pdf"
+    format: pdf
+    nav: ["Reports", "Standard ESA Reports", "Problem Count Summary"]
+    params:
+      contact: "__first_available__"
+      agreement: "{agreement}"
+      site_visit: "{site_visit}"
+
+  - key: standard_ir
+    filename: "StandardIRReport.pdf"
+    format: pdf
+    nav: ["Reports", "Standard ESA Reports", "Standard IR Report"]
+    params:
+      contact: "__first_available__"
+      agreement: "{agreement}"
+      site_visit: "{site_visit}"
+
+  - key: eds_all_problems
+    filename: "EDSAllProblemsOnly.pdf"
+    format: pdf
+    nav: ["Reports", "Standard ESA Reports", "EDS Component Problem Summary and All Problems"]
+    params:
+      contact: "__first_available__"
+      agreement: "{agreement}"
+      site_visit: "{site_visit}"
+
+# ---------------------------------------------------------------------------
+# Stage 2: certificate edits (Certificates.docx -> Certificates good.pdf)
+# ---------------------------------------------------------------------------
+certificate:
+  source: "Certificates.docx"
+  output: "Certificates good.pdf"
+  # The SOP says "delete first group of checkboxes".
+  delete_first_checkbox_group: true
+  # Section A gets today's date at run time.
+  date_field: "A"
+  # Section B answers, straight from the SOP.
+  # Keys are *_items rather than yes/no because YAML 1.1 parses bare
+  # yes/no as booleans.
+  section_b:
+    yes_items: [1, 2, 3, 4, 5, 9]
+    no_items:  [6, 7, 8, 10]
+
+# ---------------------------------------------------------------------------
+# Stage 3: split the Standard IR Report into cover + body
+# ---------------------------------------------------------------------------
+splits:
+  - source: "StandardIRReport.pdf"
+    outputs:
+      - name: "Cover.pdf"
+        pages: "1"
+      - name: "StandardIRReport no cover.pdf"
+        pages: "2-"
+
+# ---------------------------------------------------------------------------
+# Stage 4: final merge order (exact order from the SOP)
+# ---------------------------------------------------------------------------
+assembly:
+  order:
+    - "Cover.pdf"
+    - "ESA Table of Contents.pdf"
+    - "Certificates good.pdf"
+    - "ProblemCountSummary.pdf"
+    - "EquipmentInventoryShortForm.pdf"
+    - "EquipmentInventoryLongForm.pdf"
+    - "StandardIRReport no cover.pdf"
+    - "EquipmentItemProblem_AllImages.pdf"
+    - "EDSAllProblemsOnly.pdf"
+    - "TEGGPro View Customer Instructions.pdf"
+  # NOTE: the SOP writes the output as “Company Name””Site Name””Year” ESA Report.pdf
+  # with no visible separator. Defaulting to spaces -- CONFIRM WITH PAUL.
+  output_template: "{company} {site} {year} ESA Report.pdf"
+
+# Documents that are the same on every job and are not pulled from the portal.
+static_assets:
+  - "ESA Table of Contents.pdf"
+  - "TEGGPro View Customer Instructions.pdf"
