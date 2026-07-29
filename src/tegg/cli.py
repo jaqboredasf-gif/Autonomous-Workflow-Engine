@@ -12,7 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import manifest, portal
+from . import certificate, manifest, portal
 from .assemble import AssemblyError, merge_pdfs, page_count, split_pdf
 from .config import ConfigError, Job, Workflow
 from .paths import JobFolder
@@ -57,9 +57,15 @@ def cmd_doctor(args) -> int:
                 ok = False
 
     print("\nCertificate stage")
-    print("  BLOCKED  needs a sample Certificates.docx (docs/GAPS.md #3, #4)")
-    print("           workaround: edit it by hand and save 'Certificates good.pdf'")
-    print("                       into the source folder; build will pick it up")
+    import shutil as _shutil
+
+    converter = _shutil.which("soffice") or _shutil.which("libreoffice")
+    print(f"  {'OK     ' if converter else 'MISSING'}  LibreOffice (docx -> pdf)")
+    if not converter:
+        print("           install LibreOffice, or edit the certificate by hand and")
+        print("           save 'Certificates good.pdf' into the source folder")
+    print("  CHECK    run 'tegg inspect-docx <Certificates.docx>' on a real file")
+    print("           to confirm the checkbox grouping before trusting a run")
 
     print("\nPortal stage")
     blockers = portal.preflight()
@@ -213,6 +219,39 @@ def cmd_build(args) -> int:
 # ---------------------------------------------------------------------------
 
 
+def cmd_inspect_docx(args) -> int:
+    """Report the checkbox structure of a real Certificates.docx."""
+    print(certificate.inspect(Path(args.file)).describe())
+    return 0
+
+
+def cmd_certificate(args) -> int:
+    """Apply the SOP's certificate edits and produce 'Certificates good.pdf'."""
+    workflow, _ = _load(args)
+    settings = workflow.certificate
+    source = resolve_one(settings["source"], [Path(args.source)])
+    if not source.found:
+        print(
+            f"error: {settings['source']} not found in {args.source}", file=sys.stderr
+        )
+        return 1
+
+    out_dir = Path(args.out or args.source)
+    edited = out_dir / "Certificates edited.docx"
+    edit = certificate.edit_certificate(
+        source.path,
+        edited,
+        yes_items=settings["section_b"]["yes_items"],
+        no_items=settings["section_b"]["no_items"],
+        delete_first_group=settings.get("delete_first_group", True),
+        first_group_size=settings.get("first_group_size"),
+    )
+    print(f"certificate {edit.summary()}")
+    output = certificate.docx_to_pdf(edited, out_dir / settings["output"])
+    print(f"converted   {output.name}")
+    return 0
+
+
 def cmd_fetch(args) -> int:
     """Download the source documents from the TEGG Pro portal."""
     workflow, job = _load(args)
@@ -223,8 +262,45 @@ def cmd_fetch(args) -> int:
             print(f"  - {blocker}", file=sys.stderr)
         print("\nSee docs/GAPS.md for what unblocks each item.", file=sys.stderr)
         return 2
-    portal.download_all(workflow, job, Path(args.out))
+
+    out = Path(args.out)
+    print(f"downloading to {out}")
+    report = portal.download_all(
+        workflow, job, out,
+        base_url=args.base_url,
+        headless=not args.headed,
+    )
+    print(report.summary())
+    if not report.ok:
+        print(
+            "\nSome documents failed. Diagnostic dumps (page structure, "
+            "screenshot, HTML) are in the diagnostics folder -- these show "
+            "exactly which control could not be found.",
+            file=sys.stderr,
+        )
+        return 1
     return 0
+
+
+def cmd_run(args) -> int:
+    """Full pipeline: fetch -> certificate -> split -> merge."""
+    result = cmd_fetch(args)
+    if result != 0:
+        print("\nrun stopped: the portal stage did not complete.", file=sys.stderr)
+        return result
+
+    args.source = args.out
+    result = cmd_certificate(args)
+    if result != 0:
+        print(
+            "\nrun stopped: the certificate stage did not complete. "
+            "Edit it by hand, save 'Certificates good.pdf' into "
+            f"{args.out}, then run 'tegg build'.",
+            file=sys.stderr,
+        )
+        return result
+
+    return cmd_build(args)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -256,8 +332,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="Resolve files but do not merge"
     )
 
-    fetch_cmd = add("fetch", cmd_fetch, "Download from the portal (blocked)")
-    fetch_cmd.add_argument("--out", default=".")
+    cert_cmd = add("certificate", cmd_certificate, "Edit the certificate and convert it")
+    cert_cmd.add_argument("--source", required=True)
+    cert_cmd.add_argument("--out", default=None)
+
+    fetch_cmd = add("fetch", cmd_fetch, "Download the documents from the portal")
+    fetch_cmd.add_argument("--out", required=True)
+    fetch_cmd.add_argument("--base-url", default=None, help="Override the portal URL")
+    fetch_cmd.add_argument(
+        "--headed", action="store_true", help="Show the browser while it runs"
+    )
+
+    run_cmd = add("run", cmd_run, "Full pipeline: fetch, certificate, build")
+    run_cmd.add_argument("--out", required=True, help="Working folder for downloads")
+    run_cmd.add_argument("--base-url", default=None)
+    run_cmd.add_argument("--headed", action="store_true")
+    run_cmd.add_argument("--dry-run", action="store_true")
+
+    inspect_cmd = sub.add_parser(
+        "inspect-docx", help="Report a certificate's checkbox structure"
+    )
+    inspect_cmd.add_argument("file")
+    inspect_cmd.set_defaults(func=cmd_inspect_docx)
     return parser
 
 
@@ -265,7 +361,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (ConfigError, AssemblyError) as exc:
+    except (ConfigError, AssemblyError, certificate.CertificateError, portal.PortalError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

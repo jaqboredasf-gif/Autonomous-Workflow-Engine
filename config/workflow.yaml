@@ -6,10 +6,27 @@
 
 portal:
   base_url: "https://tegg2.teggpro.com"
+  login_path: "/auth/login"
   dashboard_path: "/sales/gm-dashboard"
+  contractor: "Lippolis"
   # Credentials are NEVER stored here. They are read from the environment:
   #   TEGG_USERNAME / TEGG_PASSWORD
   # See docs/GAPS.md -> "Credential handling".
+  #
+  # Controls are located by these labels. If the live site words one
+  # differently, change it here -- no code change needed.
+  login_labels:
+    contractor: "Contractor"
+    username: "User Id"
+    password: "Password"
+    submit: "Log In"
+
+# The shared "Print Report -> choose format -> Export" flow.
+export:
+  print_button: "Print Report"
+  format_label: "Select a Format"
+  format_value: "Acrobat PDF file"
+  export_button: "Export"
 
 # Folder layout on the TEGG T shared drive.
 destination:

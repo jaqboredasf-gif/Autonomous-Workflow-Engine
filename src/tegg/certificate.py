@@ -1,16 +1,23 @@
 """Certificate editing: Certificates.docx -> Certificates good.pdf.
 
-Automates the SOP steps:
+Automates SOP stage 5:
 
   * delete the first group of checkboxes
   * enter the current date under A.
   * under B., check Yes for (1)(2)(3)(4)(5)(9) and No for (6)(7)(8)(10)
   * save as "Certificates good.pdf"
 
-IMPORTANT -- Word documents encode checkboxes in three different ways and the
-right one cannot be guessed without a real Certificates.docx in hand. All three
-are handled below, but the selectors have NOT been validated against a live
-file. See docs/GAPS.md -> "Certificate document structure".
+Grouping assumption
+-------------------
+The SOP says "delete the first group of checkboxes" without saying how many
+that is. Rather than hard-coding a count, the document's own structure is used:
+checkboxes that appear **before the "A." paragraph** are the first group, and
+the items under B. are numbered from the checkboxes that follow it.
+
+That matches the document as described, but it is an inference. Run
+``tegg inspect-docx <file>`` against a real certificate to see exactly what the
+grouping resolves to before trusting a run, and set ``first_group_size`` in
+config/workflow.yaml to pin it explicitly if the inference is wrong.
 """
 
 from __future__ import annotations
@@ -18,16 +25,15 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
 from docx import Document
 from docx.oxml.ns import qn
 
-# The three ways a checkbox shows up in a .docx.
-CHECKED_GLYPHS = {"☒", "☑", "þ"}   # ballot-x, check-in-box, Wingdings check
-UNCHECKED_GLYPHS = {"☐", "¨"}           # empty ballot box, Wingdings empty
+CHECKED_GLYPHS = {"☒", "☑"}
+UNCHECKED_GLYPHS = {"☐"}
 
 
 class CertificateError(Exception):
@@ -35,50 +41,125 @@ class CertificateError(Exception):
 
 
 @dataclass
+class Checkbox:
+    """One checkbox and the paragraph it lives in."""
+
+    element: object
+    paragraph: object
+    paragraph_index: int
+    text: str
+    kind: str  # "legacy" or "content-control"
+
+
+@dataclass
+class Structure:
+    """What an inspection found in a certificate document."""
+
+    document: object = None
+    boxes: list[Checkbox] = field(default_factory=list)
+    section_a_index: int | None = None
+    section_b_index: int | None = None
+    paragraphs: list = field(default_factory=list)
+
+    @property
+    def first_group(self) -> list[Checkbox]:
+        """Checkboxes before section A."""
+        if self.section_a_index is None:
+            return []
+        return [b for b in self.boxes if b.paragraph_index < self.section_a_index]
+
+    @property
+    def section_b_boxes(self) -> list[Checkbox]:
+        """Checkboxes after section B, in document order."""
+        if self.section_b_index is None:
+            return [b for b in self.boxes if b not in self.first_group]
+        return [b for b in self.boxes if b.paragraph_index > self.section_b_index]
+
+    def describe(self) -> str:
+        lines = [
+            f"checkboxes found      : {len(self.boxes)}",
+            f"kinds                 : {sorted({b.kind for b in self.boxes})}",
+            f"section A paragraph   : {self.section_a_index}",
+            f"section B paragraph   : {self.section_b_index}",
+            f"first group (delete)  : {len(self.first_group)}",
+            f"section B items       : {len(self.section_b_boxes)}",
+            "",
+            "first group:",
+        ]
+        lines += [f"  - {b.text[:70]}" for b in self.first_group] or ["  (none)"]
+        lines += ["", "section B items (numbered in this order):"]
+        lines += [
+            f"  ({i}) {b.text[:66]}"
+            for i, b in enumerate(self.section_b_boxes, 1)
+        ] or ["  (none)"]
+        return "\n".join(lines)
+
+
+def inspect(source: Path) -> Structure:
+    """Report the checkbox structure of a certificate without changing it."""
+    source = Path(source)
+    if not source.exists():
+        raise CertificateError(f"certificate not found: {source}")
+
+    document = Document(str(source))
+    structure = Structure(document=document, paragraphs=list(document.paragraphs))
+
+    for index, paragraph in enumerate(structure.paragraphs):
+        stripped = paragraph.text.strip()
+        if structure.section_a_index is None and stripped.startswith("A."):
+            structure.section_a_index = index
+        if structure.section_b_index is None and stripped.startswith("B."):
+            structure.section_b_index = index
+
+        for element in paragraph._p.findall(f".//{qn('w:checkBox')}"):
+            structure.boxes.append(
+                Checkbox(element, paragraph, index, stripped, "legacy")
+            )
+        for sdt in paragraph._p.findall(f".//{qn('w:sdt')}"):
+            if sdt.findall(".//{*}checkbox"):
+                structure.boxes.append(
+                    Checkbox(sdt, paragraph, index, stripped, "content-control")
+                )
+
+    return structure
+
+
+def set_checkbox(box: Checkbox, checked: bool) -> None:
+    """Tick or untick one checkbox, whichever encoding it uses."""
+    from docx.oxml import OxmlElement
+
+    if box.kind == "legacy":
+        for tag in ("w:checked", "w:default"):
+            node = box.element.find(qn(tag))
+            if node is not None:
+                node.set(qn("w:val"), "1" if checked else "0")
+                return
+        node = OxmlElement("w:checked")
+        node.set(qn("w:val"), "1" if checked else "0")
+        box.element.append(node)
+        return
+
+    for node in box.element.findall(".//{*}checkbox"):
+        for child in node.findall(".//{*}checked"):
+            child.set(qn("w14:val"), "1" if checked else "0")
+            return
+    raise CertificateError("content-control checkbox has no <checked> element")
+
+
+@dataclass
 class CertificateEdit:
-    """A record of what was changed, for the run log and for verification."""
+    """A record of what changed, for the run log and for verification."""
 
     date_written: str
     boxes_checked: list[int]
     boxes_unchecked: list[int]
-    groups_deleted: int
+    boxes_deleted: int
 
     def summary(self) -> str:
         return (
-            f"date={self.date_written} "
-            f"yes={self.boxes_checked} no={self.boxes_unchecked} "
-            f"deleted_groups={self.groups_deleted}"
+            f"date={self.date_written} yes={self.boxes_checked} "
+            f"no={self.boxes_unchecked} deleted={self.boxes_deleted}"
         )
-
-
-def _legacy_checkboxes(document: Document) -> list:
-    """Word 97-2003 form-field checkboxes (<w:checkBox>)."""
-    return document.element.body.findall(f".//{qn('w:checkBox')}")
-
-
-def _content_control_checkboxes(document: Document) -> list:
-    """Modern content-control checkboxes (<w:sdt> containing a w14:checkbox)."""
-    found = []
-    for sdt in document.element.body.findall(f".//{qn('w:sdt')}"):
-        if sdt.findall(".//{*}checkbox"):
-            found.append(sdt)
-    return found
-
-
-def set_legacy_checkbox(element, checked: bool) -> None:
-    """Set the <w:default>/<w:checked> value of a legacy form checkbox."""
-    for tag in ("w:checked", "w:default"):
-        node = element.find(qn(tag))
-        if node is not None:
-            node.set(qn("w:val"), "1" if checked else "0")
-            return
-    # Neither node present: Word treats a bare <w:checkBox> as unchecked, so a
-    # <w:checked> element has to be added to tick it.
-    from docx.oxml import OxmlElement
-
-    node = OxmlElement("w:checked")
-    node.set(qn("w:val"), "1" if checked else "0")
-    element.append(node)
 
 
 def edit_certificate(
@@ -89,72 +170,71 @@ def edit_certificate(
     no_items: list[int],
     when: date | None = None,
     delete_first_group: bool = True,
+    first_group_size: int | None = None,
 ) -> CertificateEdit:
     """Apply the SOP's certificate edits and save an edited .docx."""
-    source = Path(source)
-    if not source.exists():
-        raise CertificateError(f"certificate not found: {source}")
+    structure = inspect(source)
+    if not structure.boxes:
+        raise CertificateError(
+            f"{Path(source).name}: no form checkboxes found. Run "
+            "'tegg inspect-docx' on the file to see what it actually contains."
+        )
+    if structure.section_a_index is None:
+        raise CertificateError(
+            "could not find a paragraph beginning with 'A.' -- the date has "
+            "nowhere to go, and the first checkbox group cannot be identified"
+        )
 
-    document = Document(str(source))
     stamp = (when or date.today()).strftime("%m/%d/%Y")
 
-    legacy = _legacy_checkboxes(document)
-    modern = _content_control_checkboxes(document)
-    if not legacy and not modern:
-        raise CertificateError(
-            f"{source.name}: no form checkboxes found. The certificate may use "
-            "literal ballot-box characters instead, which needs a real sample "
-            "to map. See docs/GAPS.md."
-        )
-
-    boxes = legacy or modern
-    groups_deleted = 0
-
-    # "Delete first group of checkboxes." Without a real file we cannot know how
-    # many boxes are in that first group, so refuse rather than silently guess.
-    if delete_first_group:
-        raise CertificateError(
-            "delete_first_group is enabled but the size of the first checkbox "
-            "group is unknown. Provide a sample Certificates.docx so the group "
-            "boundary can be pinned down. See docs/GAPS.md -> "
-            "'Certificate document structure'."
-        )
-
+    section_b = structure.section_b_boxes
     highest = max(yes_items + no_items)
-    if len(boxes) < highest:
+    if len(section_b) < highest:
         raise CertificateError(
-            f"{source.name}: found {len(boxes)} checkboxes but the SOP "
-            f"references item ({highest})"
+            f"section B has {len(section_b)} checkboxes but the SOP references "
+            f"item ({highest}). Run 'tegg inspect-docx' to check the grouping."
         )
 
     for item in yes_items:
-        set_legacy_checkbox(boxes[item - 1], True)
+        set_checkbox(section_b[item - 1], True)
     for item in no_items:
-        set_legacy_checkbox(boxes[item - 1], False)
+        set_checkbox(section_b[item - 1], False)
 
-    _write_date(document, stamp)
+    deleted = 0
+    if delete_first_group:
+        group = structure.first_group
+        if first_group_size is not None:
+            if len(group) != first_group_size:
+                raise CertificateError(
+                    f"expected a first group of {first_group_size} checkboxes but "
+                    f"found {len(group)}. Run 'tegg inspect-docx' to inspect."
+                )
+            group = group[:first_group_size]
+        for box in group:
+            parent = box.paragraph._p.getparent()
+            if parent is not None:
+                parent.remove(box.paragraph._p)
+                deleted += 1
+
+    # The date goes into the A. paragraph, which survives the deletions above.
+    _write_date(structure, stamp)
 
     output_docx = Path(output_docx)
     output_docx.parent.mkdir(parents=True, exist_ok=True)
-    document.save(str(output_docx))
+    structure.document.save(str(output_docx))
 
     return CertificateEdit(
         date_written=stamp,
         boxes_checked=sorted(yes_items),
         boxes_unchecked=sorted(no_items),
-        groups_deleted=groups_deleted,
+        boxes_deleted=deleted,
     )
 
 
-def _write_date(document: Document, stamp: str) -> None:
-    """Put the run date into the section A date placeholder."""
-    for paragraph in document.paragraphs:
-        if paragraph.text.strip().startswith("A."):
-            paragraph.add_run(f"  {stamp}")
-            return
-    raise CertificateError(
-        "could not find a paragraph beginning with 'A.' to place the date"
-    )
+def _write_date(structure: Structure, stamp: str) -> None:
+    if structure.section_a_index is None:
+        raise CertificateError("no 'A.' paragraph to write the date into")
+    structure.paragraphs[structure.section_a_index].add_run(f"  {stamp}")
 
 
 def docx_to_pdf(source: Path, output_pdf: Path, timeout: int = 180) -> Path:
@@ -165,17 +245,21 @@ def docx_to_pdf(source: Path, output_pdf: Path, timeout: int = 180) -> Path:
     if not soffice:
         raise CertificateError(
             "LibreOffice is required to convert the certificate to PDF but was "
-            "not found on PATH."
+            "not found on PATH. Install LibreOffice, or export the certificate "
+            "to PDF by hand."
         )
 
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as staging:
+        # LibreOffice needs a writable user profile. Without an explicit one it
+        # silently fails to load any document when HOME is unwritable or a
+        # profile is already locked by another instance.
+        profile = Path(staging) / "lo-profile"
         try:
             result = subprocess.run(
-                [
-                    soffice, "--headless", "--norestore",
-                    "--convert-to", "pdf", "--outdir", staging, str(source),
-                ],
+                [soffice, f"-env:UserInstallation={profile.as_uri()}",
+                 "--headless", "--norestore", "--convert-to", "pdf",
+                 "--outdir", staging, str(source)],
                 capture_output=True, text=True, timeout=timeout, check=False,
             )
         except subprocess.TimeoutExpired as exc:
@@ -190,5 +274,4 @@ def docx_to_pdf(source: Path, output_pdf: Path, timeout: int = 180) -> Path:
                 f"stderr: {result.stderr.strip()[:400]}"
             )
         shutil.move(str(produced), str(output_pdf))
-
     return output_pdf
