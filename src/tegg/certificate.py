@@ -22,6 +22,7 @@ config/workflow.yaml to pin it explicitly if the inference is wrong.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -237,16 +238,45 @@ def _write_date(structure: Structure, stamp: str) -> None:
     structure.paragraphs[structure.section_a_index].add_run(f"  {stamp}")
 
 
+# LibreOffice is rarely on PATH outside Linux -- macOS and Windows install it
+# into an application directory instead.
+SOFFICE_SEARCH = [
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    "/opt/homebrew/bin/soffice",
+    "/usr/local/bin/soffice",
+    "C:/Program Files/LibreOffice/program/soffice.exe",
+    "C:/Program Files (x86)/LibreOffice/program/soffice.exe",
+]
+
+
+def find_soffice() -> str | None:
+    """Locate LibreOffice, checking PATH then the usual install locations."""
+    override = os.environ.get("TEGG_SOFFICE")
+    if override:
+        if not Path(override).exists():
+            raise CertificateError(f"TEGG_SOFFICE does not exist: {override}")
+        return override
+
+    found = shutil.which("soffice") or shutil.which("libreoffice")
+    if found:
+        return found
+    for candidate in SOFFICE_SEARCH:
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
 def docx_to_pdf(source: Path, output_pdf: Path, timeout: int = 180) -> Path:
     """Convert a .docx to PDF using headless LibreOffice."""
     source = Path(source)
     output_pdf = Path(output_pdf)
-    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    soffice = find_soffice()
     if not soffice:
         raise CertificateError(
             "LibreOffice is required to convert the certificate to PDF but was "
-            "not found on PATH. Install LibreOffice, or export the certificate "
-            "to PDF by hand."
+            "not found. Install it (macOS: brew install --cask libreoffice), "
+            "set TEGG_SOFFICE to its path, or export the certificate to PDF "
+            "by hand and save it as 'Certificates good.pdf'."
         )
 
     output_pdf.parent.mkdir(parents=True, exist_ok=True)

@@ -57,9 +57,7 @@ def cmd_doctor(args) -> int:
                 ok = False
 
     print("\nCertificate stage")
-    import shutil as _shutil
-
-    converter = _shutil.which("soffice") or _shutil.which("libreoffice")
+    converter = certificate.find_soffice()
     print(f"  {'OK     ' if converter else 'MISSING'}  LibreOffice (docx -> pdf)")
     if not converter:
         print("           install LibreOffice, or edit the certificate by hand and")
