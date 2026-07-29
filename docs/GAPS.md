@@ -12,7 +12,7 @@ Status as of the current commit. Ordered by what blocks the most.
 | 6 | Service account / credential handling | Safe unattended runs | IT + Paul | ~1 day |
 | 7 | Output filename separator unconfirmed | Final filename | Paul | minutes |
 | 8 | Two static assets missing | Final merge | Paul | minutes to supply |
-| 9 | No run log / audit trail | Support & trust | Dev | ~1 day |
+| ~~9~~ | ~~No run log / audit trail~~ | — | **Done** | — |
 | 10 | Where it runs is undecided | Going live | Team decision | — |
 
 ---
@@ -128,12 +128,12 @@ Also worth confirming: are these genuinely identical for every customer, or
 does the table of contents vary by report length? If it varies, it has to be
 generated rather than stored.
 
-## 9. No run log or audit trail
+## 9. Run log — DONE
 
-Nothing currently records what was produced, from which agreement and site
-visit, at what time, by whom. For a document that goes to a customer and may
-be referenced in a warranty or insurance dispute, that record matters. A JSON
-log per run, written next to the output, would cover it.
+Every build now writes `build-manifest.json` next to the finished report,
+recording the job details, each source file, how it was matched, page counts,
+and who built it when. An ESA report can be referenced in a warranty or
+insurance dispute years later, so that record matters.
 
 ## 10. Where this runs is undecided
 

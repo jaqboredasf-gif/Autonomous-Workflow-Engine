@@ -10,3 +10,10 @@ fixtures/
 output/
 *.docx
 !assets/templates/*.docx
+
+# Real customer documents and static assets are supplied locally.
+*.pdf
+!docs/**/*.pdf
+*.egg-info/
+build/
+dist/
