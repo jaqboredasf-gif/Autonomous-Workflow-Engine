@@ -87,5 +87,23 @@ if [ -f scripts/eval-approval-queue.sh ]; then
   bash scripts/eval-approval-queue.sh || fails=$((fails+1))
 fi
 
+if [ -f packages/m365/tsconfig.json ]; then
+  step "m365 integration plane typecheck (strict, zero dependencies)"
+  npx --no-install tsc -p packages/m365/tsconfig.json && echo OK || fails=$((fails+1))
+fi
+
+if [ -f scripts/lib/validate-migration-0016.mjs ]; then
+  step "migration 0016 structural validation (offline lint + engine/SQL parity — no DB)"
+  node scripts/lib/validate-migration-0016.mjs >/dev/null 2>&1 && echo OK || { node scripts/lib/validate-migration-0016.mjs; fails=$((fails+1)); }
+fi
+
+if [ -f scripts/eval-m365.sh ]; then
+  step "Microsoft 365 integration plane eval (Runner 6, offline deterministic — no credentials, no Graph, no network)"
+  bash scripts/eval-m365.sh || fails=$((fails+1))
+fi
+
+# NOTE: scripts/m365-live-smoke.sh is deliberately NOT run here. It is the only
+# path that can reach a real Microsoft tenant and requires an explicit opt-in.
+
 echo; echo "regression: $([ $fails = 0 ] && echo ALL GREEN || echo "$fails FAILURES")"
 [ "$fails" = "0" ]

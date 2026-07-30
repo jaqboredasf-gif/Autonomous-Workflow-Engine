@@ -10,6 +10,14 @@ Blocking dependency: Entra ID app registration (Tenant ID, Client ID, secret, Ap
 
 Until unblocked: fixtures-based ingestion (`email_messages.is_fixture=true`); ingestion isolated behind one interface so Graph trigger swaps in with zero routing-logic changes. Every real-email test labeled BLOCKED in backlog.
 
+**Update 2026-07-30 (Task I1 — Microsoft 365 Integration Plane).** The company now has an operational Microsoft 365 tenant and a company Microsoft account, so the app registration can finally be *requested*. The integration itself is now built and verified offline: `packages/m365` implements the Graph gateway, the mail/Teams/document/identity adapters, the subscription lifecycle, notification validation + deduplication, the capability executor with its policy/approval/allowlist/scope gates, and a hash-chained evidence trail. Schema is migration `0016` (**not applied**). Tests: `bash scripts/eval-m365.sh` (Runner 6, offline, deterministic).
+
+- Architecture + capability catalog: `docs/architecture/M365_INTEGRATION_PLANE.md`
+- Exactly what IT must provide: `docs/integrations/M365_ENTRA_CONFIGURATION.md`
+- What is still blocking a live proof: `docs/integrations/BLOCKED_LIVE_PROOF.md`
+
+Scope correction to the note above: the permission set is narrower than originally drafted. `Mail.Send` is **not** requested and never will be — this plane creates Outlook *drafts* only. The requested set is `User.ReadBasic.All`, `Mail.Read`, `Mail.ReadWrite`, `ChannelMessage.Send`, `Sites.Selected`, each scoped by an `ApplicationAccessPolicy` (mail) or a per-site grant (SharePoint). Calendar permissions are deferred to the next slice.
+
 ## n8n — workflow engine (instance URL unconfirmed)
 
 Consumes `integration_events` (Supabase trigger/webhook → n8n). Wave order per docs/AUTOMATION_SYNERGY.md. AI Agent node connects to packages/mcp-server (12 tools live). Needed from Jack: n8n instance URL + credential setup.

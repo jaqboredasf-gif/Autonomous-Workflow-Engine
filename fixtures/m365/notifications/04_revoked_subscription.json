@@ -1,0 +1,12 @@
+{
+  "description": "Notification arrives on a subscription the tenant revoked. State, not expiry, is what refuses it.",
+  "notification": {
+    "subscriptionId": "sub-dev-revoked",
+    "subscriptionExpirationDateTime": "2026-08-01T09:00:00.000Z",
+    "clientState": "fixture-client-state-revoked",
+    "changeType": "created",
+    "resource": "/users/dev-intake@awe-dev.example.invalid/messages/AAMkAGRLPHMSG0001",
+    "resourceData": { "id": "AAMkAGRLPHMSG0001" },
+    "tenantId": "11111111-2222-3333-4444-555555555555"
+  }
+}

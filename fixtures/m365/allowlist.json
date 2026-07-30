@@ -1,0 +1,83 @@
+{
+  "_comment": "Explicit Microsoft 365 resource allowlist for the deterministic M365 slice. Every id here is a FIXTURE: the domains are RFC 6761 .invalid (permanently unresolvable) and the ids are synthetic. Replacing these with real ids is a deliberate, reviewable config change — which is the point of keeping the allowlist as data.",
+  "binding": {
+    "aweTenantId": "2b219aa5-1148-4e3e-a1a0-1725d62b935c",
+    "microsoftTenantId": "11111111-2222-3333-4444-555555555555",
+    "label": "AWE development tenant binding (fixture)"
+  },
+  "grantedScopes": [
+    "User.ReadBasic.All",
+    "Mail.Read",
+    "Mail.ReadWrite",
+    "ChannelMessage.Send",
+    "Sites.Selected"
+  ],
+  "entries": [
+    {
+      "kind": "mailbox",
+      "id": "dev-intake@awe-dev.example.invalid",
+      "label": "development intake mailbox",
+      "isDevelopmentResource": true,
+      "capabilities": [
+        "m365.mail.message.read",
+        "m365.mail.attachment.read",
+        "m365.mail.draft.create"
+      ]
+    },
+    {
+      "kind": "mailbox",
+      "id": "readonly-dev@awe-dev.example.invalid",
+      "label": "development read-only mailbox (no draft capability)",
+      "isDevelopmentResource": true,
+      "capabilities": [
+        "m365.mail.message.read",
+        "m365.mail.attachment.read"
+      ]
+    },
+    {
+      "kind": "mailbox",
+      "id": "production-office@awe-prod.example.invalid",
+      "label": "production office mailbox (present but NOT a development resource)",
+      "isDevelopmentResource": false,
+      "capabilities": [
+        "m365.mail.message.read"
+      ]
+    },
+    {
+      "kind": "teams_channel",
+      "id": "19:devchannel@thread.tacv2",
+      "label": "AWE development notifications channel",
+      "isDevelopmentResource": true,
+      "capabilities": [
+        "m365.teams.notification.create",
+        "m365.teams.approval.request"
+      ],
+      "graph": {
+        "teamId": "team-dev-0001"
+      }
+    },
+    {
+      "kind": "sharepoint_library",
+      "id": "drive-dev-0001",
+      "label": "AWE development document library",
+      "isDevelopmentResource": true,
+      "capabilities": [
+        "m365.document.store"
+      ],
+      "graph": {
+        "driveId": "drive-dev-0001",
+        "siteId": "site-dev-0001",
+        "rootPath": "/awe-development/intake"
+      }
+    },
+    {
+      "kind": "directory_user",
+      "id": "dev-approver@awe-dev.example.invalid",
+      "label": "development approver identity",
+      "isDevelopmentResource": true,
+      "capabilities": [
+        "m365.identity.resolve"
+      ]
+    }
+  ]
+}

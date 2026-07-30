@@ -1,0 +1,16 @@
+{
+  "description": "Graph times out (504) on every permitted attempt. Distinguished from an outage so the evidence row says which one it was.",
+  "options": { "syntheticDecision": "approved", "storeAttachments": false, "maxAttempts": 2 },
+  "faults": [
+    { "method": "GET", "pathContains": "/messages/AAMkAGRLPHMSG0001", "status": 504, "times": 9, "message": "gateway timeout" }
+  ],
+  "notification": {
+    "subscriptionId": "sub-dev-0001",
+    "subscriptionExpirationDateTime": "2026-08-01T09:00:00.000Z",
+    "clientState": "fixture-client-state-0001",
+    "changeType": "created",
+    "resource": "/users/dev-intake@awe-dev.example.invalid/messages/AAMkAGRLPHMSG0001",
+    "resourceData": { "id": "AAMkAGRLPHMSG0001" },
+    "tenantId": "11111111-2222-3333-4444-555555555555"
+  }
+}

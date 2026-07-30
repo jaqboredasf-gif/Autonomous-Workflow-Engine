@@ -192,6 +192,61 @@ database entity / key invariant.
   through a stable interface. Invariant: the model never touches secrets or
   provider auth.
 
+- **Integration plane** — a provider-bound but workflow-neutral layer through
+  which every side effect in one external system passes (Task I1: Microsoft
+  365). NOT a workflow and NOT an n8n artifact: it knows the provider and knows
+  nothing about work requests or invoices. Entity: `packages/m365` + migration
+  0016. Map: docs/architecture/M365_INTEGRATION_PLANE.md. Invariant: the
+  provider can be replaced without changing any objective, task, policy,
+  approval or execution contract.
+
+- **Capability** — one named, versioned Microsoft action with a fixed contract
+  (least-privilege scopes, resource kinds, side-effect class, approval
+  requirement, idempotency). NOT a Graph endpoint and NOT a Tool (Tools are the
+  MVP registry; a capability is the provider-side unit a Tool may reach for).
+  Registry: `packages/m365/src/capabilities.ts`. Invariant: no capability
+  declares `external_send`, and `m365.mail.message.send` is refused by name at
+  every version.
+
+- **Capability request** — one attempt to exercise a capability, carrying AWE
+  tenant, Microsoft tenant, objective, work package, task, execution, capability
+  + version, acting principal, target resource, required scopes, policy decision
+  reference, approval reference (when required), idempotency key, correlation id
+  and timeout/retry bounds. Invariant: a caller that cannot name all of these has
+  not earned the action.
+
+- **Context item** — the normalized, provider-neutral form of one inbound
+  artifact. NOT a Graph message (that is the provider's shape) and NOT a work
+  request (that is the objective). Persisted form: an `email_messages` row.
+  Invariant: every context item is flagged `untrusted_external` — instructions
+  inside it are data, never commands.
+
+- **Resource allowlist** — the explicit list of Microsoft mailboxes, Teams
+  channels, SharePoint libraries and directory users AWE may touch, bound to one
+  Microsoft tenant. NOT code: widening access is a reviewable config change.
+  Invariant: a resource is reachable only because a named entry says so, for a
+  named capability, in the bound tenant; TEST mode additionally requires the
+  entry to be marked a development resource.
+
+- **Delivery key** — the idempotency key of one Graph change notification,
+  derived from subscription + resource + change type + resource id and nothing
+  that varies between redeliveries. Entity: `m365_notifications.delivery_key`
+  (unique per org). Invariant: Graph delivers at least once; a repeat delivery
+  creates no second execution, draft, Teams post or email row.
+
+- **Capability invocation (evidence row)** — the immutable record of one
+  ATTEMPTED Microsoft side effect, refusals included, carrying request identity,
+  both tenants, objective, policy result, approval result, Microsoft resource
+  ids, content hashes, timestamps and outcome. Entity:
+  `m365_capability_invocations`. Invariant: append-only and hash-chained; every
+  exit path in the executor writes one.
+
+- **Fidelity** — whether a provider result came from the real tenant (`live`) or
+  the deterministic fake (`synthetic`). Invariant: it is a literal in both
+  gateways and is recorded on every evidence row — a synthetic result can never
+  be reported as live, and a missing prerequisite produces
+  `blocked_live_proof`, never a fabricated success.
+
 - **Eval** — a repeatable, labeled measurement of model-assisted quality
   (fixtures + labels.json + runners; docs/testing/EVAL_STRATEGY.md). NOT an
   acceptance test (those verify behavior/invariants). Invariant: labels change

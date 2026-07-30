@@ -1,0 +1,11 @@
+{
+  "description": "clientState omitted entirely. Absence is not a pass.",
+  "notification": {
+    "subscriptionId": "sub-dev-0001",
+    "subscriptionExpirationDateTime": "2026-08-01T09:00:00.000Z",
+    "changeType": "created",
+    "resource": "/users/dev-intake@awe-dev.example.invalid/messages/AAMkAGRLPHMSG0001",
+    "resourceData": { "id": "AAMkAGRLPHMSG0001" },
+    "tenantId": "11111111-2222-3333-4444-555555555555"
+  }
+}

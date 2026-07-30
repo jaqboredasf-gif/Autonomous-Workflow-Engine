@@ -27,9 +27,15 @@ typecheck+build (T). Manual items need a device or browser.
 | 17 | Live SQL `route_outbound()` == offline JS `route()`, both on the seeded matrix and on a fully-configured one (limit/backup/escalation branches) | `parity-route-live.mjs` via slice 4 checks 14–14d (460 cases, 2946 field comparisons) | ✔ B3-live |
 | 18 | Approval-queue decision logic (B5): duplicate-decision guard across every status, unauthorized approver, required rejection reason, TEST mode both directions, five view states, refresh verdict, audit trail, `QUEUE_SELECT` schema + enum parity, UI source purity (no send call, no service-role key) | `eval-approval-queue.sh` (Runner 5, 325 checks, 19 fixtures, 7/7 guard reasons) | ✔ offline |
 | 19 | B5 over the browser's real credentials: `QUEUE_SELECT` + FK-hint embeds resolve, admin reads / anon + worker read zero, `record_approval()` enforces reason + role + one-decision-per-message, blocked row visible but undecidable, direct PATCH writes nothing, nothing sent | `acceptance-slice5.sh` (27 checks) | ✔ B5 |
+| 20 | Microsoft 365 integration plane (I1): notification validation, at-least-once dedupe, subscription lifecycle, tenant isolation both directions, resource allowlist, least-privilege scopes, policy + approval gates, bounded retry, partial failure, hash-chained evidence, no send path, no fabricated live results, determinism | `eval-m365.sh` (Runner 6, 1593 checks, 22 fixtures, 19/19 denial reasons, 9/9 notification rejections, 6/6 failure reasons) | ✔ offline |
+| 21 | Migration 0016 shape + engine/SQL vocabulary parity (I1) | `validate-migration-0016.mjs` (51 checks) | ✔ offline |
+| 22 | `packages/m365` strict typecheck, zero dependencies | `tsc -p packages/m365/tsconfig.json` | T |
 
-Rows 13–15 and 18 need no keys, no database and no network — they are the subset that
-can run when the live project must not be touched. Rows 16–17 and 19 require the live
+Rows 13–15, 18 and 20–22 need no keys, no database and no network — they are the subset
+that can run when the live project must not be touched. Rows 20–22 additionally need no
+Microsoft credentials, no admin consent and no webhook endpoint: the plane runs against a
+deterministic fake Graph provider that can never report a live result. The opt-in live
+smoke test (`scripts/m365-live-smoke.sh`) is deliberately NOT part of regression. Rows 16–17 and 19 require the live
 project (`.env.acceptance` sourced) and migrations 0014+0015 applied.
 
 Row 18 imports `apps/web/src/lib/approval-queue.ts` directly (Node 24 strips the

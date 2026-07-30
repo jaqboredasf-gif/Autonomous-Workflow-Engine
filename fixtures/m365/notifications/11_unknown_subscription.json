@@ -1,0 +1,12 @@
+{
+  "description": "A subscription id we never created.",
+  "notification": {
+    "subscriptionId": "sub-does-not-exist",
+    "subscriptionExpirationDateTime": "2026-08-01T09:00:00.000Z",
+    "clientState": "fixture-client-state-0001",
+    "changeType": "created",
+    "resource": "/users/dev-intake@awe-dev.example.invalid/messages/AAMkAGRLPHMSG0001",
+    "resourceData": { "id": "AAMkAGRLPHMSG0001" },
+    "tenantId": "11111111-2222-3333-4444-555555555555"
+  }
+}

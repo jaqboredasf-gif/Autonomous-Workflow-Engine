@@ -1,0 +1,12 @@
+{
+  "description": "The subscription itself points at a mailbox that is not on the allowlist (config drift: the subscription outlived the permission).",
+  "notification": {
+    "subscriptionId": "sub-unlisted-mailbox",
+    "subscriptionExpirationDateTime": "2026-08-01T09:00:00.000Z",
+    "clientState": "fixture-client-state-unlisted",
+    "changeType": "created",
+    "resource": "/users/ceo@awe-prod.example.invalid/messages/AAMkAGRLPHMSG0009",
+    "resourceData": { "id": "AAMkAGRLPHMSG0009" },
+    "tenantId": "11111111-2222-3333-4444-555555555555"
+  }
+}

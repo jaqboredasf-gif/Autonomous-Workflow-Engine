@@ -1,0 +1,13 @@
+{
+  "description": "A notification for a message the mailbox does not have (deleted before we fetched it). 404 is not retried.",
+  "options": { "syntheticDecision": "approved", "storeAttachments": false },
+  "notification": {
+    "subscriptionId": "sub-dev-0001",
+    "subscriptionExpirationDateTime": "2026-08-01T09:00:00.000Z",
+    "clientState": "fixture-client-state-0001",
+    "changeType": "created",
+    "resource": "/users/dev-intake@awe-dev.example.invalid/messages/AAMkAGRLPHGONE99",
+    "resourceData": { "id": "AAMkAGRLPHGONE99" },
+    "tenantId": "11111111-2222-3333-4444-555555555555"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "description": "No human decides. Reads and Teams posts still happen; the Outlook draft is DENIED for want of an approval.",
+  "options": { "syntheticDecision": "none", "storeAttachments": false },
+  "notification": {
+    "subscriptionId": "sub-dev-0001",
+    "subscriptionExpirationDateTime": "2026-08-01T09:00:00.000Z",
+    "clientState": "fixture-client-state-0001",
+    "changeType": "created",
+    "resource": "/users/dev-intake@awe-dev.example.invalid/messages/AAMkAGRLPHMSG0001",
+    "resourceData": { "id": "AAMkAGRLPHMSG0001" },
+    "tenantId": "11111111-2222-3333-4444-555555555555"
+  }
+}
