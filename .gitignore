@@ -14,6 +14,20 @@ output/
 # Real customer documents and static assets are supplied locally.
 *.pdf
 !docs/**/*.pdf
+
+# Job workspaces hold real customer documents, portal screenshots, HTML
+# snapshots and manifests naming customers and sites. Never commit them.
+work/
+test-data/
+# Legacy Word documents -- the portal serves certificates as .doc.
+*.doc
+!assets/templates/*.doc
+.DS_Store
 *.egg-info/
 build/
 dist/
+
+# Live-portal dry-run evidence: screenshots and HTML naming real
+# customers and sites. Never commit.
+TEGG-DRYRUN/
+DRYRUN/
