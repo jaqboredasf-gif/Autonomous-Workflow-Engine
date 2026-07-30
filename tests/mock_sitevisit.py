@@ -119,7 +119,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(
                 _page("Reports", "<p>There are currently no agreements to report on.</p>")
             )
-        elif path == "/documentation":
+        elif path in ("/sales/documentation", "/documentation"):
+            # The live portal serves this at /sales/documentation, which is what
+            # config/workflow.yaml points at. /documentation stays as an alias so
+            # older tests that hard-code it keep working.
             self._send(_page("Documentation", self._visit_table()))
         elif path.startswith("/site-visit/") and path.endswith("/documents"):
             self._send(self._document_library(path.split("/")[2]))

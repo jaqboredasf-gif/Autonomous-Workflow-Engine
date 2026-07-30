@@ -159,6 +159,13 @@ def _css_literal(value: str) -> str:
     return f'"{escaped}"'
 
 
+# Selecting an option that is not in the DOM makes Playwright wait out the
+# whole default timeout. Decisions here are made from the option list that is
+# already present, so a genuinely absent option is reported in milliseconds
+# instead of a minute.
+SELECT_TIMEOUT_MS = 10_000
+
+
 def select_value(page, label: str, value: str) -> str:
     """Set a dropdown, resolving the FIRST_AVAILABLE sentinel.
 
@@ -166,34 +173,35 @@ def select_value(page, label: str, value: str) -> str:
     """
     control = find_field(page, label)
 
-    if value == FIRST_AVAILABLE:
-        options = [
-            o for o in control.locator("option").all_text_contents() if o.strip()
-        ]
-        if not options:
-            raise PortalError(f"{label!r} has no selectable options")
-        value = options[0].strip()
+    labels = [o.strip() for o in control.locator("option").all_text_contents()]
+    try:
+        values = control.locator("option").evaluate_all(
+            "els => els.map(e => e.value)"
+        )
+    except Exception:
+        values = []
 
-    try:
-        control.select_option(label=value)
+    if value == FIRST_AVAILABLE:
+        choices = [o for o in labels if o]
+        if not choices:
+            raise PortalError(f"{label!r} has no selectable options")
+        value = choices[0]
+
+    if value in labels:
+        control.select_option(label=value, timeout=SELECT_TIMEOUT_MS)
         return value
-    except Exception:
-        pass
-    try:
-        control.select_option(value=value)
+    if value in values:
+        control.select_option(value=value, timeout=SELECT_TIMEOUT_MS)
         return value
-    except Exception:
-        pass
 
     # Last resort: match an option that merely contains the value.
-    options = [o.strip() for o in control.locator("option").all_text_contents()]
-    for option in options:
-        if value.lower() in option.lower() and option:
-            control.select_option(label=option)
+    for option in labels:
+        if option and value.lower() in option.lower():
+            control.select_option(label=option, timeout=SELECT_TIMEOUT_MS)
             return option
 
     raise PortalError(
-        f"{label!r} has no option matching {value!r}; available: {options}"
+        f"{label!r} has no option matching {value!r}; available: {labels}"
     )
 
 

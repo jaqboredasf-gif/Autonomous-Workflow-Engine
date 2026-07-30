@@ -543,17 +543,25 @@ class Explorer:
         This is what made the first live run report zero completed visits when
         the portal in fact had 180.
         """
-        for _ in range(tries):
+        saw_loading = False
+        for attempt in range(tries):
             try:
                 text = self.page.inner_text("body")
             except Exception:
                 text = ""
-            if "loading" not in text.lower():
+            if "loading" in text.lower():
+                saw_loading = True
+            else:
                 try:
                     if self.page.evaluate(self._ROWS_JS):
                         return True
                 except Exception:
                     pass
+                # A page that never showed a loading indicator and has no rows
+                # is not slow, it is the wrong page. Waiting out the full budget
+                # on it turns a clear misconfiguration into an apparent hang.
+                if not saw_loading and attempt >= 2:
+                    return False
             self.page.wait_for_timeout(interval_ms)
         return bool(self._raw_rows())
 
@@ -620,8 +628,12 @@ class Explorer:
             site = _first(field_of, "site name", "site")
             job = _first(field_of, "job num", "job")
             agreement = _first(field_of, "agreement")
-            end = _first(field_of, "end date")
-            start = _first(field_of, "start date")
+            # The live portal heads these columns "Start" and "End"; other
+            # listings use a single "Date". Matching only "end date" found
+            # neither, so every visit came back with an empty date.
+            end = _first(field_of, "end date", "end")
+            start = _first(field_of, "start date", "start")
+            single = _first(field_of, "date")
             technician = _first(field_of, "lead tech", "technician", "tech")
 
             href = row.get("href") or ""
@@ -635,7 +647,7 @@ class Explorer:
                     label=f"{customer} / {site}".strip(" /")[:120],
                     customer=customer[:80],
                     site=site[:80],
-                    date=(end or start).strip(),
+                    date=(end or start or single).strip(),
                     url=self._absolute(href),
                     row_text=row.get("text", "")[:300],
                     agreement=agreement.strip(),
