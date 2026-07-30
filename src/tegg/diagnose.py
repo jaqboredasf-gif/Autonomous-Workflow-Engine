@@ -186,6 +186,18 @@ RULES: tuple[tuple[str, str, str, str, str], ...] = (
         BLAME_EXTERNAL,
     ),
     (
+        # A file that is present, non-empty and named right, but that pypdf
+        # cannot parse. Distinct from a missing asset and from a wrong-type
+        # export: the document itself is damaged, so the fix is to replace the
+        # file, not to change any code.
+        r"is unreadable|Stream has ended unexpectedly|EOF marker not found"
+        r"|could not read malformed PDF|Xref table",
+        STAGE_ASSEMBLY, "source_document_corrupt",
+        "the file on disk is damaged, not the code that read it -- replace it "
+        "and check where it came from",
+        BLAME_INPUT,
+    ),
+    (
         r"timeout|timed out",
         STAGE_UNKNOWN, "timed_out",
         "a wait somewhere gave up; the message above names the selector",

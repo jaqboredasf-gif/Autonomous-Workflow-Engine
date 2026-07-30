@@ -116,6 +116,18 @@ from tegg import diagnose
             "static_asset_missing",
         ),
         (
+            # Found operationally: a corrupt fixed section reported only
+            # "Stream has ended unexpectedly", which matched no rule at all.
+            "Stream has ended unexpectedly",
+            diagnose.STAGE_ASSEMBLY,
+            "source_document_corrupt",
+        ),
+        (
+            "TEGGPro View Customer Instructions.pdf is unreadable",
+            diagnose.STAGE_ASSEMBLY,
+            "source_document_corrupt",
+        ),
+        (
             "Timeout 30000ms exceeded waiting for selector",
             diagnose.STAGE_UNKNOWN,
             "timed_out",
