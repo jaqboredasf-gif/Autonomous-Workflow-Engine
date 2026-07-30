@@ -31,6 +31,10 @@ SITE_VISITS = {
     "71999": ("Acme Manufacturing", "Plant 3 - Toledo", "05/14/2026", "Completed"),
     "72104": ("Borden Foods", "Cold Store 2", "06/02/2026", "Completed"),
     "72200": ("Cutler Steel", "Mill A", "07/01/2026", "In Progress"),
+    # A record deliberately named as a test rig. This is the shape a live
+    # portal needs before automation may write to anything: the classification
+    # is driven by the name, because the portal has no sandbox status.
+    "72900": ("ZZ-AUTOMATION TEST", "Test Rig", "07/15/2026", "Draft"),
 }
 
 # label -> (slug, download filename, pages)

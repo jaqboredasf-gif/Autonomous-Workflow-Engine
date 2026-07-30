@@ -154,11 +154,17 @@ class Explorer:
         base_url: str,
         recorder: evidence.Recorder,
         settings: dict[str, Any] | None = None,
+        keep_all_statuses: bool = False,
     ) -> None:
         self.page = page
         self.base_url = base_url.rstrip("/")
         self.recorder = recorder
         self.settings = settings or {}
+        # False keeps the long-standing behaviour: only Completed visits are
+        # returned, because that is all the fetch path can act on. True returns
+        # every row so a caller can classify the list and decide what is safe
+        # to write to.
+        self.keep_all_statuses = keep_all_statuses
 
     # -- session ----------------------------------------------------------
     def login(self, username: str, password: str, contractor: str | None = None) -> None:
@@ -621,8 +627,13 @@ class Explorer:
                     field_of[head] = cells[index]
 
             status = _first(field_of, "status")
-            if status.strip().lower() not in COMPLETED_STATUSES:
-                continue
+            # ``keep_all_statuses`` is what lets a caller *classify* the list --
+            # Draft, In Progress, Completed -- rather than only see the finished
+            # rows. The default is unchanged, so the fetch path still sees
+            # exactly what it always did.
+            if not self.keep_all_statuses:
+                if status.strip().lower() not in COMPLETED_STATUSES:
+                    continue
 
             customer = _first(field_of, "customer")
             site = _first(field_of, "site name", "site")

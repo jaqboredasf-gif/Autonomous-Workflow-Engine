@@ -51,6 +51,7 @@ def session(
     *,
     headless: bool = True,
     downloads: Path | None = None,
+    keep_all_statuses: bool = False,
 ):
     """Open a logged-in portal session and guarantee the browser is closed."""
     blockers = preflight()
@@ -72,7 +73,13 @@ def session(
         context.set_default_timeout(int(settings.get("timeout_ms", 30000)))
         page = context.new_page()
         try:
-            explorer = Explorer(page, base_url, recorder, settings)
+            explorer = Explorer(
+                page,
+                base_url,
+                recorder,
+                settings,
+                keep_all_statuses=keep_all_statuses,
+            )
             explorer.login(username, password, contractor)
             yield explorer
         finally:
@@ -99,6 +106,34 @@ def list_completed(
     with session(base_url, recorder, settings, headless=headless) as explorer:
         explorer.open_documentation()
         return explorer.list_completed_site_visits()
+
+
+def survey_visits(
+    base_url: str,
+    settings: dict[str, Any],
+    evidence_dir: Path,
+    *,
+    headless: bool = True,
+    timeframe: str = "All Site Visits",
+):
+    """Log in, enumerate *every* site visit, and classify each one.
+
+    Strictly read-only: it opens the listing, widens the timeframe, reads the
+    table and logs out. Nothing is clicked into, nothing is downloaded and
+    nothing is written. This is what has to run before any live automation, so
+    that a writable record is chosen by rule rather than by assumption.
+    """
+    from . import recordsafety
+
+    recorder = evidence.Recorder(evidence_dir)
+    with session(
+        base_url, recorder, settings, headless=headless, keep_all_statuses=True
+    ) as explorer:
+        explorer.open_documentation()
+        if timeframe:
+            explorer.set_timeframe(timeframe)
+        visits = explorer.list_completed_site_visits()
+    return visits, recordsafety.survey(visits)
 
 
 # ---------------------------------------------------------------------------

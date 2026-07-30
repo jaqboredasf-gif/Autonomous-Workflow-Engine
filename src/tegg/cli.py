@@ -393,6 +393,69 @@ def cmd_portal_list(args) -> int:
     return 0
 
 
+def cmd_portal_survey(args) -> int:
+    """Enumerate every site visit and classify each one. Read-only.
+
+    This is the gate in front of any live automation: it decides, by rule
+    rather than by assumption, whether a record exists that may be written to.
+    It clicks into nothing and downloads nothing.
+    """
+    import json
+
+    from . import fetch as fetch_module
+
+    base_url, settings = _portal_settings(args)
+    evidence_dir = Path(args.evidence or (Path(args.work_root) / "exploration"))
+    print(f"signing in to {base_url}  (read-only survey)")
+    visits, survey = fetch_module.survey_visits(
+        base_url,
+        settings,
+        evidence_dir,
+        headless=not args.headed,
+        timeframe=args.timeframe,
+    )
+
+    if not visits:
+        print(
+            "\nNo site visits were identified at all.\n"
+            f"Evidence (page snapshot, links, tables): {evidence_dir}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"\n{len(visits)} site visit(s):\n")
+    for verdict in survey.verdicts:
+        print(f"  {verdict}")
+
+    print("\nby classification:")
+    for name, count in sorted(survey.counts().items()):
+        print(f"  {name:<14} {count}")
+
+    destination = Path(args.report) if args.report else (evidence_dir / "survey.json")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(survey.to_dict(), indent=2) + "\n", encoding="utf-8"
+    )
+    print(f"\nevidence  {evidence_dir}")
+    print(f"json      {destination}")
+
+    safest = survey.safest
+    if safest is None:
+        print(
+            "\nNo record is safe to write to. Automation needs a site visit that "
+            "is positively identified as a test/sandbox record -- a name "
+            "containing TEST, SANDBOX, DEMO, TRAINING or AUTOMATION. Completed "
+            "visits are real delivered work, and Draft/In Progress visits are "
+            "unfinished real work; neither may be written to.",
+            file=sys.stderr,
+        )
+        return 2
+
+    print(f"\nsafest record  {safest.identifier}  ({safest.reason})")
+    print(f"Next:  tegg run --site-visit {safest.identifier}")
+    return 0
+
+
 def _diagnose_submit(page, form, settings, evidence_dir, login_path) -> int:
     """Sign in for real and report exactly what the portal did about it.
 
@@ -891,6 +954,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_portal_options(list_cmd)
     list_cmd.set_defaults(func=cmd_portal_list)
+
+    survey_cmd = portal_sub.add_parser(
+        "survey",
+        help="Enumerate every site visit, classify each, and name the safest "
+             "record automation may write to",
+    )
+    _add_portal_options(survey_cmd)
+    survey_cmd.add_argument(
+        "--timeframe",
+        default="All Site Visits",
+        help="Timeframe option to select before reading the list",
+    )
+    survey_cmd.add_argument(
+        "--report", default=None, help="Where to write the JSON survey"
+    )
+    survey_cmd.set_defaults(func=cmd_portal_survey)
 
     probe_cmd = portal_sub.add_parser(
         "probe-login",
