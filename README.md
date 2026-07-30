@@ -110,11 +110,28 @@ The last command produces
 order — in about a third of a second, plus a `build-manifest.json` recording
 every source file and page count.
 
+### The whole route, end to end, against a mock portal
+
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 218 tests, no skips
+# What has to be true before a run is worth starting
+.venv/bin/python -m tegg.mock_runner --preflight
+
+# Sign in, walk the report route in a real browser, export every section,
+# convert the certificate, assemble and validate a ten-section DRAFT
+.venv/bin/python -m tegg.mock_runner
 ```
 
-Two of those drive a real Chromium against a mock portal and convert a real
+This is **full browser/UI execution** — Playwright drives Chromium through
+Print Report, the ReportViewer popup, the format dropdown and Export, capturing
+the PDF from the inline response, exactly as the live route does. The only
+difference is that the portal is a local mock bound to `127.0.0.1`. It exits
+non-zero if any acceptance criterion fails. See **`docs/MOCK_RUN.md`**.
+
+```bash
+.venv/bin/python -m pytest tests/ -q      # 463 tests, 1 skip
+```
+
+Several of those drive a real Chromium against a mock portal and convert a real
 legacy `.doc` through LibreOffice, so the suite takes about three minutes.
 
 ## How it is put together
@@ -135,6 +152,21 @@ src/tegg/portal.py       Playwright driver            (works against the mock; l
 src/tegg/browser.py      Chrome/Chromium discovery
 tests/mock_portal.py     stand-in portal for tests
 src/tegg/cli.py          doctor / plan / build / fetch / certificate / run / inspect-docx
+
+The controlled mock run:
+config/mock_cases.yaml   the scenario matrix as data
+src/tegg/mock_runner.py  the one documented command
+src/tegg/preflight.py    prerequisites, including the loopback-only safety check
+src/tegg/mockrun.py      execution orchestration and the bounded repair loop
+src/tegg/mockportal.py   a faithful mock of the live portal's awkward behaviour
+src/tegg/mockassets.py   marked stand-ins for the two gitignored fixed sections
+src/tegg/esaroute.py     site selection, accordion navigation, parameter apply
+src/tegg/ssrs.py         ReportViewer: popup, format dropdown, inline PDF capture
+src/tegg/fieldmap.py     which dropdown means what, as pure planning
+src/tegg/validate.py     structural, text and honesty checks per artifact
+src/tegg/diagnose.py     failure text -> the narrowest place to look
+src/tegg/results.py      the three-status result and its consistency rules
+src/tegg/naming.py       the deliverable filename, generated and checked
 ```
 
 An operator supplies only five values per job — company, site, year, agreement,

@@ -19,6 +19,9 @@ output/
 # snapshots and manifests naming customers and sites. Never commit them.
 work/
 test-data/
+# The controlled mock run's own workspace: exported PDFs, screenshots, HTML
+# snapshots and an assembled DRAFT. All regenerable, none of it belongs here.
+mock-run/
 # Legacy Word documents -- the portal serves certificates as .doc.
 *.doc
 !assets/templates/*.doc

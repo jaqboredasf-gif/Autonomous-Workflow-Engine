@@ -1,0 +1,165 @@
+# The controlled mock test matrix.
+#
+# Every value here is fake by construction. The customer, site, agreement and
+# visit identifier are invented; nothing in this file corresponds to a real
+# customer, and no credential appears in it -- the mock portal's account lives
+# in tegg/mockportal.py and is equally fake.
+#
+# `text_fields` names which job values must be found in a report's extracted
+# text. It is not uniform, and that is the point: the live Equipment Inventory
+# Short Form carries only "<site> - <agreement>" in its header, with no customer
+# name and no site-visit identifier. That was confirmed by extracting text from
+# the real 70-page export, so the mock reproduces it and validation asks only
+# for what the document actually contains.
+
+job:
+  customer: Northwind Manufacturing
+  site: Bay Street Plant
+  agreement: STD00000000XX-01/26-01
+  site_visit: T26-001
+  visit_date: "2026-03-11"
+
+# --- the ten sections of a complete ESA report -----------------------------
+cases:
+  - id: problem_count_summary
+    kind: portal_report
+    portal_label: Problem Count Summary
+    min_pages: 1
+    text_fields: [site, agreement, site_visit]
+
+  - id: equipment_inventory_short
+    kind: portal_report
+    portal_label: Short Form
+    min_pages: 2
+    # No customer name and no visit id on this form; see the note above.
+    text_fields: [site, agreement]
+
+  - id: equipment_inventory_long
+    kind: portal_report
+    portal_label: Long Form
+    min_pages: 2
+    text_fields: [site, agreement]
+
+  - id: standard_ir
+    kind: portal_report
+    portal_label: Standard IR Report
+    # At least two pages, or the cover cannot be split off.
+    min_pages: 2
+    text_fields: [site, agreement, site_visit]
+
+  - id: equipment_item_problems
+    kind: portal_report
+    portal_label: Equipment Item Problems
+    min_pages: 1
+    text_fields: [site, agreement, site_visit]
+
+  - id: eds_all_problems
+    kind: portal_report
+    portal_label: EDS Component Problem Summary
+    min_pages: 1
+    text_fields: [site, agreement, site_visit]
+
+  - id: certificate
+    kind: certificate
+    # Generation and conversion are automated; ticking section B is not.
+    human_review: true
+    finalization_blocked: true
+    blocker: >-
+      certificate checkbox and signature confirmation cannot be truthfully
+      automated: section B is eleven items with two Wingdings glyph boxes each,
+      and no proven glyph-to-item mapping exists
+    min_pages: 1
+    # A converted Word document's extracted text is reliable, so these are
+    # required rather than advisory.
+    text_fields: [customer, site, agreement, site_visit]
+
+  - id: cover
+    kind: derived
+    derived_from: standard_ir
+    min_pages: 1
+
+  - id: standard_ir_no_cover
+    kind: derived
+    derived_from: standard_ir
+    min_pages: 1
+
+  - id: table_of_contents
+    kind: static
+    min_pages: 1
+
+  - id: customer_instructions
+    kind: static
+    min_pages: 1
+
+# --- negative cases -------------------------------------------------------
+# Each proves one failure is detected, reported with a usable root cause, and
+# never silently treated as a success. `expect: fail` means the run is correct
+# only if the case fails; a pass here is a bug in the validation.
+faults:
+  - id: export-serves-no-pdf
+    kind: portal_report
+    canonical_type: eds_all_problems
+    portal_label: EDS Component Problem Summary
+    fault: no_pdf
+    expect: fail
+    expect_stage: export
+    expect_cause: pdf_never_arrived
+
+  - id: export-serves-html-as-pdf
+    kind: portal_report
+    canonical_type: problem_count_summary
+    portal_label: Problem Count Summary
+    fault: html_body
+    expect: fail
+    expect_stage: export
+    expect_cause: response_was_not_a_pdf
+
+  - id: export-serves-empty-body
+    kind: portal_report
+    canonical_type: equipment_item_problems
+    portal_label: Equipment Item Problems
+    fault: empty_pdf
+    expect: fail
+    expect_stage: export
+    expect_cause: pdf_never_arrived
+
+  - id: print-opens-no-viewer
+    kind: portal_report
+    canonical_type: standard_ir
+    portal_label: Standard IR Report
+    fault: no_viewer
+    expect: fail
+    expect_stage: report_viewer
+    expect_cause: viewer_never_opened
+
+  - id: form-omits-the-agreement
+    kind: portal_report
+    canonical_type: equipment_inventory_short
+    portal_label: Short Form
+    fault: missing_agreement
+    expect: fail
+    expect_stage: parameters
+    expect_cause: parameter_unsatisfiable
+
+  - id: report-absent-from-the-list
+    kind: portal_report
+    canonical_type: equipment_inventory_long
+    portal_label: Long Form
+    fault: report_absent
+    expect: fail
+    expect_stage: report_navigation
+    expect_cause: report_leaf_not_found
+
+  # The only fault whose export *succeeds*. The PDF is well-formed and opens
+  # cleanly; what is wrong is inside it -- the technician's recommendation and
+  # repair estimate came through as unsubstituted tokens. Structural validation
+  # passes this document, so it is the case that proves the text pass is load
+  # bearing rather than decorative.
+  - id: recommendation-and-estimate-malformed
+    kind: portal_report
+    canonical_type: eds_all_problems
+    portal_label: EDS Component Problem Summary
+    fault: malformed_input
+    expect: fail
+    expect_stage: validation
+    expect_cause: placeholder_left_in_output
