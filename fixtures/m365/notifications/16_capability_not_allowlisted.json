@@ -1,0 +1,13 @@
+{
+  "description": "Mail on the read-only development mailbox: reading is allowlisted, drafting is not. The draft is refused on the resource allowlist, after the read succeeded.",
+  "options": { "syntheticDecision": "approved", "storeAttachments": false },
+  "notification": {
+    "subscriptionId": "sub-dev-readonly",
+    "subscriptionExpirationDateTime": "2026-08-01T09:00:00.000Z",
+    "clientState": "fixture-client-state-readonly",
+    "changeType": "created",
+    "resource": "/users/readonly-dev@awe-dev.example.invalid/messages/AAMkAGRLPHMSG0003",
+    "resourceData": { "id": "AAMkAGRLPHMSG0003" },
+    "tenantId": "11111111-2222-3333-4444-555555555555"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "description": "Message with one attachment arrives in the allowlisted development mailbox; policy permits, a synthetic human approves, one Outlook DRAFT is created and the attachment is stored in the allowlisted development library.",
+  "options": { "syntheticDecision": "approved", "storeAttachments": true },
+  "notification": {
+    "subscriptionId": "sub-dev-0001",
+    "subscriptionExpirationDateTime": "2026-08-01T09:00:00.000Z",
+    "clientState": "fixture-client-state-0001",
+    "changeType": "created",
+    "resource": "/users/dev-intake@awe-dev.example.invalid/messages/AAMkAGRLPHMSG0001",
+    "resourceData": { "id": "AAMkAGRLPHMSG0001", "@odata.type": "#microsoft.graph.message" },
+    "tenantId": "11111111-2222-3333-4444-555555555555"
+  }
+}

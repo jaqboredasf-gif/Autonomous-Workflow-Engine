@@ -1,0 +1,14 @@
+{
+  "description": "Graph redelivers the same change (at-least-once). The second and third deliveries must create no execution, no email_messages row, no draft and no Teams post.",
+  "options": { "syntheticDecision": "approved", "storeAttachments": false },
+  "deliverTimes": 3,
+  "notification": {
+    "subscriptionId": "sub-dev-0001",
+    "subscriptionExpirationDateTime": "2026-08-01T09:00:00.000Z",
+    "clientState": "fixture-client-state-0001",
+    "changeType": "created",
+    "resource": "/users/dev-intake@awe-dev.example.invalid/messages/AAMkAGRLPHMSG0002",
+    "resourceData": { "id": "AAMkAGRLPHMSG0002", "@odata.type": "#microsoft.graph.message" },
+    "tenantId": "11111111-2222-3333-4444-555555555555"
+  }
+}

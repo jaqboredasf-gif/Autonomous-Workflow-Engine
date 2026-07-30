@@ -1,0 +1,295 @@
+{
+  "_comment": "Expected outcome of every M365 notification fixture. Labels change only by reviewed decision (docs/testing/EVAL_STRATEGY.md). `denied`/`failed` map capability -> the exact reason the executor must produce; a different reason is a failure even when the action was still refused.",
+
+  "01_happy_path_approved.json": {
+    "status": "completed",
+    "accepted": true,
+    "rejection": null,
+    "executions": 1,
+    "draftsCreated": 1,
+    "teamsMessages": 2,
+    "storedDocuments": 1,
+    "attachmentsRetrieved": 1,
+    "denied": {},
+    "failed": {}
+  },
+
+  "02_duplicate_delivery.json": {
+    "status": "completed",
+    "deliveryStatuses": ["completed", "duplicate", "duplicate"],
+    "accepted": true,
+    "rejection": null,
+    "executions": 1,
+    "draftsCreated": 1,
+    "teamsMessages": 2,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "03_expired_subscription.json": {
+    "status": "rejected",
+    "accepted": false,
+    "rejection": "subscription_expired",
+    "executions": 0,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "04_revoked_subscription.json": {
+    "status": "rejected",
+    "accepted": false,
+    "rejection": "subscription_not_active",
+    "executions": 0,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "05_cross_tenant_subscription.json": {
+    "status": "rejected",
+    "accepted": false,
+    "rejection": "tenant_mismatch",
+    "executions": 0,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "06_foreign_microsoft_tenant.json": {
+    "status": "rejected",
+    "accepted": false,
+    "rejection": "tenant_mismatch",
+    "executions": 0,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "07_client_state_mismatch.json": {
+    "status": "rejected",
+    "accepted": false,
+    "rejection": "client_state_mismatch",
+    "executions": 0,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "08_missing_client_state.json": {
+    "status": "rejected",
+    "accepted": false,
+    "rejection": "client_state_mismatch",
+    "executions": 0,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "09_resource_outside_subscription.json": {
+    "status": "rejected",
+    "accepted": false,
+    "rejection": "resource_mismatch",
+    "executions": 0,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "10_unauthorized_mailbox.json": {
+    "status": "rejected",
+    "accepted": false,
+    "rejection": "resource_not_allowlisted",
+    "executions": 0,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "11_unknown_subscription.json": {
+    "status": "rejected",
+    "accepted": false,
+    "rejection": "unknown_subscription",
+    "executions": 0,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "12_change_type_not_subscribed.json": {
+    "status": "rejected",
+    "accepted": false,
+    "rejection": "change_type_not_subscribed",
+    "executions": 0,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "13_malformed_notification.json": {
+    "status": "rejected",
+    "accepted": false,
+    "rejection": "malformed_notification",
+    "executions": 0,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": {}
+  },
+
+  "14_missing_approval.json": {
+    "status": "partially_completed",
+    "accepted": true,
+    "rejection": null,
+    "executions": 1,
+    "draftsCreated": 0,
+    "teamsMessages": 2,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 1,
+    "denied": { "m365.mail.draft.create": "approval_not_granted" },
+    "failed": {}
+  },
+
+  "15_rejected_approval.json": {
+    "status": "partially_completed",
+    "accepted": true,
+    "rejection": null,
+    "executions": 1,
+    "draftsCreated": 0,
+    "teamsMessages": 2,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 1,
+    "denied": { "m365.mail.draft.create": "approval_not_granted" },
+    "failed": {}
+  },
+
+  "16_capability_not_allowlisted.json": {
+    "status": "partially_completed",
+    "accepted": true,
+    "rejection": null,
+    "executions": 1,
+    "draftsCreated": 0,
+    "teamsMessages": 2,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": { "m365.mail.draft.create": "resource_not_allowlisted" },
+    "failed": {}
+  },
+
+  "17_retry_then_success.json": {
+    "status": "completed",
+    "accepted": true,
+    "rejection": null,
+    "executions": 1,
+    "draftsCreated": 1,
+    "teamsMessages": 2,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 1,
+    "readAttempts": 3,
+    "denied": {},
+    "failed": {}
+  },
+
+  "18_retry_exhausted.json": {
+    "status": "failed",
+    "accepted": true,
+    "rejection": null,
+    "executions": 1,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "readAttempts": 3,
+    "denied": {},
+    "failed": { "m365.mail.message.read": "provider_unavailable" }
+  },
+
+  "19_partial_failure_attachment.json": {
+    "status": "partially_completed",
+    "accepted": true,
+    "rejection": null,
+    "executions": 1,
+    "draftsCreated": 1,
+    "teamsMessages": 2,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "denied": {},
+    "failed": { "m365.mail.attachment.read": "provider_error" }
+  },
+
+  "20_message_not_found.json": {
+    "status": "failed",
+    "accepted": true,
+    "rejection": null,
+    "executions": 1,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "readAttempts": 1,
+    "denied": {},
+    "failed": { "m365.mail.message.read": "resource_not_found" }
+  },
+
+  "21_provider_timeout.json": {
+    "status": "failed",
+    "accepted": true,
+    "rejection": null,
+    "executions": 1,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "readAttempts": 2,
+    "denied": {},
+    "failed": { "m365.mail.message.read": "provider_timeout" }
+  },
+
+  "22_throttled_exhausted.json": {
+    "status": "failed",
+    "accepted": true,
+    "rejection": null,
+    "executions": 1,
+    "draftsCreated": 0,
+    "teamsMessages": 0,
+    "storedDocuments": 0,
+    "attachmentsRetrieved": 0,
+    "readAttempts": 3,
+    "denied": {},
+    "failed": { "m365.mail.message.read": "provider_throttled" }
+  }
+}

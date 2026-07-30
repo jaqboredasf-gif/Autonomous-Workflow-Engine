@@ -2,11 +2,11 @@
 
 ## updated_at
 
-2026-07-27T14:00:25Z
+2026-07-30T13:40:00Z
 
 ## agent
 
-Codex
+Claude Code
 
 ## repository
 
@@ -14,7 +14,7 @@ jaqboredasf-gif/Autonomous-Workflow-Engine
 
 ## branch
 
-chore/agent-handoff-clean
+claude/microsoft-365-integration-plane-fcsm1e
 
 ## commit
 
@@ -22,93 +22,108 @@ Branch `HEAD`; resolve with `git rev-parse HEAD` after the final handoff update.
 
 ## current objective
 
-Completed: created and verified a clean, `main`-based handoff integration draft PR that supersedes closed PR #1. Do not begin Security Remediation Phase 1.
+Completed: Task I1 — the first durable Microsoft 365 Integration Plane vertical
+slice. A provider-bound but workflow-neutral Microsoft Graph gateway and
+capability adapter set (`packages/m365`) through which AWE can observe and
+perform bounded actions in Outlook, Teams and SharePoint, preserving tenant
+isolation, policy and approval enforcement, deterministic execution,
+idempotency, auditability and replayability. Verified offline against a
+deterministic fake Graph provider. Live proof is BLOCKED — see
+`docs/integrations/BLOCKED_LIVE_PROOF.md`.
 
 ## pull request
 
-- Replacement PR: `#2` — https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/pull/2
-- Base: `main`
-- Head: `chore/agent-handoff-clean`
-- State: open draft; mergeable; checks passed.
-- PR #1: closed without merge after a comment linked PR #2; old branch preserved.
+- Draft PR opened for `claude/microsoft-365-integration-plane-fcsm1e` against `main`.
+- Do not merge without explicit approval.
+- PR #2 (`chore/agent-handoff-clean`) is a separate, earlier handoff-only PR and
+  is already merged into `main`.
 
 ## default branch
 
-- `main` at `75c43c6e42de1bd5265e95c88ebd6ed94afaf383`.
+- `main` at `dbf8f177` (merge of PR #2).
 
 ## branch ancestry findings
 
-- `main` and `origin/main` point to the verified pre-security baseline `75c43c6e42de1bd5265e95c88ebd6ed94afaf383`.
-- `security/c1-policy-cleanup` remains preserved at `3e617f283390eb64976a1322e8ecdaed48e54cd3`.
-- PR #1 cannot safely target `main` because `chore/agent-handoff-integration` descends from the security-preparation commit `3e617f2`.
-- `chore/agent-handoff-clean` was created directly from `origin/main`.
-- Only the five verified handoff-only commits were cherry-picked; no security-preparation commit was imported.
+- `claude/microsoft-365-integration-plane-fcsm1e` was created from `main`
+  (`dbf8f177`) and contains no security-preparation ancestry.
+- No existing branch was rewritten, force-pushed or deleted.
 
 ## completed work
 
-- Verified remotes, local status, branch tips, history, merge bases, the old branch diff, and PR #1 metadata.
-- Confirmed that commits `2d0ae97`, `6a5a99d`, `7d6d7f9`, `d9c400a`, and `e12eac2` touch only the four handoff integration files.
-- Preserved unrelated modified and untracked files in the original worktree without inspecting, modifying, staging, or committing them.
-- Created a separate linked worktree and `chore/agent-handoff-clean` directly from `origin/main`.
-- Cherry-picked only the verified handoff integration commits.
-- Confirmed the branch diff against `main` contains exactly the four intended files.
-- Pushed `chore/agent-handoff-clean` without force.
-- Opened draft PR #2 targeting `main` and verified its remote diff contains exactly the four intended files.
-- Commented on PR #1 with the replacement link and ancestry explanation, then closed it without merge.
-- Waited for both replacement PR validation runs; both passed.
+- New workspace package `packages/m365` (zero dependencies, strict TypeScript):
+  contracts/seam, capability catalog, resource allowlist + tenant binding,
+  scope policy mapping, Graph gateway interface, deterministic fake provider,
+  live HTTP transport (disabled by default), credential provider, subscription
+  lifecycle state machine, notification validation + at-least-once dedupe,
+  capability executor with 12 ordered gates, capability handlers, mail/Teams/
+  document/identity adapters, ContextItem normalization, hash-chained evidence,
+  persistence plan builder and the end-to-end proof-slice pipeline.
+- Policy integration through the EXISTING approval matrix via
+  `scripts/lib/m365-policy-bridge.mjs` — no second routing engine was created.
+- Migration `0016_m365_integration_plane.sql` authored (NOT applied):
+  `m365_subscriptions`, `m365_notifications`, `m365_executions`,
+  `m365_capability_invocations`, with RLS, append-only evidence guards,
+  idempotency indexes and `emit_event` triggers.
+- 22 labelled notification fixtures plus allowlist, fake-tenant and subscription
+  fixtures under `fixtures/m365/`.
+- Runner 6 (`scripts/eval-m365.sh`) and the offline migration lint
+  (`scripts/lib/validate-migration-0016.mjs`).
+- Opt-in live smoke test (`scripts/m365-live-smoke.sh`), disabled by default,
+  which prints a BLOCKED_LIVE_PROOF report instead of attempting anything.
+- Documentation: architecture + capability catalog, the exact Entra app
+  registration and Graph permissions IT must provide, and the blocked-live-proof
+  report. Regression checklist, integrations plan, ubiquitous language and
+  decision log updated; regression script wired to the new checks.
 
 ## files changed
 
-- `.github/workflows/agent-handoff.yml`
-- `AGENTS.md`
+- `packages/m365/**` (package.json, tsconfig.json, README.md, 19 source files)
+- `scripts/eval-m365.mjs`, `scripts/eval-m365.sh`
+- `scripts/lib/m365-policy-bridge.mjs`, `scripts/lib/validate-migration-0016.mjs`
+- `scripts/m365-live-smoke.mjs`, `scripts/m365-live-smoke.sh`
+- `scripts/regression.sh`
+- `supabase/migrations/0016_m365_integration_plane.sql`
+- `fixtures/m365/**` (allowlist, graph-state, subscriptions, labels, 22 cases)
+- `docs/architecture/M365_INTEGRATION_PLANE.md`
+- `docs/architecture/UBIQUITOUS_LANGUAGE.md`
+- `docs/integrations/M365_ENTRA_CONFIGURATION.md`
+- `docs/integrations/BLOCKED_LIVE_PROOF.md`
+- `docs/planning/INTEGRATIONS.md`, `docs/planning/DECISION_LOG.md`
+- `docs/REGRESSION_CHECKLIST.md`
 - `docs/planning/AGENT_HANDOFF.md`
-- `scripts/validate-agent-handoff.sh`
 
 ## migrations
 
-None created, applied, moved, or modified by this task.
+- Created `supabase/migrations/0016_m365_integration_plane.sql`. Additive only.
+- **NOT applied.** No live database change was made. Application remains
+  human-gated per AGENTS.md.
+- Validated offline by `scripts/lib/validate-migration-0016.mjs` (51 checks),
+  including vocabulary parity with the engine.
 
 ## commands run
 
-- `git remote -v`
-- `git status --short`
-- `git branch -vv`
-- `git log --graph --decorate --oneline --all -n 40`
-- `git merge-base main security/c1-policy-cleanup`
-- `git merge-base main chore/agent-handoff-integration`
-- `git diff --name-status main...chore/agent-handoff-integration`
-- `gh pr view 1 --json number,title,state,isDraft,url,baseRefName,headRefName,commits,files`
-- `git show --format=... --name-status` for each handoff commit
-- `gh --version`
-- `gh auth status`
-- `git fetch origin --prune`
-- `git worktree add -b chore/agent-handoff-clean /private/tmp/awe-handoff-clean origin/main`
-- `git cherry-pick 2d0ae97 6a5a99d 7d6d7f9 d9c400a e12eac2`
-- `git diff --name-status main...HEAD`
-- `git log --graph --decorate --oneline main..HEAD`
-- `bash -n scripts/validate-agent-handoff.sh`
+- `git status` / `git branch -a` / `git log --oneline`
+- `bash scripts/eval-approval-diff.sh`
+- `bash scripts/eval-approval-matrix.sh`
+- `bash scripts/eval-approval-queue.sh`
+- `npx tsc -p packages/m365/tsconfig.json`
+- `node scripts/lib/validate-migration-0016.mjs`
+- `bash scripts/eval-m365.sh`
+- `bash scripts/m365-live-smoke.sh`
 - `bash scripts/validate-agent-handoff.sh`
-- `git diff --check`
-- `ruby -e 'require "yaml"; YAML.load_file(...)'`
-- `git merge-base --is-ancestor main HEAD`
-- `git push -u origin chore/agent-handoff-clean`
-- `gh pr create --draft --base main --head chore/agent-handoff-clean ...`
-- `gh pr view 2 --json ...`
-- `gh pr diff 2 --name-only`
-- `gh pr comment 1 --body ...`
-- `gh pr close 1`
-- `gh pr checks 2 --watch --interval 5`
+- `git add` / `git commit` / `git push -u origin claude/microsoft-365-integration-plane-fcsm1e`
 
 ## tests passed
 
-- Pre-commit branch diff contains exactly the four intended handoff files.
-- The clean branch is based directly on `origin/main`.
-- Bash syntax validation passed.
-- Agent handoff required-heading and secret-value validation passed.
-- Git whitespace validation passed.
-- Workflow YAML parsed successfully.
-- Ancestry checks confirmed `main` is the branch merge base and security-preparation commit `3e617f2` is not an ancestor of the clean branch.
-- GitHub Actions `validate` passed for both the push and pull-request runs.
+- Runner 6 (`eval-m365.sh`): 1593 assertions, 0 failures, 22 fixtures.
+  Coverage gates: 9/9 notification rejections, 19/19 denial reasons, 6/6 failure
+  reasons. Determinism verified over two identical full runs.
+- Migration 0016 offline lint: 51 checks, PASS.
+- `packages/m365` strict typecheck: clean.
+- Existing suites unchanged and green: Runner 3 (120), Runner 4 (314),
+  Runner 5 (325).
+- Live smoke test correctly refuses to run and reports BLOCKED_LIVE_PROOF with
+  the exact missing prerequisites (exit 2, zero Microsoft calls attempted).
 
 ## tests failed
 
@@ -116,26 +131,46 @@ None.
 
 ## live changes
 
-- GitHub: pushed `chore/agent-handoff-clean`, opened draft PR #2, commented on PR #1, and closed PR #1 without merge. No branch was deleted or rewritten.
-- Supabase/database: no live change.
-- n8n/external APIs/production: no live change.
+- Microsoft 365 / Microsoft Graph: **none**. No credentials exist in this
+  environment; no token was requested and no Graph call was made. No mailbox,
+  Teams channel or SharePoint site was read or modified. No email was sent.
+- Supabase/database: no live change; migration 0016 authored but not applied.
+- n8n / external APIs / production: no change; no workflow was created,
+  published or activated.
+- GitHub: pushed the feature branch and opened a draft pull request.
 
 ## approvals required
 
-- Keep the replacement PR as draft and do not merge without explicit approval.
-- Explicit approval remains required before applying any live database migration.
-- Do not begin Security Remediation Phase 1 under this task.
+- Explicit approval before merging the draft PR.
+- Explicit approval before applying migration 0016 to the live project.
+- IT action (app registration, admin consent, ApplicationAccessPolicy, dev
+  mailbox/channel/site) before any live Microsoft proof — see
+  `docs/integrations/M365_ENTRA_CONFIGURATION.md`.
 
 ## risks
 
-- PR #1 includes security-preparation ancestry and must not be retargeted or merged.
-- The old branch must remain preserved after PR #1 is superseded.
-- Unrelated user changes remain in the original worktree and are intentionally outside this task.
+- The fake Graph provider implements only the routes the capability catalog
+  uses. Real Graph will differ in details (throttling behaviour, attachment
+  `$select` support for item/reference attachments, immutable id formats,
+  channel message shape); those differences surface at the first live smoke run.
+- Migration 0016 has never been executed against Postgres — only linted.
+- The webhook endpoint that Graph requires does not exist in this repo, so the
+  subscription-creation handshake is untested end to end.
+- Policy for Microsoft capabilities currently maps the draft to the
+  `uncertain_flagged` message type. When Microsoft-specific message types are
+  introduced, the bridge mapping must be revisited rather than inherited.
+- Known pre-existing live RLS drift (TASK_BACKLOG S1) is untouched by this slice.
 
 ## blockers
 
-None currently.
+- Live Microsoft proof is blocked on ten enumerated prerequisites; see
+  `docs/integrations/BLOCKED_LIVE_PROOF.md`. None of them can be self-served
+  from this environment.
 
 ## exact next prompt
 
-Review the clean handoff-only draft PR, confirm its four-file diff and passing checks, then explicitly approve merge if desired. Keep `security/c1-policy-cleanup` separate and do not begin Security Remediation Phase 1 without a new task.
+Review the draft PR for Task I1. If the architecture is accepted, send
+`docs/integrations/M365_ENTRA_CONFIGURATION.md` to IT unchanged, and — separately
+and with explicit approval — apply migration 0016. Do not run
+`scripts/m365-live-smoke.sh` until items 1-3 and 5-9 of
+`docs/integrations/BLOCKED_LIVE_PROOF.md` are satisfied.

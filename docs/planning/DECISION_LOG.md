@@ -2,6 +2,55 @@
 
 Append-only. Newest first. Format: date — decision — why — supersedes (if any).
 
+## 2026-07-30 (Task I1 — Microsoft 365 Integration Plane, offline slice)
+
+- **A provider plane, not a workflow, and not a second engine.** Microsoft side
+  effects go through one door (`packages/m365`) so tenant isolation, approval
+  enforcement and audit are provable in one place instead of being re-argued in
+  every n8n workflow. This does not reopen "no generic agent runtime, no engine
+  tables" (2026-07-17): there are no workflow tables — an objective is a pointer
+  at `work_requests`, and work package and task are columns on an execution row.
+- **The plane declares a `PolicyEngine` interface and refuses to contain one.**
+  Policy comes from the existing approval matrix through
+  `scripts/lib/m365-policy-bridge.mjs`, which calls the same `route()` Runner 4
+  evaluates. A matrix that cannot route the draft type denies the Microsoft
+  draft. One routing engine in this repo, still.
+- **Drafts only, enforced by absence.** There is no send capability at any
+  version, no send path in the package (source-scanned by Runner 6), no send
+  route in the fake, and the live transport refuses `sendMail`/`send`/`reply`/
+  `forward` outright. `Mail.Send` is named as a forbidden scope with a reason, so
+  requesting it breaks the integration rather than enabling anything. Migration
+  0016 has no sent state and no credential column.
+- **Two allowlists that must agree.** AWE's own resource allowlist and
+  Microsoft's `ApplicationAccessPolicy` both restrict the app to the development
+  mailbox. Neither can widen access alone — an allowlist edit does not grant
+  Microsoft-side reach, and a Microsoft-side change does not grant AWE-side reach.
+- **At-least-once is assumed, not hoped for.** Graph redelivers; three
+  independent layers make that harmless (delivery ledger, invocation ledger,
+  unique indexes). A duplicate delivery returns the original execution id and
+  does nothing — no execution, no draft, no Teams post, no `email_messages` row.
+- **Over-declared scopes are a denial, not a warning.** The gate is spec ⊆
+  declared ⊆ granted. Asking for more than the capability needs is the
+  tenant-wide-access smell this plane exists to prevent, so it fails closed.
+- **Evidence is written on every path, including refusals.** A refusal is the
+  most important thing to be able to prove later. Records are hash-chained per
+  tenant and append-only in SQL (update/delete raise), so silent deletion is
+  detectable.
+- **Fidelity is a literal, so fabrication requires lying in an audited field.**
+  The fake reports `synthetic`, the live gateway reports `live`, and a missing
+  prerequisite produces outcome `blocked_live_proof` / `live_access_blocked`
+  rather than an invented response. `BLOCKED_LIVE_PROOF` is a generated report
+  (`bash scripts/m365-live-smoke.sh`), not a claim.
+- **TEST-mode recipients widen from `@example.invalid` to the whole `.invalid`
+  TLD.** Microsoft resources are addressed by realistic multi-label UPNs; RFC
+  6761 reserves the entire TLD as unresolvable, so the safety property is
+  identical and B3's stricter rule remains a subset. Narrows nothing in B3.
+- **Migration 0016 is written but NOT applied.** Applying is human-gated
+  (AGENTS.md). Until then the plane emits a persistence *plan* — the exact rows,
+  column for column — and `validate-migration-0016.mjs` asserts the migration's
+  vocabularies are identical to the engine's (51 checks), the same parity
+  contract 0015 established.
+
 ## 2026-07-26 (Task B5 — approval queue UI)
 
 - **B5 ships the approval queue only; the requests inbox is split out as B5b.**

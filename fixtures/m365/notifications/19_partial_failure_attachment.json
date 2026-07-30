@@ -1,0 +1,16 @@
+{
+  "description": "The message reads fine; the attachment bytes never come back. The ContextItem records the attachment as NOT retrieved, the execution is partially succeeded, and the draft still requires its approval.",
+  "options": { "syntheticDecision": "approved", "storeAttachments": true },
+  "faults": [
+    { "method": "GET", "pathContains": "/attachments/ATT0001", "status": 500, "times": 9, "message": "attachment service error" }
+  ],
+  "notification": {
+    "subscriptionId": "sub-dev-0001",
+    "subscriptionExpirationDateTime": "2026-08-01T09:00:00.000Z",
+    "clientState": "fixture-client-state-0001",
+    "changeType": "created",
+    "resource": "/users/dev-intake@awe-dev.example.invalid/messages/AAMkAGRLPHMSG0001",
+    "resourceData": { "id": "AAMkAGRLPHMSG0001" },
+    "tenantId": "11111111-2222-3333-4444-555555555555"
+  }
+}
