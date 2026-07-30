@@ -20,6 +20,7 @@ Manual workflow, for documents already downloaded by hand::
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -454,6 +455,177 @@ def cmd_portal_survey(args) -> int:
     print(f"\nsafest record  {safest.identifier}  ({safest.reason})")
     print(f"Next:  tegg run --site-visit {safest.identifier}")
     return 0
+
+
+def cmd_portal_diagnose_login(args) -> int:
+    """One sign-in submission, capturing everything needed to repair it.
+
+    Deliberately makes at most one attempt. A second attempt on a portal that
+    is rejecting credentials is how an account gets locked, so the decision to
+    try again is left to a human holding this report.
+    """
+    from . import logindiag
+    from .browser import launch
+    from .config import portal_credentials
+
+    base_url, settings = _portal_settings(args)
+    login_path = settings.get("login_path", "/auth/login")
+    evidence_dir = Path(args.evidence or (Path(args.work_root) / "login-diagnosis"))
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        username, password = portal_credentials()
+    except Exception as exc:
+        print(f"credentials unavailable: {exc}", file=sys.stderr)
+        return 2
+    secrets = [username, password]
+
+    from playwright.sync_api import sync_playwright
+
+    from . import login as login_module
+
+    report = logindiag.Diagnosis()
+    trace_path = evidence_dir / "trace.zip"
+
+    with sync_playwright() as playwright:
+        browser = launch(playwright, headless=not args.headed)
+        context = browser.new_context()
+        context.set_default_timeout(int(settings.get("timeout_ms", 30000)))
+        try:
+            context.tracing.start(screenshots=True, snapshots=True, sources=False)
+        except Exception:
+            trace_path = None
+        page = context.new_page()
+
+        console: list[str] = []
+        page.on(
+            "console",
+            lambda m: console.append(f"{m.type}: {str(m.text)[:200]}"),
+        )
+        responses: list[dict] = []
+
+        def _on_response(response):
+            try:
+                url = response.url
+                if response.request.method == "POST" or "login" in url.lower() or (
+                    "auth" in url.lower()
+                ):
+                    responses.append(
+                        {"status": response.status, "url": url.split("?")[0]}
+                    )
+            except Exception:
+                pass
+
+        page.on("response", _on_response)
+
+        try:
+            page.goto(f"{base_url}{login_path}", wait_until="domcontentloaded")
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
+
+            report.url_before = page.url
+            report.title_before = page.title()
+            report.form = logindiag.read_form(page)
+            report.overlays = logindiag.read_overlays(page)
+            report.messages_before = logindiag.read_messages(page)
+            report.iframes = [f.url for f in page.frames][1:]
+
+            logindiag.scrub(page)
+            page.screenshot(path=str(evidence_dir / "01-before-submit.png"), full_page=True)
+
+            form = login_module.locate(page, settings.get("login_labels") or {})
+            cookies_before = [c["name"] for c in context.cookies()]
+
+            contractor = settings.get("contractor")
+            if form.contractor is not None and contractor:
+                try:
+                    form.select_contractor(contractor)
+                except Exception as exc:
+                    print(f"contractor selection failed: {exc}", file=sys.stderr)
+
+            form.username.fill(username)
+            form.password.fill(password)
+            print("submitting once (the password is never printed or saved)")
+            if form.submit is not None:
+                form.submit.click()
+            else:
+                form.password.press("Enter")
+
+            outcome = login_module.wait_for_result(
+                page,
+                login_path,
+                timeout_ms=int(settings.get("login_timeout_ms", 30000)),
+                cookies_before=cookies_before,
+            )
+
+            report.messages_after = logindiag.read_messages(page)
+            report.indicators = logindiag.corroborate(
+                page, login_path, cookies_before=cookies_before, org=args.org or ""
+            )
+            # Two independent indicators, not one. A form that hides itself
+            # behind a spinner satisfies exactly one of these.
+            report.succeeded = len(report.indicators) >= 2
+            report.url_after = page.url
+            report.title_after = page.title()
+            report.new_cookies = list(outcome.new_cookies)
+            report.extra_fields = [
+                str(f) for f in (outcome.extra_fields or [])
+            ]
+            report.responses = responses
+            report.console = console[-40:]
+
+            logindiag.scrub(page)
+            page.screenshot(path=str(evidence_dir / "02-after-submit.png"), full_page=True)
+            (evidence_dir / "after-submit.html").write_text(
+                logindiag.redact(page.content(), secrets), encoding="utf-8"
+            )
+        finally:
+            if trace_path is not None:
+                try:
+                    context.tracing.stop(path=str(trace_path))
+                except Exception:
+                    trace_path = None
+            context.close()
+            browser.close()
+
+    report.classification, report.evidence = logindiag.classify(
+        succeeded=report.succeeded,
+        messages=report.messages_after,
+        form_before=report.form,
+        url_before=report.url_before,
+        url_after=report.url_after,
+        responses=report.responses,
+        extra_fields=report.extra_fields,
+    )
+
+    report.artifacts = {
+        "before_screenshot": str(evidence_dir / "01-before-submit.png"),
+        "after_screenshot": str(evidence_dir / "02-after-submit.png"),
+        "html_snapshot": str(evidence_dir / "after-submit.html"),
+        "trace": str(trace_path) if trace_path else "",
+        "json": str(evidence_dir / "login-diagnosis.json"),
+    }
+    (evidence_dir / "network.json").write_text(
+        json.dumps(report.responses, indent=2) + "\n", encoding="utf-8"
+    )
+    (evidence_dir / "console.log").write_text(
+        logindiag.redact("\n".join(report.console), secrets) + "\n", encoding="utf-8"
+    )
+    report.write(evidence_dir / "login-diagnosis.json")
+
+    print("\n--- login diagnosis ---")
+    print(report.describe())
+    print(f"\nevidence  {evidence_dir}")
+    if report.succeeded:
+        return 0
+    print(
+        "\nOne attempt only. Do not rerun until the classification above has "
+        "been acted on -- repeated submissions risk locking the account.",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def _diagnose_submit(page, form, settings, evidence_dir, login_path) -> int:
@@ -970,6 +1142,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--report", default=None, help="Where to write the JSON survey"
     )
     survey_cmd.set_defaults(func=cmd_portal_survey)
+
+    diagnose_cmd = portal_sub.add_parser(
+        "diagnose-login",
+        help="One sign-in attempt, capturing everything needed to repair it",
+    )
+    _add_portal_options(diagnose_cmd)
+    diagnose_cmd.add_argument(
+        "--org",
+        default="Lippolis",
+        help="Organization name to look for as a success indicator",
+    )
+    diagnose_cmd.set_defaults(func=cmd_portal_diagnose_login)
 
     probe_cmd = portal_sub.add_parser(
         "probe-login",
