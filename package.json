@@ -14,6 +14,15 @@
     "context:validate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/validate-context.mjs",
     "context:test": "bash scripts/eval-context-validator.sh && bash scripts/eval-context-compiler.sh",
     "evidence:collect": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/evidence-collect.mjs",
-    "evidence:diff": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/evidence-diff.mjs"
+    "evidence:diff": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/evidence-diff.mjs",
+    "dispatch": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs",
+    "dispatch:add": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs add",
+    "dispatch:list": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs list",
+    "dispatch:prepare": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs prepare",
+    "dispatch:claim": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs claim",
+    "dispatch:complete": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs complete",
+    "dispatch:verify": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs verify",
+    "dispatch:block": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs block",
+    "dispatch:status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs status"
   }
 }
