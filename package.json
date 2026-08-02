@@ -23,6 +23,9 @@
     "dispatch:complete": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs complete",
     "dispatch:verify": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs verify",
     "dispatch:block": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs block",
-    "dispatch:status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs status"
+    "dispatch:status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs status",
+    "cognition:ingest-handoff": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-ingest.mjs",
+    "cognition:index": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-index.mjs",
+    "cognition:status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-index.mjs --status"
   }
 }

@@ -158,8 +158,12 @@ export function deriveTags(text) {
   for (const m of hay.matchAll(/\badr-(\d{4})\b/g)) tags.add(`adr:${m[1]}`);
   // Task IDs: AWE-INT-102
   for (const m of hay.matchAll(/\b(awe-int-\d{3})\b/g)) tags.add(m[1]);
-  // Branch-shaped references.
-  for (const m of hay.matchAll(/\b((?:codex|feat|claude|security|chore)\/[a-z0-9-]+)/g)) tags.add(`branch:${m[1]}`);
+  // Branch references, but only inside backticks. Unquoted prose produces
+  // confident nonsense: "schema 23, security 57, functional 30" contains the
+  // substring "security/functional", which is not a branch and never was.
+  for (const m of (text || '').matchAll(/`((?:codex|feat|claude|security|chore)\/[a-z0-9._-]+)`/g)) {
+    tags.add(`branch:${m[1].toLowerCase()}`);
+  }
   return [...tags];
 }
 
