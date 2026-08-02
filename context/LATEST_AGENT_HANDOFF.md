@@ -2,8 +2,13 @@
 
 **Date:** 2026-08-02
 **Branch:** `feat/cognition-dispatch-control-plane`
-**Commit:** `50f7919` — the commit the suites below were last run against; the docs commit follows it
+**Commit:** `7d55392` — six commits on this branch; every suite below re-run against this tree
 **Branched from:** `feat/persistent-cognition-compiler` (commit d888de9)
+
+> `context:check` caught this file citing an older commit after the docs commit touched
+> `scripts/`. That is the freshness rule working as designed — a verification claim goes stale the
+> moment the evidence surface underneath it moves — so the reference was corrected rather than
+> excused.
 **Session role:** Builder + Documentarian (Windows home PC)
 
 ---
