@@ -32,6 +32,17 @@ Allowed statuses: `VERIFIED` · `PARTIALLY_VERIFIED` · `REPORTED_NOT_VERIFIED` 
 | Packet generation (end to end) | Three real packets built from live repository state | `.awe/packets/AWE-INT-{101,102,103}/` | `npm run context:compile` — exit 0, 63 sources from 249 records each | 53b8f7f | `VERIFIED` | 2026-08-01 | Output is gitignored by design; regenerate rather than trust a stored copy |
 | Context freshness | Stale, cross-branch and non-existent commit references detected; PASS at HEAD | `scripts/context-check.mjs` | `npm run context:check` → **0 staleness errors, 31 warnings, PASS** | 53b8f7f | `VERIFIED` | 2026-08-01 | Reports only; never rewrites context |
 
+| AWE-INT-101 | eval-context-compiler was run | 0c4f22588d657b50bee7833d310e714910e9e846 | `VERIFIED` | 2026-08-02 | from handoff AWE-INT-101, ingested |
+| AWE-INT-101 | eval-evidence was run | 0c4f22588d657b50bee7833d310e714910e9e846 | `VERIFIED` | 2026-08-02 | from handoff AWE-INT-101, ingested |
+| AWE-INT-101 | eval-dispatch was run | 0c4f22588d657b50bee7833d310e714910e9e846 | `VERIFIED` | 2026-08-02 | from handoff AWE-INT-101, ingested |
+| AWE-INT-101 | docs/integration/AWE_BRANCH_INTEGRATION_GRAPH.md was created | 0c4f22588d657b50bee7833d310e714910e9e846 | `PARTIALLY_VERIFIED` | 2026-08-02 | from handoff AWE-INT-101, ingested |
+| AWE-INT-101 | docs/integration/AWE_MIGRATION_COLLISION_RESOLUTION.md was created | 0c4f22588d657b50bee7833d310e714910e9e846 | `PARTIALLY_VERIFIED` | 2026-08-02 | from handoff AWE-INT-101, ingested |
+| AWE-INT-101 | docs/integration/AWE_M365_RECONCILIATION_PLAN.md was created | 0c4f22588d657b50bee7833d310e714910e9e846 | `PARTIALLY_VERIFIED` | 2026-08-02 | from handoff AWE-INT-101, ingested |
+| AWE-INT-101 | docs/integration/AWE_PLATFORM_LANDING_PLAN.md was created | 0c4f22588d657b50bee7833d310e714910e9e846 | `PARTIALLY_VERIFIED` | 2026-08-02 | from handoff AWE-INT-101, ingested |
+| AWE-INT-101 | docs/integration/AWE_REPOSITORY_EXPOSURE_REVIEW.md was created | 0c4f22588d657b50bee7833d310e714910e9e846 | `PARTIALLY_VERIFIED` | 2026-08-02 | from handoff AWE-INT-101, ingested |
+| AWE-INT-101 | docs/architecture/decisions/0010-awe-platform-integration-strategy.md was created | 0c4f22588d657b50bee7833d310e714910e9e846 | `PARTIALLY_VERIFIED` | 2026-08-02 | from handoff AWE-INT-101, ingested |
+| AWE-INT-101 | context/CRITICAL_DECISIONS.md was modified | 0c4f22588d657b50bee7833d310e714910e9e846 | `PARTIALLY_VERIFIED` | 2026-08-02 | from handoff AWE-INT-101, ingested |
+
 **Total reproduced: 3,371 assertions, 0 failures** (3,212 platform + 45 validator + 114 compiler).
 
 ## B. Structure verified, behaviour not

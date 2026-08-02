@@ -37,7 +37,7 @@ Rejected alternatives, with reasons recorded so they are not re-argued:
 ### 2. Cognition and dispatch land as a separate PR, after the stack
 
 `feat/cognition-dispatch-control-plane` touches 43 files no platform branch touches and is tooling,
-not runtime. Its only platform coupling is one import of `awe-kernel/src/canonical.mjs`, so it must
+not runtime. Its only platform coupling is one import of `packages/awe-kernel/src/canonical.mjs`, so it must
 land **after** the root but need not land **inside** the chain.
 
 ### 3. Microsoft 365 lands last, and is reduced to an adapter afterwards

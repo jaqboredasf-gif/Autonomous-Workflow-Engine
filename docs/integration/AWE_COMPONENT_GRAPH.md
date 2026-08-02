@@ -101,8 +101,8 @@ merge**.
 
 - **Circular imports: none found.**
 - **Duplicate domain models: one, pending.** `packages/m365/src/{policy,evidence,contracts}.ts`
-  duplicates concepts owned by `awe-control-plane/src/policy.mjs`, `scripts/lib/artifact-store.mjs`,
-  and `awe-execution/src/contracts.mjs`. Not yet a conflict — they live on branches that have never
+  duplicates concepts owned by `packages/awe-control-plane/src/policy.mjs`, `scripts/lib/artifact-store.mjs`,
+  and `packages/awe-execution/src/contracts.mjs`. Not yet a conflict — they live on branches that have never
   met — but it becomes one the moment both land.
 - **No duplicate database tables.** All 23 tables are created exactly once across `0001`–`0016`. The
   only collision is the migration *filename slot* `0016` (C-101), not a table.

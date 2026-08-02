@@ -70,6 +70,33 @@ Tables: `approval_drafts`, `approval_outcomes`, `category_authority`, `completio
 > ⚠ **Slot `0016` is claimed three ways.** See [CRITICAL_DECISIONS.md](CRITICAL_DECISIONS.md) and
 > `docs/architecture/decisions/0009-competing-c1-migration-artifacts.md`.
 
+## 3b. Integration status — 2026-08-02
+
+The first real integration analysis ran through the control plane as **`AWE-INT-101`**, which is
+now `VERIFIED` by `dispatch:verify` (nine checks, including the claimed file list matching the
+actual commit range `a3961c0..0c4f225`).
+
+| Finding | Status |
+|---|---|
+| Every branch merges into `main` with **exactly one conflict** — `docs/planning/AGENT_HANDOFF.md` (add/add) | `VERIFIED` — `git merge-tree` across 9 branches |
+| The stack is blocked by a **missing pull request**, not by a merge obstacle | `VERIFIED` |
+| Merging M365 into the stack yields **two migrations claiming `0016`** with no Git warning | `VERIFIED` — merged tree `14079e5` |
+| `0016_drop_undeclared` and `20260727142118_phase1_c1` drop the **same 16 policies** | `VERIFIED` — statement comparison |
+| The M365 migration touches **nothing** those two touch; the collision is naming, not semantics | `VERIFIED` — SQL inspection |
+| `packages/m365` imports **zero** platform packages | `VERIFIED` — `git grep` returned 0 for all four |
+| Resolving `regression.sh` toward the stack **silently drops three M365 suites** | `VERIFIED` — both diffs read |
+| **Runner 6 is claimed twice** — ADR-0008 and `scripts/eval-m365.sh` | `VERIFIED` |
+| Email fixtures are synthetic (12/12 `is_fixture`, reserved domains, one test org) | `VERIFIED` |
+| Payroll/employee pages contain **no** personal data | `VERIFIED` — 0 name-shaped literals |
+| Whether any migration was applied remotely | **`UNKNOWN`** — blocks every rename |
+
+**Proposed strategy:** ADR-0010 (`Proposed`, not approved) — preserve the stacked PR chain, land
+cognition/dispatch separately, land M365 last and then reduce it to adapters. Six human approvals
+required. Plan: `docs/integration/AWE_PLATFORM_LANDING_PLAN.md`.
+
+**Eight follow-up tasks are dispatched and all `BLOCKED`** on external inputs — visibility decision,
+MacBook access, n8n access, Supabase identity, Docker, and explicit instruction to open the root PR.
+
 ## 4. Open stacked branches — verified by `git merge-base --is-ancestor`
 
 ```

@@ -92,7 +92,7 @@ Each link genuinely depends on its parent — this is not a stack by convention:
 - `codex/durable-execution-plane` adds `packages/awe-execution` **and** the suite registry
   (`packages/awe-kernel/src/registry.mjs`) that `scripts/regression.sh` now resolves through.
 - `feat/persistent-cognition-compiler` and `feat/cognition-dispatch-control-plane` import
-  `awe-kernel/src/canonical.mjs` for stable digests.
+  `packages/awe-kernel/src/canonical.mjs` for stable digests.
 
 **Consequence:** the capabilities cannot be landed in an arbitrary order. Anything landed before
 `feat/kernelized-mcp-context` would reference a package that does not exist.
@@ -105,7 +105,7 @@ Reasoning from evidence:
 
 - It touches 43 files that no platform branch touches (`context/`, `docs/integration/`,
   `scripts/lib/{evidence,dispatch,cognition,dashboard}/`).
-- Its only coupling to the platform is one import of `awe-kernel/src/canonical.mjs`.
+- Its only coupling to the platform is one import of `packages/awe-kernel/src/canonical.mjs`.
 - It is tooling, not runtime: nothing in `packages/` depends on it.
 - Reviewing 41 commits of platform runtime and control-plane tooling in one PR would guarantee that
   neither gets read properly.

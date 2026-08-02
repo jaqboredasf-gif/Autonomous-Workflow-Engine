@@ -48,10 +48,10 @@ and mean different things.
 |---|---|---|
 | `packages/m365/src/adapters/*` (5) | `CLEAN_INDEPENDENT` | New paths; no platform equivalent |
 | `packages/m365/src/{gateway,http-gateway,executor,pipeline,handlers,normalize,subscriptions,notifications,persistence,scopes,allowlist,fake-graph,index,node-runtime.d}.ts` | `CLEAN_INDEPENDENT` | New paths |
-| `packages/m365/src/policy.ts` | **`SEMANTIC_CONFLICT`** | Parallel to `awe-control-plane/src/policy.mjs` + `awe-kernel/src/gates.mjs` |
-| `packages/m365/src/evidence.ts` | **`SEMANTIC_CONFLICT`** | Parallel to `scripts/lib/artifact-store.mjs` → `awe-runtime/src/file-sinks.mjs` |
-| `packages/m365/src/contracts.ts` | **`SEMANTIC_CONFLICT`** | Parallel to `awe-execution/src/contracts.mjs` |
-| `packages/m365/src/execution.ts` | **`SEMANTIC_CONFLICT`** | Parallel to `awe-execution/src/{service,state-machine}.mjs` |
+| `packages/m365/src/policy.ts` | **`SEMANTIC_CONFLICT`** | Parallel to `packages/awe-control-plane/src/policy.mjs` + `packages/awe-kernel/src/gates.mjs` |
+| `packages/m365/src/evidence.ts` | **`SEMANTIC_CONFLICT`** | Parallel to `scripts/lib/artifact-store.mjs` → `packages/awe-runtime/src/file-sinks.mjs` |
+| `packages/m365/src/contracts.ts` | **`SEMANTIC_CONFLICT`** | Parallel to `packages/awe-execution/src/contracts.mjs` |
+| `packages/m365/src/execution.ts` | **`SEMANTIC_CONFLICT`** | Parallel to `packages/awe-execution/src/{service,state-machine}.mjs` |
 | `packages/m365/src/capabilities.ts` | `SEMANTIC_CONFLICT` | Parallel to the kernel's capability registry |
 | `packages/m365/src/credentials.ts` | `NEEDS_LIVE_PROOF` | Never exercised against Graph; `docs/integrations/BLOCKED_LIVE_PROOF.md` |
 | `fixtures/m365/**` (26) | `CLEAN_INDEPENDENT` | New paths |
