@@ -1,110 +1,117 @@
 # Latest Agent Handoff
 
-**Date:** 2026-08-01
-**Branch:** `feat/persistent-cognition-compiler`
-**Commit:** `53b8f7f` — the preservation commit; the compiler commit follows it on this branch
-**Evidence baseline:** `55c0ba5` — the durable-execution tip this branch was cut from
-**Session role:** Builder + Documentarian (Windows home PC, `C:\AWE\repos\Autonomous-Workflow-Engine`)
+**Date:** 2026-08-02
+**Branch:** `feat/cognition-dispatch-control-plane`
+**Commit:** `50f7919` — the commit the suites below were last run against; the docs commit follows it
+**Branched from:** `feat/persistent-cognition-compiler` (commit d888de9)
+**Session role:** Builder + Documentarian (Windows home PC)
 
 ---
 
 ## What was built
 
-The **AWE Context Compiler** — the cognition layer is no longer a static set of documents; it is a
-capability that assembles them. A human-defined objective now compiles into a bounded execution
-packet so an agent begins from repository evidence instead of reconstructing AWE from conversation.
+The **AWE Cognition and Dispatch Control Plane** — the Context Compiler is now one stage in a
+closed local loop:
 
-```bash
-npm run context:compile -- --objective "Resolve the 0016 migration identity collision" --task-id AWE-INT-101 --output .awe/packets/AWE-INT-101
+```
+repository evidence → collector → canonical Git cognition → Obsidian projection
+   → Context Compiler → execution packet → runtime port / Claude Code worker
+   → structured handoff → verification → ingestion as PROPOSALS → cognition
 ```
 
-```bash
-npm run context:check
-```
-
-**Placement:** `scripts/lib/context-compiler/` — repo tooling, no new package. The pure core has no
-I/O; `fs-sources.mjs` isolates every filesystem and Git call, so moving behind a service replaces one
-module. Reasoning and precedent are in [CRITICAL_DECISIONS.md](CRITICAL_DECISIONS.md).
+| Capability | Command |
+|---|---|
+| Evidence collection and snapshots | `npm run evidence:collect [-- --snapshot]` |
+| Evidence diffing | `npm run evidence:diff` |
+| Cognition registry | `npm run cognition:index` / `cognition:status` |
+| Handoff ingestion | `npm run cognition:ingest-handoff -- --handoff <p> [--apply]` |
+| Obsidian bridge | `npm run cognition:obsidian:init/status/sync -- --vault "<path>"` |
+| Dispatch lifecycle | `npm run dispatch:add/list/prepare/claim/complete/verify/block/status` |
+| Dashboard | `npm run dashboard:build` |
+| Agent Runtime context port | library — `scripts/lib/context-compiler/runtime-port.mjs` |
 
 ## What was verified — exact results
 
 | Suite | Result |
 |---|---|
-| Runner V — context validator | **45 / 0** PASS |
-| Runner CC — Context Compiler | **114 / 0** PASS |
-| `node scripts/validate-context.mjs` | **PASS** — 0 errors, 7 warnings |
-| `npm run context:check` | **PASS** — 0 staleness errors, 31 warnings |
-| `bash scripts/regression.sh --kinds=unit,offline,static` | **`ALL GREEN [13 ran, 12 skipped]`**, exit 0 |
+| Runner EV — evidence | **117 / 0** |
+| Runner CC — compiler | **116 / 0** |
+| Runner CG — cognition | **66 / 0** |
+| Runner DP — dispatch | **63 / 0** |
+| Runner OB — Obsidian | **62 / 0** |
+| Runner DB — dashboard | **49 / 0** |
+| Runner RP — runtime port | **48 / 0** |
+| Runner V — validator | **45 / 0** |
+| `regression.sh --kinds=unit,offline,static` | **`ALL GREEN [13 ran, 12 skipped]`**, exit 0 |
+| `validate-context` · `context:check` | **PASS** · **PASS** |
+| `evidence:collect` ×2 + `evidence:diff` | 0 changes between identical snapshots ✅ |
 
-Platform runners unchanged: K 582 · M 420 · E 376 · P 372 · 5 349 · 4 327 · D 309 · C 138 · A 127 ·
-3 121 · Y 91. **Total 3,371 assertions, 0 failures.** Raw output in `C:\AWE\evidence\runs-2026-08-01\`.
+**3,776 assertions, 0 failures** — 3,212 platform, 564 control plane.
 
-Three real packets were generated and inspected: `AWE-INT-101` (migration identity), `AWE-INT-102`
-(M365 merge risk), `AWE-INT-103` (n8n recovery). Each selected 63 sources from 249 records — 23
-mandatory, 40 topical — and each surfaced a different, correct top-ranked source. Packet 103
-correctly reports **n8n as an absent topic** rather than returning an empty section.
+## End-to-end demonstration
 
-## Two real defects the work surfaced and fixed
+`AWE-DEMO-001`: add → prepare (packet compiled) → claim → complete → **VERIFIED**, all nine
+verification checks passing. The atomic lock refused a second claimant.
 
-1. **Path tags were being lower-cased**, so `docs/architecture/AGENT_RUNTIME.md` was reported as a
-   missing file. Filesystem paths are case-bearing; only the matching surface is folded now.
-2. **Any 7–40 char hex token was read as a commit**, so the n8n workflow id `e0d2b551` produced a
-   confident, wrong staleness warning. A token now counts as a commit only when it is a full 40-char
-   SHA or the surrounding text labels it. `context:check` additionally distinguishes an ancestor
-   commit, a commit on another branch, a blob hash, and a hash naming no object at all — and treats
-   an *added* file as unable to invalidate a claim about existing ones.
+`AWE-DEMO-002` proves the negative case twice: a handoff with no test evidence was **refused as
+inadmissible**, and a corrected version claiming a file git never saw was **REJECTED** — the
+verifier caught both the fabricated file and ten out-of-scope changes.
 
-Both were found by running the tool against the real repository, not by inspection.
+Ingestion was demonstrated in both modes: a proposal listing 1 `ACCEPTABLE_TEST_EVIDENCE` and 2
+`NEEDS_REVIEW`, then `--apply` appending exactly one line to the evidence ledger with all four
+protected documents untouched.
+
+## Three defects the tools found in themselves
+
+Each was found by running against the real repository, not by inspection:
+
+1. The secret scanner flagged its own test fixtures. Findings are now classified
+   `likely_fixture` / `placeholder` / `review_required` — 8 findings, 0 needing review.
+2. Branch references were matched in unquoted prose, so "schema 23, security 57, functional 30"
+   produced a confident report of a nonexistent branch `security/functional`. Backticks now
+   required; cognition conflicts fell from 6 to 3, all genuine.
+3. A `\b` anchor in the placeholder regex could never match alternatives beginning with `$` or
+   `<`, silently disabling half the list.
 
 ## What remains unknown
 
-Unchanged from the previous handoff: applied-migration state · Supabase project identity · n8n
-instance state · whether the Orchestration & Responsibility Plane exists anywhere · the source of
-the "145 database checks" and "61 orchestration tests" figures (both still `REPORTED_NOT_VERIFIED`) ·
-live Microsoft Graph behaviour (`MOCK_ONLY`).
+Unchanged: applied-migration state · Supabase project identity · n8n instance state · whether the
+Orchestration & Responsibility Plane exists anywhere · the "145 checks" and "61 tests" figures
+(still `REPORTED_NOT_VERIFIED`) · live Microsoft Graph behaviour.
 
-New and specific to this work: `fs-sources.mjs` is `PARTIALLY_VERIFIED` — it is exercised by the CLI
-runs but not by Runner CC, which is deliberately pure.
+New: the filesystem/Git adapters (`fs-sources.mjs`, `fs-context.mjs`, `store.mjs`) are
+`PARTIALLY_VERIFIED` — exercised by CLI runs and the demonstration, not by the pure suites.
 
-## Files changed
+## Obsidian vault state
 
-**Created:** `scripts/lib/context-compiler/{contract,records,adapters,select,compile,fs-sources}.mjs` ·
-`scripts/context-compile.mjs` · `scripts/context-check.mjs` ·
-`scripts/eval-context-compiler.{mjs,sh}` · `docs/integration/dispatch/TASK_FORMAT.md` ·
-`docs/integration/dispatch/tasks/AWE-INT-10{1..6}.md`
+Initialized at `C:\AWE\vault` — 10 projections, 6 folders, 8 generated navigation pages, manifest
+at `AWE/.awe-sync-manifest.json`.
 
-**Modified:** `package.json` (four `context:*` scripts — the root had none) · `.gitignore` (`.awe/`) ·
-`context/{AWE_CURRENT_STATE,AWE_SYSTEM_MAP,ACTIVE_CAPABILITY_SPECIFICATION,CRITICAL_DECISIONS,VERIFIED_EVIDENCE,AWE_UBIQUITOUS_LANGUAGE,LATEST_AGENT_HANDOFF}.md` ·
-`docs/integration/{AWE_ASSET_INVENTORY,AWE_EVIDENCE_LEDGER,AWE_COMPONENT_GRAPH,AWE_INTEGRATION_PLAN,AWE_LATEST_HANDOFF}.md` ·
-`docs/integration/dispatch/QUEUE.md`
-
-**Restored:** `packages/mcp-server/src/index.js` — the CRLF-only worktree entry from the previous
-session. Worktree and index blob hashes were identical (`1463386…`) and the diff was zero bytes, so
-`git checkout --` discarded nothing.
+**The historical MacBook vault has NOT been imported.** Nothing was recovered from it,
+reconstructed, or guessed. The vault README says so in its own text. Importing it needs three-way
+reconciliation — original, canonical Git, and this projection — because the original may hold
+decisions never written to the repository.
 
 ## Next safest bounded task
 
-**`AWE-INT-101`** — resolve the three-way `0016` migration-identity collision on paper, touching no
-migration file. Its dispatch task is `docs/integration/dispatch/tasks/AWE-INT-101.md`, and its packet
-compiles with the command in that file.
+**`AWE-INT-101`** — resolve the three-way `0016` migration-identity collision on paper. It is now
+also the first task the control plane can carry end to end: `dispatch:add` → `prepare` → `claim`
+→ `complete` → `verify` → `cognition:ingest-handoff`.
 
-Two minute-scale unblockers for a human: launch Docker Desktop once (WSL2 is installed but has no
-distribution), and `winget install jqlang.jq` (the only reason `mcp-smoke` fails).
+Two minute-scale unblockers for a human: launch Docker Desktop once, and `winget install jqlang.jq`.
 
 ## What remains on the MacBook
 
-Obsidian vault · n8n exports (WF1–WF10, 309, 310, both WF8 variants) · Supabase project identity and
-applied-migration state · real `.env` shape · saved evidence behind the 145/61 figures · the
-Orchestration & Responsibility Plane if it exists. TEGG is preserved separately in the private
-`TRANSCEND` repo and is out of scope.
+Obsidian vault · n8n exports (WF1–WF10, 309, 310, both WF8 variants) · Supabase project identity
+and applied-migration state · real `.env` shape · saved evidence behind the 145/61 figures · the
+Orchestration & Responsibility Plane if it exists.
 
 ## What was intentionally not executed
 
-No push · no merge, rebase, reset, force push, or branch deletion · no PR opened or modified · no
-commit to `main` · no migration created, modified, or applied · no database contacted · no Docker
-container started · no Microsoft Graph call · no n8n contact or activation · no email · no credential
-opened, printed, or committed · no repository visibility change · no file deleted · the M365 branch
-was never checked out · `TRANSCEND` was not cloned or modified · the historical LIPPOLIS files and
-their backup were not touched · the `0016` collision was **analysed but not resolved**, per scope ·
-the Orchestration Plane was **not** reconstructed — it is reported absent · no Agent Runtime
-integration was begun.
+No push · no merge, rebase, reset, force push or branch deletion · no PR opened or modified · no
+commit to `main` · no migration created, modified or applied · the `0016` collision was **not**
+resolved · no database, Supabase, n8n, or Microsoft Graph contact · no email · no server started
+and no port bound · no dispatched job executed automatically · no agent launched · no credential
+opened, printed or committed · no repository visibility change · no file deleted · `TRANSCEND` not
+cloned or modified · historical LIPPOLIS files untouched · the Orchestration Plane **not**
+reconstructed · no vault content fabricated.

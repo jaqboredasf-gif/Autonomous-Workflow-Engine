@@ -93,6 +93,26 @@ Update `context/LATEST_AGENT_HANDOFF.md` with branch, commit, what was inspected
 what was verified, what remains unknown, files changed, commands run, Git status, the next safest
 bounded task, and an explicit statement of what was intentionally not executed.
 
+## P17 — An agent's output is a candidate, not organizational truth
+
+A handoff is testimony. It becomes evidence only after `dispatch:verify` checks it against the
+repository, and even then `cognition:ingest-handoff` produces a **proposal**. Never edit
+`AWE_IDENTITY.md`, `CRITICAL_DECISIONS.md`, `AGENT_OPERATING_POLICIES.md` or
+`ACTIVE_CAPABILITY_SPECIFICATION.md` on the strength of your own session's conclusions. Those
+change by human decision, in a commit someone signs their name to.
+
+## P18 — State provenance, never default it
+
+When recording a fact, say whether you inspected it or were told it. The evidence collector
+enforces this in code — `record()` throws without an origin — so do the same in prose. "The
+migration files exist" and "the migrations were applied" are different claims, and only one of them
+is checkable from this machine.
+
+## P19 — Never launch a worker automatically
+
+Preparing context and claiming a task are safe. Starting an agent is a deliberate human act. A
+system that dispatches its own work is a system that can run unbounded while nobody is watching.
+
 ## P16 — Leave the tree understandable
 
 No stray artifacts (`artifacts/` is gitignored — keep it so). No half-finished refactors. No

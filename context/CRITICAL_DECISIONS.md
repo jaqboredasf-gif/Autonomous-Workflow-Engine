@@ -84,6 +84,20 @@ re-export. That is a file move, not a redesign — which is the point of the spl
 - **`context:check` reports, never rewrites.** A document that updates itself cannot testify to what
   was verified, by whom, and when.
 
+## Control-plane decisions — 2026-08-02
+
+**Status:** Active, test-backed. All four are enforced in code, not by convention.
+
+| Decision | Why | Enforced by |
+|---|---|---|
+| **A worker cannot assert its way to VERIFIED.** `complete` reaches only `AWAITING_VERIFICATION`; only `dispatch:verify` promotes. | Claims are cheap; the diff is not. Of 81 state pairs, 47 are refused. | `scripts/lib/dispatch/state.mjs` — no edge exists from `CLAIMED`/`IN_PROGRESS` to `VERIFIED`, so the transition cannot be expressed |
+| **Agent output is a proposal, never an edit.** Ingestion classifies every claim and appends to one operational section. | An agent writing its own conclusions into organizational memory is the failure this control plane exists to prevent. | `scripts/lib/cognition/ingest.mjs` — four protected documents; one CONTRADICTED claim blocks the entire patch |
+| **Provenance cannot be defaulted.** Every evidence record declares `DIRECT_INSPECTION` or `NARRATIVE_CLAIM`. | Without it, a document's assertion launders itself into a measured fact at machine speed. | `scripts/lib/evidence/schema.mjs` — `record()` throws without an explicit origin |
+| **Obsidian is projected by manifest, not symlink.** | Symlinks need Developer Mode or elevation on Windows, so init would fail for some users and silently succeed for others; a junction at `context/` would put a live git tree inside a directory Obsidian writes to freely. | `scripts/lib/cognition/obsidian.mjs` — hash-tracked copies, no reverse-copy action at all |
+
+**Consequence if any is relaxed:** the loop stops being trustworthy in exactly the way that makes a
+cognition layer worse than none — it keeps producing confident statements that nobody checked.
+
 ## Decisions carried in from the local Windows TEGG work — do not relitigate
 
 Recorded in `C:\AWE\backups\LIPPOLIS-2026-08-01\tegg-report-agent\HANDOFF.md`. They govern TEGG,

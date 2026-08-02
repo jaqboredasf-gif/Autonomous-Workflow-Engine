@@ -29,6 +29,13 @@ Cognition Layer, **before** adding any additional platform capability.
 6. Open the missing base PR for `feat/kernelized-mcp-context` → `main` **only on explicit human
    instruction**, since the entire 33-commit stack depends on it.
 
+**Extended 2026-08-02 — the Cognition and Dispatch Control Plane.** Evidence collection and
+diffing, the cognition registry, handoff ingestion, the Obsidian bridge, the dispatch lifecycle, the
+Agent Runtime context port and the operating dashboard are built and test-backed — 405 assertions
+across six new runners. The loop is closed locally: evidence → cognition → packet → worker →
+handoff → verification → proposal → cognition. It remains file-backed and offline; nothing launches
+a worker, and no remote integration is active.
+
 ## Non-scope
 
 - Any work in `jaqboredasf-gif/TRANSCEND` (TEGG). Related repository, later bounded audit.

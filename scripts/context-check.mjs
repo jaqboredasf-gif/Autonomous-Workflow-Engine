@@ -22,6 +22,9 @@ import { join, relative, sep } from 'node:path';
 import { readGitState, collectKnownPaths } from './lib/context-compiler/fs-sources.mjs';
 import { detectCommit, detectDate } from './lib/context-compiler/records.mjs';
 import { EVIDENCE_STATUSES } from './lib/context-compiler/contract.mjs';
+import { ORIGINS } from './lib/evidence/schema.mjs';
+import { STATES as TASK_STATES } from './lib/dispatch/state.mjs';
+import { CLASSIFICATIONS as INGEST_CLASSES } from './lib/cognition/ingest.mjs';
 import { REQUIRED_FILES } from './lib/context-validator.mjs';
 
 const root = process.cwd();
@@ -166,6 +169,9 @@ for (const f of files) {
   for (const m of text.matchAll(/`([A-Z][A-Z_]{4,})`/g)) {
     const tok = m[1];
     if (EVIDENCE_STATUSES.includes(tok)) continue;
+    // Adjacent closed vocabularies the cognition layer legitimately writes
+    // about — imported, not restated, so they cannot drift out of sync.
+    if (ORIGINS.includes(tok) || TASK_STATES.includes(tok) || INGEST_CLASSES.includes(tok)) continue;
     if (/^(AWE|TEGG|LIPPOLIS|TRANSCEND|SUPABASE|AWE_ORG_ID|AWE_MODE|EMAIL|PASSWORD|BEGIN|PROMPT|END|CRLF|GREEN|FAIL|PASS|SKIP|HEAD|MIGRATION_IDENTITY_RESOLUTION|AWE_INT|MODULE_TYPELESS_PACKAGE_JSON|AI_EGRESS)/.test(tok)) continue;
     if (/^SUPABASE_/.test(tok)) continue;
     add('error', path, `"${tok}" looks like an evidence status but is not in the allowed set`);

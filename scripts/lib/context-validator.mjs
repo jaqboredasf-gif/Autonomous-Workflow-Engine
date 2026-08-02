@@ -11,6 +11,10 @@
 // A finding is { level: 'error' | 'warn', file, message }.
 // ---------------------------------------------------------------------------
 
+import { ORIGINS } from './evidence/schema.mjs';
+import { STATES as TASK_STATES } from './dispatch/state.mjs';
+import { CLASSIFICATIONS as INGEST_CLASSES } from './cognition/ingest.mjs';
+
 export const REQUIRED_FILES = [
   'AWE_IDENTITY.md',
   'AWE_CURRENT_STATE.md',
@@ -49,9 +53,20 @@ export const ALLOWED_STATUSES = [
 // boundaries so ALLOWED_STATUSES listed in prose are matched too.
 const STATUS_SHAPED = /\b[A-Z][A-Z_]{4,}\b/g;
 
+// Other closed vocabularies the cognition layer legitimately writes about. They
+// are IMPORTED rather than restated so a new dispatch state or ingestion
+// classification cannot silently start failing validation — and so nobody is
+// tempted to "fix" a failure by adding a one-off exemption.
+const ADJACENT_VOCABULARIES = [
+  ...ORIGINS,          // evidence provenance
+  ...TASK_STATES,      // dispatch lifecycle
+  ...INGEST_CLASSES,   // handoff ingestion
+];
+
 // Words that are uppercase-shaped but are not status claims. Without this the
 // validator would flag ordinary prose (package names, SQL, file names).
 const STATUS_EXEMPT = new Set([
+  ...ADJACENT_VOCABULARIES,
   'AWE', 'TEGG', 'ADR', 'RLS', 'SQL', 'JSON', 'HTTP', 'HTTPS', 'YAML', 'TODO', 'NOTE',
   'README', 'LICENSE', 'MCP', 'API', 'CLI', 'PR', 'SHA', 'UTC', 'PC', 'OS', 'ID',
   'AI_EGRESS', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY',

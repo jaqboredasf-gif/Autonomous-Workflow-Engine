@@ -39,6 +39,17 @@ Hit counts are from a local recursive grep of the working tree at `55c0ba5`.
 | **Support** | How much weight a record may carry — `verified`, `conditional`, `reported`, `rejected` — derived from its evidence status, never from tone. | `supportFor()` in `records.mjs` | added 2026-08-01 |
 | **Mandatory record** | Context included in every packet regardless of the objective: operating policies, repository identity, known blockers. | `isMandatory()` in `scripts/lib/context-compiler/select.mjs` | added 2026-08-01 |
 | **Absent topic** | A subject the objective names that has no code-backed implementation. Reported explicitly; never returned as an empty section. | `detectAbsentTopics()` in `select.mjs` | added 2026-08-01 |
+| **Evidence record** | One inspected fact with its provenance attached. | `scripts/lib/evidence/schema.mjs` | added 2026-08-02 |
+| **Origin** | Whether a collector **looked** (`DIRECT_INSPECTION`) or a document **said so** (`NARRATIVE_CLAIM`). Cannot be defaulted — `record()` throws without it. | same | added 2026-08-02 |
+| **Evidence snapshot** | A timestamped collection under `.awe/evidence/snapshots/`, diffable against a later one. | `scripts/evidence-collect.mjs` | added 2026-08-02 |
+| **Dispatch task** | A bounded unit of work with a state, an allowed scope, prohibitions and required tests. | `scripts/lib/dispatch/state.mjs` | added 2026-08-02 |
+| **Claim** | Exclusive local ownership of a task, taken with an open-exclusive lock. Launches nothing. | `scripts/lib/dispatch/store.mjs` | added 2026-08-02 |
+| **Structured handoff** | A worker's account of what it did, shaped so a completion claim is falsifiable. | `scripts/lib/dispatch/handoff.mjs` | added 2026-08-02 |
+| **Verification** | Nine checks of a handoff against the repository. The only route to `VERIFIED`. | `scripts/lib/dispatch/verify.mjs` | added 2026-08-02 |
+| **Candidate** | A claim extracted from a handoff and classified against the repository before it may touch cognition. | `scripts/lib/cognition/ingest.mjs` | added 2026-08-02 |
+| **Protected document** | Cognition an ingestion may never write: identity, critical decisions, operating policies, capability spec. | same | added 2026-08-02 |
+| **Projection** | A copy of a canonical file in the Obsidian vault. Git remains the source of truth; there is no reverse-copy. | `scripts/lib/cognition/obsidian.mjs` | added 2026-08-02 |
+| **Context port** | The typed request/response by which a runtime asks for a packet — and is refused when the repository is not in the required state. | `scripts/lib/context-compiler/runtime-port.mjs` | added 2026-08-02 |
 
 ## Terms with a different name in the repo — map, do not rename
 

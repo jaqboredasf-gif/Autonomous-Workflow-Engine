@@ -105,10 +105,17 @@ Off-stack: `claude/microsoft-365-integration-plane-fcsm1e` (`ad8589a`, +1, PR #9
 | 3 | approval diff | **121** / 0 (15 fixtures) | `VERIFIED` |
 | Y | memory layer | **91** / 0 (9 fixtures) | `VERIFIED` |
 | — | `validate-migration-0014`, `-0015` | static lint, pass | `VERIFIED` |
-| **V** | **context validator** (`scripts/eval-context-validator.sh`) | **45** / 0 | `VERIFIED` |
-| **CC** | **Context Compiler** (`scripts/eval-context-compiler.sh`) | **114** / 0 | `VERIFIED` |
+| **V** | context validator (`scripts/eval-context-validator.sh`) | **45** / 0 | `VERIFIED` |
+| **CC** | Context Compiler (`scripts/eval-context-compiler.sh`) | **116** / 0 | `VERIFIED` |
+| **EV** | evidence collector + diff (`scripts/eval-evidence.sh`) | **117** / 0 | `VERIFIED` |
+| **CG** | cognition registry + ingestion (`scripts/eval-cognition.sh`) | **66** / 0 | `VERIFIED` |
+| **DP** | dispatch lifecycle (`scripts/eval-dispatch.sh`) | **63** / 0 | `VERIFIED` |
+| **OB** | Obsidian bridge (`scripts/eval-obsidian.sh`) | **62** / 0 | `VERIFIED` |
+| **DB** | operating dashboard (`scripts/eval-dashboard.sh`) | **49** / 0 | `VERIFIED` |
+| **RP** | Agent Runtime context port (`scripts/eval-runtime-port.sh`) | **48** / 0 | `VERIFIED` |
 
-**Total: 3,371 assertions, 0 failures.** Raw output: `C:\AWE\evidence\runs-2026-08-01\`.
+**Total: 3,776 assertions, 0 failures** — 3,212 platform + 564 control plane.
+Raw output: `C:\AWE\evidence\runs-2026-08-01\`.
 
 ### 5b. Context Compiler — added 2026-08-01
 
@@ -124,6 +131,37 @@ The cognition layer is no longer only a set of documents; it is a capability tha
 | Filesystem/Git boundary | `scripts/lib/context-compiler/fs-sources.mjs` | `PARTIALLY_VERIFIED` — exercised by CLI runs, not by Runner CC (which is pure) |
 | CLI `npm run context:compile` | `scripts/context-compile.mjs` | `VERIFIED` — three real packets generated |
 | CLI `npm run context:check` | `scripts/context-check.mjs` | `VERIFIED` — PASS, 0 staleness errors, 31 warnings |
+
+### 5c. Cognition and Dispatch Control Plane — added 2026-08-02
+
+The compiler is now one stage in a closed local loop. Every component is
+file-backed, offline, and covered by a deterministic suite.
+
+| Capability | Command | Path | Status |
+|---|---|---|---|
+| Repository evidence collection | `npm run evidence:collect` | `scripts/lib/evidence/` | `VERIFIED` — Runner EV |
+| Evidence diffing between snapshots | `npm run evidence:diff` | `scripts/lib/evidence/diff.mjs` | `VERIFIED` — Runner EV |
+| Cognition registry + freshness + conflicts | `npm run cognition:index` / `:status` | `scripts/lib/cognition/registry.mjs` | `VERIFIED` — Runner CG |
+| Handoff ingestion as **proposals** | `npm run cognition:ingest-handoff` | `scripts/lib/cognition/ingest.mjs` | `VERIFIED` — Runner CG |
+| Obsidian projection + conflict refusal | `npm run cognition:obsidian:init/status/sync` | `scripts/lib/cognition/obsidian.mjs` | `VERIFIED` — Runner OB |
+| Local dispatch lifecycle | `npm run dispatch:*` | `scripts/lib/dispatch/` | `VERIFIED` — Runner DP |
+| Agent Runtime context port | (library) | `scripts/lib/context-compiler/runtime-port.mjs` | `VERIFIED` — Runner RP |
+| Operating dashboard | `npm run dashboard:build` | `scripts/lib/dashboard/build.mjs` | `VERIFIED` — Runner DB |
+
+**Properties that hold, and are tested:**
+
+- **The system remains local and file-backed.** No server is started, no port is bound.
+- **No live worker launching exists.** `dispatch:prepare` compiles context and `dispatch:claim`
+  records ownership; opening an agent stays a deliberate human act.
+- **No remote integration is active.** No Supabase, n8n, Microsoft Graph, or email contact exists
+  in any of this code.
+- **Obsidian is a projection, not the source of truth.** Git is canonical; a vault-side edit is
+  refused, never overwritten, and there is no reverse-copy action at all.
+- **Handoff ingestion proposes rather than trusts.** Agent output is classified against the
+  repository and only ever appends to one operational section; identity, critical decisions,
+  operating policies and the capability spec are protected from it entirely.
+- **Provenance is mandatory.** Evidence records must declare `DIRECT_INSPECTION` or
+  `NARRATIVE_CLAIM`; the constructor throws without one.
 
 **Explicitly not connected** to live agents, n8n, Supabase, Microsoft Graph, or any remote service.
 File-backed and deterministic: same records plus same `generatedAt` produce byte-identical JSON.

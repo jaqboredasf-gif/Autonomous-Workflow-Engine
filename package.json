@@ -29,6 +29,7 @@
     "cognition:status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-index.mjs --status",
     "cognition:obsidian:init": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-obsidian.mjs init",
     "cognition:obsidian:status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-obsidian.mjs status",
-    "cognition:obsidian:sync": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-obsidian.mjs sync"
+    "cognition:obsidian:sync": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-obsidian.mjs sync",
+    "dashboard:build": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dashboard-build.mjs"
   }
 }
