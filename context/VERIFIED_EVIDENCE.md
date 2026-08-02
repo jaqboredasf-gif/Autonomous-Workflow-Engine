@@ -27,7 +27,12 @@ Allowed statuses: `VERIFIED` · `PARTIALLY_VERIFIED` · `REPORTED_NOT_VERIFIED` 
 | Migration lint 0014/0015 | Structural validity, engine/SQL parity | `scripts/lib/validate-migration-001{4,5}.mjs` | static — pass | 55c0ba5 | `VERIFIED` | 2026-08-01 | Lint only; proves nothing about an applied DB |
 | **Full credential-free regression** | — | `scripts/regression.sh --kinds=unit,offline,static` | **ALL GREEN [13 ran, 12 skipped]**, exit 0 | 55c0ba5 | `VERIFIED` | 2026-08-01 | 12 suites skipped for missing credentials |
 
-**Total reproduced: 3,212 assertions, 0 failures.**
+| Context validator | Required files, sections, statuses, dates, paths, handoff anchors, packet fields, secret scan | `scripts/lib/context-validator.mjs` | V — `scripts/eval-context-validator.sh` → **45/0** | 53b8f7f | `VERIFIED` | 2026-08-01 | Validates structure, not truth — `context:check` covers truth |
+| **Context Compiler** | An objective compiles to a bounded packet; every claim traceable; absence reported; unverified claims flagged not dropped | `scripts/lib/context-compiler/*.mjs` | CC — `scripts/eval-context-compiler.sh` → **114/0** | 53b8f7f | `VERIFIED` | 2026-08-01 | Pure core only. `fs-sources.mjs` is exercised by CLI runs, not by Runner CC |
+| Packet generation (end to end) | Three real packets built from live repository state | `.awe/packets/AWE-INT-{101,102,103}/` | `npm run context:compile` — exit 0, 63 sources from 249 records each | 53b8f7f | `VERIFIED` | 2026-08-01 | Output is gitignored by design; regenerate rather than trust a stored copy |
+| Context freshness | Stale, cross-branch and non-existent commit references detected; PASS at HEAD | `scripts/context-check.mjs` | `npm run context:check` → **0 staleness errors, 31 warnings, PASS** | 53b8f7f | `VERIFIED` | 2026-08-01 | Reports only; never rewrites context |
+
+**Total reproduced: 3,371 assertions, 0 failures** (3,212 platform + 45 validator + 114 compiler).
 
 ## B. Structure verified, behaviour not
 

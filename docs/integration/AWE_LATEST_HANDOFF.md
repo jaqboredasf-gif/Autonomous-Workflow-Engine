@@ -1,6 +1,31 @@
 # AWE Latest Handoff — integration workstream
 
-**Date:** 2026-08-01 · **Branch:** `codex/durable-execution-plane` · **Commit:** `55c0ba5`
+**Date:** 2026-08-01 · **Branch:** `feat/persistent-cognition-compiler` · **Evidence baseline:** `55c0ba5`
+
+> ## Update 2026-08-01 — the cognition layer became a capability
+>
+> The Persistent Cognition Layer is no longer a static set of documents. The **AWE Context Compiler**
+> turns a human-defined objective into a bounded execution packet, so an agent starts from repository
+> evidence rather than reconstructing AWE from conversation.
+>
+> ```bash
+> npm run context:compile -- --objective "<text>" --task-id AWE-INT-101 --output .awe/packets/AWE-INT-101
+> ```
+>
+> **Placement:** `scripts/lib/context-compiler/` — repo tooling, no new package. Pure core, single I/O
+> module, so moving behind a service later replaces one file. Reasoning in
+> `context/CRITICAL_DECISIONS.md`.
+>
+> **Verified:** Runner CC **114/0**, Runner V **45/0**, `validate-context` PASS, `context:check` PASS
+> (0 staleness errors), and the platform regression still **`ALL GREEN [13 ran, 12 skipped]`** —
+> **3,371 assertions, 0 failures** in total.
+>
+> **Dispatch is now compilable:** six structured tasks in `dispatch/tasks/` following
+> `dispatch/TASK_FORMAT.md`, each generating its own packet. A task states intent; the compiler
+> supplies grounded context. Generated packets live under the gitignored `.awe/`.
+>
+> **Not connected** to live agents, n8n, Supabase, Microsoft Graph, or any remote service. Two local
+> commits on this branch; nothing pushed.
 
 The operational handoff agents should read is **`context/LATEST_AGENT_HANDOFF.md`**. It is the single
 place a session updates at the end of its work (policy P15), and duplicating it here would guarantee

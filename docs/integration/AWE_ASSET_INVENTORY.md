@@ -23,8 +23,8 @@ For the orientation summary see `context/AWE_CURRENT_STATE.md`. This file is the
 Apps: `apps/web` (Next.js — approvals, completions, employees, flags, map, payroll, schedule, sites,
 timesheets, settings), `apps/mobile` (Expo).
 
-Root: npm workspaces `["apps/*", "packages/*"]`, `engines.node >= 20`, **no `scripts` block**,
-`package-lock.json`. No `pnpm-workspace.yaml`, no `packageManager` field.
+Root: npm workspaces `["apps/*", "packages/*"]`, `engines.node >= 20`, `package-lock.json`, and a
+`scripts` block added 2026-08-01 (`context:compile`, `context:check`, `context:validate`, `context:test`). No `pnpm-workspace.yaml`, no `packageManager` field.
 
 ## 2. Migrations (16 files, 2,286 lines, 23 tables)
 
@@ -56,6 +56,11 @@ Branch-specific `0016` variants: see `AWE_CONFLICT_REGISTER.md` C-101.
 `eval-classification`(2A), `eval-classification-live`(2B), `eval-mcp-live`(M-LIVE), `parity-route-live`.
 
 **Build kind:** `mcp-smoke` (**fails here — `jq` missing**), mobile typecheck, web build.
+
+**Context Compiler (added 2026-08-01):** `scripts/lib/context-compiler/{contract,records,adapters,select,compile,fs-sources}.mjs`,
+CLIs `scripts/context-compile.mjs` and `scripts/context-check.mjs`, suite `eval-context-compiler`(CC 114).
+Root `package.json` gained its first `scripts` block: `context:compile`, `context:check`,
+`context:validate`, `context:test`.
 
 **Orchestrator:** `scripts/regression.sh` — reads the suite registry at
 `packages/awe-kernel/src/registry.mjs` via `scripts/lib/suite-plan.mjs`. 25 suites; 13 credential-free.
@@ -89,7 +94,9 @@ Supports `--dry-run`, `--kinds=`, `--only=`, `--exclude-kinds=`.
 **Top level:** `API_CONTRACT.md`, `AUTOMATION_SYNERGY.md`, `GAP_ANALYSIS.md`, `REGRESSION_CHECKLIST.md`,
 `ROADMAP.md`, `SECURITY_FINDINGS.md`.
 
-**New this session:** `context/` (10 files), `docs/integration/` (8 files).
+**New 2026-08-01:** `context/` (10 files), `docs/integration/` (9 files), and
+`docs/integration/dispatch/` — `QUEUE.md`, `TASK_FORMAT.md`, and six task files
+`tasks/AWE-INT-101.md` … `tasks/AWE-INT-106.md`.
 
 ## 6. Branches (12 remote) and PRs (9)
 
@@ -118,7 +125,7 @@ zero code, zero exports**.
 
 ## 8. Missing artifacts
 
-`AWE_CURRENT_STATE.md`/`AWE_SYSTEM_MAP.md`/`AGENT_EXECUTION_PACKET.md` — **created by this session** ·
+`AWE_CURRENT_STATE.md`/`AWE_SYSTEM_MAP.md`/`AGENT_EXECUTION_PACKET.md` — **created 2026-08-01, now compiler-backed** ·
 `KNOWLEDGE_HANDOFF.md` — absent · `pnpm-workspace.yaml` — never existed · Orchestration &
 Responsibility Plane — absent · Objective Plane — absent · n8n exports — absent ·
 `.env.example` for `apps/web`, `packages/mcp-server`, `packages/m365` — absent (only

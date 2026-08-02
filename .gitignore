@@ -9,3 +9,8 @@ dist/
 # Durable run-report artifacts (scripts/lib/artifact-store.mjs). Evidence of a
 # run, not source — committing them would make every regression run a diff.
 artifacts/
+# Compiled execution packets (scripts/context-compile.mjs). Derived from the
+# cognition layer at a given commit — regenerate, never commit. A stale packet
+# in Git would be read as current context, which is the failure the compiler
+# exists to prevent.
+.awe/

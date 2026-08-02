@@ -1,9 +1,15 @@
 # AWE Current State
 
 **Last verified:** 2026-08-01
-**Verified at commit:** `55c0ba5c2b4bdc807ee07f8c1f9b3a15f4f28e83`
-**Verified on branch:** `codex/durable-execution-plane`
+**Evidence baseline commit:** `55c0ba5c2b4bdc807ee07f8c1f9b3a15f4f28e83` — the durable-execution tip;
+all platform-capability claims below were reproduced against this tree
+**Working branch:** `feat/persistent-cognition-compiler` (branched from the baseline; adds the
+cognition layer and the Context Compiler — no platform code changed)
 **Verified by:** Claude Code session on the Windows home PC (`C:\AWE\repos\Autonomous-Workflow-Engine`)
+
+> Freshness is machine-checked. `npm run context:check` classifies every commit this file cites: a
+> reference to an ancestor commit with no *modified* evidence path since is still current; anything
+> else is reported as staleness requiring re-verification.
 
 Every row carries an evidence status. Allowed values: `VERIFIED`, `PARTIALLY_VERIFIED`,
 `REPORTED_NOT_VERIFIED`, `GENERATED_NOT_APPLIED`, `MOCK_ONLY`, `LIVE_BLOCKED`, `FAILED`,
@@ -99,8 +105,30 @@ Off-stack: `claude/microsoft-365-integration-plane-fcsm1e` (`ad8589a`, +1, PR #9
 | 3 | approval diff | **121** / 0 (15 fixtures) | `VERIFIED` |
 | Y | memory layer | **91** / 0 (9 fixtures) | `VERIFIED` |
 | — | `validate-migration-0014`, `-0015` | static lint, pass | `VERIFIED` |
+| **V** | **context validator** (`scripts/eval-context-validator.sh`) | **45** / 0 | `VERIFIED` |
+| **CC** | **Context Compiler** (`scripts/eval-context-compiler.sh`) | **114** / 0 | `VERIFIED` |
 
-**Total: 3,212 assertions, 0 failures.** Raw output: `C:\AWE\evidence\runs-2026-08-01\`.
+**Total: 3,371 assertions, 0 failures.** Raw output: `C:\AWE\evidence\runs-2026-08-01\`.
+
+### 5b. Context Compiler — added 2026-08-01
+
+The cognition layer is no longer only a set of documents; it is a capability that assembles them.
+
+| Component | Path | Status |
+|---|---|---|
+| Packet contract (versioned, `SCHEMA_VERSION 1.0.0`) | `scripts/lib/context-compiler/contract.mjs` | `VERIFIED` |
+| Normalized records + tag derivation | `scripts/lib/context-compiler/records.mjs` | `VERIFIED` |
+| Nine source adapters | `scripts/lib/context-compiler/adapters.mjs` | `VERIFIED` |
+| Deterministic relevance selection | `scripts/lib/context-compiler/select.mjs` | `VERIFIED` |
+| Packet assembly + Markdown/JSON rendering | `scripts/lib/context-compiler/compile.mjs` | `VERIFIED` |
+| Filesystem/Git boundary | `scripts/lib/context-compiler/fs-sources.mjs` | `PARTIALLY_VERIFIED` — exercised by CLI runs, not by Runner CC (which is pure) |
+| CLI `npm run context:compile` | `scripts/context-compile.mjs` | `VERIFIED` — three real packets generated |
+| CLI `npm run context:check` | `scripts/context-check.mjs` | `VERIFIED` — PASS, 0 staleness errors, 31 warnings |
+
+**Explicitly not connected** to live agents, n8n, Supabase, Microsoft Graph, or any remote service.
+File-backed and deterministic: same records plus same `generatedAt` produce byte-identical JSON.
+No embeddings, no vector store, no model call. `MOCK_ONLY` is not the right label — nothing is
+mocked; the compiler simply reads the repository.
 
 The earlier handoff's figures reconcile as follows: **Runner A = 127 ✅ exact**, **Runner Y = 91 ✅
 exact**, **Runner K = 582, not 577** (the suite grew by 5). The "145 database checks" and "61
@@ -123,7 +151,7 @@ orchestration tests" have **no reproducible source in this repository** → `REP
 | Orchestration & Responsibility Plane | `UNKNOWN` — absent | No package, no branch, no table. `work_package` **0 hits**, `replan` **0 hits**; `responsibility` 15 prose hits, `orchestration` 10. |
 | Objective Plane | absent | `objective` = 8 hits, all in handoff prose and `validate-agent-handoff.sh` |
 | n8n workflow exports | absent | 61 design references, **zero** workflow JSON files on any branch |
-| Persistent Cognition Layer | **created by this session** | `context/` did not exist before 2026-08-01 |
+| Persistent Cognition Layer | **created 2026-08-01, now compiler-backed** | `context/` did not exist before; `npm run context:compile` turns it into bounded execution packets |
 | `AI_EGRESS`, `already_done`, `plan_valid`, `externalSendingEnabled` | **0 hits repo-wide** | Local recursive grep. These belong to n8n/TEGG, not this repo. |
 
 ## 8. Known external systems and blockers

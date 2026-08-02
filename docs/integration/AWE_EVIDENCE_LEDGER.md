@@ -41,8 +41,23 @@ evidence is found on the MacBook, attach the path and re-classify. Until then th
 | A | agent runtime | 127 / 0 (16 fixtures) |
 | 3 | approval diff | 121 / 0 (15 fixtures) |
 | Y | memory layer | 91 / 0 (9 fixtures) |
-| V | context validator (**new**) | 45 / 0 |
+| V | context validator | 45 / 0 |
+| CC | **Context Compiler** (new) | **114 / 0** |
 | static | `validate-migration-0014`, `-0015` | pass |
+
+**Total 3,371 assertions, 0 failures** (3,212 platform + 45 validator + 114 compiler).
+
+### Context Compiler — added 2026-08-01
+
+| Claim | Evidence | Status |
+|---|---|---|
+| An objective compiles to a bounded, traceable packet | Runner CC 114/0; three real packets under `.awe/packets/` | `VERIFIED` |
+| Absence is reported, never returned as silence | Runner CC case 17/18; packet `AWE-INT-103` lists n8n as an absent topic | `VERIFIED` |
+| Unverified claims are flagged, not dropped | Runner CC case 4; `unverified_claim` warnings in every generated packet | `VERIFIED` |
+| Staleness is detected | `npm run context:check` → PASS, 0 staleness errors, 31 warnings | `VERIFIED` |
+| No secret reaches a packet | Runner CC case 13; grep over `.awe/` finds no token-shaped literal | `VERIFIED` |
+| Filesystem/Git boundary | exercised by CLI runs only — Runner CC is pure | `PARTIALLY_VERIFIED` |
+| Connected to live agents, n8n, Supabase or remote services | **it is not** — file-backed and offline by design | `n/a` |
 
 ## Failures and blocks — recorded, not hidden
 

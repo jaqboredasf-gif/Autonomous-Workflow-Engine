@@ -28,10 +28,29 @@ figures (145 DB checks, 61 orchestration tests) reclassified `REPORTED_NOT_VERIF
 
 Remaining: the 12 credential-gated suites, and `mcp-smoke` (needs `jq`).
 
-## Phase 2 — Persistent Cognition ✅ established this session
+## Phase 2 — Persistent Cognition ✅ established, and now compiler-backed
 
-`context/` (10 files) + `scripts/validate-context.mjs` + Runner V (45 assertions). **Maintaining it is
-now a standing obligation** — policy P15.
+`context/` (10 files) + `scripts/validate-context.mjs` + Runner V (45 assertions).
+
+**Extended 2026-08-01 — the AWE Context Compiler.** The layer is no longer only documents an agent
+must read; it is a capability that assembles them into a bounded execution packet:
+
+```bash
+npm run context:compile -- --objective "<text>" --task-id AWE-INT-101 --output .awe/packets/AWE-INT-101
+```
+
+```bash
+npm run context:check
+```
+
+Runner CC covers it with 114 deterministic assertions. Three real packets were generated. Dispatch
+tasks in `dispatch/tasks/` compile directly into packets, so a queued task never has to restate
+repository state — which is what stops task files rotting into stale mini-handoffs.
+
+**Deliberately not connected** to live agents, n8n, Supabase, or any remote service. File-backed and
+deterministic in v1; a foundation for service-backed context assembly, not a service.
+
+**Maintaining the layer is a standing obligation** — policy P15, now machine-checked.
 
 ## Phase 3 — Migration collision resolution 🔜 **next**
 

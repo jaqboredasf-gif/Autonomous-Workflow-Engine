@@ -147,7 +147,47 @@ graph LR
 **no pull request into `main`**. Nothing is lost — it is pushed — but the stack has no integration
 path until that PR exists.
 
-## 8. Known missing integrations
+## 8. Context Compiler — added 2026-08-01
+
+The cognition layer's consumer. Turns an objective into a bounded execution packet so an agent
+starts from repository evidence instead of conversation history.
+
+```mermaid
+graph LR
+    OBJ["human objective<br/>+ optional task id"]
+    subgraph SOURCES["nine adapters — normalized records"]
+        CG["context/*.md"]
+        EV["docs/integration/*.md"]
+        ADR["docs/architecture/decisions/*"]
+        GIT["git state"]
+        PKG["package metadata"]
+        MIG["supabase/migrations"]
+        TST["suite registry"]
+        DSP["dispatch tasks"]
+    end
+    SEL["deterministic selection<br/>score + mandatory + absence"]
+    PKT["execution packet"]
+    OBJ --> SEL
+    CG & EV & ADR & GIT & PKG & MIG & TST & DSP --> SEL
+    SEL --> PKT
+    PKT --> MD[".awe/packets/&lt;id&gt;/execution-packet.md"]
+    PKT --> JS["execution-packet.json"]
+    PKT --> SM["source-manifest.json"]
+    PKT --> WN["warnings.json"]
+```
+
+**Placement:** `scripts/lib/context-compiler/` — repo tooling, not a deployable package. It reads
+repository-local Markdown, which no shipped package may depend on. The pure core (`contract`,
+`records`, `adapters`, `select`, `compile`) has no I/O; `fs-sources.mjs` is the only module that
+touches the filesystem or Git, so it is the only one that changes when this moves behind a service.
+`scripts/lib/artifact-store.mjs` already made exactly that move into `packages/awe-runtime` — same
+shape, deliberately.
+
+**Boundaries it respects:** it writes only under the gitignored `.awe/`, never mutates a Git ref,
+never contacts a network, and takes its clock from the caller at the CLI edge so the pure core stays
+replayable.
+
+## 9. Known missing integrations
 
 n8n adapter · Orchestration/Responsibility plane · Objective plane · live Microsoft Graph proof ·
 applied-migration verification · isolated database replay (blocked on Docker).

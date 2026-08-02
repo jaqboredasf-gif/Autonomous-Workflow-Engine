@@ -33,6 +33,12 @@ Hit counts are from a local recursive grep of the working tree at `55c0ba5`.
 | **Runner** | A named evaluation suite (K, C, A, Y, D, P, E, M, 2A, 3, 4, 5, M-LIVE). | `packages/awe-kernel/src/registry.mjs`, `scripts/lib/suite-plan.mjs` | — |
 | **Work request** | The intake record — an inbound request needing triage. **The repo's word for a unit of demanded work.** | `create table work_requests` in `0011_request_intake.sql` | 77 / 23 files |
 | **Email message** | A stored inbound/outbound message record. | `create table email_messages` in `0011_request_intake.sql` | 68 / 25 files |
+| **Execution Packet** | The versioned, bounded context handed to an agent instead of a conversation. Schema `1.0.0`. Written as Markdown + JSON + a source manifest + warnings. | `scripts/lib/context-compiler/contract.mjs`, `context/AGENT_EXECUTION_PACKET.md` | added 2026-08-01 |
+| **Context Compiler** | The capability that turns an objective into a packet by reading repository evidence. Deterministic, file-backed, no embeddings. | `scripts/lib/context-compiler/`, `npm run context:compile` | added 2026-08-01 |
+| **Normalized context record** | One fact from one source, wearing a common shape: type, source path, section, summary, evidence status, support, tags, last verified, ref. | `scripts/lib/context-compiler/records.mjs` | added 2026-08-01 |
+| **Support** | How much weight a record may carry — `verified`, `conditional`, `reported`, `rejected` — derived from its evidence status, never from tone. | `supportFor()` in `records.mjs` | added 2026-08-01 |
+| **Mandatory record** | Context included in every packet regardless of the objective: operating policies, repository identity, known blockers. | `isMandatory()` in `scripts/lib/context-compiler/select.mjs` | added 2026-08-01 |
+| **Absent topic** | A subject the objective names that has no code-backed implementation. Reported explicitly; never returned as an empty section. | `detectAbsentTopics()` in `select.mjs` | added 2026-08-01 |
 
 ## Terms with a different name in the repo — map, do not rename
 

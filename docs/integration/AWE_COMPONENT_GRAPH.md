@@ -106,3 +106,28 @@ merge**.
   met — but it becomes one the moment both land.
 - **No duplicate database tables.** All 23 tables are created exactly once across `0001`–`0016`. The
   only collision is the migration *filename slot* `0016` (C-101), not a table.
+
+
+## 6. Context Compiler — added 2026-08-01
+
+`scripts/lib/context-compiler/` imports exactly one thing from the workspace:
+`packages/awe-kernel/src/canonical.mjs`, for `digest()` and `canonicalJson()` — the same helpers the
+kernel uses to make its own artifacts stable. That single edge is deliberate: it keeps packet JSON
+byte-stable without giving repo tooling a dependency on the platform's runtime.
+
+```mermaid
+graph TD
+    K["awe-kernel/src/canonical.mjs<br/>digest + canonicalJson"]
+    CT[contract.mjs] --> RC[records.mjs] --> AD[adapters.mjs]
+    AD --> SL[select.mjs] --> CP[compile.mjs]
+    CP --> K
+    FS["fs-sources.mjs<br/>THE ONLY I/O MODULE"] --> AD
+    CLI1[context-compile.mjs] --> FS
+    CLI1 --> CP
+    CLI2[context-check.mjs] --> FS
+```
+
+The layering rule mirrors the platform's own: everything except `fs-sources.mjs` is pure — no clock,
+no filesystem, no network. The clock is injected at the CLI edge. That is what makes Runner CC able
+to assert byte-identical JSON across two compilations, and what makes the eventual move behind a
+service a one-module change.

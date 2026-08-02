@@ -8,6 +8,19 @@ for all packets: push · merge · rebase · reset · force push · branch deleti
 in any environment · live provider call · outbound email · n8n activation · secret exposure ·
 repository visibility change · file deletion.
 
+> **Machine-readable tasks now live in `tasks/`.** Six of the packets below have a structured task
+> file — `tasks/AWE-INT-101.md` … `tasks/AWE-INT-106.md` — carrying scope, prohibitions, tests,
+> completion evidence and an assigned role in the format documented in
+> [TASK_FORMAT.md](TASK_FORMAT.md). Each one compiles straight into an execution packet:
+>
+> ```bash
+> npm run context:compile -- --objective "<objective>" --task-id AWE-INT-101 --capability migration-identity --output .awe/packets/AWE-INT-101
+> ```
+>
+> A task states **intent**; the compiler supplies **grounded context** — repository identity, current
+> Git state, mandatory policies, blockers, and a source manifest. They are kept separate so a task
+> file never rots into a stale mini-handoff. Generated packets live under the gitignored `.awe/`.
+
 | ID | Task | Depends on | Blocked by | Priority |
 |---|---|---|---|---|
 | `AWE-INT-101` | Migration identity resolution | — | — | **P0 — next** |

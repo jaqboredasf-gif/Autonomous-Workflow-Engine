@@ -46,6 +46,44 @@ timestamp identities. That choice determines the fix for all three.
 
 ---
 
+## Context Compiler placement — decided 2026-08-01
+
+**Decision:** the Context Compiler lives in `scripts/lib/context-compiler/` with CLI entry points at
+`scripts/context-compile.mjs` and `scripts/context-check.mjs`. **No new package was created.**
+
+**Status:** Active. Test-backed — Runner CC, 114 deterministic assertions.
+
+**Reasoning, in the order it decided the outcome:**
+
+1. It reads repository-local Markdown (`context/`, `docs/integration/`, ADRs). A deployable package
+   must never depend on paths outside itself, so `packages/*` was ruled out immediately.
+2. `awe-kernel` is pure — no clock, no I/O — and the compiler must read Git and the filesystem.
+   Putting it there would either break that property or split the capability across two homes.
+3. `scripts/lib/` is where this repository already keeps tooling libraries with exactly this shape:
+   `suite-plan.mjs`, `validate-migration-0014.mjs`, `approval-matrix.mjs`.
+4. The smallest design that can move later: the pure core (`contract`, `records`, `adapters`,
+   `select`, `compile`) has no I/O at all; `fs-sources.mjs` isolates every filesystem and Git call.
+   Moving behind a service means replacing one module.
+
+**Precedent:** `scripts/lib/artifact-store.mjs` made this exact journey — the implementation moved
+into `packages/awe-runtime/src/file-sinks.mjs` when the MCP server needed it, and the entry point
+stayed so the runners were untouched. The compiler is arranged to repeat that move.
+
+**Consequence if wrong:** if the compiler must be consumed by a deployable package (the Agent
+Runtime integration is the obvious candidate), the pure core moves to
+`packages/awe-runtime/src/context-compiler/` and `scripts/lib/context-compiler/` becomes a
+re-export. That is a file move, not a redesign — which is the point of the split.
+
+**Secondary decisions made with it:**
+
+- **Deterministic selection, no embeddings.** Same objective at the same commit must produce the
+  same packet, or a packet cannot be used as evidence. Rule-based scoring is auditable — every
+  selected record carries an `included_because` list.
+- **`.awe/` is gitignored.** A committed packet would be read as current context while silently
+  describing an old commit — the precise failure the compiler exists to prevent.
+- **`context:check` reports, never rewrites.** A document that updates itself cannot testify to what
+  was verified, by whom, and when.
+
 ## Decisions carried in from the local Windows TEGG work — do not relitigate
 
 Recorded in `C:\AWE\backups\LIPPOLIS-2026-08-01\tegg-report-agent\HANDOFF.md`. They govern TEGG,

@@ -7,5 +7,11 @@
   ],
   "engines": {
     "node": ">=20"
+  },
+  "scripts": {
+    "context:compile": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/context-compile.mjs",
+    "context:check": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/context-check.mjs",
+    "context:validate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/validate-context.mjs",
+    "context:test": "bash scripts/eval-context-validator.sh && bash scripts/eval-context-compiler.sh"
   }
 }

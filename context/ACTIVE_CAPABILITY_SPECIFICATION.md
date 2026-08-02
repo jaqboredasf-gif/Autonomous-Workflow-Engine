@@ -16,7 +16,10 @@ Cognition Layer, **before** adding any additional platform capability.
 
 1. Reproduce and record every claimed capability from repository evidence — **done** for the 11
    offline runners (3,212 assertions, 0 failures).
-2. Maintain `context/` as the Git-backed cognition layer, validated by a script.
+2. Maintain `context/` as the Git-backed cognition layer, validated by a script. **✅ extended
+   2026-08-01** — the layer is now compiler-backed: `npm run context:compile` turns an objective into
+   a bounded execution packet, `npm run context:check` detects staleness. Runner V (45) and Runner CC
+   (114) cover both.
 3. Resolve the `0016` migration collision **on paper first** — a written plan with no migration file
    changed.
 4. Reconcile the Microsoft 365 branch against the codex stack by **analysis only** (no checkout, no
@@ -52,7 +55,8 @@ Cognition Layer, **before** adding any additional platform capability.
 
 1. Every capability in [VERIFIED_EVIDENCE.md](VERIFIED_EVIDENCE.md) carries a status backed by rank
    1–4 evidence, or is explicitly `UNKNOWN` / `LIVE_BLOCKED`.
-2. `context/` passes `node scripts/validate-context.mjs` with zero errors.
+2. `context/` passes `node scripts/validate-context.mjs` **and** `npm run context:check` with zero
+   errors. ✅ both PASS at 2026-08-01.
 3. The `0016` collision has a written resolution plan with a named owner and a rollback.
 4. The M365 branch has a file-level merge-risk report.
 5. Docker runs, and the full migration chain replays cleanly against an empty database.
