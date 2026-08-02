@@ -84,6 +84,28 @@ re-export. That is a file move, not a redesign — which is the point of the spl
 - **`context:check` reports, never rewrites.** A document that updates itself cannot testify to what
   was verified, by whom, and when.
 
+## ADR-0010 — platform integration strategy · **PROPOSED, NOT APPROVED**
+
+[`docs/architecture/decisions/0010-awe-platform-integration-strategy.md`](../docs/architecture/decisions/0010-awe-platform-integration-strategy.md)
+— status `Proposed` (2026-08-02). **Nothing in it has been executed, and it is not approved.**
+
+It proposes: preserve the stacked PR chain and open the missing root PR; land cognition/dispatch as
+a separate PR afterwards; land M365 last and then reduce its parallel modules to adapters; renumber
+the M365 migration to `0017` while deferring the C1 duplication; renumber the M365 eval to Runner 7
+because ADR-0008 holds Runner 6.
+
+**The finding that reframes the problem:** every branch in the chain merges into `main` with exactly
+one conflict — `docs/planning/AGENT_HANDOFF.md`, add/add. The stack was never blocked by anything
+structural; it is blocked by an unopened pull request. Verified by `git merge-tree` across all nine
+branches.
+
+**The hazard it closes:** merging M365 into the stack produces a tree containing **two** migrations
+claiming ordinal `0016`, while Git reports conflicts only in three unrelated documents. Confirmed —
+merged tree `14079e5`. Git will never warn, because the filenames differ.
+
+**Six human approvals are required** before any of it runs — see ADR-0010 §"Required human
+approvals". Four block the landing plan's first stage.
+
 ## Control-plane decisions — 2026-08-02
 
 **Status:** Active, test-backed. All four are enforced in code, not by convention.
