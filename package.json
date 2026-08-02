@@ -26,6 +26,9 @@
     "dispatch:status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dispatch.mjs status",
     "cognition:ingest-handoff": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-ingest.mjs",
     "cognition:index": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-index.mjs",
-    "cognition:status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-index.mjs --status"
+    "cognition:status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-index.mjs --status",
+    "cognition:obsidian:init": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-obsidian.mjs init",
+    "cognition:obsidian:status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-obsidian.mjs status",
+    "cognition:obsidian:sync": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/cognition-obsidian.mjs sync"
   }
 }
