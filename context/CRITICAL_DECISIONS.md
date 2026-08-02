@@ -1,0 +1,72 @@
+# Critical Decisions
+
+**Last verified:** 2026-08-01 at `codex/durable-execution-plane` @ `55c0ba5`
+
+Decisions are recorded in `docs/architecture/decisions/`. This file is an index with status and
+consequences — **it does not restate ADR text**. Read the ADR itself before acting on it.
+
+> ⚠ **All nine ADRs are still `Proposed`, dated 2026-07-27, "awaiting Jack's ratification."**
+> Not one is Accepted. The platform is built on nine unratified decisions. Ratifying or revising
+> them is a genuine, cheap, high-value task for a human.
+
+---
+
+| ADR | Decision | Status | Still active? | Consequence if wrong |
+|---|---|---|---|---|
+| [0001](../docs/architecture/decisions/0001-agent-harness-doctrine-supersede.md) | Agent Harness supersedes the "no generic runtime" clause | Proposed 2026-07-27 | Yes — `awe-agent-runtime` exists because of it | The whole agent-runtime package loses its justification |
+| [0002](../docs/architecture/decisions/0002-harness-database-access-path.md) | Harness runtime uses the service-role Supabase client (open question O1) | Proposed | Yes | Service-role access is the widest possible DB privilege; asserted by Runner M as *"platform service decides no authorization"* |
+| [0003](../docs/architecture/decisions/0003-harness-execution-locus.md) | Harness is a library; no daemon in v1 (O2) | Proposed | Yes | No long-running process; durability must come from the DB, which is why `awe-execution` exists |
+| [0004](../docs/architecture/decisions/0004-structured-output-contract.md) | Strict JSON-in-text output; native tool-calling deferred (O3) | Proposed | Yes | Model portability preserved; parsing brittleness accepted |
+| [0005](../docs/architecture/decisions/0005-fixture-session-lifecycle.md) | Fixture harness rows accumulate; no reaper in v1 (O4) | Proposed | Yes | Fixture tables grow unbounded |
+| [0006](../docs/architecture/decisions/0006-human-gate-surface.md) | Human gates reuse the B5 approval queue (O5) | Proposed | Yes | One approval surface; proven by Runner 5 (349 assertions) |
+| [0007](../docs/architecture/decisions/0007-kill-switch-home.md) | Kill switch lives in `agent_harness_settings`, not `org_settings` | Proposed | Yes | Emergency stop is per-harness, not per-org |
+| [0008](../docs/architecture/decisions/0008-harness-eval-runner-number.md) | Harness eval is Runner 6 | Proposed | Yes | Runner numbering is a registry contract (`packages/awe-kernel/src/registry.mjs`) |
+| [0009](../docs/architecture/decisions/0009-competing-c1-migration-artifacts.md) | Two competing artifacts implement the same C1 fix under two incompatible migration-identity schemes | Proposed | **Yes — unresolved and now three-way** | See below |
+
+---
+
+## The migration-identity collision — the single most consequential open decision
+
+ADR-0009 documented **two** competing C1 artifacts. Verified on 2026-08-01, it is **three**:
+
+| Branch | File claiming slot `0016` |
+|---|---|
+| codex stack (`feat/kernelized-mcp-context` → `codex/durable-execution-plane`), `security/c1-policy-cleanup`, `chore/agent-handoff-integration` | `0016_drop_undeclared_client_policies.sql` (80 lines) |
+| `claude/microsoft-365-integration-plane-fcsm1e` | `0016_m365_integration_plane.sql` (~406 lines) |
+| `security/phase-1-remediation` | timestamp scheme: `20260727142118_phase1_c1_remove_undeclared_policies.sql` + `…142120_c2`, `…142121_c3`, `…142123_c4` |
+
+Two files claim the same ordinal; a third branch re-solves the same C1 problem under an
+**incompatible naming convention**. These cannot all merge as written.
+
+**Not decided, and must not be guessed:** whether the project uses sequential ordinals or Supabase
+timestamp identities. That choice determines the fix for all three.
+
+**Consequence:** every migration-touching integration is blocked until this is ratified. See
+`docs/integration/AWE_CONFLICT_REGISTER.md` C-101.
+
+---
+
+## Decisions carried in from the local Windows TEGG work — do not relitigate
+
+Recorded in `C:\AWE\backups\LIPPOLIS-2026-08-01\tegg-report-agent\HANDOFF.md`. They govern TEGG,
+which lives in a **different repository** and is out of scope here, but they are decided:
+
+site-visit dropdown = most recent · contact = first available · certificate Yes/No answers vary per
+job and are never hardcoded · exactly three human pauses (login, cert pattern, final review) · the
+operator types credentials, the agent never does.
+
+---
+
+## Corrections to the AWE Unified Integration Handoff
+
+Recorded as decisions because future sessions will otherwise re-import the errors.
+
+| Handoff claim | Repository reality | Status |
+|---|---|---|
+| Package manager is pnpm; run `corepack enable` + `pnpm install --frozen-lockfile` | **npm workspaces** + `package-lock.json`; no `pnpm-workspace.yaml`, no `packageManager` field. Correct command: **`npm ci`** | **SUPERSEDED** |
+| "Migration 004" = Execution Control; "migration 005" = Orchestration, generated not applied | `0004_admin_policies.sql`, `0005_storage_photos.sql`. Neither relates. The real chain is `0001`–`0016` | **SUPERSEDED** |
+| Runner K: 577 passing | **582** passing, 0 failing, reproduced 2026-08-01 | Superseded by re-run |
+| Runner A: 127 · Runner Y: 91 | **Exactly reproduced** — 127/0 and 91/0 | **CONFIRMED** |
+| 145 database checks (23/57/30/17/18) | No reproducible source anywhere in the repository | `REPORTED_NOT_VERIFIED` |
+| 61/61 orchestration tests | No orchestration package, branch, or suite exists | `REPORTED_NOT_VERIFIED` |
+| `AI_EGRESS`, `plan_valid`, `already_done`, `externalSendingEnabled` | **0 hits repo-wide.** These are n8n/TEGG terms | Not applicable to this repo |
