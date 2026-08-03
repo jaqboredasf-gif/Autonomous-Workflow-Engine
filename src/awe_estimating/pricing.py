@@ -233,11 +233,27 @@ def price_item(item: ScopeItem, card: RateCard) -> ScopeItem:
         return item
 
     work_type = _work_type_of(item)
+    if not work_type:
+        # The adapter has already asked what kind of work this is. Repeating
+        # the question in the engine's words would be noise, so it only records
+        # that pricing is blocked.
+        item.clarifications.append(Clarification(
+            question="what kind of work is this?",
+            why_it_matters=(
+                "no work type was stated, so no rate-card rule can match and "
+                "nothing can be priced"
+            ),
+            blocks_pricing=True,
+            about=item.scope_id,
+            provenance=from_config("work"),
+        ))
+        return item
+
     rule = card.rule_for(work_type, item.asset_type)
     if rule is None:
         item.clarifications.append(Clarification(
             question=(
-                f"what does {work_type or 'this work'} on "
+                f"what does {work_type!r} on "
                 f"{item.asset_type or 'this asset type'} involve?"
             ),
             why_it_matters=(
@@ -264,12 +280,17 @@ def price_item(item: ScopeItem, card: RateCard) -> ScopeItem:
 
 
 def _work_type_of(item: ScopeItem) -> str:
-    """The work type an item asks for.
+    """The work type an item asks for -- the token, never the prose.
 
-    Stored on the item by the adapter. Kept as a function so the engine has one
-    place to change if the field ever moves.
+    This used to fall back to ``recommended_work`` when ``work_type`` was
+    empty. That looks harmless and is not: ``recommended_work`` is a sentence a
+    technician wrote, so the fallback turned "Relocate other equipment and/or
+    intrusions to dedicated space in order to facilitate safe cover removal"
+    into a vocabulary token, reported it as an unmatched work type, and asked
+    the reader what that sentence "involves". An item with no work type has no
+    work type; the adapter is responsible for saying so.
     """
-    return getattr(item, "work_type", "") or item.recommended_work
+    return item.work_type
 
 
 def price(
@@ -331,7 +352,9 @@ def price(
 
     clarifications = estimate.open_questions
     unmatched = card.unmatched_vocabulary(
-        (_work_type_of(i), i.asset_type) for i in items if not i.excluded_reason
+        (_work_type_of(i), i.asset_type)
+        for i in items
+        if not i.excluded_reason and _work_type_of(i)
     )
     if unmatched:
         estimate.warnings.append(
