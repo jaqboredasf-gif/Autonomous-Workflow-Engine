@@ -27,7 +27,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from awe_tegg import cli                                    # noqa: E402
-from awe_tegg import workspace_root as root                 # noqa: E402
+from awe_runtime import workspace_root as root              # noqa: E402
 
 
 def _args(**overrides) -> argparse.Namespace:
@@ -83,7 +83,7 @@ def test_the_wrong_directory_is_the_only_thing_reported(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     problems = cli.preflight_problems(_args(), operation="visit-findings")
     assert len(problems) == 1
-    assert "not inside the TEGG installation" in problems[0]
+    assert "not inside the installation" in problems[0]
 
 
 def test_a_missing_rate_card_is_caught_before_anything_expensive(tmp_path, monkeypatch):
@@ -113,9 +113,11 @@ def test_a_run_started_in_the_wrong_place_contacts_nothing(tmp_path, monkeypatch
     code = cli.main(["run", "visit-findings"])
     captured = capsys.readouterr()
 
-    assert code == cli.EXIT_NEEDS_HUMAN
+    # NOT_READY, not FAILED: nothing was attempted, and running it again
+    # without fixing anything will do exactly the same.
+    assert code == cli.EXIT_NOT_READY
     assert "the portal was not contacted" in captured.err
-    assert "not inside the TEGG installation" in captured.err
+    assert "not inside the installation" in captured.err
     # and nothing was created where they were standing
     assert not (tmp_path / "work").exists()
     assert not (tmp_path / "data").exists()
@@ -178,3 +180,49 @@ def test_a_service_file_that_is_simply_missing_is_still_an_error(tmp_path):
         _args(service_file=str(tmp_path / "nothing.yaml"))
     )
     assert any("no service file at" in p for p in problems)
+
+
+# -- the platform exit-code contract -------------------------------------
+
+
+def test_the_runbook_cannot_drift_from_the_exit_code_contract():
+    """A runbook that transcribes these by hand is one that goes wrong quietly.
+
+    The table in the operator runbook is generated from awe_runtime.exits. This
+    is what stops somebody editing one and not the other.
+    """
+    from awe_runtime import exits
+
+    runbook = (root.install_root() / "docs" / "OPERATOR_RUNBOOK.md").read_text(
+        encoding="utf-8"
+    )
+    assert exits.exit_table() in runbook, (
+        "docs/OPERATOR_RUNBOOK.md no longer matches awe_runtime.exits. "
+        "Regenerate it rather than editing it by hand."
+    )
+
+
+def test_usage_errors_and_escalations_are_different_numbers():
+    """They were both 2, so a caller could not tell a typo from an escalation."""
+    from awe_runtime import exits
+
+    assert exits.EXIT_USAGE != exits.EXIT_NEEDS_HUMAN
+    assert len({exits.EXIT_OK, exits.EXIT_FAILED, exits.EXIT_USAGE,
+                exits.EXIT_NEEDS_HUMAN, exits.EXIT_NOT_READY}) == 5
+
+
+def test_a_typo_and_a_not_ready_machine_report_differently(tmp_path, monkeypatch,
+                                                           capsys):
+    from awe_runtime import exits
+
+    # argparse exits rather than returning, so the usage path raises SystemExit.
+    # The point is only that it is not the same number as an escalation.
+    with pytest.raises(SystemExit) as usage:
+        cli.main(["run", "not-an-operation"])
+    assert usage.value.code == exits.EXIT_USAGE
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TEGG_USERNAME", "someone")
+    monkeypatch.setenv("TEGG_PASSWORD", "something")
+    assert cli.main(["run", "visit-findings"]) == exits.EXIT_NOT_READY
+    capsys.readouterr()

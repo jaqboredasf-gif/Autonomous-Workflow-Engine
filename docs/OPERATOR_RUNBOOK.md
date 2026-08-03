@@ -201,15 +201,24 @@ priced off the nearest-looking row.
 
 ## 8. Exit codes
 
-| code | meaning | what to do |
-|-----:|---------|------------|
-| `0` | finished, read-only | read `review/review.md` |
-| `1` | could not continue | read **human action required** on the output |
-| `2` | stopped and needs a person | same, and the run is resumable |
+Every AWE capability uses the same five. `awe-tegg exit-codes` prints this
+table, and a test fails if this page ever disagrees with the code.
 
-Note: `2` is also what the command-line parser returns for a bad argument
-(`run: error: argument operation: invalid choice`). If you are scripting this,
-treat a `2` with no run id printed as a usage error, not an escalation.
+| code | meaning |
+|-----:|---------|
+| `0` | finished; whatever it promised to do, it did |
+| `1` | started and could not finish; may be worth retrying |
+| `2` | the command line was wrong; nothing was attempted |
+| `3` | stopped on purpose and needs a person; usually resumable |
+| `4` | never started -- this machine or this configuration is not ready. Nothing was contacted and nothing was changed |
+
+The one worth knowing: **`4` means nothing was attempted.** No portal was
+contacted, no file was written, nothing changed anywhere — and running it again
+without changing something will do exactly the same. `1` means it started and
+something went wrong partway, which may be worth retrying.
+
+`2` is the command line being wrong, and is `argparse`'s own convention. It no
+longer overlaps with "needs a person", which is now `3`.
 
 ## 9. Safe resume
 
@@ -325,7 +334,39 @@ word that means a change. There are tests that try all of them.
 
 ---
 
-## 13. The older manual workflow
+## 13. The files runs leave behind
+
+Every run keeps its evidence: the ledger, the screenshots, and **the two PDFs
+it fetched, which name a real customer and a real site.** That is deliberate —
+it is what makes a result checkable months later — but it accumulates, and it
+lives on your machine.
+
+```bash
+.venv/bin/awe-tegg runs                    # what is there, and how big
+.venv/bin/awe-tegg runs --prune            # remove what is old enough
+.venv/bin/awe-tegg runs --keep-days 7 --prune
+```
+
+`runs` on its own **deletes nothing**. It lists every run, its size and its
+age, then tells you what could go and what it would free. `--prune` is what
+acts.
+
+The rule, in one sentence: *a finished run may be removed once it is more than
+30 days old, unless it is the most recent one.*
+
+Two things are never removed, however old:
+
+* **the most recent run** — it is what you are looking at;
+* **any run that did not finish** — `running`, `interrupted` or `escalated` —
+  because that is the one still worth resuming.
+
+Nothing is ever swept automatically, on a schedule, or as a side effect of
+another command. Deleting the evidence for a result somebody is about to be
+asked to defend is worse than a full disk.
+
+`work/` is gitignored, so none of this is ever committed.
+
+## 14. The older manual workflow
 
 Before either operation existed, reports were built from documents downloaded
 by hand. That path still works and is still the only way to produce an
@@ -358,14 +399,14 @@ For what the manual process is supposed to be, end to end, read
 [`SOP.md`](SOP.md) — that is Paul's own procedure, and it is the source this
 automation is measured against.
 
-## 14. Where the rest of the documentation is
+## 15. Where the rest of the documentation is
 
 | document | what it is for |
 |---|---|
 | **this file** | how to run it. Start here. |
+| [`COWORKER_READINESS.md`](COWORKER_READINESS.md) | the readiness audit, including every founder assumption and its disposition |
 | [`SOP.md`](SOP.md) | Paul's manual procedure — background, not instructions |
 | [`END_TO_END_GAP_REPORT.md`](END_TO_END_GAP_REPORT.md) | what works, what does not, and the open questions for the business |
 | [`LIVE_TEST_EVIDENCE.md`](LIVE_TEST_EVIDENCE.md) | the runs behind every claim made anywhere |
 | [`OPERATIONAL_KNOWLEDGE.md`](OPERATIONAL_KNOWLEDGE.md) | how the tool learns and what it refuses to believe |
 | [`KNOWLEDGE_HANDOFF.md`](KNOWLEDGE_HANDOFF.md) | for whoever maintains the code next |
-| [`COWORKER_READINESS.md`](COWORKER_READINESS.md) | the readiness checklist and its progress |

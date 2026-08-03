@@ -275,8 +275,15 @@ The documented command — plain `pytest` — is unaffected, and each directory
 passes on its own (186 and 111). But a coworker debugging will type exactly
 that combination.
 
-- [ ] `--import-mode=importlib` in `pyproject.toml`, or package the test
-      directories so each `conftest` resolves to its own
+**Attempted and reverted:** `--import-mode=importlib` does not fix this. Both
+suites share helpers via `from conftest import ...`, which importlib mode does
+not support — it trades one collection error for two.
+
+- [ ] Move the shared helpers into uniquely-named modules
+      (`tests/awe_tegg/tegg_helpers.py`, `tests/knowledge/knowledge_helpers.py`)
+      and import those instead of `conftest`. About ten mechanical edits.
+      Deliberately deferred: it is a maintainer papercut, not a coworker one,
+      and `pytest` alone is unaffected.
 
 ### P2-16 · Never installed or run anywhere but this machine
 

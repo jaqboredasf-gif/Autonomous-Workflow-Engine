@@ -9,11 +9,8 @@ Deliberately narrow. There is exactly one operation because there is exactly one
 thing that has been proved end to end against the live portal, and a menu of
 half-proved options is how an operator ends up trusting the wrong one.
 
-Exit codes, which is what a scheduler reads:
-
-    0   finished, read-only
-    1   could not continue
-    2   stopped and needs a person (and says what for)
+Exit codes are the platform contract in :mod:`awe_runtime.exits`, not this
+capability's own choice. ``awe-tegg exit-codes`` prints them.
 """
 
 from __future__ import annotations
@@ -23,9 +20,11 @@ import os
 import sys
 from pathlib import Path
 
+from awe_runtime import exits, retention
+from awe_runtime import workspace_root as root_module
+
 from . import report as report_module
 from . import visit_operation as visit_module
-from . import workspace_root as root_module
 from .checkpoint import COMPLETED, ESCALATED, RunLedger
 from .operation import (
     OPERATION,
@@ -39,7 +38,12 @@ from .operation import (
 from .operation import resume as resume_operation
 
 DEFAULT_WORK_ROOT = Path("work")
-EXIT_OK, EXIT_FAILED, EXIT_NEEDS_HUMAN = 0, 1, 2
+
+# The platform contract, not this capability's choice. See awe_runtime.exits.
+EXIT_OK = exits.EXIT_OK
+EXIT_FAILED = exits.EXIT_FAILED
+EXIT_NEEDS_HUMAN = exits.EXIT_NEEDS_HUMAN
+EXIT_NOT_READY = exits.EXIT_NOT_READY
 
 #: The service file a coworker gets if they name none. Both operations read the
 #: same non-secret settings, so requiring the flag only ever produced a typo.
@@ -197,7 +201,7 @@ def cmd_preflight(args) -> int:
         f"\nReady. Run:  python -m awe_tegg run {OPERATION}"
         if ok else "\nNot ready: resolve the MISSING/PROBLEM items above."
     )
-    return EXIT_OK if ok else EXIT_FAILED
+    return EXIT_OK if ok else EXIT_NOT_READY
 
 
 def cmd_doctor(args) -> int:
@@ -345,7 +349,7 @@ def cmd_doctor(args) -> int:
         print(f"Not ready. {len(failed)} problem(s) to resolve:")
         for name in failed:
             print(f"  - {name}")
-        return EXIT_FAILED
+        return EXIT_NOT_READY
     if warned:
         print(f"Ready, with {len(warned)} thing(s) worth knowing:")
         for name in warned:
@@ -407,6 +411,62 @@ def _reachable(url: str, timeout: float = 15.0) -> tuple[bool, str]:
         return False, f"did not answer: {error}"
 
 
+def cmd_runs(args) -> int:
+    """Show what past runs are taking up, and remove old ones when asked.
+
+    Read-only unless ``--prune`` is given. Nothing here is automatic: a
+    capability that quietly tidies away the evidence for a result somebody is
+    about to be asked to defend is worse than one that fills a disk.
+    """
+    work_root = _work_root(args)
+    runs = retention.scan(work_root)
+    if not runs:
+        print(f"no runs under {work_root / 'operations'}")
+        return EXIT_OK
+
+    total = sum(r.bytes for r in runs)
+    print(f"{len(runs)} run(s) under {work_root / 'operations'}, "
+          f"{retention.human_bytes(total)} in total")
+    print("\nThese folders hold real customer documents and screenshots. They")
+    print("stay on this machine and are never committed.\n")
+    for run in runs:
+        age = run.age_days()
+        print(f"  {run.status:<12} {run.run_id:<44} "
+              f"{retention.human_bytes(run.bytes):>10}"
+              + (f"  {age:.0f}d" if age is not None else "   ?"))
+
+    removable, kept = retention.sweepable(runs, keep_days=args.keep_days)
+    print(f"\nRetention: a finished run may be removed once it is more than "
+          f"{args.keep_days} day(s) old,\nunless it is the most recent one.")
+
+    if not removable:
+        print("\nNothing is old enough to remove.")
+        return EXIT_OK
+
+    freeable = sum(r.bytes for r in removable)
+    print(f"\n{len(removable)} run(s) could be removed, freeing "
+          f"{retention.human_bytes(freeable)}:")
+    for run in removable:
+        print(f"  {run.run_id}")
+
+    if not args.prune:
+        print("\nNothing was deleted. Add --prune to remove them.")
+        return EXIT_OK
+
+    folders, freed, failures = retention.remove(removable)
+    print(f"\nRemoved {folders} run(s), freed {retention.human_bytes(freed)}.")
+    for failure in failures:
+        print(f"  could not remove {failure}", file=sys.stderr)
+    return EXIT_FAILED if failures else EXIT_OK
+
+
+def cmd_exit_codes(args) -> int:
+    """Print the platform's exit-code contract. Useful when scripting this."""
+    print("Every AWE capability uses these. See awe_runtime.exits.\n")
+    print(exits.exit_table())
+    return EXIT_OK
+
+
 def _visit_settings(args) -> "visit_module.VisitSettings":
     return visit_module.VisitSettings(
         site_visit=getattr(args, "site_visit", "") or "",
@@ -430,9 +490,8 @@ def _blocked(args, operation: str) -> int | None:
           file=sys.stderr)
     for problem in problems:
         print(f"  - {problem}", file=sys.stderr)
-    print("\nRun 'python -m awe_tegg doctor' for the full picture.",
-          file=sys.stderr)
-    return EXIT_NEEDS_HUMAN
+    print("\nRun 'awe-tegg doctor' for the full picture.", file=sys.stderr)
+    return EXIT_NOT_READY
 
 
 def cmd_run(args) -> int:
@@ -561,6 +620,27 @@ def build_parser() -> argparse.ArgumentParser:
     visit_options(resume_cmd)
     resume_cmd.set_defaults(func=cmd_resume)
 
+    runs_cmd = sub.add_parser(
+        "runs", help="What past runs are taking up, and remove old ones"
+    )
+    shared(runs_cmd)
+    runs_cmd.add_argument(
+        "--keep-days", type=int, default=retention.DEFAULT_KEEP_DAYS,
+        help="How many days a finished run's evidence is kept "
+             f"(default {retention.DEFAULT_KEEP_DAYS})",
+    )
+    runs_cmd.add_argument(
+        "--prune", action="store_true",
+        help="Actually delete the runs listed as removable. Without this, "
+             "the command only reports.",
+    )
+    runs_cmd.set_defaults(func=cmd_runs)
+
+    codes_cmd = sub.add_parser(
+        "exit-codes", help="Print what each exit code means, for scripting"
+    )
+    codes_cmd.set_defaults(func=cmd_exit_codes)
+
     doctor_cmd = sub.add_parser(
         "doctor", help="Check this machine can run an operation, changing nothing"
     )
@@ -592,10 +672,10 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_FAILED
     except OperationError as error:
         print(f"error: {error}", file=sys.stderr)
-        return EXIT_NEEDS_HUMAN
+        return EXIT_NOT_READY
     except KeyboardInterrupt:
         print("\ninterrupted. The run is checkpointed -- resume with:", file=sys.stderr)
-        print("  python -m awe_tegg status", file=sys.stderr)
+        print("  awe-tegg status", file=sys.stderr)
         return EXIT_NEEDS_HUMAN
 
 

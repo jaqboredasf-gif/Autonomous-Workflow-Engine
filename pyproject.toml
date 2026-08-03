@@ -31,3 +31,14 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# NOTE: `pytest tests/awe_tegg tests/knowledge` in one invocation fails to
+# collect -- both directories have a conftest.py, both are importable as bare
+# `conftest` under the default prepend import mode, and the wrong one wins.
+# `pytest` alone is unaffected and each directory passes on its own.
+#
+# `--import-mode=importlib` does not fix it: these suites share helpers via
+# `from conftest import ...`, which that mode does not support. The real fix is
+# to move the shared helpers into uniquely-named modules
+# (tests/awe_tegg/tegg_helpers.py, tests/knowledge/knowledge_helpers.py) and
+# import those instead. About ten mechanical edits. See P2-17 in
+# docs/COWORKER_READINESS.md.
