@@ -446,7 +446,19 @@ def load_settings(path: Path | str | None = None, **overrides: Any) -> Settings:
     if path:
         import yaml
 
-        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+        try:
+            raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as error:
+            # A settings file is something a coworker may open and edit, so a
+            # typo in it comes back as a sentence naming the file and the line,
+            # not as a parser traceback.
+            where = getattr(error, "problem_mark", None)
+            place = f" at line {where.line + 1}" if where is not None else ""
+            raise OperationError(
+                f"{path} is not valid YAML{place}: "
+                f"{getattr(error, 'problem', error)}. "
+                "Check the indentation and the quotes."
+            ) from error
         if not isinstance(raw, dict):
             raise OperationError(f"{path}: expected a YAML mapping")
         data = dict(raw.get("service") or raw)

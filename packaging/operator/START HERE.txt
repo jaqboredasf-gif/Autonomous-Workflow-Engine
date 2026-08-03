@@ -1,0 +1,65 @@
+TEGG REPORT TOOL
+================
+
+What it does
+------------
+It reads one completed TEGG site visit and writes you a page listing the
+equipment problems that still need repairing, how urgent each one is, what the
+technician recommended, and roughly how big the job is.
+
+It only reads. It never submits anything, approves anything, sends an email,
+uploads anything, or changes a record in TEGG.
+
+
+What you need
+-------------
+  * A Mac.
+  * Python 3.10 or newer. Your Mac probably has 3.9, which is too old --
+    Setup will tell you, and tell you where to get a newer one.
+  * Your TEGG portal username and password.
+  * An internet connection.
+
+You do NOT need Git, a code editor, Claude, or any developer tools.
+
+
+First time only
+---------------
+  1. Put this whole folder somewhere sensible -- your Desktop is fine.
+  2. Double-click        Setup.command
+  3. Answer the two questions it asks (your TEGG username and password).
+
+If macOS says "cannot be opened because it is from an unidentified developer":
+right-click the file instead, choose Open, then click Open in the dialog. You
+only have to do this once per file.
+
+
+Every time after that
+---------------------
+  Double-click          Run Report.command
+
+It takes about a minute and a half and tells you what it is doing as it goes.
+When it finishes it opens the folder containing your report.
+
+The report is called  review.md  -- double-click it to read it.
+
+
+If something looks wrong
+------------------------
+  Double-click          Check Setup.command
+
+It checks everything and tells you what needs fixing, without changing
+anything.
+
+
+Read this before trusting any number
+------------------------------------
+The money figures are a DRAFT and, until somebody at your company fills in the
+real labour rates, they are NOT REAL. The report says so on its first screen,
+every time. Nothing in it should be quoted to a customer without a qualified
+person checking it.
+
+
+More detail
+-----------
+OPERATOR_GUIDE.md -- what each thing means, what can go wrong, and what to do
+about it. Open it with TextEdit or any Markdown reader.

@@ -677,7 +677,13 @@ def _drive(
 ) -> OperationResult:
     try:
         return run_operation(ledger, settings, visit_settings, on_step=on_step)
-    except Escalated:
+    except Escalated as stop:
+        # An Escalated raised by something that did not first call
+        # ledger.escalate() -- choose_visit, for one -- carries its reason only
+        # in the exception. Without this the operator output says
+        # "human action required: none" and the useful sentence is lost.
+        if not ledger.data.get("human_action_required") and str(stop):
+            ledger.escalate(str(stop))
         return result_from(ledger)
     except (OperationError, KnowledgeError, RetrievalError,
             findings_module.FindingsError) as error:

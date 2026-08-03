@@ -1,0 +1,29 @@
+# The coworker package's build description.
+#
+# Deliberately not the repository's pyproject.toml: this one has no test
+# dependencies, no test configuration and no developer extras, because the
+# package contains no tests and a coworker should never be asked to install
+# something whose purpose they cannot be told.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tegg-report-tool"
+version = "1.0.0"
+description = "Reads one completed TEGG site visit and writes a report to review"
+requires-python = ">=3.10"
+dependencies = [
+    "pypdf>=6.0",
+    "python-docx>=1.1",
+    "PyYAML>=6.0",
+    "playwright>=1.40",
+    "reportlab>=4.0",
+]
+
+[project.scripts]
+awe-tegg = "awe_tegg.cli:main"
+tegg = "tegg.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -20,7 +20,7 @@ import os
 import sys
 from pathlib import Path
 
-from awe_runtime import exits, retention
+from awe_runtime import exits, locking, retention
 from awe_runtime import workspace_root as root_module
 
 from . import report as report_module
@@ -82,6 +82,36 @@ def _settings(args: argparse.Namespace) -> Settings:
     )
 
 
+#: Browser-level failures that mean "the network or the portal", translated
+#: into what the person reading it should actually do. Playwright's own
+#: wording (net::ERR_NAME_NOT_RESOLVED) is accurate and useless.
+NETWORK_HINTS = (
+    ("ERR_NAME_NOT_RESOLVED",
+     "the portal's address could not be looked up. Check the internet "
+     "connection, and check base_url in config/service.yaml."),
+    ("ERR_INTERNET_DISCONNECTED",
+     "this Mac is not connected to the internet."),
+    ("ERR_CONNECTION_REFUSED",
+     "the portal refused the connection. It may be down, or blocked by a "
+     "company firewall."),
+    ("ERR_CONNECTION_TIMED_OUT",
+     "the portal did not answer in time. Check the connection and try again."),
+    ("ERR_CERT_", "the portal's security certificate was not accepted."),
+    ("Timeout", "the portal did not respond in time. Try again; if it keeps "
+                "happening, TEGG may be slow or unreachable from here."),
+)
+
+
+def _short(error: Exception) -> str:
+    """One line from an exception, for an operator rather than a developer."""
+    text = str(error).strip()
+    for token, advice in NETWORK_HINTS:
+        if token in text:
+            return advice
+    first = text.splitlines()
+    return first[0][:300] if first else type(error).__name__
+
+
 def _work_root(args: argparse.Namespace) -> Path:
     """Where run folders go, anchored to the installation unless overridden."""
     return root_module.resolve(getattr(args, "work_root", None) or DEFAULT_WORK_ROOT)
@@ -128,8 +158,22 @@ def preflight_problems(args, *, operation: str = "") -> list[str]:
         )
 
     service = _service_file(args)
-    if service is not None and not Path(service).exists():
+    if service is None:
+        # Falling back to the built-in defaults used to be silent, so a
+        # coworker who moved this file got a run configured for somebody
+        # else's contractor and no indication of it.
+        problems.append(
+            f"no service file. Expected {DEFAULT_SERVICE_FILE}, which says which "
+            "TEGG account and contractor this installation is for. Without it "
+            "the tool would fall back to whoever the code was written for."
+        )
+    elif not Path(service).exists():
         problems.append(f"no service file at {service}")
+    else:
+        try:
+            _settings(args)
+        except Exception as error:                          # noqa: BLE001
+            problems.append(f"{service} could not be read: {_short(error)}")
 
     if operation == visit_module.OPERATION:
         card = root_module.resolve(
@@ -361,10 +405,16 @@ def cmd_doctor(args) -> int:
             print(f"  - {name}")
         print()
     print("Ready. Start with:")
-    print(f"  ./scripts/{visit_module.OPERATION}.sh")
-    print(f"  (or: awe-tegg run {visit_module.OPERATION})")
-    print("\nThis checks the live portal operations. For the offline\n"
-          "report-assembly stages run:  tegg doctor")
+    # An operator package has double-clickable launchers and no scripts/ that
+    # anybody should be opening. Naming the developer path there is how a
+    # coworker ends up in a terminal for no reason.
+    if (root_module.install_root() / "Run Report.command").exists():
+        print("  Run Report.command  (double-click it)")
+    else:
+        print(f"  ./scripts/{visit_module.OPERATION}.sh")
+        print(f"  (or: awe-tegg run {visit_module.OPERATION})")
+        print("\nThis checks the live portal operations. For the offline\n"
+              "report-assembly stages run:  tegg doctor")
     return EXIT_OK
 
 
@@ -499,23 +549,76 @@ def _blocked(args, operation: str) -> int | None:
     return EXIT_NOT_READY
 
 
+#: What each step is doing, in words a coworker can read while they wait. The
+#: run takes about ninety seconds and used to print nothing at all until it
+#: finished, which is how somebody ends up double-clicking a second time.
+STEP_MESSAGES = {
+    "open_knowledge": "reading what we already know about the portal",
+    "sign_in": "signing in",
+    "locate_workspace": "checking we are in the right workspace",
+    "reach_documentation": "opening the Documentation area",
+    "verify_documentation": "confirming the page is what we expect",
+    "list_records": "listing the completed site visits",
+    "select_visit": "choosing which site visit to read",
+    "open_visit_context": "opening that site's reports",
+    "retrieve_documents": "asking TEGG for the two reports (this is the slow part, ~40s)",
+    "extract_findings": "reading the equipment problems out of them",
+    "recommend_repairs": "collecting the technician's recommendations",
+    "build_estimate": "sizing the outstanding work",
+    "validate_result": "checking the result against itself",
+    "publish_review": "writing the page for you to review",
+    "finish": "finishing",
+}
+
+
+def _progress(quiet: bool):
+    """Print each step as it starts, unless asked not to."""
+    if quiet:
+        return None
+    state = {"n": 0}
+
+    def announce(step: str) -> None:
+        state["n"] += 1
+        message = STEP_MESSAGES.get(step, step.replace("_", " "))
+        print(f"  [{state['n']:>2}] {message}", flush=True)
+
+    return announce
+
+
 def cmd_run(args) -> int:
     blocked = _blocked(args, args.operation)
     if blocked is not None:
         return blocked
 
     settings = _settings(args)
+    work_root = _work_root(args)
     print(f"starting {args.operation} against {settings.base_url}")
     print("(credentials are read from the environment and are never stored, "
           "printed or screenshotted)\n")
-    if args.operation == visit_module.OPERATION:
-        result = visit_module.start(
-            settings, _visit_settings(args),
-            work_root=_work_root(args), run_id=args.run_id,
-        )
-        return _finish_visit(result, args.json)
-    result = start(settings, work_root=_work_root(args), run_id=args.run_id)
-    return _finish(result, args.json)
+
+    lock = locking.RunLock(work_root, args.operation, args.run_id or "")
+    try:
+        lock.acquire()
+    except locking.AlreadyRunning as clash:
+        print(f"Cannot start: {clash}", file=sys.stderr)
+        return EXIT_NOT_READY
+    if lock.took_over is not None:
+        print(f"note: a previous run ({lock.took_over.run_id or 'unknown'}) left a "
+              "lock behind and is no longer running; carrying on.\n")
+
+    try:
+        if args.operation == visit_module.OPERATION:
+            result = visit_module.start(
+                settings, _visit_settings(args),
+                work_root=work_root, run_id=args.run_id,
+                on_step=_progress(args.json),
+            )
+            return _finish_visit(result, args.json)
+        result = start(settings, work_root=work_root, run_id=args.run_id,
+                       on_step=_progress(args.json))
+        return _finish(result, args.json)
+    finally:
+        lock.release()
 
 
 def cmd_resume(args) -> int:
@@ -526,13 +629,24 @@ def cmd_resume(args) -> int:
     if blocked is not None:
         return blocked
     settings = _settings(args)
-    if operation == visit_module.OPERATION:
-        result = visit_module.resume(
-            settings, _visit_settings(args), args.run_id, work_root=work_root
-        )
-        return _finish_visit(result, args.json)
-    result = resume_operation(settings, args.run_id, work_root=work_root)
-    return _finish(result, args.json)
+    lock = locking.RunLock(work_root, operation or "awe-tegg", args.run_id)
+    try:
+        lock.acquire()
+    except locking.AlreadyRunning as clash:
+        print(f"Cannot resume: {clash}", file=sys.stderr)
+        return EXIT_NOT_READY
+    try:
+        if operation == visit_module.OPERATION:
+            result = visit_module.resume(
+                settings, _visit_settings(args), args.run_id, work_root=work_root,
+                on_step=_progress(args.json),
+            )
+            return _finish_visit(result, args.json)
+        result = resume_operation(settings, args.run_id, work_root=work_root,
+                                  on_step=_progress(args.json))
+        return _finish(result, args.json)
+    finally:
+        lock.release()
 
 
 def _finish_visit(result, as_json: bool) -> int:
@@ -678,6 +792,13 @@ def main(argv: list[str] | None = None) -> int:
     except OperationError as error:
         print(f"error: {error}", file=sys.stderr)
         return EXIT_NOT_READY
+    except Exception as error:                              # noqa: BLE001
+        # A traceback is for whoever maintains this. An operator gets a
+        # sentence and somewhere to send it.
+        print(f"error: {_short(error)}", file=sys.stderr)
+        print("\nThis is unexpected. Tell whoever maintains this tool, and "
+              "include the line above.", file=sys.stderr)
+        return EXIT_FAILED
     except KeyboardInterrupt:
         print("\ninterrupted. The run is checkpointed -- resume with:", file=sys.stderr)
         print("  awe-tegg status", file=sys.stderr)

@@ -22,6 +22,7 @@ Deliberately not here yet, and why:
     should stay TEGG's.
 """
 
+from .locking import AlreadyRunning, LockInfo, RunLock, process_alive
 from .retention import (
     DEFAULT_KEEP_DAYS,
     RunInfo,
@@ -51,6 +52,7 @@ from .workspace_root import (
 )
 
 __all__ = [
+    "AlreadyRunning",
     "DEFAULT_KEEP_DAYS",
     "ENV_ROOT",
     "EXIT_FAILED",
@@ -58,8 +60,10 @@ __all__ = [
     "EXIT_NOT_READY",
     "EXIT_OK",
     "EXIT_USAGE",
+    "LockInfo",
     "NotInInstallation",
     "RunInfo",
+    "RunLock",
     "describe_exit",
     "describe_root",
     "exit_table",
@@ -67,6 +71,7 @@ __all__ = [
     "in_installation",
     "install_root",
     "looks_like_installation",
+    "process_alive",
     "require_installation",
     "remove",
     "resolve",

@@ -1123,9 +1123,14 @@ class Explorer:
 # What each sign-in failure means for the person running the tool. These are
 # the only outcomes that matter, because each needs a different human action.
 LOGIN_ADVICE = {
+    # Named for the person reading it, not for the mechanism. Somebody running
+    # the packaged tool has never set an environment variable and never will;
+    # telling them to check one sends them nowhere.
     "invalid_credentials": (
-        "the portal rejected the credentials. Check TEGG_USERNAME and "
-        "TEGG_PASSWORD, and confirm they work by signing in in a browser."
+        "the portal rejected the sign-in. Confirm it works by signing in to "
+        "TEGG in a browser first. If it does, re-enter it here -- run "
+        "Setup.command, or set TEGG_USERNAME and TEGG_PASSWORD if you started "
+        "this from a terminal."
     ),
     "account_locked": (
         "the account is locked or disabled. This needs the portal "
