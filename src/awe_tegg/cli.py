@@ -338,7 +338,9 @@ def cmd_doctor(args) -> int:
         print()
     print("Ready. Start with:")
     print(f"  ./scripts/{visit_module.OPERATION}.sh")
-    print(f"  (or: python -m awe_tegg run {visit_module.OPERATION})")
+    print(f"  (or: awe-tegg run {visit_module.OPERATION})")
+    print("\nThis checks the live portal operations. For the offline\n"
+          "report-assembly stages run:  tegg doctor")
     return EXIT_OK
 
 

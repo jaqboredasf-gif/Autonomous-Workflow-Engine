@@ -32,6 +32,16 @@ python3 -m venv .venv
 .venv/bin/python -m playwright install chromium
 ```
 
+That gives you `.venv/bin/awe-tegg`. Every command below uses the full path to
+it on purpose: typing plain `awe-tegg` runs whichever one is on your `PATH`,
+and if the virtual environment is not active there is none, and you get
+
+```
+command not found: awe-tegg
+```
+
+`.venv/bin/python -m awe_tegg …` is the same program if you prefer it.
+
 ## 3. Credentials — never stored, never in a file
 
 Type them into your terminal. Do not put them in a file, do not paste them into
@@ -55,7 +65,7 @@ pasting a password into one cannot be made to work.
 
 ```bash
 cd ~/TEGG
-.venv/bin/python -m awe_tegg doctor
+.venv/bin/awe-tegg doctor
 ```
 
 Every line is `OK`, `WARN` or `PROBLEM`. Only `PROBLEM` stops you. A `WARN` is
@@ -83,7 +93,7 @@ picks up your rate card if you have made one, and turns the exit code into a
 sentence. The long form is the same thing:
 
 ```bash
-.venv/bin/python -m awe_tegg run visit-findings
+.venv/bin/awe-tegg run visit-findings
 ```
 
 ---
@@ -207,8 +217,8 @@ Every verified step is written to disk the moment it is verified. Close the
 laptop, lose the network, kill the terminal — nothing is wasted.
 
 ```bash
-.venv/bin/python -m awe_tegg status                     # every run, and where each got to
-.venv/bin/python -m awe_tegg resume --run-id <run id>
+.venv/bin/awe-tegg status                     # every run, and where each got to
+.venv/bin/awe-tegg resume --run-id <run id>
 ```
 
 Resume is **cheap and safe**:

@@ -16,8 +16,8 @@ cd ~/TEGG
 export TEGG_USERNAME='your portal username'
 export TEGG_PASSWORD='your portal password'
 
-.venv/bin/python -m awe_tegg doctor     # is this machine ready?
-./scripts/visit-findings.sh             # read one site visit, ~90 seconds
+.venv/bin/awe-tegg doctor      # is this machine ready?
+./scripts/visit-findings.sh    # read one site visit, ~90 seconds
 ```
 
 The answer lands in `work/operations/<run id>/review/review.md`.

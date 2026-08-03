@@ -14,10 +14,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "reportlab>=4.0"]
-portal = ["playwright>=1.40"]
+dev = ["pytest>=8.0"]
+# reportlab draws the DRAFT watermark, which is part of the safety story rather
+# than a test fixture, so it belongs in the runtime extra.
+portal = ["playwright>=1.40", "reportlab>=4.0"]
 
 [project.scripts]
+# The portal operations a coworker runs. `python -m awe_tegg ...` is the same
+# thing and still works; this exists so nobody has to know that.
+awe-tegg = "awe_tegg.cli:main"
+# The older manual-download pipeline.
 tegg = "tegg.cli:main"
 
 [tool.setuptools.packages.find]

@@ -7,7 +7,9 @@ Produced 2026-08-03 by inspection and by *running the wrong commands on
 purpose* — the way a first-timer will. Every finding below was reproduced, not
 predicted; the evidence is quoted with each one.
 
-**No features were implemented. This document is the deliverable.**
+**Status: P0 and P1 complete** (2026-08-03). Each item below carries its
+checkboxes; done ones are ticked and annotated with the commit that did it.
+P2 is outstanding.
 
 Ordered by what stops or endangers a coworker first, not by effort.
 
@@ -57,11 +59,11 @@ Two separate defects meet here:
 The failure message names the rate card. It gives no hint that the real problem
 is where the coworker was standing. They will not work this out.
 
-- [ ] Validate everything checkable — rate card, service file, writable paths,
+- [x] Validate everything checkable — rate card, service file, writable paths,
       credentials — **before** opening a browser
-- [ ] Detect "not in the repository" explicitly and say so, rather than
+- [x] Detect "not in the repository" explicitly and say so, rather than
       producing a rate-card error
-- [ ] Decide and document whether customer PDFs may ever be written outside the
+- [x] Decide and document whether customer PDFs may ever be written outside the
       repository; if not, refuse
 
 ### P0-2 · `doctor` creates directories, in a command whose whole promise is that it changes nothing
@@ -81,7 +83,7 @@ exist_ok=True)` — it *made* them. Three directories appeared in `/tmp`.
 The runbook tells the coworker `doctor` "changes nothing, anywhere". That is
 currently untrue, and it is the first command they will run.
 
-- [ ] Probe writability without creating the tree, or create only inside a
+- [x] Probe writability without creating the tree, or create only inside a
       confirmed repository root and say so
 
 ### P0-3 · A run splits its state across two different roots
@@ -95,7 +97,7 @@ still wrote to the **real** knowledge store — the document version moved from
 coworker will never look, and the other half went somewhere they did not
 intend.
 
-- [ ] One anchor for all run state. Either both roots follow the repository, or
+- [x] One anchor for all run state. Either both roots follow the repository, or
       both follow the invocation — not one of each
 
 ### P0-4 · `docs/OPERATOR.md` sends the coworker to the wrong, unproven pipeline
@@ -112,7 +114,7 @@ That is the **older** pipeline, which `END_TO_END_GAP_REPORT.md` classifies as
 the file called "Operator guide" runs the wrong thing, and it fails in ways
 nobody has characterised.
 
-- [ ] Retire, redirect or clearly date-stamp `OPERATOR.md`; there must be
+- [x] Retire, redirect or clearly date-stamp `OPERATOR.md`; there must be
       exactly one document a coworker can open called "how do I run this"
 
 ---
@@ -126,7 +128,7 @@ two matches for "doctor" are the *old* `tegg doctor` and a file listing. A
 coworker who starts where everyone starts finds no path to the working
 operation.
 
-- [ ] README leads with: what this does, the one command, and a link to
+- [x] README leads with: what this does, the one command, and a link to
       `OPERATOR_RUNBOOK.md`
 
 ### P1-6 · Five overlapping operator documents, no signpost
@@ -144,7 +146,7 @@ operation.
 Nothing tells a newcomer which to open, and the newest is not the
 alphabetically or obviously first.
 
-- [ ] One entry point. Archive or clearly label the rest as background/history
+- [x] One entry point. Archive or clearly label the rest as background/history
 
 ### P1-7 · Two different `doctor` commands that check different things
 
@@ -152,7 +154,7 @@ alphabetically or obviously first.
 doctor` checks the portal path. Both exist, neither mentions the other, and the
 runbook only names the second.
 
-- [ ] Merge, rename, or have each point at the other
+- [x] Merge, rename, or have each point at the other
 
 ### P1-8 · The coworker must pass `documentation-read`'s config file to `visit-findings`
 
@@ -169,7 +171,7 @@ The obvious guess — `config/service.visit-findings.yaml` — fails with:
 error: [Errno 2] No such file or directory: 'config/service.visit-findings.yaml'
 ```
 
-- [ ] Add `config/service.visit-findings.yaml` (or a neutral
+- [x] Add `config/service.visit-findings.yaml` (or a neutral
       `config/service.yaml`), and default to it so `--service-file` is optional
 
 ### P1-9 · No launcher script for the operation that matters
@@ -178,7 +180,7 @@ error: [Errno 2] No such file or directory: 'config/service.visit-findings.yaml'
 `scripts/visit-findings.sh`. The runbook's "one copy-paste start command" is a
 three-line invocation with two flags.
 
-- [ ] `scripts/visit-findings.sh` — one command, correct defaults, echoes where
+- [x] `scripts/visit-findings.sh` — one command, correct defaults, echoes where
       the result landed
 
 ### P1-10 · No installed command; `python -m awe_tegg` only
@@ -194,8 +196,8 @@ $ python3 -m awe_tegg doctor
 
 That message does not say "you used the wrong python".
 
-- [ ] Add an `awe-tegg` console script
-- [ ] Detect the wrong interpreter and say so in words
+- [x] Add an `awe-tegg` console script
+- [x] Detect the wrong interpreter and say so in words
 
 ---
 
@@ -257,6 +259,24 @@ them, how to clear them, or that they are there at all beyond one line in the
 runbook.
 
 - [ ] A `work/` retention note and a `clean` command or documented `rm`
+
+### P2-17 · `pytest tests/awe_tegg tests/knowledge` fails to collect
+
+Pre-existing, and confirmed pre-existing by testing at the commit before this
+work. Two `conftest.py` files are both importable as bare `conftest`, so
+passing both directories in one invocation resolves the wrong one:
+
+```
+ImportError: cannot import name 'open_run' from 'conftest'
+             (/Users/jackdaly/TEGG/tests/knowledge/conftest.py)
+```
+
+The documented command — plain `pytest` — is unaffected, and each directory
+passes on its own (186 and 111). But a coworker debugging will type exactly
+that combination.
+
+- [ ] `--import-mode=importlib` in `pyproject.toml`, or package the test
+      directories so each `conftest` resolves to its own
 
 ### P2-16 · Never installed or run anywhere but this machine
 

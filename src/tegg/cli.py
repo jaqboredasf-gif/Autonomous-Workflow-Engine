@@ -47,6 +47,15 @@ def _job_folder(workflow: Workflow, job: Job, args) -> JobFolder:
 # ---------------------------------------------------------------------------
 
 
+#: The other doctor. These two check different halves of the system and a
+#: coworker has no way to know which one they wanted, so each names the other.
+OTHER_DOCTOR = (
+    "This checks the offline stages -- PDF tools, static assets, the workflow\n"
+    "config. For the live portal operations (visit-findings,\n"
+    "documentation-read) run:  awe-tegg doctor"
+)
+
+
 def cmd_doctor(args) -> int:
     """Report what is ready to run and what is blocked."""
     print("Stages that run without portal access")
@@ -104,6 +113,8 @@ def cmd_doctor(args) -> int:
     print(f"  {len(jobs)} existing job(s)")
     for job in jobs[:10]:
         print(f"    {job}")
+
+    print(f"\n{OTHER_DOCTOR}")
 
     print(
         "\nReady to build reports from manually downloaded files."
