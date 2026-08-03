@@ -43,4 +43,4 @@ if [[ -z "$PYTHON" ]]; then
 fi
 
 exec "$PYTHON" -m awe_tegg run documentation-read \
-  --service-file config/service.documentation-read.yaml "$@"
+   "$@"

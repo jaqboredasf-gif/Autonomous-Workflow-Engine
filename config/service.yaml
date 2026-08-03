@@ -1,4 +1,7 @@
-# The documentation-read operation, as an operator runs it.
+# The TEGG service both operations read. Non-secret settings only.
+#
+# This is the default: commands find it without being told, so --service-file
+# is only needed when you want a different one.
 #
 # Nothing in this file is secret and nothing in it may become secret.
 # Credentials are read from the environment (TEGG_USERNAME, TEGG_PASSWORD) at
@@ -7,9 +10,9 @@
 # credential -- password, secret, token, credential, cookie -- is refused
 # rather than read, so pasting one in cannot be made to work.
 #
-#   python -m awe_tegg preflight
-#   python -m awe_tegg run documentation-read \
-#       --service-file config/service.documentation-read.yaml
+#   python -m awe_tegg doctor
+#   python -m awe_tegg run visit-findings
+#   python -m awe_tegg run documentation-read
 
 service:
   base_url: "https://tegg2.teggpro.com"
