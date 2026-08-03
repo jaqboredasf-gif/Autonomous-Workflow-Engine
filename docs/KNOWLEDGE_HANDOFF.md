@@ -37,9 +37,10 @@ Nothing is half-written or in a broken state. What remains is small and named:
    `src/awe_tegg/discovery.py:32` imports `.guard.Budget` without using it. Not
    mine, not a defect, left alone deliberately so this session's diff stays
    about this session's work.
-3. **`docs/RUNBOOK.documentation-read.md` is now the *older* of two runbooks.**
-   It is still accurate for what it covers. It should probably be folded into
-   `OPERATOR_RUNBOOK.md` and deleted, but that is an editorial call.
+3. ~~`docs/RUNBOOK.documentation-read.md` is the older of two runbooks.~~
+   **Done** — folded into `OPERATOR_RUNBOOK.md` and deleted, along with
+   `OPERATOR.md`, `QUICKSTART.md`, `GAPS.md` and the root `FINAL_HANDOFF.md`.
+   Ten documents are now seven, with one operator entry point.
 4. **No mock SSRS portal exists**, so `documents.py`'s happy path is proved
    live but not in CI. Its *refusals* and its budget are unit-tested; the
    click-path is not. Building a mock that renders an SSRS-shaped viewer is the
@@ -745,21 +746,19 @@ because what replaced them is the point.
 
 ## Running it
 
-Operators: **`docs/OPERATOR_RUNBOOK.md`**, which covers both operations.
-`docs/RUNBOOK.documentation-read.md` is the older, single-operation copy and is
-still accurate for what it describes. The short form:
+Operators: **`docs/OPERATOR_RUNBOOK.md`**, which covers both operations and is
+now the only operator document. The short form:
 
 ```bash
 export TEGG_USERNAME='...' TEGG_PASSWORD='...'     # typed, never in a file
 cd ~/TEGG
-.venv/bin/python -m awe_tegg doctor --service-file config/service.documentation-read.yaml
-.venv/bin/python -m awe_tegg run visit-findings --service-file config/service.documentation-read.yaml
+.venv/bin/python -m awe_tegg doctor
+./scripts/visit-findings.sh
 ```
 
 The older list-only operation, and its wrapper script:
 
 ```bash
-.venv/bin/python -m awe_tegg preflight --service-file config/service.documentation-read.yaml
 ./scripts/documentation-read.sh
 ```
 

@@ -55,25 +55,36 @@ pasting a password into one cannot be made to work.
 
 ```bash
 cd ~/TEGG
-.venv/bin/python -m awe_tegg doctor --service-file config/service.documentation-read.yaml
+.venv/bin/python -m awe_tegg doctor
 ```
+
+Every line is `OK`, `WARN` or `PROBLEM`. Only `PROBLEM` stops you. A `WARN` is
+something worth knowing — most often that your rate card is still the shipped
+placeholder, so the estimate will run but the money will not be real.
 
 Add `--online` to also check the portal answers. That check sends no
 credentials and does not sign in — it asks for the public sign-in page, exactly
 as a browser would before anybody types anything.
 
-Every line is `OK` or `PROBLEM`, and each `PROBLEM` says what to do. `doctor`
-changes nothing, anywhere.
+`doctor` changes nothing, anywhere: it does not sign in, does not send a
+credential, and does not create so much as a directory.
 
 ## 5. The one command
 
 ```bash
 cd ~/TEGG
-.venv/bin/python -m awe_tegg run visit-findings \
-  --service-file config/service.documentation-read.yaml
+./scripts/visit-findings.sh
 ```
 
 It takes about **90 seconds**. Add `--headed` to watch the browser do it.
+
+The script runs from the installation whatever directory you were standing in,
+picks up your rate card if you have made one, and turns the exit code into a
+sentence. The long form is the same thing:
+
+```bash
+.venv/bin/python -m awe_tegg run visit-findings
+```
 
 ---
 
@@ -90,16 +101,13 @@ Ties break on the identifier, so two runs a minute apart choose the same visit.
 **To choose one yourself**, pass its identifier exactly as the portal lists it:
 
 ```bash
-.venv/bin/python -m awe_tegg run visit-findings \
-  --service-file config/service.documentation-read.yaml \
-  --site-visit T25-204
+./scripts/visit-findings.sh T25-204
 ```
 
 To see what is available:
 
 ```bash
-.venv/bin/python -m awe_tegg run documentation-read \
-  --service-file config/service.documentation-read.yaml
+./scripts/documentation-read.sh
 ```
 
 An identifier that matches nothing, or matches more than one visit, is an error
@@ -165,10 +173,11 @@ To make estimates mean something:
 cp config/estimating.example.yaml config/estimating.yaml
 # put your own labour rate, hours and material allowances in it
 # then set: placeholder: false
-.venv/bin/python -m awe_tegg run visit-findings \
-  --service-file config/service.documentation-read.yaml \
-  --rate-card config/estimating.yaml
+./scripts/visit-findings.sh
 ```
+
+`./scripts/visit-findings.sh` picks up `config/estimating.yaml` automatically
+once it exists. The long form needs `--rate-card config/estimating.yaml`.
 
 `config/estimating.yaml` is gitignored — your rates are not committed.
 
@@ -303,3 +312,50 @@ word that means a change. There are tests that try all of them.
 7. **Everything above was proved by the person who built it.** A second
    operator on a second machine has not yet run this cold. That is the next
    thing worth doing, and until it happens this is a pilot, not a rollout.
+
+---
+
+## 13. The older manual workflow
+
+Before either operation existed, reports were built from documents downloaded
+by hand. That path still works and is still the only way to produce an
+**assembled ESA customer report**, because neither operation above does that
+yet.
+
+It is a different tool — `tegg`, not `awe_tegg` — and it is not part of the
+coworker pilot. Recorded here so the knowledge is not lost with the documents
+that used to hold it.
+
+```bash
+.venv/bin/tegg doctor                                   # what is ready
+.venv/bin/tegg plan --job config/job.example.yaml       # what a run would do
+.venv/bin/tegg build --job config/job.example.yaml --source ~/Downloads/acme
+.venv/bin/tegg status --job-id <job-id>                 # where a job got to
+.venv/bin/tegg resume --job-id <job-id>
+```
+
+`tegg --help` lists the rest. Two things to know before relying on it:
+
+* **It has never produced a complete report.** It assembles and watermarks
+  whatever documents it finds and names what is missing. See
+  [`END_TO_END_GAP_REPORT.md`](END_TO_END_GAP_REPORT.md).
+* **The certificate is never filled in automatically**, and its section-B
+  checkboxes are never ticked. They are Wingdings glyphs, two per item across
+  eleven items, and a wrongly ticked box on a legal attestation is worse than
+  an unticked one. Output stays a watermarked DRAFT until a person completes it.
+
+For what the manual process is supposed to be, end to end, read
+[`SOP.md`](SOP.md) — that is Paul's own procedure, and it is the source this
+automation is measured against.
+
+## 14. Where the rest of the documentation is
+
+| document | what it is for |
+|---|---|
+| **this file** | how to run it. Start here. |
+| [`SOP.md`](SOP.md) | Paul's manual procedure — background, not instructions |
+| [`END_TO_END_GAP_REPORT.md`](END_TO_END_GAP_REPORT.md) | what works, what does not, and the open questions for the business |
+| [`LIVE_TEST_EVIDENCE.md`](LIVE_TEST_EVIDENCE.md) | the runs behind every claim made anywhere |
+| [`OPERATIONAL_KNOWLEDGE.md`](OPERATIONAL_KNOWLEDGE.md) | how the tool learns and what it refuses to believe |
+| [`KNOWLEDGE_HANDOFF.md`](KNOWLEDGE_HANDOFF.md) | for whoever maintains the code next |
+| [`COWORKER_READINESS.md`](COWORKER_READINESS.md) | the readiness checklist and its progress |

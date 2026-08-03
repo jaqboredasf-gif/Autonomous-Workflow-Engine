@@ -117,3 +117,75 @@ problems:
 The next thing worth doing is not another feature. It is watching one coworker
 follow `OPERATOR_RUNBOOK.md` on their own laptop, and fixing whatever they trip
 over.
+
+---
+
+## Open questions only a person can answer
+
+Carried forward from the original `docs/GAPS.md`, which this document replaces.
+These are not engineering tasks. Each needs a decision or a fact from the
+business, and each blocks something real.
+
+### 1. What is the shared drive, actually?
+
+The Google Drive connector returns nothing for "TEGG" — `TEGG T SharedDrive` is
+not visible to it. It may be a Shared Drive rather than My Drive, on a
+different account, or a Windows file share and not Google Drive at all.
+
+The code sidesteps this: `--drive-root` takes any mounted path, so it works
+against a mapped network drive, a synced folder or a local directory without
+caring which. But the **final save step cannot be trusted** until somebody
+confirms what the destination is.
+
+### 2. Automation is running as a named human account
+
+The credentials in use are Paul's own login. Three problems, in order of how
+much they will hurt:
+
+1. **Audit trail** — every automated action looks like Paul did it by hand.
+2. **Fragility** — it breaks the next time he changes his password.
+3. **Blast radius** — the credential ends up wherever the automation runs.
+
+Those credentials were also pasted into a chat window at some point and should
+be **treated as exposed and rotated**.
+
+**Recommended:** a dedicated service account from the TEGG Pro vendor, scoped
+to report generation. Until then, credentials come from `TEGG_USERNAME` /
+`TEGG_PASSWORD` in the environment and no code path reads one from a file.
+
+### 3. The output filename separator is a guess
+
+The SOP writes the final name as `"Company Name""Site Name""Year" ESA
+Report.pdf`. The quotes are placeholder markers, so the real separator is
+unknown — spaces, underscores or nothing. Currently single spaces, set by
+`assembly.output_template` in `config/workflow.yaml`.
+
+**Ask Paul:** one real filename settles it.
+
+### 4. Do the two static documents vary by job?
+
+`ESA Table of Contents.pdf` and `TEGGPro View Customer Instructions.pdf` are
+assumed identical for every customer and are kept in `assets/static/` rather
+than pulled from the portal. If the table of contents varies by report length
+it has to be generated, not stored.
+
+### 5. Where should this run, and what triggers it?
+
+Three options with real tradeoffs:
+
+| | |
+|---|---|
+| Paul's workstation, run by hand | simplest, no infrastructure — but only helps when he runs it |
+| a shared VM, run on demand | anyone can trigger it; needs the service account and the drive sorted first |
+| fully scheduled | highest leverage, but something has to decide *which* visits are ready |
+
+**The question that decides it:** how does Paul know today that a site visit is
+ready to be reported on? Nothing in the SOP describes that judgement, and
+without it full scheduling is not possible.
+
+### Deliberately out of scope
+
+- quality-checking report *contents* — the automation reproduces the manual
+  output faithfully, including any upstream data problems
+- emailing or delivering the finished report to a customer
+- backfilling historical reports

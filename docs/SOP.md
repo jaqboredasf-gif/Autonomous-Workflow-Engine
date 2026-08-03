@@ -1,5 +1,12 @@
 # ESA Report SOP — the manual process
 
+> **This is background, not instructions.** It is Paul Lippolis's own written
+> procedure, reorganised — the process this automation is measured against. To
+> *run* the tool, read [`OPERATOR_RUNBOOK.md`](OPERATOR_RUNBOOK.md).
+>
+> Kept because it is the only record of how the work is done by hand, and
+> because every stage below names what is and is not automated.
+
 Paul Lippolis's written instructions, reorganised into numbered stages. This is
 the source of truth that `config/workflow.yaml` encodes. **If the manual
 process changes, change this file and the workflow config together.**
