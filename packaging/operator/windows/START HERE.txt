@@ -1,0 +1,93 @@
+TEGG REPORT TOOL  (Windows)
+===========================
+
+What it does
+------------
+It reads one completed TEGG site visit and writes you a page listing the
+equipment problems that still need repairing, how urgent each one is, what the
+technician recommended, and roughly how big the job is.
+
+It only reads. It never submits anything, approves anything, sends an email,
+uploads anything, or changes a record in TEGG.
+
+
+What you need
+-------------
+  * A Windows PC.
+  * Python 3.10 or newer. Windows does not come with it -- Setup will tell you
+    where to get it, and it is a normal click-through installer.
+  * Your TEGG portal username and password.
+  * An internet connection.
+
+You do NOT need Git, a code editor, Claude, or any developer tools. You will
+never have to type a Python command.
+
+
+First time only
+---------------
+  1. If this came as a .zip: right-click it, choose "Extract All...", and
+     extract it to  C:\TEGG  -- NOT into Downloads, and NOT into OneDrive.
+     Running it from inside the zip does not work.
+
+  2. Open the folder and double-click     Setup.bat
+
+  3. If Windows says "Windows protected your PC":
+        click "More info", then "Run anyway".
+     This happens because the file was downloaded, not because anything is
+     wrong with it. You only have to do it once.
+
+  4. Answer the two questions it asks -- your TEGG username and password.
+     The password does not appear as you type. That is normal.
+
+Setup takes a few minutes, mostly downloading. It says what it is doing.
+
+
+Every time after that
+---------------------
+  Double-click            Run Report.bat
+
+It takes about a minute and a half and tells you what it is doing as it goes.
+When it finishes it opens the folder containing your report.
+
+The report is called  review.md  -- double-click it to read it. If Windows
+asks what to open it with, choose Notepad.
+
+
+If something looks wrong
+------------------------
+  Double-click            Check Setup.bat
+
+It checks everything and tells you what needs fixing, without changing
+anything and without signing in to TEGG.
+
+
+If you get stuck and need to ask for help
+-----------------------------------------
+  Double-click            Diagnostic.bat
+
+It writes a file to your Desktop describing this PC and exactly which step is
+failing, and opens it so you can read it. Send that file back to whoever gave
+you this tool. It contains NO password, token or other secret.
+
+
+Your sign-in
+------------
+Your TEGG password is stored by Windows itself, encrypted so that only your
+Windows account on this PC can read it. It is never written into this folder,
+never into a log, and never into the diagnostic file. It is not in the zip you
+were sent, and it will not be in anything you send back.
+
+
+Read this before trusting any number
+------------------------------------
+The money figures are a DRAFT and, until somebody at your company fills in the
+real labour rates, they are NOT REAL. The report says so on its first screen,
+every time. Nothing in it should be quoted to a customer without a qualified
+person checking it.
+
+
+More detail
+-----------
+OPERATOR_GUIDE.md   -- what each thing means and how to read the report.
+TROUBLESHOOTING.txt -- every message it can give you, and what to do about it.
+                       Open it with Notepad.

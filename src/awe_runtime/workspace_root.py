@@ -32,12 +32,25 @@ anchor is about defaults, and about knowing when the defaults are a guess.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
-#: The installation root: the directory holding ``src/``, ``config/`` and
-#: ``docs/``. Derived from this file rather than from the process, so it is the
-#: same answer however the tool was started.
-INSTALL_ROOT = Path(__file__).resolve().parents[2]
+def _install_root() -> Path:
+    """The directory holding ``src/``, ``config/`` and ``data/``.
+
+    Derived from this file rather than from the process, so it is the same
+    answer however the tool was started -- except when the tool has been frozen
+    into a single executable, where this file lives in a temporary extraction
+    directory that is deleted on exit. There, the installation is where the
+    executable is, which is also where the operator put ``config/``.
+    """
+    if getattr(sys, "frozen", False):                       # pragma: no cover
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+#: The installation root. See :func:`_install_root`.
+INSTALL_ROOT = _install_root()
 
 #: What tells us a directory really is an installation of this tool, rather
 #: than somewhere that merely has a folder with the right name.

@@ -1,0 +1,142 @@
+TEGG REPORT TOOL - TROUBLESHOOTING (WINDOWS)
+============================================
+
+Find the message you saw. Nothing below leaves TEGG changed: the tool only
+ever reads from it.
+
+If your problem is not here, double-click  Diagnostic.bat  and send the file
+it puts on your Desktop to whoever gave you this tool.
+
+
+-------------------------------------------------------------------------
+WINDOWS ITSELF GETS IN THE WAY
+-------------------------------------------------------------------------
+
+"Windows protected your PC" with a "Don't run" button
+    This is SmartScreen. It says this about anything downloaded that it has
+    not seen many times before. Click "More info", then "Run anyway".
+
+    If your company has removed that button, you cannot get past it yourself.
+    Ask IT to allow this folder, or ask for it on a USB stick or a network
+    share instead of a download.
+
+Double-clicking a .bat file opens Notepad instead of running it
+    Somebody has changed what .bat files open with. Right-click the file ->
+    Open with -> choose "Windows Command Processor", and tick "Always use".
+
+"...is not digitally signed" / "running scripts is disabled on this system"
+    You started a .ps1 file directly. Do not. Always double-click the .bat
+    file of the same name - it is there precisely to get past this, for that
+    one run, without changing anything about your PC.
+
+Nothing happens, or a black window flashes and vanishes
+    Open a Command Prompt in this folder (click the address bar in File
+    Explorer, type cmd, press Enter) and run:   Diagnostic.bat
+    The window will stay open and the error will be visible.
+
+The files came out of a zip and behave strangely
+    Windows marks everything from a downloaded zip as untrusted. Setup.bat
+    clears that mark for this folder on its first run. If you extracted the
+    zip somewhere unusual, extract it again to C:\TEGG and run Setup.bat.
+
+
+-------------------------------------------------------------------------
+SETUP
+-------------------------------------------------------------------------
+
+"No Python 3.10 or newer was found on this PC"
+    Windows does not come with Python.
+      1. Go to  https://www.python.org/downloads/windows/
+      2. Download the latest "Windows installer (64-bit)".
+      3. Run it. On the FIRST screen tick  [x] Add python.exe to PATH.
+         Then click "Install Now".
+      4. Double-click Setup.bat again.
+
+    If your company blocks installs, send IT this line:
+      "Please install Python 3.12 for Windows from python.org, with the
+       Add to PATH option ticked."
+
+A Microsoft Store page opens when you type "python"
+    That is the Windows placeholder, not Python. Install the real one from
+    python.org as above. This tool ignores the placeholder on purpose.
+
+"Could not create the installation folder"
+    The folder is read-only, or OneDrive is holding it. Move the whole
+    TEGG-Report-Tool folder to  C:\TEGG  and run Setup.bat again.
+
+"Could not install the components"
+    Almost always no internet, or a company proxy blocking pypi.org.
+    The details are in  .setup-install.log  in this folder. That log has no
+    password in it and is safe to send on.
+
+"The browser could not be downloaded"
+    A firewall is blocking playwright.azureedge.net. The details are in
+    .setup-browser.log in this folder.
+    If Google Chrome is already installed on this PC, the tool can use that
+    instead - say so when you report this.
+
+
+-------------------------------------------------------------------------
+RUNNING A REPORT
+-------------------------------------------------------------------------
+
+"This tool has not been set up on this PC yet"
+    Double-click Setup.bat. Once only.
+
+"Your TEGG sign-in is not saved on this PC"
+    Double-click Setup.bat and enter it when asked.
+
+"The saved sign-in could not be read back"
+    The sign-in was saved by a different Windows user, or this folder was
+    restored from a backup of another PC. Windows protects it per-account on
+    purpose. Run Setup.bat again and re-enter it.
+
+"the portal rejected the credentials"
+    Sign in to TEGG in your browser first. If that works and this does not,
+    the account may have picked up a two-factor prompt, which this tool
+    cannot answer. Escalate.
+
+"signed in, but the page never named the 'Lippolis' workspace"
+    The sign-in landed in a different contractor's area. The tool refuses to
+    read anything at that point, on purpose. Run Setup.bat to replace the
+    saved sign-in.
+
+"the report form offers no agreements for this site"
+    That site's agreements are not published to TEGG's reporting section, or
+    the search matched a customer rather than a site. Nothing was requested.
+    Try a different visit.
+
+"the report viewer did not open"
+    TEGG builds these reports on its own server and a large one can time out.
+    Run it again. If the same visit fails twice, that report needs exporting
+    by hand - escalate.
+
+"this site visit recorded no equipment problems"
+    Not an error. The inspection found nothing to repair, so there is nothing
+    to quote. Both PDFs are in the run folder if you want to check.
+
+"another run is already going"
+    You started it twice. Wait for the first - it takes about a minute and a
+    half.
+
+It stopped halfway, or you closed the window
+    Nothing is lost. Every step is written down as it completes. Run it
+    again: it picks up where it left off, and does NOT ask TEGG for the
+    reports a second time if it already has them.
+
+The report opened but every money figure says NOT PRICED
+    That is correct and deliberate until somebody puts your real labour rates
+    into config\ratecard.yaml. See OPERATOR_GUIDE.md, "About the money".
+
+
+-------------------------------------------------------------------------
+WHAT TO SEND WHEN YOU ESCALATE
+-------------------------------------------------------------------------
+
+1. Double-click  Diagnostic.bat  and send the file it writes to your Desktop.
+   It contains no password, token or cookie. Read it first if you like.
+2. Say what you double-clicked and what the window said.
+3. Say the name of the run folder, if there was one - for example
+   visit-findings-20260803T132708+0000
+
+Do NOT email the run folder itself. It contains customer documents.

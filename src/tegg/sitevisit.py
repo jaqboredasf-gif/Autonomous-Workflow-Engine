@@ -1128,9 +1128,9 @@ LOGIN_ADVICE = {
     # telling them to check one sends them nowhere.
     "invalid_credentials": (
         "the portal rejected the sign-in. Confirm it works by signing in to "
-        "TEGG in a browser first. If it does, re-enter it here -- run "
-        "Setup.command, or set TEGG_USERNAME and TEGG_PASSWORD if you started "
-        "this from a terminal."
+        "TEGG in a browser first. If it does, re-enter it here -- run Setup "
+        "again (Setup.command on a Mac, Setup.bat on Windows), or set "
+        "TEGG_USERNAME and TEGG_PASSWORD if you started this from a terminal."
     ),
     "account_locked": (
         "the account is locked or disabled. This needs the portal "

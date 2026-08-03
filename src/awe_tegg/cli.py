@@ -407,9 +407,16 @@ def cmd_doctor(args) -> int:
     print("Ready. Start with:")
     # An operator package has double-clickable launchers and no scripts/ that
     # anybody should be opening. Naming the developer path there is how a
-    # coworker ends up in a terminal for no reason.
-    if (root_module.install_root() / "Run Report.command").exists():
-        print("  Run Report.command  (double-click it)")
+    # coworker ends up in a terminal for no reason. Which launcher is named
+    # depends on which package this is: telling a Windows operator to
+    # double-click a .command file is the same failure in the other direction.
+    launcher = next(
+        (name for name in ("Run Report.bat", "Run Report.command")
+         if (root_module.install_root() / name).exists()),
+        None,
+    )
+    if launcher:
+        print(f"  {launcher}  (double-click it)")
     else:
         print(f"  ./scripts/{visit_module.OPERATION}.sh")
         print(f"  (or: awe-tegg run {visit_module.OPERATION})")
