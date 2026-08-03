@@ -32,6 +32,17 @@ from .evidence import (
     from_technician,
     proposed_by_ai,
 )
+from .pricing import PricingResult, ScopeSource, price, price_item
+from .ratecard import (
+    Material,
+    RateCard,
+    RateCardError,
+    Role,
+    WorkRule,
+    require_production,
+    validate,
+    validate_for_production,
+)
 from .model import (
     ESTIMATE_SCHEMA_VERSION,
     Adjustment,
@@ -56,4 +67,7 @@ __all__ = [
     "Exclusion", "LineItem", "LineKind", "Provenance", "ScopeItem",
     "from_config", "from_history", "from_human", "from_report",
     "from_technician", "money", "proposed_by_ai", "to_cents",
+    "Material", "PricingResult", "RateCard", "RateCardError", "Role",
+    "ScopeSource", "WorkRule", "price", "price_item",
+    "require_production", "validate", "validate_for_production",
 ]

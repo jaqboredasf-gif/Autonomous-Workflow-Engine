@@ -41,3 +41,6 @@ TEGG-DRYRUN/
 *.egg-info/
 build/
 dist/
+
+# A contractor's real rates. The example card is committed; this one is not.
+config/ratecard.yaml

@@ -185,6 +185,11 @@ class ScopeItem:
     scope_id: str = ""
     issue: str = ""
     recommended_work: str = ""
+    #: The vocabulary the rate card is keyed on, set by the workflow's adapter.
+    #: Kept separate from ``recommended_work`` -- that is prose for a human,
+    #: this is a token a rule matches. Conflating them is how a card stops
+    #: matching the moment somebody rewords a recommendation.
+    work_type: str = ""
     asset_id: str = ""
     asset_type: str = ""
     location: str = ""
@@ -199,6 +204,12 @@ class ScopeItem:
     #: Set when this item is deliberately not priced -- already fixed,
     #: undecided scope, customer's own responsibility.
     excluded_reason: str = ""
+    #: True for costs that attach to the job rather than to a finding --
+    #: mobilization, permits, a lift. They are real money and are priced like
+    #: anything else, but a reader counting "how many problems did you find"
+    #: must not be told four when three of them are switchgear and one is a
+    #: van. Kept out of the scope counts and shown separately.
+    ancillary: bool = False
 
     def __post_init__(self) -> None:
         self.quantity = money(self.quantity)
@@ -234,6 +245,7 @@ class ScopeItem:
             "scope_id": self.scope_id,
             "issue": self.issue,
             "recommended_work": self.recommended_work,
+            "work_type": self.work_type,
             "asset_id": self.asset_id,
             "asset_type": self.asset_type,
             "location": self.location,
@@ -246,6 +258,7 @@ class ScopeItem:
             "clarifications": [c.to_dict() for c in self.clarifications],
             "evidence": [e.to_dict() for e in self.evidence],
             "excluded_reason": self.excluded_reason,
+            "ancillary": self.ancillary,
             "priceable": self.priceable,
             "blocked_by": self.blocked_by,
             "subtotal": str(to_cents(self.subtotal())),
@@ -380,7 +393,20 @@ class Estimate:
     # -- what can and cannot be priced ------------------------------------
     @property
     def priced_scope(self) -> list[ScopeItem]:
+        """Everything that contributes money, ancillary costs included."""
         return [item for item in self.scope if item.priceable]
+
+    @property
+    def work_scope(self) -> list[ScopeItem]:
+        """The findings, without mobilization and other job-level costs.
+
+        This is what a reader means by "how many items did you find".
+        """
+        return [item for item in self.scope if not item.ancillary]
+
+    @property
+    def ancillary_scope(self) -> list[ScopeItem]:
+        return [item for item in self.scope if item.ancillary]
 
     @property
     def unpriced_scope(self) -> list[ScopeItem]:
@@ -485,9 +511,10 @@ class Estimate:
             "approval": self.approval.to_dict(),
             "approval_required_because": list(self.approval_required_because),
             "counts": {
-                "scope_items": len(self.scope),
-                "priced": len(self.priced_scope),
-                "unpriced": len(self.unpriced_scope),
+                "scope_items": len(self.work_scope),
+                "ancillary_items": len(self.ancillary_scope),
+                "priced": len([i for i in self.priced_scope if not i.ancillary]),
+                "unpriced": len([i for i in self.unpriced_scope if not i.ancillary]),
                 "open_questions": len(self.open_questions),
                 "unconfirmed_assumptions": len(self.unconfirmed_assumptions),
             },

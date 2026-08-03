@@ -231,7 +231,8 @@ def test_the_serialised_form_carries_the_reasons_not_only_the_numbers():
     ], confidence=Confidence.LOW, confidence_reasons=["one item could not be priced"],
         exclusions=[Exclusion(text="permits", provenance=from_config("terms"))])
     data = est.to_dict()
-    assert data["counts"] == {"scope_items": 2, "priced": 1, "unpriced": 1,
+    assert data["counts"] == {"scope_items": 2, "ancillary_items": 0,
+                              "priced": 1, "unpriced": 1,
                               "open_questions": 0, "unconfirmed_assumptions": 0}
     assert data["confidence"] == "low"
     assert data["scope"][1]["blocked_by"], "the reader must see why"

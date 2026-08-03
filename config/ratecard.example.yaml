@@ -1,0 +1,159 @@
+# AWE estimating rate card — EXAMPLE / TEMPLATE
+#
+# =========================== READ THIS FIRST ============================
+# `placeholder: true` means this is a template. Every total built from it is
+# marked as not-real-money, and no estimate built from it can be approved.
+#
+# To price real work:
+#   1. cp config/ratecard.example.yaml config/ratecard.yaml
+#   2. replace every number below with your own
+#   3. set `placeholder: false`
+#   4. give it a real name and version
+#
+# config/ratecard.yaml is gitignored. Your rates are not committed.
+#
+# This schema is NOT TEGG-specific. Roles are names, materials are keys, and
+# the `work:` table maps a kind of work on a kind of asset to an effort. A
+# roofing or plumbing workflow uses the same file with different words in it.
+# ========================================================================
+
+rate_card:
+  name: "EXAMPLE — replace with your own"
+  version: "template"
+  currency: "USD"
+  placeholder: true
+
+  # --------------------------------------------------------------- labour ---
+  labour:
+    # Every role your work can be done by, and what an hour costs you to sell.
+    roles:
+      electrician:
+        rate_per_hour: "125.00"
+        overtime_multiplier: "1.5"
+        description: "Licensed electrician"
+      apprentice:
+        rate_per_hour: "75.00"
+        overtime_multiplier: "1.5"
+      foreman:
+        rate_per_hour: "155.00"
+        overtime_multiplier: "1.5"
+
+    # Used when a work rule does not name one.
+    default_role: "electrician"
+
+    # No item is priced below this, however small the task.
+    minimum_hours: "2"
+
+    # Hours are rounded to this step. "0.5" means half-hour increments.
+    hour_rounding: "0.5"
+
+    # Added to any item whose scope says the work needs an outage.
+    shutdown_premium_hours: "2"
+
+    normal_hours_per_day: "8"
+    overtime_applies: false
+
+  # ------------------------------------------------------------ materials ---
+  materials:
+    # Applied to every material line. 0.25 is +25%.
+    markup: "0.25"
+    items:
+      fuse-class-rk1:
+        unit_cost: "42.50"
+        unit: "each"
+        description: "Class RK1 fuse"
+      lug-mechanical:
+        unit_cost: "18.00"
+        unit: "each"
+        description: "Mechanical lug"
+      conductor-terminations:
+        unit_cost: "12.00"
+        unit: "each"
+        description: "Conductor termination kit"
+
+  # ------------------------------------------------------------ equipment ---
+  equipment:
+    items:
+      lift-scissor-day: "350.00"
+      thermal-camera-day: "0.00"
+
+  # --------------------------------------------------------- mobilization ---
+  mobilization:
+    # Charged once per visit, not per item.
+    per_visit: "250.00"
+
+  subcontractor:
+    markup: "0.10"
+
+  # ---------------------------------------------------------- adjustments ---
+  # Applied in the order below, each compounding on the running total.
+  # Zero is a valid answer. Absent is not — a production card must state all
+  # four, so the decision is recorded rather than defaulted.
+  adjustments:
+    order: ["overhead", "contingency", "profit", "tax"]
+    overhead: "0.12"
+    contingency: "0.10"
+    profit: "0.15"
+    tax: "0.08875"
+
+  # ---------------------------------------------------------------- range ---
+  # The low and high of the presented range, as multipliers of the total.
+  range:
+    low_factor: "0.85"
+    high_factor: "1.30"
+
+  # ------------------------------------------------------------- approval ---
+  approval:
+    # Any estimate at or above this needs a person to sign it off.
+    threshold_total: "10000.00"
+    notes:
+      - "anything touching a main switchboard is reviewed regardless of value"
+
+  # ----------------------------------------------------------------- work ---
+  # The table that keeps the engine industry-agnostic.
+  #
+  # `work_type` is the token the workflow's adapter emits. `asset_type` is
+  # matched as a substring, so "Switchgear" covers "Switchgear - Vertical
+  # Section". The most specific matching rule wins; no rule at all produces a
+  # question, never a guess.
+  work:
+    - work_type: "replace"
+      asset_type: "Switchgear"
+      role: "electrician"
+      hours: "12"
+      materials:
+        fuse-class-rk1: "3"
+      notes: "assumes normal working access to the section"
+
+    - work_type: "replace"
+      asset_type: "Switchboard"
+      role: "electrician"
+      hours: "10"
+      material_allowance: "2500.00"
+
+    - work_type: "replace"
+      role: "electrician"
+      hours: "8"
+      material_allowance: "1200.00"
+
+    - work_type: "repair"
+      asset_type: "Switchgear"
+      role: "electrician"
+      hours: "6"
+      material_allowance: "400.00"
+
+    - work_type: "repair"
+      asset_type: "Branch Circuit Panel"
+      role: "electrician"
+      hours: "3"
+      materials:
+        lug-mechanical: "2"
+
+    - work_type: "repair"
+      role: "electrician"
+      hours: "4"
+      material_allowance: "250.00"
+
+  notes:
+    - "hours assume business-hours access; after-hours work is not costed"
+    - "no allowance for permits, engineering, scaffolding or third-party testing"
