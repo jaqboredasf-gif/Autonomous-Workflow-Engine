@@ -258,6 +258,21 @@ def cmd_doctor(args) -> int:
               if name in missing else "present; its value is never read here")
         _say(checks[-1])
 
+    print("\nwho this is configured to act as")
+    try:
+        identity = _settings(args)
+        service = _service_file(args)
+        # Named explicitly, because a coworker at a second contractor would
+        # otherwise have no signal that these came from somebody else's setup.
+        check(True, f"{identity.contractor} at {identity.base_url}",
+              f"tenant {identity.tenant}/{identity.integration}/"
+              f"{identity.environment}, from "
+              + (str(service) if service else "built-in defaults -- there is no "
+                 "service file, so this is whoever the code was written for"))
+    except Exception as error:                              # noqa: BLE001
+        check(False, "the service settings", str(error))
+    _say(checks[-1])
+
     print("\nwhere this installation lives")
     check(root_module.in_installation(), root_module.describe_root(),
           "you are inside it"

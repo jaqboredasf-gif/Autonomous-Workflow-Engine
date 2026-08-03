@@ -34,14 +34,82 @@ RECOMMENDATIONS_SCHEMA_VERSION = 1
 
 #: Wording that means the repair needs the equipment de-energised. Taken from
 #: the technicians' own vocabulary in live reports, not invented.
-SHUTDOWN_WORDS = re.compile(
-    r"\b(shut\s?down|shutdown|de-?energi[sz]e|outage|power\s+down)\b", re.IGNORECASE
+DEFAULT_SHUTDOWN_WORDS = (
+    r"shut\s?down", r"shutdown", r"de-?energi[sz]e", r"outage", r"power\s+down",
 )
 
 #: Consequences that make an item a safety matter rather than a maintenance one.
-SAFETY_CONSEQUENCES = ("Fire Hazard", "Safety Hazard")
+DEFAULT_SAFETY_CONSEQUENCES = ("Fire Hazard", "Safety Hazard")
+
+#: Severities that go straight to the top of the list without needing a
+#: consequence ticked as well.
+DEFAULT_IMMEDIATE_SEVERITIES = ("Critical", "Severe")
 
 URGENCY_ORDER = ("immediate", "high", "scheduled", "monitor", "closed")
+
+
+@dataclass(frozen=True)
+class Policy:
+    """The judgement calls, in one place, so they are somebody's decision.
+
+    Three questions this module cannot answer for a business:
+
+      * which recorded consequences make an item a **safety** matter rather
+        than a maintenance one;
+      * which severities are urgent **on their own**, without a consequence;
+      * what wording in a technician's repair text means the work needs an
+        **outage**.
+
+    The defaults are the ones this tool has always used, and they are
+    defensible. They are not, however, anybody's stated policy -- they were
+    inferred from reading live reports. So they live here, overridable from the
+    service file, and the review output names which ones were in force.
+
+    See ``policy:`` in ``config/service.yaml``.
+    """
+
+    safety_consequences: tuple[str, ...] = DEFAULT_SAFETY_CONSEQUENCES
+    immediate_severities: tuple[str, ...] = DEFAULT_IMMEDIATE_SEVERITIES
+    shutdown_words: tuple[str, ...] = DEFAULT_SHUTDOWN_WORDS
+    source: str = "built-in defaults (nobody has confirmed these)"
+
+    @classmethod
+    def from_mapping(cls, data: dict[str, Any] | None, *, source: str = "") -> "Policy":
+        data = dict(data or {})
+        if not data:
+            return cls()
+        return cls(
+            safety_consequences=tuple(
+                data.get("safety_consequences") or DEFAULT_SAFETY_CONSEQUENCES
+            ),
+            immediate_severities=tuple(
+                data.get("immediate_severities") or DEFAULT_IMMEDIATE_SEVERITIES
+            ),
+            shutdown_words=tuple(
+                data.get("shutdown_words") or DEFAULT_SHUTDOWN_WORDS
+            ),
+            source=source or "config",
+        )
+
+    @property
+    def shutdown_pattern(self) -> re.Pattern[str]:
+        joined = "|".join(self.shutdown_words)
+        return re.compile(rf"\b({joined})\b", re.IGNORECASE)
+
+    def describe(self) -> list[str]:
+        return [
+            f"safety consequences: {', '.join(self.safety_consequences)}",
+            f"urgent on severity alone: {', '.join(self.immediate_severities)}",
+            f"outage wording: {', '.join(self.shutdown_words)}",
+            f"source: {self.source}",
+        ]
+
+
+DEFAULT_POLICY = Policy()
+
+#: Kept for anything importing the old names.
+SHUTDOWN_WORDS = DEFAULT_POLICY.shutdown_pattern
+SAFETY_CONSEQUENCES = DEFAULT_SAFETY_CONSEQUENCES
 
 
 @dataclass
@@ -81,6 +149,9 @@ class RecommendationSet:
     site_visit: str = ""
     recommendations: list[Recommendation] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    #: The judgement calls in force for this run, and where they came from.
+    #: Carried in the output so a reader can see them without reading the code.
+    policy: list[str] = field(default_factory=list)
     #: Said in the data, not only in the covering note, so a consumer that only
     #: reads JSON cannot miss it.
     disclaimer: str = (
@@ -94,6 +165,7 @@ class RecommendationSet:
             "schema_version": self.schema_version,
             "site_visit": self.site_visit,
             "disclaimer": self.disclaimer,
+            "policy": list(self.policy),
             "recommendations": [r.to_dict() for r in self.recommendations],
             "warnings": list(self.warnings),
             "counts": {
@@ -103,7 +175,7 @@ class RecommendationSet:
                 ),
                 "safety_related": len(
                     [r for r in self.recommendations
-                     if set(r.consequences) & set(SAFETY_CONSEQUENCES)]
+                     if set(r.consequences) & set(DEFAULT_SAFETY_CONSEQUENCES)]
                 ),
             },
         }
@@ -122,7 +194,7 @@ def work_type_of(finding: Finding) -> tuple[str, str]:
     return "", "neither 'Repair Equipment' nor 'Replace Equipment' is ticked"
 
 
-def urgency_of(finding: Finding) -> tuple[str, str]:
+def urgency_of(finding: Finding, policy: Policy = DEFAULT_POLICY) -> tuple[str, str]:
     """How soon this needs attention, by a stated rule rather than a feeling.
 
     The rule, in order, first match wins:
@@ -139,9 +211,10 @@ def urgency_of(finding: Finding) -> tuple[str, str]:
     if any(finding.urgency.values()):
         ticked = [k for k, v in finding.urgency.items() if v]
         return "immediate", f"the report ticks {', '.join(ticked)}"
-    if finding.severity in ("Critical", "Severe"):
+    if finding.severity in policy.immediate_severities:
         return "immediate", f"the report grades this problem {finding.severity}"
-    safety = [c for c in finding.ticked_consequences if c in SAFETY_CONSEQUENCES]
+    safety = [c for c in finding.ticked_consequences
+              if c in policy.safety_consequences]
     if safety:
         return "high", f"the report ticks {' and '.join(safety)} as a consequence"
     if finding.ticked_consequences:
@@ -152,25 +225,30 @@ def urgency_of(finding: Finding) -> tuple[str, str]:
     return "monitor", "the report ticks no consequence for leaving this uncorrected"
 
 
-def shutdown_needed(finding: Finding) -> tuple[bool | None, str]:
+def shutdown_needed(
+    finding: Finding, policy: Policy = DEFAULT_POLICY
+) -> tuple[bool | None, str]:
     """Whether the recorded repair text says the work needs an outage."""
     text = " ".join(finding.narrative)
     if not text.strip():
         return None, "no repair text was recorded, so this cannot be judged"
-    match = SHUTDOWN_WORDS.search(text)
+    match = policy.shutdown_pattern.search(text)
     if match:
         return True, f"the repair text says {match.group(0)!r}"
     return False, "the repair text does not mention a shutdown or de-energising"
 
 
-def recommend(findings: FindingSet) -> RecommendationSet:
+def recommend(
+    findings: FindingSet, policy: Policy = DEFAULT_POLICY
+) -> RecommendationSet:
     """One recommendation per finding, each traceable to the page it came from."""
-    out = RecommendationSet(site_visit=findings.site_visit)
+    out = RecommendationSet(site_visit=findings.site_visit,
+                            policy=list(policy.describe()))
 
     for finding in findings.findings:
         work, work_why = work_type_of(finding)
-        urgency, urgency_why = urgency_of(finding)
-        shutdown, shutdown_why = shutdown_needed(finding)
+        urgency, urgency_why = urgency_of(finding, policy)
+        shutdown, shutdown_why = shutdown_needed(finding, policy)
 
         evidence: list[dict[str, Any]] = []
         if finding.source is not None:

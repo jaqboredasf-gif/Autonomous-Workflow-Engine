@@ -404,6 +404,10 @@ class Settings:
     discovery_seconds: float = 120.0
     settle_budget_ms: int = SETTLE_BUDGET_MS
     headless: bool = True
+    #: The judgement calls -- which consequences count as safety, which
+    #: severities are urgent alone, what wording means an outage. Empty means
+    #: the built-in defaults, which nobody has confirmed. See recommend.Policy.
+    policy: dict[str, Any] = field(default_factory=dict)
     #: Where the knowledge store lives. None means the repository's own store,
     #: which is what an operator gets. Tests point it at a temporary directory
     #: so no test can reach, or change, the real one.

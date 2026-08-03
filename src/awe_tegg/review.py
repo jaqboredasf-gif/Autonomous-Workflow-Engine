@@ -209,6 +209,18 @@ def build(
         add("")
 
     # -- the small print, which is not small -------------------------------
+    if recommendations.policy:
+        add("## The judgement calls in force for this run")
+        add("")
+        add("Urgency, what counts as a safety matter, and what wording means an")
+        add("outage are decisions, not facts. These are the ones that were")
+        add("applied. If they are wrong for your business, they are settings —")
+        add("see `policy:` in `config/service.yaml`.")
+        add("")
+        for line in recommendations.policy:
+            add(f"- {line}")
+        add("")
+
     add("## Assumptions behind every number above")
     add("")
     for assumption in estimate.assumptions:

@@ -367,12 +367,18 @@ def run_operation(
     )
 
     announce("recommend_repairs")
-    recommendations = recommend_module.recommend(finding_set)
+    policy = recommend_module.Policy.from_mapping(
+        settings.policy,
+        source=("config/service.yaml" if settings.policy
+                else "built-in defaults (nobody has confirmed these)"),
+    )
+    recommendations = recommend_module.recommend(finding_set, policy)
     ledger.checkpoint(
         "recommend_repairs",
         f"{len(recommendations.recommendations)} recommendation(s), "
         "each carrying the technician's own words and a citation",
         counts=recommendations.to_dict()["counts"],
+        policy=policy.describe(),
     )
 
     announce("build_estimate")

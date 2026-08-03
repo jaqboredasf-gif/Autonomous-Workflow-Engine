@@ -319,3 +319,150 @@ Worth recording so it does not get "improved" away:
 5. **P2** — as time allows.
 6. **P2-16** — the second machine. Do this *after* 1–4, because it is the test
    that tells you whether the rest worked.
+
+---
+
+# Founder-assumption audit — 2026-08-03
+
+Every place a successful run depended on something that existed only in the
+founder's head. Each one is now encoded, or has a stated reason why it cannot
+be. The test applied throughout: *if the only person who knows this leaves,
+does a run still succeed — and does a wrong answer still get caught?*
+
+## Encoded into code, by removing the assumption
+
+### F-1 · Agreement numbers were recognised by three observed prefixes
+
+The report form's agreement dropdown was identified by
+`o.startswith(("STD", "DES", "PRM"))` — three prefixes seen in one
+contractor's data. A fourth prefix, or a different contractor, and the branch
+is never entered: the agreement is never set, and the run then reports
+
+> the report form did not offer agreement STD88117209SM-05/25-01
+
+which is **false**, and sends the reader to the portal instead of to that
+tuple. A stale founder assumption producing a confident wrong diagnosis is the
+worst shape this debt takes.
+
+**Encoded by deletion.** The agreement is now selected by matching *the value
+the run came for*, which cannot be wrong about whether it is present. A shape
+pattern survives only to recognise the list when our agreement is absent, so
+the error can quote what *was* offered — and if that pattern is wrong the run
+still fails safely, just less specifically.
+
+## Encoded into configuration, with the defaults named as unconfirmed
+
+### F-2 · Three business judgements were compiled into Python
+
+Which consequences make an item a **safety** matter; which severities are
+urgent **on their own**; what wording means the work needs an **outage**.
+All three were tuples in `recommend.py`, inferred by reading live reports, and
+changing any of them meant editing code.
+
+They are now `policy:` in `config/service.yaml` — commented out, documented
+with the full set of values the report can actually contain, and defaulting to
+the previous behaviour.
+
+The part that matters: **every review page now prints which rules were in
+force and where they came from**, and while nobody has confirmed them it says
+so in those words:
+
+```
+- safety consequences: Fire Hazard, Safety Hazard
+- urgent on severity alone: Critical, Severe
+- source: built-in defaults (nobody has confirmed these)
+```
+
+A reader who disagrees can now see what to change. Before, they would have had
+to notice the grading was wrong and then go looking in Python for why.
+
+### F-3 · Which two reports, and which variant of one of them
+
+That `Equipment Item Problems` is a parent whose real report is the
+`Exclude All Images` child — and that clicking the parent alone exports
+whatever form is showing — is knowledge that cost a wrong export to learn.
+Encoded as named constants with the reasoning in the module docstring, and
+pinned by a test that asserts the path is two hops.
+
+## Encoded into validation, because documentation would not have caught it
+
+### F-4 · The checkbox geometry
+
+That an SSRS tick sits 15–20 points left of its label was measured, once, from
+one contractor's reports. It is the single most load-bearing measurement in the
+system: get it wrong and the tool reports "no fire hazard" with total
+confidence.
+
+It could not be made a fact, so it was made **falsifiable**. A tick no label
+claims, or a label two ticks claim, marks that page untrustworthy and it
+reaches the coworker flagged rather than silently half-read. The founder
+assumption is still there — it is now impossible for it to fail quietly.
+
+### F-5 · That the exported report is the one that was asked for
+
+A blank Equipment Item Problems report is believed to mean "a clean visit"
+**only when the IR report agrees**. If one is empty and the other lists faults,
+neither is trusted. That check exists because the alternative was trusting the
+founder's judgement about which empty PDFs are real.
+
+## Encoded into documentation
+
+### F-6 · Who this is configured to act as
+
+`contractor = "Lippolis"` and `TENANT = "lippolis"` remain as defaults in
+Python. They are overridable from the service file and always were — but
+nothing told the operator which identity was in force, so a coworker at a
+second contractor would have had no signal they were running as somebody else.
+
+`doctor` now names it, first, before anything else:
+
+```
+who this is configured to act as
+  OK  Lippolis at https://tegg2.teggpro.com -- tenant lippolis/tegg-pro/production,
+      from /Users/jackdaly/TEGG/config/service.yaml
+```
+
+and says explicitly when there is no service file and the values are "whoever
+the code was written for".
+
+### F-7 · The manual process itself
+
+`docs/SOP.md` is Paul's own procedure and is the only record of how this work
+is done by hand. It is kept, banner-labelled as background rather than
+instructions, and every stage in it names what is and is not automated. Losing
+it would mean losing the definition of correct.
+
+## Cannot yet be encoded — and why
+
+These are the ones where writing something down would be pretending. Each is
+in `END_TO_END_GAP_REPORT.md` under *Open questions only a person can answer*.
+
+| assumption | why it cannot be encoded yet |
+|---|---|
+| **labour rates, hours and material allowances** | Nobody has supplied them. The shape is encoded and validated; the numbers are a commercial decision. Until then every total is stamped `NOT PRICED` — the tool refuses to imply it knows. |
+| **how you know a site visit is ready to report on** | This is the trigger the whole automation would hang off, and it is a judgement Paul makes that nothing in the SOP describes. Until it is articulated, scheduling is not possible and the tool reads visits on demand only. |
+| **what the shared drive actually is** | The destination for finished reports is unidentified — Shared Drive, different account, or a Windows file share. `--drive-root` takes any mounted path so the code does not care, but the final save step cannot be trusted until somebody says what it is. |
+| **the output filename separator** | The SOP writes it with placeholder quote marks. One real filename settles it. Currently single spaces, in `config/workflow.yaml`, where it is at least visible. |
+| **whether the two static documents vary by job** | Assumed identical for every customer and kept in `assets/static/`. If the table of contents varies with report length it has to be generated. Nobody has checked. |
+| **that the automation may run as a named human account** | It currently runs as Paul's personal login: every automated action looks like he did it by hand, it breaks when he changes his password, and those credentials should be treated as exposed and rotated. A service account is a request to the vendor, not a code change. |
+
+## What remains founder-shaped, and is acceptable
+
+Two things, recorded so nobody mistakes them for oversights:
+
+1. **The knowledge store was seeded by one account against one portal.** That
+   is what it is for — it is evidence of what *this* portal did — and it
+   carries provenance for every record. A second contractor gets their own
+   tenant, empty, and seeds it from their own runs. The boundary is enforced
+   on read and tested.
+2. **The visit-selection rule** is a defensible default, not a business
+   decision. It is stated in the runbook, printed with every run's choice, and
+   overridable per run with `--site-visit`. If it is wrong for somebody, they
+   will see it is wrong, which is the property that matters.
+
+## The test that has not been run
+
+**Nobody but the author has installed or run this.** Every claim above was
+verified by the person who wrote it. That is itself the largest founder
+dependency in the repository, and no amount of documentation removes it — only
+a second person on a second machine does.

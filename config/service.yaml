@@ -52,3 +52,43 @@ service:
 
   login_timeout_ms: 30000
   timeout_ms: 30000
+
+  # ---------------------------------------------------------------------
+  # Judgement calls, not facts.
+  #
+  # These three decide how the review page grades and orders work. The
+  # defaults below are what the tool has always used and they are
+  # defensible -- but they were inferred from reading live inspection
+  # reports, not stated by anybody who owns the business. Every run prints
+  # which ones were in force, and says whether they came from here or from
+  # the built-in defaults.
+  #
+  # Leave the block commented out to keep the defaults. Uncomment and edit
+  # to make them yours, at which point the output stops saying "nobody has
+  # confirmed these".
+  # ---------------------------------------------------------------------
+  # policy:
+  #   # Which recorded consequences make an item a SAFETY matter (urgency
+  #   # "high") rather than a maintenance one (urgency "scheduled").
+  #   # The report offers: Equipment Failure, Fire Hazard, Safety Hazard,
+  #   # Power/Business Interruption.
+  #   safety_consequences:
+  #     - "Fire Hazard"
+  #     - "Safety Hazard"
+  #
+  #   # Which severities go straight to "immediate" on their own, without
+  #   # needing a consequence ticked as well.
+  #   # The report grades: Normal, Alert, Severe, Critical.
+  #   immediate_severities:
+  #     - "Critical"
+  #     - "Severe"
+  #
+  #   # Wording in a technician's repair text that means the work needs the
+  #   # equipment de-energised. Regular expressions, matched case-insensitively
+  #   # on whole words. An outage adds the rate card's shutdown premium.
+  #   shutdown_words:
+  #     - 'shut\s?down'
+  #     - 'shutdown'
+  #     - 'de-?energi[sz]e'
+  #     - 'outage'
+  #     - 'power\s+down'

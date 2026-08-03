@@ -72,6 +72,21 @@ FORBIDDEN_WORDS = re.compile(
 #: treating it as fatal would break the working path.
 _NO_AGREEMENTS = re.compile(r"no\s+agreements", re.IGNORECASE)
 
+#: What a TEGG agreement number looks like: letters, digits, then a date-ish
+#: tail -- ``STD88117209SM-05/25-01``, ``DES01258249SM-01/25-01``.
+#:
+#: This is a *shape*, not a list of prefixes. It is used only to recognise
+#: which dropdown is the agreement list when the agreement we want is absent,
+#: so the error message can quote what was offered instead. Nothing depends on
+#: it being complete: the agreement is selected by matching the value we came
+#: for, and if this pattern is wrong the run still fails safely, just with a
+#: less specific message.
+_AGREEMENT_SHAPE = re.compile(r"^[A-Z]{2,4}\d{4,}[A-Z]{0,3}-\d{2}/\d{2}-\d{2}$")
+
+
+def _looks_like_agreements(options: list[str]) -> bool:
+    return any(_AGREEMENT_SHAPE.match(o.strip()) for o in options)
+
 #: The SSRS toolbar. These ids are stable across the portal's reports.
 FORMAT_SELECT = "#ReportViewer1_ctl01_ctl05_ctl00"
 EXPORT_LINK = "#ReportViewer1_ctl01_ctl05_ctl01"
@@ -335,14 +350,28 @@ class ReportRun:
                     "are not published to the reporting module. Nothing was "
                     "changed; no report was requested."
                 )
-            if any(o.startswith(("STD", "DES", "PRM")) for o in options):
+            # Identify the agreement list by whether it *contains the agreement
+            # we came for*, not by how TEGG happens to number agreements.
+            #
+            # This used to test `o.startswith(("STD", "DES", "PRM"))` -- three
+            # prefixes observed in one contractor's data. A fourth prefix, or a
+            # different contractor, and this branch is never entered: the
+            # select is skipped, no agreement is set, and the run then reports
+            # "the report form did not offer agreement X" -- which is false,
+            # and sends the reader looking at the portal instead of at this
+            # list. Matching on the value we are looking for cannot be wrong
+            # about that.
+            if agreement and agreement in options:
                 offered_agreements = options
-                if agreement and agreement in options:
-                    self._spend("set the report's Agreement parameter")
-                    control.select_option(label=agreement)
-                    chosen.append(f"Agreement={agreement}")
-                    self.page.wait_for_timeout(1800)
-                    self._settle()
+                self._spend("set the report's Agreement parameter")
+                control.select_option(label=agreement)
+                chosen.append(f"Agreement={agreement}")
+                self.page.wait_for_timeout(1800)
+                self._settle()
+            elif _looks_like_agreements(options):
+                # Recognised as the agreement list, but ours is not in it. Kept
+                # so the error below can quote what *was* offered.
+                offered_agreements = options
             elif "Include Images" in options:
                 self._spend("set the report's Images parameter")
                 control.select_option(label="Exclude Images")
