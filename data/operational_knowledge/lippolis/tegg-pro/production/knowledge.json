@@ -1,0 +1,3814 @@
+{
+  "base_url": "https://tegg2.teggpro.com",
+  "document_version": 19,
+  "environment": "production",
+  "integration": "tegg-pro",
+  "last_known_good": null,
+  "pending": [],
+  "records": {
+    "auth:contractor-selection": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+          "kind": "run",
+          "note": "contractor 'Lippolis' -> 'TEGGPro Lippolis'",
+          "observed_at": "2026-07-30T18:46:54+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+          "kind": "run",
+          "note": "contractor 'Lippolis' -> 'TEGGPro Lippolis'",
+          "observed_at": "2026-07-30T18:49:45+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "contractor 'Lippolis' -> 'TEGGPro Lippolis'",
+          "observed_at": "2026-07-30T18:56:15+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-knowing@2026-07-31T13:11:25+00:00",
+          "kind": "run",
+          "note": "55 contractor option(s) offered",
+          "observed_at": "2026-07-31T13:11:28+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-knowing-2@2026-07-31T13:14:58+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T13:15:02+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-1",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:01:45+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-2",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:03:06+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-3",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:04:20+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-4",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:06:26+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-5",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:11:24+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-6",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:14:17+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p1a-known-knowledge",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:41:53+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5a-visit-findings",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:39:31+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5a-visit-findings",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:41:05+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5c-interrupted",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:48:02+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5e-no-agreement",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:50:05+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5e-no-agreement",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:52:37+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "visit-findings-20260803T115122+0000",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-08-03T11:51:27+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "auth",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-08-03T11:51:27+00:00",
+      "last_verified": "2026-08-03T11:51:27+00:00",
+      "name": "contractor-selection",
+      "notes": "observed by the TEGG driver at step 'login_contractor'; evidence kept locally under work/evidence-list",
+      "payload": {
+        "configured_value": "Lippolis",
+        "control": "contractorconnection",
+        "login_url": "https://tegg2.teggpro.com/auth/login",
+        "resolves_to": "TEGGPro Lippolis"
+      },
+      "previous_good": {
+        "approval_required": false,
+        "approved_at": "",
+        "approved_by": "",
+        "consecutive_failures": 0,
+        "created_at": "2026-07-31T12:22:52+00:00",
+        "environment": "production",
+        "evidence": [
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+            "kind": "run",
+            "note": "contractor 'Lippolis' -> 'TEGGPro Lippolis'",
+            "observed_at": "2026-07-30T18:46:54+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+            "kind": "run",
+            "note": "contractor 'Lippolis' -> 'TEGGPro Lippolis'",
+            "observed_at": "2026-07-30T18:49:45+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+            "kind": "run",
+            "note": "contractor 'Lippolis' -> 'TEGGPro Lippolis'",
+            "observed_at": "2026-07-30T18:56:15+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-knowing@2026-07-31T13:11:25+00:00",
+            "kind": "run",
+            "note": "55 contractor option(s) offered",
+            "observed_at": "2026-07-31T13:11:28+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-knowing-2@2026-07-31T13:14:58+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T13:15:02+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-1",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:01:45+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-2",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:03:06+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-3",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:04:20+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-4",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:06:26+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-5",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:11:24+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-6",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:14:17+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p1a-known-knowledge",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:41:53+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5a-visit-findings",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:39:31+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5a-visit-findings",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:41:05+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5c-interrupted",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:48:02+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5e-no-agreement",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:50:05+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5e-no-agreement",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:52:37+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "visit-findings-20260803T115122+0000",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-08-03T11:51:27+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          }
+        ],
+        "expires_at": "",
+        "failure_count": 0,
+        "integration": "tegg-pro",
+        "kind": "auth",
+        "last_failure": "",
+        "last_failure_execution": "",
+        "last_success": "2026-08-03T11:51:27+00:00",
+        "last_verified": "2026-08-03T11:51:27+00:00",
+        "name": "contractor-selection",
+        "notes": "observed by the TEGG driver at step 'login_contractor'; evidence kept locally under work/evidence-list",
+        "payload": {
+          "configured_value": "Lippolis",
+          "control": "contractorconnection",
+          "login_url": "https://tegg2.teggpro.com/auth/login",
+          "resolves_to": "TEGGPro Lippolis"
+        },
+        "record_id": "auth:contractor-selection",
+        "success_count": 18,
+        "superseded_by": "",
+        "supersedes": "",
+        "tenant": "lippolis",
+        "trust": "VERIFIED",
+        "updated_at": "2026-08-03T11:51:27+00:00",
+        "verified_by_runs": [
+          "evidence-list@2026-07-30T18:46:54+00:00",
+          "evidence-list@2026-07-30T18:49:45+00:00",
+          "exploration@2026-07-30T18:56:15+00:00",
+          "live-knowing@2026-07-31T13:11:25+00:00",
+          "live-knowing-2@2026-07-31T13:14:58+00:00",
+          "live-1",
+          "live-2",
+          "live-3",
+          "live-4",
+          "live-5",
+          "live-6",
+          "p1a-known-knowledge",
+          "p5a-visit-findings",
+          "p5c-interrupted",
+          "p5e-no-agreement",
+          "visit-findings-20260803T115122+0000"
+        ],
+        "version": 5
+      },
+      "record_id": "auth:contractor-selection",
+      "success_count": 18,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "VERIFIED",
+      "updated_at": "2026-08-03T11:51:27+00:00",
+      "verified_by_runs": [
+        "evidence-list@2026-07-30T18:46:54+00:00",
+        "evidence-list@2026-07-30T18:49:45+00:00",
+        "exploration@2026-07-30T18:56:15+00:00",
+        "live-knowing@2026-07-31T13:11:25+00:00",
+        "live-knowing-2@2026-07-31T13:14:58+00:00",
+        "live-1",
+        "live-2",
+        "live-3",
+        "live-4",
+        "live-5",
+        "live-6",
+        "p1a-known-knowledge",
+        "p5a-visit-findings",
+        "p5c-interrupted",
+        "p5e-no-agreement",
+        "visit-findings-20260803T115122+0000"
+      ],
+      "version": 5
+    },
+    "auth:portal-login": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+          "kind": "run",
+          "note": "sign-in form gone after 500 ms",
+          "observed_at": "2026-07-30T18:46:56+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+          "kind": "run",
+          "note": "signed in",
+          "observed_at": "2026-07-30T18:46:56+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+          "kind": "run",
+          "note": "sign-in form gone after 500 ms",
+          "observed_at": "2026-07-30T18:49:46+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+          "kind": "run",
+          "note": "signed in",
+          "observed_at": "2026-07-30T18:49:47+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "sign-in form gone after 1000 ms",
+          "observed_at": "2026-07-30T18:56:17+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "signed in",
+          "observed_at": "2026-07-30T18:56:17+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "auth",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-07-31T12:22:52+00:00",
+      "last_verified": "2026-07-31T12:22:52+00:00",
+      "name": "portal-login",
+      "notes": "observed by the TEGG driver at step 'login_result'; evidence kept locally under work/evidence-list",
+      "payload": {
+        "auth_api": [
+          "https://tegg.teggpro.com/api/1.0/admin/view/contractor-logo",
+          "https://tegg.teggpro.com/api/1.0/technician/auth-new"
+        ],
+        "authenticated_indicator": "the sign-in form is gone",
+        "authenticated_url": "https://tegg2.teggpro.com/sales/gm-dashboard",
+        "login_url": "https://tegg2.teggpro.com/auth/login",
+        "sets_new_cookies": false
+      },
+      "previous_good": {
+        "approval_required": false,
+        "approved_at": "",
+        "approved_by": "",
+        "consecutive_failures": 0,
+        "created_at": "2026-07-31T12:22:52+00:00",
+        "environment": "production",
+        "evidence": [
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+            "kind": "run",
+            "note": "sign-in form gone after 500 ms",
+            "observed_at": "2026-07-30T18:46:56+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+            "kind": "run",
+            "note": "signed in",
+            "observed_at": "2026-07-30T18:46:56+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+            "kind": "run",
+            "note": "sign-in form gone after 500 ms",
+            "observed_at": "2026-07-30T18:49:46+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+            "kind": "run",
+            "note": "signed in",
+            "observed_at": "2026-07-30T18:49:47+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+            "kind": "run",
+            "note": "sign-in form gone after 1000 ms",
+            "observed_at": "2026-07-30T18:56:17+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+            "kind": "run",
+            "note": "signed in",
+            "observed_at": "2026-07-30T18:56:17+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/gm-dashboard"
+          }
+        ],
+        "expires_at": "",
+        "failure_count": 0,
+        "integration": "tegg-pro",
+        "kind": "auth",
+        "last_failure": "",
+        "last_failure_execution": "",
+        "last_success": "2026-07-31T12:22:52+00:00",
+        "last_verified": "2026-07-31T12:22:52+00:00",
+        "name": "portal-login",
+        "notes": "observed by the TEGG driver at step 'login_result'; evidence kept locally under work/evidence-list",
+        "payload": {
+          "auth_api": [
+            "https://tegg.teggpro.com/api/1.0/admin/view/contractor-logo",
+            "https://tegg.teggpro.com/api/1.0/technician/auth-new"
+          ],
+          "authenticated_indicator": "the sign-in form is gone",
+          "authenticated_url": "https://tegg2.teggpro.com/sales/gm-dashboard",
+          "login_url": "https://tegg2.teggpro.com/auth/login",
+          "sets_new_cookies": false
+        },
+        "record_id": "auth:portal-login",
+        "success_count": 6,
+        "superseded_by": "",
+        "supersedes": "",
+        "tenant": "lippolis",
+        "trust": "VERIFIED",
+        "updated_at": "2026-07-31T12:22:52+00:00",
+        "verified_by_runs": [
+          "evidence-list@2026-07-30T18:46:54+00:00",
+          "evidence-list@2026-07-30T18:49:45+00:00",
+          "exploration@2026-07-30T18:56:15+00:00"
+        ],
+        "version": 8
+      },
+      "record_id": "auth:portal-login",
+      "success_count": 6,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "VERIFIED",
+      "updated_at": "2026-07-31T12:22:52+00:00",
+      "verified_by_runs": [
+        "evidence-list@2026-07-30T18:46:54+00:00",
+        "evidence-list@2026-07-30T18:49:45+00:00",
+        "exploration@2026-07-30T18:56:15+00:00"
+      ],
+      "version": 8
+    },
+    "auth:portal-login-form": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+          "kind": "run",
+          "note": "password=label='Enter your password'  username=label='Please enter email address/username'  submit=text='Sign in'  contractor=54 option(s), required",
+          "observed_at": "2026-07-30T18:46:54+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+          "kind": "run",
+          "note": "password=label='Enter your password'  username=label='Please enter email address/username'  submit=text='Sign in'  contractor=54 option(s), required",
+          "observed_at": "2026-07-30T18:49:45+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "password=label='Enter your password'  username=label='Please enter email address/username'  submit=text='Sign in'  contractor=54 option(s), required",
+          "observed_at": "2026-07-30T18:56:15+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "auth",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-07-31T12:22:52+00:00",
+      "last_verified": "2026-07-31T12:22:52+00:00",
+      "name": "portal-login-form",
+      "notes": "observed by the TEGG driver at step 'login_form'; evidence kept locally under work/evidence-list",
+      "payload": {
+        "contractor_required": true,
+        "form_fields": [
+          "password",
+          "submit",
+          "username"
+        ],
+        "login_url": "https://tegg2.teggpro.com/auth/login",
+        "password_locator": {
+          "by": "label",
+          "value": "Enter your password"
+        },
+        "submit_locator": {
+          "by": "text",
+          "value": "Sign in"
+        },
+        "username_locator": {
+          "by": "label",
+          "value": "Please enter email address/username"
+        }
+      },
+      "previous_good": {
+        "approval_required": false,
+        "approved_at": "",
+        "approved_by": "",
+        "consecutive_failures": 0,
+        "created_at": "2026-07-31T12:22:52+00:00",
+        "environment": "production",
+        "evidence": [
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+            "kind": "run",
+            "note": "password=label='Enter your password'  username=label='Please enter email address/username'  submit=text='Sign in'  contractor=54 option(s), required",
+            "observed_at": "2026-07-30T18:46:54+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+            "kind": "run",
+            "note": "password=label='Enter your password'  username=label='Please enter email address/username'  submit=text='Sign in'  contractor=54 option(s), required",
+            "observed_at": "2026-07-30T18:49:45+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+            "kind": "run",
+            "note": "password=label='Enter your password'  username=label='Please enter email address/username'  submit=text='Sign in'  contractor=54 option(s), required",
+            "observed_at": "2026-07-30T18:56:15+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          }
+        ],
+        "expires_at": "",
+        "failure_count": 0,
+        "integration": "tegg-pro",
+        "kind": "auth",
+        "last_failure": "",
+        "last_failure_execution": "",
+        "last_success": "2026-07-31T12:22:52+00:00",
+        "last_verified": "2026-07-31T12:22:52+00:00",
+        "name": "portal-login-form",
+        "notes": "observed by the TEGG driver at step 'login_form'; evidence kept locally under work/evidence-list",
+        "payload": {
+          "contractor_required": true,
+          "form_fields": [
+            "password",
+            "submit",
+            "username"
+          ],
+          "login_url": "https://tegg2.teggpro.com/auth/login",
+          "password_locator": {
+            "by": "label",
+            "value": "Enter your password"
+          },
+          "submit_locator": {
+            "by": "text",
+            "value": "Sign in"
+          },
+          "username_locator": {
+            "by": "label",
+            "value": "Please enter email address/username"
+          }
+        },
+        "record_id": "auth:portal-login-form",
+        "success_count": 3,
+        "superseded_by": "",
+        "supersedes": "",
+        "tenant": "lippolis",
+        "trust": "VERIFIED",
+        "updated_at": "2026-07-31T12:22:52+00:00",
+        "verified_by_runs": [
+          "evidence-list@2026-07-30T18:46:54+00:00",
+          "evidence-list@2026-07-30T18:49:45+00:00",
+          "exploration@2026-07-30T18:56:15+00:00"
+        ],
+        "version": 5
+      },
+      "record_id": "auth:portal-login-form",
+      "success_count": 3,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "VERIFIED",
+      "updated_at": "2026-07-31T12:22:52+00:00",
+      "verified_by_runs": [
+        "evidence-list@2026-07-30T18:46:54+00:00",
+        "evidence-list@2026-07-30T18:49:45+00:00",
+        "exploration@2026-07-30T18:56:15+00:00"
+      ],
+      "version": 5
+    },
+    "navigation:documentation-area": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 1,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+          "kind": "run",
+          "note": "documentation area open",
+          "observed_at": "2026-07-30T18:47:01+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+          "kind": "run",
+          "note": "documentation area open",
+          "observed_at": "2026-07-30T18:49:51+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "documentation area open",
+          "observed_at": "2026-07-30T18:56:26+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 1,
+      "integration": "tegg-pro",
+      "kind": "navigation",
+      "last_failure": "2026-07-31T17:01:48+00:00",
+      "last_failure_execution": "live-1",
+      "last_success": "2026-07-31T12:22:52+00:00",
+      "last_verified": "2026-07-31T12:22:52+00:00",
+      "name": "documentation-area",
+      "notes": "observed by the TEGG driver at step 'open_documentation'; evidence kept locally under work/evidence-list",
+      "payload": {
+        "actions": [
+          "open the Documentation area"
+        ],
+        "expected_result": "the site-visit list is on screen",
+        "starting_state": "signed in, on the dashboard",
+        "url": "https://tegg2.teggpro.com/sales/documentation"
+      },
+      "previous_good": {
+        "approval_required": false,
+        "approved_at": "",
+        "approved_by": "",
+        "consecutive_failures": 0,
+        "created_at": "2026-07-31T12:22:52+00:00",
+        "environment": "production",
+        "evidence": [
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+            "kind": "run",
+            "note": "documentation area open",
+            "observed_at": "2026-07-30T18:47:01+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+            "kind": "run",
+            "note": "documentation area open",
+            "observed_at": "2026-07-30T18:49:51+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+            "kind": "run",
+            "note": "documentation area open",
+            "observed_at": "2026-07-30T18:56:26+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          }
+        ],
+        "expires_at": "",
+        "failure_count": 0,
+        "integration": "tegg-pro",
+        "kind": "navigation",
+        "last_failure": "",
+        "last_failure_execution": "",
+        "last_success": "2026-07-31T12:22:52+00:00",
+        "last_verified": "2026-07-31T12:22:52+00:00",
+        "name": "documentation-area",
+        "notes": "observed by the TEGG driver at step 'open_documentation'; evidence kept locally under work/evidence-list",
+        "payload": {
+          "actions": [
+            "open the Documentation area"
+          ],
+          "expected_result": "the site-visit list is on screen",
+          "starting_state": "signed in, on the dashboard",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        "record_id": "navigation:documentation-area",
+        "success_count": 3,
+        "superseded_by": "",
+        "supersedes": "",
+        "tenant": "lippolis",
+        "trust": "VERIFIED",
+        "updated_at": "2026-07-31T12:22:52+00:00",
+        "verified_by_runs": [
+          "evidence-list@2026-07-30T18:46:54+00:00",
+          "evidence-list@2026-07-30T18:49:45+00:00",
+          "exploration@2026-07-30T18:56:15+00:00"
+        ],
+        "version": 5
+      },
+      "record_id": "navigation:documentation-area",
+      "success_count": 3,
+      "superseded_by": "procedure:documentation-read.reach-documentation",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "INVALID",
+      "updated_at": "2026-07-31T17:01:53+00:00",
+      "verified_by_runs": [],
+      "version": 7
+    },
+    "navigation:open-site-visit": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "site visit T26-??? open",
+          "observed_at": "2026-07-30T18:56:57+00:00",
+          "tenant": "lippolis",
+          "url": "https://remote.teggpro.com/work/<id>/<id>/<id>/<id>"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "navigation",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-07-31T12:22:52+00:00",
+      "last_verified": "",
+      "name": "open-site-visit",
+      "notes": "observed by the TEGG driver at step 'open_site_visit'; evidence kept locally under work/exploration",
+      "payload": {
+        "actions": [
+          "click the row, which hands off to remote.teggpro.com via /auth/gsso/",
+          "wait out the 'Redirecting...' page",
+          "wait out 'Loading locations... / Loading assets...'",
+          "confirm the landed URL carries the same trailing id path"
+        ],
+        "context_check": "trailing-id-path",
+        "expected_result": "the remote work page for that visit",
+        "starting_state": "a row in the site-visit list",
+        "url_pattern": "https://remote.teggpro.com/work/<id>/<id>/<id>/<id>"
+      },
+      "previous_good": null,
+      "record_id": "navigation:open-site-visit",
+      "success_count": 1,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "CANDIDATE",
+      "updated_at": "2026-07-31T12:22:52+00:00",
+      "verified_by_runs": [
+        "exploration@2026-07-30T18:56:15+00:00"
+      ],
+      "version": 2
+    },
+    "navigation:site-visit-actions": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "33 action(s) offered",
+          "observed_at": "2026-07-30T18:56:57+00:00",
+          "tenant": "lippolis",
+          "url": "https://remote.teggpro.com/work/<id>/<id>/<id>/<id>"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "navigation",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-07-31T12:22:52+00:00",
+      "last_verified": "",
+      "name": "site-visit-actions",
+      "notes": "observed by the TEGG driver at step 'inventory_actions'; evidence kept locally under work/exploration",
+      "payload": {
+        "actions": [
+          "33 action(s) offered"
+        ],
+        "expected_result": "33 action(s) offered",
+        "starting_state": "",
+        "url": "https://remote.teggpro.com/work/<id>/<id>/<id>/<id>"
+      },
+      "previous_good": null,
+      "record_id": "navigation:site-visit-actions",
+      "success_count": 1,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "CANDIDATE",
+      "updated_at": "2026-07-31T12:22:52+00:00",
+      "verified_by_runs": [
+        "exploration@2026-07-30T18:56:15+00:00"
+      ],
+      "version": 2
+    },
+    "navigation:site-visit-documentation": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "opened via 'Documentation'",
+          "observed_at": "2026-07-30T18:56:58+00:00",
+          "tenant": "lippolis",
+          "url": "https://remote.teggpro.com/work/<id>/<id>/<id>/<id>"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "navigation",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-07-31T12:22:52+00:00",
+      "last_verified": "",
+      "name": "site-visit-documentation",
+      "notes": "observed by the TEGG driver at step 'open_document_library'; evidence kept locally under work/exploration",
+      "payload": {
+        "actions": [
+          "open Documentation"
+        ],
+        "expected_result": "the document list for that visit",
+        "label_used": "Documentation",
+        "starting_state": "a site visit is open on remote.teggpro.com",
+        "url": "https://remote.teggpro.com/work/<id>/<id>/<id>/<id>"
+      },
+      "previous_good": null,
+      "record_id": "navigation:site-visit-documentation",
+      "success_count": 1,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "CANDIDATE",
+      "updated_at": "2026-07-31T12:22:52+00:00",
+      "verified_by_runs": [
+        "exploration@2026-07-30T18:56:15+00:00"
+      ],
+      "version": 2
+    },
+    "navigation:site-visit-documents": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "1 candidate document(s) recognised",
+          "observed_at": "2026-07-30T18:56:58+00:00",
+          "tenant": "lippolis",
+          "url": "https://remote.teggpro.com/work/<id>/<id>/<id>/<id>"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "navigation",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-07-31T12:22:52+00:00",
+      "last_verified": "",
+      "name": "site-visit-documents",
+      "notes": "observed by the TEGG driver at step 'discover_documents'; evidence kept locally under work/exploration",
+      "payload": {
+        "actions": [
+          "1 candidate document(s) recognised"
+        ],
+        "expected_result": "1 candidate document(s) recognised",
+        "starting_state": "",
+        "url": "https://remote.teggpro.com/work/<id>/<id>/<id>/<id>"
+      },
+      "previous_good": null,
+      "record_id": "navigation:site-visit-documents",
+      "success_count": 1,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "CANDIDATE",
+      "updated_at": "2026-07-31T12:22:52+00:00",
+      "verified_by_runs": [
+        "exploration@2026-07-30T18:56:15+00:00"
+      ],
+      "version": 2
+    },
+    "navigation:site-visit-list": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+          "kind": "run",
+          "note": "123 completed site visit(s)",
+          "observed_at": "2026-07-30T18:47:28+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+          "kind": "run",
+          "note": "123 completed site visit(s)",
+          "observed_at": "2026-07-30T18:50:19+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "123 completed site visit(s)",
+          "observed_at": "2026-07-30T18:56:54+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "navigation",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-07-31T12:22:52+00:00",
+      "last_verified": "2026-07-31T12:22:52+00:00",
+      "name": "site-visit-list",
+      "notes": "observed by the TEGG driver at step 'list_site_visits'; evidence kept locally under work/evidence-list",
+      "payload": {
+        "actions": [
+          "read every page of the visit table"
+        ],
+        "expected_result": "one row per completed site visit",
+        "starting_state": "the Documentation area is open with a timeframe set",
+        "url": "https://tegg2.teggpro.com/sales/documentation"
+      },
+      "previous_good": {
+        "approval_required": false,
+        "approved_at": "",
+        "approved_by": "",
+        "consecutive_failures": 0,
+        "created_at": "2026-07-31T12:22:52+00:00",
+        "environment": "production",
+        "evidence": [
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+            "kind": "run",
+            "note": "123 completed site visit(s)",
+            "observed_at": "2026-07-30T18:47:28+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+            "kind": "run",
+            "note": "123 completed site visit(s)",
+            "observed_at": "2026-07-30T18:50:19+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+            "kind": "run",
+            "note": "123 completed site visit(s)",
+            "observed_at": "2026-07-30T18:56:54+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          }
+        ],
+        "expires_at": "",
+        "failure_count": 0,
+        "integration": "tegg-pro",
+        "kind": "navigation",
+        "last_failure": "",
+        "last_failure_execution": "",
+        "last_success": "2026-07-31T12:22:52+00:00",
+        "last_verified": "2026-07-31T12:22:52+00:00",
+        "name": "site-visit-list",
+        "notes": "observed by the TEGG driver at step 'list_site_visits'; evidence kept locally under work/evidence-list",
+        "payload": {
+          "actions": [
+            "read every page of the visit table"
+          ],
+          "expected_result": "one row per completed site visit",
+          "starting_state": "the Documentation area is open with a timeframe set",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        "record_id": "navigation:site-visit-list",
+        "success_count": 3,
+        "superseded_by": "",
+        "supersedes": "",
+        "tenant": "lippolis",
+        "trust": "VERIFIED",
+        "updated_at": "2026-07-31T12:22:52+00:00",
+        "verified_by_runs": [
+          "evidence-list@2026-07-30T18:46:54+00:00",
+          "evidence-list@2026-07-30T18:49:45+00:00",
+          "exploration@2026-07-30T18:56:15+00:00"
+        ],
+        "version": 5
+      },
+      "record_id": "navigation:site-visit-list",
+      "success_count": 3,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "VERIFIED",
+      "updated_at": "2026-07-31T12:22:52+00:00",
+      "verified_by_runs": [
+        "evidence-list@2026-07-30T18:46:54+00:00",
+        "evidence-list@2026-07-30T18:49:45+00:00",
+        "exploration@2026-07-30T18:56:15+00:00"
+      ],
+      "version": 5
+    },
+    "navigation:site-visit-list-pagination": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+          "kind": "run",
+          "note": "read 20 page(s) of the visit list",
+          "observed_at": "2026-07-30T18:47:28+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+          "kind": "run",
+          "note": "read 20 page(s) of the visit list",
+          "observed_at": "2026-07-30T18:50:19+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "read 20 page(s) of the visit list",
+          "observed_at": "2026-07-30T18:56:54+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "navigation",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-07-31T12:22:52+00:00",
+      "last_verified": "2026-07-31T12:22:52+00:00",
+      "name": "site-visit-list-pagination",
+      "notes": "observed by the TEGG driver at step 'list_pagination'; evidence kept locally under work/evidence-list",
+      "payload": {
+        "actions": [
+          "read every page of the visit table"
+        ],
+        "expected_result": "one row per completed site visit",
+        "starting_state": "the Documentation area is open with a timeframe set",
+        "url": "https://tegg2.teggpro.com/sales/documentation"
+      },
+      "previous_good": {
+        "approval_required": false,
+        "approved_at": "",
+        "approved_by": "",
+        "consecutive_failures": 0,
+        "created_at": "2026-07-31T12:22:52+00:00",
+        "environment": "production",
+        "evidence": [
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+            "kind": "run",
+            "note": "read 20 page(s) of the visit list",
+            "observed_at": "2026-07-30T18:47:28+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+            "kind": "run",
+            "note": "read 20 page(s) of the visit list",
+            "observed_at": "2026-07-30T18:50:19+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+            "kind": "run",
+            "note": "read 20 page(s) of the visit list",
+            "observed_at": "2026-07-30T18:56:54+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          }
+        ],
+        "expires_at": "",
+        "failure_count": 0,
+        "integration": "tegg-pro",
+        "kind": "navigation",
+        "last_failure": "",
+        "last_failure_execution": "",
+        "last_success": "2026-07-31T12:22:52+00:00",
+        "last_verified": "2026-07-31T12:22:52+00:00",
+        "name": "site-visit-list-pagination",
+        "notes": "observed by the TEGG driver at step 'list_pagination'; evidence kept locally under work/evidence-list",
+        "payload": {
+          "actions": [
+            "read every page of the visit table"
+          ],
+          "expected_result": "one row per completed site visit",
+          "starting_state": "the Documentation area is open with a timeframe set",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        "record_id": "navigation:site-visit-list-pagination",
+        "success_count": 3,
+        "superseded_by": "",
+        "supersedes": "",
+        "tenant": "lippolis",
+        "trust": "VERIFIED",
+        "updated_at": "2026-07-31T12:22:52+00:00",
+        "verified_by_runs": [
+          "evidence-list@2026-07-30T18:46:54+00:00",
+          "evidence-list@2026-07-30T18:49:45+00:00",
+          "exploration@2026-07-30T18:56:15+00:00"
+        ],
+        "version": 5
+      },
+      "record_id": "navigation:site-visit-list-pagination",
+      "success_count": 3,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "VERIFIED",
+      "updated_at": "2026-07-31T12:22:52+00:00",
+      "verified_by_runs": [
+        "evidence-list@2026-07-30T18:46:54+00:00",
+        "evidence-list@2026-07-30T18:49:45+00:00",
+        "exploration@2026-07-30T18:56:15+00:00"
+      ],
+      "version": 5
+    },
+    "navigation:visit-timeframe": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+          "kind": "run",
+          "note": "timeframe 'All Site Visits'",
+          "observed_at": "2026-07-30T18:47:01+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+          "kind": "run",
+          "note": "timeframe 'All Site Visits'",
+          "observed_at": "2026-07-30T18:49:51+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "timeframe 'All Site Visits'",
+          "observed_at": "2026-07-30T18:56:26+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "navigation",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-07-31T12:22:52+00:00",
+      "last_verified": "2026-07-31T12:22:52+00:00",
+      "name": "visit-timeframe",
+      "notes": "observed by the TEGG driver at step 'set_timeframe'; evidence kept locally under work/evidence-list",
+      "payload": {
+        "actions": [
+          "set the timeframe to All Site Visits"
+        ],
+        "expected_result": "the list covers every site visit, not just recent ones",
+        "starting_state": "the Documentation area is open",
+        "url": "https://tegg2.teggpro.com/sales/documentation"
+      },
+      "previous_good": {
+        "approval_required": false,
+        "approved_at": "",
+        "approved_by": "",
+        "consecutive_failures": 0,
+        "created_at": "2026-07-31T12:22:52+00:00",
+        "environment": "production",
+        "evidence": [
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+            "kind": "run",
+            "note": "timeframe 'All Site Visits'",
+            "observed_at": "2026-07-30T18:47:01+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+            "kind": "run",
+            "note": "timeframe 'All Site Visits'",
+            "observed_at": "2026-07-30T18:49:51+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+            "kind": "run",
+            "note": "timeframe 'All Site Visits'",
+            "observed_at": "2026-07-30T18:56:26+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          }
+        ],
+        "expires_at": "",
+        "failure_count": 0,
+        "integration": "tegg-pro",
+        "kind": "navigation",
+        "last_failure": "",
+        "last_failure_execution": "",
+        "last_success": "2026-07-31T12:22:52+00:00",
+        "last_verified": "2026-07-31T12:22:52+00:00",
+        "name": "visit-timeframe",
+        "notes": "observed by the TEGG driver at step 'set_timeframe'; evidence kept locally under work/evidence-list",
+        "payload": {
+          "actions": [
+            "set the timeframe to All Site Visits"
+          ],
+          "expected_result": "the list covers every site visit, not just recent ones",
+          "starting_state": "the Documentation area is open",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        "record_id": "navigation:visit-timeframe",
+        "success_count": 3,
+        "superseded_by": "",
+        "supersedes": "",
+        "tenant": "lippolis",
+        "trust": "VERIFIED",
+        "updated_at": "2026-07-31T12:22:52+00:00",
+        "verified_by_runs": [
+          "evidence-list@2026-07-30T18:46:54+00:00",
+          "evidence-list@2026-07-30T18:49:45+00:00",
+          "exploration@2026-07-30T18:56:15+00:00"
+        ],
+        "version": 5
+      },
+      "record_id": "navigation:visit-timeframe",
+      "success_count": 3,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "VERIFIED",
+      "updated_at": "2026-07-31T12:22:52+00:00",
+      "verified_by_runs": [
+        "evidence-list@2026-07-30T18:46:54+00:00",
+        "evidence-list@2026-07-30T18:49:45+00:00",
+        "exploration@2026-07-30T18:56:15+00:00"
+      ],
+      "version": 5
+    },
+    "procedure:documentation-read.reach-documentation": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T17:01:53+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [
+            "work/operations/live-1/evidence/discovery-documentation-verified.png"
+          ],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-1",
+          "kind": "run",
+          "note": "/sales/documentation showed every Documentation marker 1500 ms after loading",
+          "observed_at": "2026-07-31T17:01:53+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-2",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-07-31T17:03:11+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-3",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-07-31T17:04:25+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-4",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-07-31T17:06:32+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-5",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-07-31T17:11:29+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-6",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-07-31T17:14:22+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p1a-known-knowledge",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-07-31T17:41:58+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5a-visit-findings",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-07-31T18:39:36+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5a-visit-findings",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-07-31T18:41:09+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5c-interrupted",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-07-31T18:48:07+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5e-no-agreement",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-07-31T18:50:10+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5e-no-agreement",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-07-31T18:52:41+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "visit-findings-20260803T115122+0000",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-08-03T11:51:33+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "procedure",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-08-03T11:51:33+00:00",
+      "last_verified": "2026-08-03T11:51:33+00:00",
+      "name": "documentation-read.reach-documentation",
+      "notes": "discovered live by bounded read-only route discovery",
+      "payload": {
+        "base_url": "https://tegg2.teggpro.com",
+        "discovery": "bounded read-only route discovery over live navigation",
+        "expected_result": "the Documentation area's visit list is on screen",
+        "markers": {
+          "table_headers_any_of": [
+            "customer",
+            "site name",
+            "status",
+            "agreement"
+          ],
+          "table_headers_minimum": 2,
+          "text_all_of": [
+            "documentation"
+          ],
+          "text_any_minimum": 2,
+          "text_any_of": [
+            "document library",
+            "choose timeframe",
+            "site visits",
+            "site forms",
+            "attach images"
+          ]
+        },
+        "observed_settle_ms": 1500,
+        "provenance": {
+          "budget": {
+            "allowed_hosts": [
+              "tegg2.teggpro.com"
+            ],
+            "elapsed_seconds": 5.42,
+            "max_actions": 12,
+            "max_seconds": 120.0,
+            "spent_actions": 3,
+            "trail": [
+              "goto https://tegg2.teggpro.com/sales/documentation",
+              "goto https://tegg2.teggpro.com/sales/gm-dashboard",
+              "goto https://tegg2.teggpro.com/sales/documentation"
+            ]
+          },
+          "candidates_considered": [
+            {
+              "label": "",
+              "source": "link",
+              "tried": true,
+              "url": "https://tegg2.teggpro.com/sales/documentation",
+              "verified": true
+            }
+          ],
+          "environment": "production",
+          "evidence": [
+            "discovery-documentation-verified.png"
+          ],
+          "execution_id": "live-1",
+          "integration": "tegg-pro",
+          "observed_at": "2026-07-31T17:01:53+00:00",
+          "tenant": "lippolis",
+          "verified_by_markers": {
+            "dead_route_phrase": "",
+            "matched_headers": [
+              "customer",
+              "site name",
+              "status",
+              "agreement"
+            ],
+            "matched_text": [
+              "documentation",
+              "document library",
+              "choose timeframe",
+              "site visits",
+              "site forms",
+              "attach images"
+            ],
+            "missing_text": [],
+            "ok": true,
+            "reason": "every marker held",
+            "table_rows": 52,
+            "text_length": 2129,
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          }
+        },
+        "route": "/sales/documentation",
+        "settle_budget_ms": 20000,
+        "starting_state": "signed in, on the dashboard",
+        "steps": [
+          {
+            "action": "goto",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "action": "settle",
+            "budget_ms": 20000,
+            "until": "page_markers"
+          },
+          {
+            "action": "verify",
+            "markers": "the markers on this record"
+          }
+        ],
+        "supersedes": "navigation:documentation-area",
+        "url": "https://tegg2.teggpro.com/sales/documentation"
+      },
+      "previous_good": {
+        "approval_required": false,
+        "approved_at": "",
+        "approved_by": "",
+        "consecutive_failures": 0,
+        "created_at": "2026-07-31T17:01:53+00:00",
+        "environment": "production",
+        "evidence": [
+          {
+            "artifacts": [
+              "work/operations/live-1/evidence/discovery-documentation-verified.png"
+            ],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-1",
+            "kind": "run",
+            "note": "/sales/documentation showed every Documentation marker 1500 ms after loading",
+            "observed_at": "2026-07-31T17:01:53+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-2",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-07-31T17:03:11+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-3",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-07-31T17:04:25+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-4",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-07-31T17:06:32+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-5",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-07-31T17:11:29+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-6",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-07-31T17:14:22+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p1a-known-knowledge",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-07-31T17:41:58+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5a-visit-findings",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-07-31T18:39:36+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5a-visit-findings",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-07-31T18:41:09+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5c-interrupted",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-07-31T18:48:07+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5e-no-agreement",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-07-31T18:50:10+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5e-no-agreement",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-07-31T18:52:41+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "visit-findings-20260803T115122+0000",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-08-03T11:51:33+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
+          }
+        ],
+        "expires_at": "",
+        "failure_count": 0,
+        "integration": "tegg-pro",
+        "kind": "procedure",
+        "last_failure": "",
+        "last_failure_execution": "",
+        "last_success": "2026-08-03T11:51:33+00:00",
+        "last_verified": "2026-08-03T11:51:33+00:00",
+        "name": "documentation-read.reach-documentation",
+        "notes": "discovered live by bounded read-only route discovery",
+        "payload": {
+          "base_url": "https://tegg2.teggpro.com",
+          "discovery": "bounded read-only route discovery over live navigation",
+          "expected_result": "the Documentation area's visit list is on screen",
+          "markers": {
+            "table_headers_any_of": [
+              "customer",
+              "site name",
+              "status",
+              "agreement"
+            ],
+            "table_headers_minimum": 2,
+            "text_all_of": [
+              "documentation"
+            ],
+            "text_any_minimum": 2,
+            "text_any_of": [
+              "document library",
+              "choose timeframe",
+              "site visits",
+              "site forms",
+              "attach images"
+            ]
+          },
+          "observed_settle_ms": 1500,
+          "provenance": {
+            "budget": {
+              "allowed_hosts": [
+                "tegg2.teggpro.com"
+              ],
+              "elapsed_seconds": 5.42,
+              "max_actions": 12,
+              "max_seconds": 120.0,
+              "spent_actions": 3,
+              "trail": [
+                "goto https://tegg2.teggpro.com/sales/documentation",
+                "goto https://tegg2.teggpro.com/sales/gm-dashboard",
+                "goto https://tegg2.teggpro.com/sales/documentation"
+              ]
+            },
+            "candidates_considered": [
+              {
+                "label": "",
+                "source": "link",
+                "tried": true,
+                "url": "https://tegg2.teggpro.com/sales/documentation",
+                "verified": true
+              }
+            ],
+            "environment": "production",
+            "evidence": [
+              "discovery-documentation-verified.png"
+            ],
+            "execution_id": "live-1",
+            "integration": "tegg-pro",
+            "observed_at": "2026-07-31T17:01:53+00:00",
+            "tenant": "lippolis",
+            "verified_by_markers": {
+              "dead_route_phrase": "",
+              "matched_headers": [
+                "customer",
+                "site name",
+                "status",
+                "agreement"
+              ],
+              "matched_text": [
+                "documentation",
+                "document library",
+                "choose timeframe",
+                "site visits",
+                "site forms",
+                "attach images"
+              ],
+              "missing_text": [],
+              "ok": true,
+              "reason": "every marker held",
+              "table_rows": 52,
+              "text_length": 2129,
+              "url": "https://tegg2.teggpro.com/sales/documentation"
+            }
+          },
+          "route": "/sales/documentation",
+          "settle_budget_ms": 20000,
+          "starting_state": "signed in, on the dashboard",
+          "steps": [
+            {
+              "action": "goto",
+              "url": "https://tegg2.teggpro.com/sales/documentation"
+            },
+            {
+              "action": "settle",
+              "budget_ms": 20000,
+              "until": "page_markers"
+            },
+            {
+              "action": "verify",
+              "markers": "the markers on this record"
+            }
+          ],
+          "supersedes": "navigation:documentation-area",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        "record_id": "procedure:documentation-read.reach-documentation",
+        "success_count": 13,
+        "superseded_by": "",
+        "supersedes": "navigation:documentation-area",
+        "tenant": "lippolis",
+        "trust": "VERIFIED",
+        "updated_at": "2026-08-03T11:51:33+00:00",
+        "verified_by_runs": [
+          "live-1",
+          "live-2",
+          "live-3",
+          "live-4",
+          "live-5",
+          "live-6",
+          "p1a-known-knowledge",
+          "p5a-visit-findings",
+          "p5c-interrupted",
+          "p5e-no-agreement",
+          "visit-findings-20260803T115122+0000"
+        ],
+        "version": 3
+      },
+      "record_id": "procedure:documentation-read.reach-documentation",
+      "success_count": 13,
+      "superseded_by": "",
+      "supersedes": "navigation:documentation-area",
+      "tenant": "lippolis",
+      "trust": "VERIFIED",
+      "updated_at": "2026-08-03T11:51:33+00:00",
+      "verified_by_runs": [
+        "live-1",
+        "live-2",
+        "live-3",
+        "live-4",
+        "live-5",
+        "live-6",
+        "p1a-known-knowledge",
+        "p5a-visit-findings",
+        "p5c-interrupted",
+        "p5e-no-agreement",
+        "visit-findings-20260803T115122+0000"
+      ],
+      "version": 3
+    },
+    "selector:login.password": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-30T18:46:54+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-30T18:49:45+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-30T18:56:15+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-knowing@2026-07-31T13:11:25+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T13:11:28+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-knowing-2@2026-07-31T13:14:58+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T13:15:02+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-1",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:01:45+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-2",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:03:06+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-3",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:04:20+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-4",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:06:26+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-5",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:11:24+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-6",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:14:17+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p1a-known-knowledge",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:41:53+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5a-visit-findings",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:39:31+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5a-visit-findings",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:41:05+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5c-interrupted",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:48:02+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5e-no-agreement",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:50:05+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5e-no-agreement",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:52:37+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "visit-findings-20260803T115122+0000",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-08-03T11:51:27+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "selector",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-08-03T11:51:27+00:00",
+      "last_verified": "2026-08-03T11:51:27+00:00",
+      "name": "login.password",
+      "notes": "seen on the sign-in form at step 'login_form'",
+      "payload": {
+        "component": "sign-in form",
+        "fallbacks": [],
+        "page": "https://tegg2.teggpro.com/auth/login",
+        "preferred": {
+          "by": "label",
+          "value": "Enter your password"
+        },
+        "purpose": "the password field on the sign-in form",
+        "selector_type": "label",
+        "status": "verified"
+      },
+      "previous_good": {
+        "approval_required": false,
+        "approved_at": "",
+        "approved_by": "",
+        "consecutive_failures": 0,
+        "created_at": "2026-07-31T12:22:52+00:00",
+        "environment": "production",
+        "evidence": [
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-30T18:46:54+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-30T18:49:45+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-30T18:56:15+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-knowing@2026-07-31T13:11:25+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T13:11:28+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-knowing-2@2026-07-31T13:14:58+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T13:15:02+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-1",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:01:45+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-2",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:03:06+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-3",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:04:20+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-4",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:06:26+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-5",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:11:24+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-6",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:14:17+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p1a-known-knowledge",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:41:53+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5a-visit-findings",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:39:31+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5a-visit-findings",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:41:05+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5c-interrupted",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:48:02+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5e-no-agreement",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:50:05+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5e-no-agreement",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:52:37+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "visit-findings-20260803T115122+0000",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-08-03T11:51:27+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          }
+        ],
+        "expires_at": "",
+        "failure_count": 0,
+        "integration": "tegg-pro",
+        "kind": "selector",
+        "last_failure": "",
+        "last_failure_execution": "",
+        "last_success": "2026-08-03T11:51:27+00:00",
+        "last_verified": "2026-08-03T11:51:27+00:00",
+        "name": "login.password",
+        "notes": "seen on the sign-in form at step 'login_form'",
+        "payload": {
+          "component": "sign-in form",
+          "fallbacks": [],
+          "page": "https://tegg2.teggpro.com/auth/login",
+          "preferred": {
+            "by": "label",
+            "value": "Enter your password"
+          },
+          "purpose": "the password field on the sign-in form",
+          "selector_type": "label",
+          "status": "verified"
+        },
+        "record_id": "selector:login.password",
+        "success_count": 18,
+        "superseded_by": "",
+        "supersedes": "",
+        "tenant": "lippolis",
+        "trust": "VERIFIED",
+        "updated_at": "2026-08-03T11:51:27+00:00",
+        "verified_by_runs": [
+          "evidence-list@2026-07-30T18:46:54+00:00",
+          "evidence-list@2026-07-30T18:49:45+00:00",
+          "exploration@2026-07-30T18:56:15+00:00",
+          "live-knowing@2026-07-31T13:11:25+00:00",
+          "live-knowing-2@2026-07-31T13:14:58+00:00",
+          "live-1",
+          "live-2",
+          "live-3",
+          "live-4",
+          "live-5",
+          "live-6",
+          "p1a-known-knowledge",
+          "p5a-visit-findings",
+          "p5c-interrupted",
+          "p5e-no-agreement",
+          "visit-findings-20260803T115122+0000"
+        ],
+        "version": 5
+      },
+      "record_id": "selector:login.password",
+      "success_count": 18,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "VERIFIED",
+      "updated_at": "2026-08-03T11:51:27+00:00",
+      "verified_by_runs": [
+        "evidence-list@2026-07-30T18:46:54+00:00",
+        "evidence-list@2026-07-30T18:49:45+00:00",
+        "exploration@2026-07-30T18:56:15+00:00",
+        "live-knowing@2026-07-31T13:11:25+00:00",
+        "live-knowing-2@2026-07-31T13:14:58+00:00",
+        "live-1",
+        "live-2",
+        "live-3",
+        "live-4",
+        "live-5",
+        "live-6",
+        "p1a-known-knowledge",
+        "p5a-visit-findings",
+        "p5c-interrupted",
+        "p5e-no-agreement",
+        "visit-findings-20260803T115122+0000"
+      ],
+      "version": 5
+    },
+    "selector:login.submit": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-30T18:46:54+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-30T18:49:45+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-30T18:56:15+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-knowing@2026-07-31T13:11:25+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T13:11:28+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-knowing-2@2026-07-31T13:14:58+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T13:15:02+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-1",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:01:45+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-2",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:03:06+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-3",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:04:20+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-4",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:06:26+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-5",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:11:24+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-6",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:14:17+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p1a-known-knowledge",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:41:53+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5a-visit-findings",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:39:31+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5a-visit-findings",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:41:05+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5c-interrupted",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:48:02+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5e-no-agreement",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:50:05+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5e-no-agreement",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:52:37+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "visit-findings-20260803T115122+0000",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-08-03T11:51:27+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "selector",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-08-03T11:51:27+00:00",
+      "last_verified": "2026-08-03T11:51:27+00:00",
+      "name": "login.submit",
+      "notes": "seen on the sign-in form at step 'login_form'",
+      "payload": {
+        "component": "sign-in form",
+        "fallbacks": [],
+        "page": "https://tegg2.teggpro.com/auth/login",
+        "preferred": {
+          "by": "text",
+          "value": "Sign in"
+        },
+        "purpose": "the button that submits the sign-in form",
+        "selector_type": "text",
+        "status": "verified"
+      },
+      "previous_good": {
+        "approval_required": false,
+        "approved_at": "",
+        "approved_by": "",
+        "consecutive_failures": 0,
+        "created_at": "2026-07-31T12:22:52+00:00",
+        "environment": "production",
+        "evidence": [
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-30T18:46:54+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-30T18:49:45+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-30T18:56:15+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-knowing@2026-07-31T13:11:25+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T13:11:28+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-knowing-2@2026-07-31T13:14:58+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T13:15:02+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-1",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:01:45+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-2",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:03:06+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-3",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:04:20+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-4",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:06:26+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-5",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:11:24+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-6",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:14:17+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p1a-known-knowledge",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:41:53+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5a-visit-findings",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:39:31+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5a-visit-findings",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:41:05+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5c-interrupted",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:48:02+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5e-no-agreement",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:50:05+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5e-no-agreement",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:52:37+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "visit-findings-20260803T115122+0000",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-08-03T11:51:27+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          }
+        ],
+        "expires_at": "",
+        "failure_count": 0,
+        "integration": "tegg-pro",
+        "kind": "selector",
+        "last_failure": "",
+        "last_failure_execution": "",
+        "last_success": "2026-08-03T11:51:27+00:00",
+        "last_verified": "2026-08-03T11:51:27+00:00",
+        "name": "login.submit",
+        "notes": "seen on the sign-in form at step 'login_form'",
+        "payload": {
+          "component": "sign-in form",
+          "fallbacks": [],
+          "page": "https://tegg2.teggpro.com/auth/login",
+          "preferred": {
+            "by": "text",
+            "value": "Sign in"
+          },
+          "purpose": "the button that submits the sign-in form",
+          "selector_type": "text",
+          "status": "verified"
+        },
+        "record_id": "selector:login.submit",
+        "success_count": 18,
+        "superseded_by": "",
+        "supersedes": "",
+        "tenant": "lippolis",
+        "trust": "VERIFIED",
+        "updated_at": "2026-08-03T11:51:27+00:00",
+        "verified_by_runs": [
+          "evidence-list@2026-07-30T18:46:54+00:00",
+          "evidence-list@2026-07-30T18:49:45+00:00",
+          "exploration@2026-07-30T18:56:15+00:00",
+          "live-knowing@2026-07-31T13:11:25+00:00",
+          "live-knowing-2@2026-07-31T13:14:58+00:00",
+          "live-1",
+          "live-2",
+          "live-3",
+          "live-4",
+          "live-5",
+          "live-6",
+          "p1a-known-knowledge",
+          "p5a-visit-findings",
+          "p5c-interrupted",
+          "p5e-no-agreement",
+          "visit-findings-20260803T115122+0000"
+        ],
+        "version": 5
+      },
+      "record_id": "selector:login.submit",
+      "success_count": 18,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "VERIFIED",
+      "updated_at": "2026-08-03T11:51:27+00:00",
+      "verified_by_runs": [
+        "evidence-list@2026-07-30T18:46:54+00:00",
+        "evidence-list@2026-07-30T18:49:45+00:00",
+        "exploration@2026-07-30T18:56:15+00:00",
+        "live-knowing@2026-07-31T13:11:25+00:00",
+        "live-knowing-2@2026-07-31T13:14:58+00:00",
+        "live-1",
+        "live-2",
+        "live-3",
+        "live-4",
+        "live-5",
+        "live-6",
+        "p1a-known-knowledge",
+        "p5a-visit-findings",
+        "p5c-interrupted",
+        "p5e-no-agreement",
+        "visit-findings-20260803T115122+0000"
+      ],
+      "version": 5
+    },
+    "selector:login.username": {
+      "approval_required": false,
+      "approved_at": "",
+      "approved_by": "",
+      "consecutive_failures": 0,
+      "created_at": "2026-07-31T12:22:52+00:00",
+      "environment": "production",
+      "evidence": [
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-30T18:46:54+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-30T18:49:45+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-30T18:56:15+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-knowing@2026-07-31T13:11:25+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T13:11:28+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-knowing-2@2026-07-31T13:14:58+00:00",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T13:15:02+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-1",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:01:45+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-2",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:03:06+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-3",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:04:20+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-4",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:06:26+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-5",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:11:24+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "live-6",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:14:17+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p1a-known-knowledge",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T17:41:53+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5a-visit-findings",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:39:31+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5a-visit-findings",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:41:05+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5c-interrupted",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:48:02+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5e-no-agreement",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:50:05+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "p5e-no-agreement",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-07-31T18:52:37+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+          "execution_id": "visit-findings-20260803T115122+0000",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-08-03T11:51:27+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
+        }
+      ],
+      "expires_at": "",
+      "failure_count": 0,
+      "integration": "tegg-pro",
+      "kind": "selector",
+      "last_failure": "",
+      "last_failure_execution": "",
+      "last_success": "2026-08-03T11:51:27+00:00",
+      "last_verified": "2026-08-03T11:51:27+00:00",
+      "name": "login.username",
+      "notes": "seen on the sign-in form at step 'login_form'",
+      "payload": {
+        "component": "sign-in form",
+        "fallbacks": [],
+        "page": "https://tegg2.teggpro.com/auth/login",
+        "preferred": {
+          "by": "label",
+          "value": "Please enter email address/username"
+        },
+        "purpose": "the account name field on the sign-in form",
+        "selector_type": "label",
+        "status": "verified"
+      },
+      "previous_good": {
+        "approval_required": false,
+        "approved_at": "",
+        "approved_by": "",
+        "consecutive_failures": 0,
+        "created_at": "2026-07-31T12:22:52+00:00",
+        "environment": "production",
+        "evidence": [
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:46:54+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-30T18:46:54+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "evidence-list@2026-07-30T18:49:45+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-30T18:49:45+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "exploration@2026-07-30T18:56:15+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-30T18:56:15+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-knowing@2026-07-31T13:11:25+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T13:11:28+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-knowing-2@2026-07-31T13:14:58+00:00",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T13:15:02+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-1",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:01:45+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-2",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:03:06+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-3",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:04:20+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-4",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:06:26+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-5",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:11:24+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "live-6",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:14:17+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p1a-known-knowledge",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T17:41:53+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5a-visit-findings",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:39:31+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5a-visit-findings",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:41:05+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5c-interrupted",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:48:02+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5e-no-agreement",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:50:05+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "p5e-no-agreement",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-07-31T18:52:37+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "b40644758090ceb8df787efc1ebfbfc0f55b397c",
+            "execution_id": "visit-findings-20260803T115122+0000",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-08-03T11:51:27+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
+          }
+        ],
+        "expires_at": "",
+        "failure_count": 0,
+        "integration": "tegg-pro",
+        "kind": "selector",
+        "last_failure": "",
+        "last_failure_execution": "",
+        "last_success": "2026-08-03T11:51:27+00:00",
+        "last_verified": "2026-08-03T11:51:27+00:00",
+        "name": "login.username",
+        "notes": "seen on the sign-in form at step 'login_form'",
+        "payload": {
+          "component": "sign-in form",
+          "fallbacks": [],
+          "page": "https://tegg2.teggpro.com/auth/login",
+          "preferred": {
+            "by": "label",
+            "value": "Please enter email address/username"
+          },
+          "purpose": "the account name field on the sign-in form",
+          "selector_type": "label",
+          "status": "verified"
+        },
+        "record_id": "selector:login.username",
+        "success_count": 18,
+        "superseded_by": "",
+        "supersedes": "",
+        "tenant": "lippolis",
+        "trust": "VERIFIED",
+        "updated_at": "2026-08-03T11:51:27+00:00",
+        "verified_by_runs": [
+          "evidence-list@2026-07-30T18:46:54+00:00",
+          "evidence-list@2026-07-30T18:49:45+00:00",
+          "exploration@2026-07-30T18:56:15+00:00",
+          "live-knowing@2026-07-31T13:11:25+00:00",
+          "live-knowing-2@2026-07-31T13:14:58+00:00",
+          "live-1",
+          "live-2",
+          "live-3",
+          "live-4",
+          "live-5",
+          "live-6",
+          "p1a-known-knowledge",
+          "p5a-visit-findings",
+          "p5c-interrupted",
+          "p5e-no-agreement",
+          "visit-findings-20260803T115122+0000"
+        ],
+        "version": 5
+      },
+      "record_id": "selector:login.username",
+      "success_count": 18,
+      "superseded_by": "",
+      "supersedes": "",
+      "tenant": "lippolis",
+      "trust": "VERIFIED",
+      "updated_at": "2026-08-03T11:51:27+00:00",
+      "verified_by_runs": [
+        "evidence-list@2026-07-30T18:46:54+00:00",
+        "evidence-list@2026-07-30T18:49:45+00:00",
+        "exploration@2026-07-30T18:56:15+00:00",
+        "live-knowing@2026-07-31T13:11:25+00:00",
+        "live-knowing-2@2026-07-31T13:14:58+00:00",
+        "live-1",
+        "live-2",
+        "live-3",
+        "live-4",
+        "live-5",
+        "live-6",
+        "p1a-known-knowledge",
+        "p5a-visit-findings",
+        "p5c-interrupted",
+        "p5e-no-agreement",
+        "visit-findings-20260803T115122+0000"
+      ],
+      "version": 5
+    }
+  },
+  "schema_version": 1,
+  "tenant": "lippolis",
+  "updated_at": "2026-08-03T11:53:04+00:00"
+}

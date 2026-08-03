@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
 
-USERNAME = "PLippolis1"
+USERNAME = "portal-user"
 PASSWORD = "test-password"
 CONTRACTOR = "Lippolis"
 

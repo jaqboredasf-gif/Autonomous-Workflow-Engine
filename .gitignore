@@ -5,7 +5,12 @@ __pycache__/
 
 # Never commit credentials or customer documents.
 .env
+.env.*
 *.env
+.envrc
+*.credentials
+*.secrets
+secrets.*
 fixtures/
 output/
 *.docx
@@ -14,6 +19,25 @@ output/
 # Real customer documents and static assets are supplied locally.
 *.pdf
 !docs/**/*.pdf
+
+# A contractor's labour rates and material allowances are commercial, and the
+# estimate reads them from here. The *example* card is committed and is marked
+# `placeholder: true`; the real one never is.
+config/estimating.yaml
+
+# Job workspaces hold real customer documents, portal screenshots, HTML
+# snapshots and manifests naming customers and sites. Never commit them.
+work/
+test-data/
+# Live dry-run evidence: portal HTML snapshots that carry the login name and
+# real customer records.
+TEGG-DRYRUN/
+# Agent scratch worktrees are checkouts of other branches, not this tree.
+.claude/
+# Legacy Word documents -- the portal serves certificates as .doc.
+*.doc
+!assets/templates/*.doc
+.DS_Store
 *.egg-info/
 build/
 dist/

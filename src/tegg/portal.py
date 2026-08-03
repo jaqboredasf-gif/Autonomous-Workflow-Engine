@@ -267,19 +267,37 @@ class PortalSession:
 
     # -- login ------------------------------------------------------------
     def login(self, username: str, password: str, contractor: str | None) -> None:
+        """Sign in, locating the form by structure rather than by one label.
+
+        A strict `get_by_label("User Id")` here is what failed on the live
+        portal, which labels the field "Please enter email address/username".
+        The shared resolver in `tegg.login` anchors on the password field
+        instead, so a change of wording is no longer fatal.
+        """
+        from . import login as login_module
+
         login_path = self.settings.get("login_path", "/auth/login")
         self.page.goto(f"{self.base_url}{login_path}", wait_until="domcontentloaded")
 
         labels = self.settings.get("login_labels", {})
-        if contractor:
-            try:
-                select_value(self.page, labels.get("contractor", "Contractor"), contractor)
-            except PortalError:
-                pass  # not every deployment shows a contractor picker
+        try:
+            form = login_module.locate(self.page, labels)
+        except login_module.LoginFormError as exc:
+            capture_diagnostics(self.page, self.diag_dir, "login-form-not-found")
+            raise PortalError(f"the sign-in form could not be located: {exc}") from exc
 
-        fill_value(self.page, labels.get("username", "User Id"), username)
-        fill_value(self.page, labels.get("password", "Password"), password)
-        find_button(self.page, labels.get("submit", "Log In")).click()
+        if contractor and form.contractor is not None:
+            try:
+                form.select_contractor(contractor)
+            except login_module.LoginFormError as exc:
+                raise PortalError(str(exc)) from exc
+
+        form.username.fill(username)
+        form.password.fill(password)
+        if form.submit is not None:
+            form.submit.click()
+        else:
+            form.password.press("Enter")
         self.page.wait_for_load_state("domcontentloaded")
 
         if self._on_login_page():

@@ -7,28 +7,79 @@ deliverable in a dated job folder.
 
 ## Status — honest version
 
+"Verified (mock)" below means: exercised by a passing test driving a real
+browser against a stand-in portal in `tests/`. **The live site at
+`tegg2.teggpro.com` has not yet been driven end to end**, so every mock result
+rests on the assumption that the real page labels match what the SOP words.
+That assumption is the main thing still to be tested.
+
 | Stage | State |
 |-------|-------|
-| Job folder creation | **Working** |
-| SOP encoded as config | **Working** |
-| Matching real download filenames to sections | **Working, tested** |
-| Split IR report into cover + body | **Working, tested** |
-| Merge 10 PDFs in SOP order | **Working, tested** |
-| Final filename + output naming | **Working** (separator needs confirming) |
-| Incomplete-report guard | **Working, tested** |
-| Build manifest / audit log | **Working** |
-| Portal login + 7 downloads | **Scaffolded, cannot run** — see GAPS #1, #2 |
-| Certificate checkbox edits | **Scaffolded, blocked** — see GAPS #3, #4 |
+| Job workspace + resumable manifest | **Working, verified** |
+| Report classification (labels → canonical types) | **Working, verified** |
+| Completed-site-visit listing | **Implemented, verified (mock)** — live site unverified |
+| Site-visit context + Document Library | **Implemented, verified (mock)** — live site unverified |
+| Certificate download (legacy `.doc`) | **Implemented, verified (mock)** — live site unverified |
+| Legacy `.doc` → `.docx`/PDF conversion | **Working, verified on the real certificate** |
+| Certificate checkbox classification | **Working, verified on the real certificate** |
+| Certificate checkbox *editing* | **Deliberately not done** — see below |
+| Report discovery + download | **Implemented, verified (mock)** — live site unverified |
+| Split IR report into cover + body | **Working, verified** |
+| Merge 10 PDFs in business order | **Working, verified** |
+| Final page-count + readability validation | **Working, verified** |
+| DRAFT watermark + review flagging | **Working, verified** |
+| Resume / retry after a partial run | **Working, verified** |
+| Evidence capture + outcome taxonomy | **Working, verified** |
 | Save to the shared drive | **Path-agnostic**, drive not yet identified |
 
-**What that means in practice:** everything that happens once the documents are
-on disk works today and is covered by tests — `tegg build` is usable for real
-reports right now, with the documents downloaded by hand. The front half,
-pulling from the portal, is blocked on network access to `tegg2.teggpro.com`
-rather than on code.
+**What that means in practice:** the whole pipeline runs end to end against a
+mock portal, producing a 43-page draft from a real legacy `.doc` certificate.
+What has not happened is a live run — see [`docs/OPERATOR.md`](docs/OPERATOR.md)
+for the two commands that do it.
 
-To use it today, follow [`docs/QUICKSTART.md`](docs/QUICKSTART.md). Full
-blocker detail in [`docs/GAPS.md`](docs/GAPS.md).
+The portal itself is reachable from this machine (`tegg2.teggpro.com` resolves
+and answers), so GAPS #1 no longer applies here; what remains is confirming the
+real page labels, which the evidence folder is designed to reveal in one run.
+
+### The certificate is never edited automatically
+
+The TEGG certificate's checkboxes are not form fields. They are Wingdings
+private-use glyphs (`U+F06F`) in ordinary text runs — **two per item** (Yes and
+No) across **eleven** items, where the SOP answers only ten. `tegg
+certificate-inspect` reports exactly that on the real document:
+
+```
+encodings found       : shape_or_drawing, wingdings_glyph
+numbered items under B: 11
+checkboxes per item   : 2
+safe to edit          : NO
+```
+
+Rather than guess at a customer-facing legal attestation, the tool converts the
+certificate, includes it unchanged, and marks the report **DRAFT — HUMAN REVIEW
+REQUIRED**. Ticking section B stays a human step. GAPS #3 and #4 remain open by
+choice, not by omission.
+
+### Two defects found and fixed
+
+* The full-pipeline test gated on `shutil.which("soffice")` rather than the
+  project's own `certificate.find_soffice()`, so on macOS it **silently
+  skipped** while the suite looked green.
+* `config/workflow.yaml` sets `delete_first_checkbox_group` but `cli.py` read
+  `delete_first_group` — a dead config key. Both spellings are now honoured.
+
+**Operators start here: [`docs/OPERATOR.md`](docs/OPERATOR.md).** The whole job
+is two commands:
+
+```bash
+.venv/bin/tegg portal list-completed      # which site visits are ready
+.venv/bin/tegg run --site-visit 71999     # build the draft report
+```
+
+For the manual, no-portal path see [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
+Blocker detail in [`docs/GAPS.md`](docs/GAPS.md) — note GAPS #3 there still says
+no sample certificate exists; one has since arrived in `test-data/`, and what it
+revealed is summarised above.
 
 ## Try it
 
@@ -60,8 +111,11 @@ order — in about a third of a second, plus a `build-manifest.json` recording
 every source file and page count.
 
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 58 tests
+.venv/bin/python -m pytest tests/ -q      # 218 tests, no skips
 ```
+
+Two of those drive a real Chromium against a mock portal and convert a real
+legacy `.doc` through LibreOffice, so the suite takes about three minutes.
 
 ## How it is put together
 
@@ -76,10 +130,21 @@ src/tegg/assemble.py     PDF split + merge            (working)
 src/tegg/resolve.py      real filenames -> sections   (working)
 src/tegg/paths.py        Company/Site/Year folders    (working)
 src/tegg/manifest.py     per-run audit log            (working)
-src/tegg/certificate.py  docx edits + PDF convert     (blocked, see GAPS)
-src/tegg/portal.py       Playwright scaffold          (blocked, see GAPS)
-src/tegg/cli.py          doctor / plan / build / fetch
+src/tegg/certificate.py  docx edits + PDF convert     (does not work on a real certificate)
+src/tegg/portal.py       Playwright driver            (works against the mock; live site unverified)
+src/tegg/browser.py      Chrome/Chromium discovery
+tests/mock_portal.py     stand-in portal for tests
+src/tegg/cli.py          doctor / plan / build / fetch / certificate / run / inspect-docx
+src/awe_knowledge/       what earlier runs learned about the portal, kept
+data/operational_knowledge/  the store itself, committed and reviewable
 ```
+
+**What earlier runs learned is kept.** Selectors, routes, the SSO hand-off
+behaviour and known failures live in `data/operational_knowledge/`, evidence-
+backed and versioned, so a later session does not rediscover them. Nothing in
+that store is trusted because an agent said so, and no credential ever reaches
+it — see [`docs/OPERATIONAL_KNOWLEDGE.md`](docs/OPERATIONAL_KNOWLEDGE.md) and
+`tegg knowledge inspect`.
 
 An operator supplies only five values per job — company, site, year, agreement,
 site visit. Everything else is fixed.
@@ -115,8 +180,13 @@ document.
 1. **Now** — use `tegg build` on manually downloaded files. Removes the Acrobat
    splitting and merging entirely; no portal access required. See
    [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
-2. **Next** — unblock GAPS #1 and #2 (network access, then selectors) to
-   automate the seven downloads. This is the largest remaining time saving.
-3. **Then** — certificate edits, once a sample document settles GAPS #3 and #4.
-4. **Later** — scheduling, but only if there is a reliable signal for when a
-   site visit is ready to report on (GAPS #10).
+2. **Next** — run the existing driver against the live site with `--headed` and
+   read the diagnostic dumps. The driver is written; what is unknown is whether
+   the real labels match the SOP's wording (GAPS #1, #2).
+3. **Then** — certificate edits. A sample document now exists in `test-data/`
+   and shows the current approach does not fit it: glyph-based checkboxes,
+   two boxes per item, and an eleventh item. GAPS #3 and #4 are open.
+4. **Then** — legacy `.doc` handling, since that is the format the portal
+   actually serves.
+5. **Later** — resume/retry, then scheduling, but scheduling only if there is a
+   reliable signal for when a site visit is ready to report on (GAPS #10).

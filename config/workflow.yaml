@@ -15,11 +15,60 @@ portal:
   #
   # Controls are located by these labels. If the live site words one
   # differently, change it here -- no code change needed.
+  # Captured from the live sign-in page on 2026-07-29 with
+  # `tegg portal probe-login` (which needs no credentials). These are HINTS,
+  # not requirements: the form is located by structure -- the password field is
+  # the anchor -- so a wording change here does not break sign-in.
+  #
+  # What the live page actually shows:
+  #   username  <input type="email" name="email">
+  #             label "Please enter email address/username"
+  #   password  <input type="password" name="password">
+  #             label "Enter your password"
+  #   submit    button "Sign in"
+  #   contractor  a custom <contractorconnection> control, not a <select>
   login_labels:
     contractor: "Contractor"
-    username: "User Id"
-    password: "Password"
-    submit: "Log In"
+    username: "email"
+    password: "password"
+    submit: "Sign in"
+
+  # --- the site-visit route -------------------------------------------------
+  # The company-level Reports screen reports "currently no agreements", so it
+  # is NOT the way in. The route that works is the one a human uses:
+  #   Documentation -> a completed site visit -> Document Library -> Certificates
+  #
+  # Each of these is a list of labels to try, in order. A wording difference on
+  # the real site is a change here, not a code change. Set documentation_path
+  # instead if you know the direct URL.
+  # Sign-in happens client-side (Angular), so there is no page navigation to
+  # wait on. The driver polls for the form to disappear, the route to change,
+  # or an error message -- up to this long.
+  login_timeout_ms: 30000
+
+  # Any further values this portal demands beyond username and password, e.g.
+  # a company code. Keys are matched against a control's name, id or label.
+  # Use "env:VAR_NAME" for anything secret so it stays out of this file.
+  #   extra_fields:
+  #     companyCode: "ACME-1"
+  #     pin: "env:TEGG_PIN"
+  extra_fields: {}
+
+  # Confirmed live 2026-07-29. The visit table is filled by a later API call,
+  # so the driver waits for it rather than reading the page at load.
+  documentation_path: "/sales/documentation"
+  documentation_labels: ["Documentation", "Documents", "Site Visits"]
+  # The list defaults to "Recent"; widen it so older completed visits appear.
+  visit_timeframe: "All Site Visits"
+  max_list_pages: 20
+  # Inside a site visit the portal hands off to TEGGPro Remote, which words
+  # this "Documentation" -- there is no "Document Library" there.
+  document_library_labels: ["Document Library", "Documents", "Library", "Documentation"]
+  certificate_labels: ["Certificates", "Certificate", "Certificates good"]
+  # Extra links to follow inside a site visit while hunting for the reports.
+  # Populate this from what `tegg portal inspect` reports.
+  report_routes: []
+  timeout_ms: 30000
 
 # The shared "Print Report -> choose format -> Export" flow.
 export:
@@ -33,6 +82,43 @@ destination:
   root: "z. TEGG Job Folders (Reports Only)"
   # Rendered as <root>/<company>/<site>/<year>
   levels: ["company", "site", "year"]
+
+# ---------------------------------------------------------------------------
+# The real report route, confirmed live on 2026-07-29.
+# ---------------------------------------------------------------------------
+# The company-level /reports page is a dead end ("currently no agreements").
+# The working route is inside Documentation, and a site MUST be selected first
+# or every tab shows "PLEASE SEARCH FOR A CUSTOMER OR SITE USING THE SEARCH BAR":
+#
+#   1. /sales/documentation
+#   2. Type the SITE name into the search box (placeholder "Enter customer or
+#      site name"). It is an ngx-bootstrap typeahead: results render into
+#      <typeahead-container> as .dropdown-item, grouped Customers / Sites.
+#      Keystrokes must be real -- fill() does not trigger it, use typing.
+#   3. Click the "Reports" tab, then the "Standard ESA Reports" category.
+#   4. Click the report, set Agreement (and Site Visit / Order By / Images
+#      where offered), then "Print Report" -> choose format -> Export.
+#
+# Certificates come from the "Document Library" tab in the same site context.
+#
+# Individual site-visit rows SSO out to remote.teggpro.com ("TEGGPro Remote"),
+# which is per-asset field data -- equipment, problems, images. The ESA reports
+# are NOT there.
+esa_reports:
+  documentation_path: "/sales/documentation"
+  search_placeholder: "customer or site"
+  typeahead_item: "typeahead-container .dropdown-item"
+  reports_tab: "Reports"
+  category: "Standard ESA Reports"
+  # Confirmed labels. Two are sub-options under "Equipment Inventory".
+  routes:
+    problem_count_summary: ["Problem Count Summary"]
+    standard_ir: ["Standard IR Report"]
+    eds_all_problems: ["EDS Component Problem Summary"]
+    equipment_item_problems: ["Equipment Item Problems"]
+    equipment_inventory_short: ["Equipment Inventory", "Short Form"]
+    equipment_inventory_long: ["Equipment Inventory", "Long Form"]
+  certificate_tab: "Document Library"
 
 # ---------------------------------------------------------------------------
 # Stage 1: documents pulled from the TEGG Pro portal.

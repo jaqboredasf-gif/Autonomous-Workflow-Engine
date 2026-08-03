@@ -8,7 +8,6 @@ deliverable in a Company/Site/Year folder.
 
 from __future__ import annotations
 
-import shutil
 import sys
 from pathlib import Path
 
@@ -29,7 +28,12 @@ from tegg.config import Job, Workflow  # noqa: E402
 WORKFLOW = ROOT / "config" / "workflow.yaml"
 JOB = ROOT / "config" / "job.example.yaml"
 
-HAS_SOFFICE = bool(shutil.which("soffice") or shutil.which("libreoffice"))
+from tegg.certificate import find_soffice  # noqa: E402
+
+# Use the project's own resolver, not a bare PATH lookup: outside Linux
+# LibreOffice is installed into an application directory and is not on PATH,
+# which made this test silently skip on macOS while the suite looked green.
+HAS_SOFFICE = bool(find_soffice())
 
 
 @pytest.fixture

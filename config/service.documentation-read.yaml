@@ -1,0 +1,51 @@
+# The documentation-read operation, as an operator runs it.
+#
+# Nothing in this file is secret and nothing in it may become secret.
+# Credentials are read from the environment (TEGG_USERNAME, TEGG_PASSWORD) at
+# the moment they are typed into the sign-in form, and are never written to
+# disk by anything in this repository. A key here whose name looks like a
+# credential -- password, secret, token, credential, cookie -- is refused
+# rather than read, so pasting one in cannot be made to work.
+#
+#   python -m awe_tegg preflight
+#   python -m awe_tegg run documentation-read \
+#       --service-file config/service.documentation-read.yaml
+
+service:
+  base_url: "https://tegg2.teggpro.com"
+  login_path: "/auth/login"
+  dashboard_path: "/sales/gm-dashboard"
+
+  # Which contractor's knowledge this run is allowed to spend, and whose
+  # workspace it must confirm it landed in before reading anything. Knowledge
+  # is never shared across contractors.
+  tenant: "lippolis"
+  integration: "tegg-pro"
+  environment: "production"
+  contractor: "Lippolis"
+
+  # The list defaults to "Recent". Widening it is a client-side view filter --
+  # nothing is submitted and the portal keeps no record of it -- and the run
+  # reports it under "external changes performed" either way.
+  visit_timeframe: "All Site Visits"
+  max_list_pages: 20
+
+  # Where the Documentation area lives is deliberately NOT configured here.
+  # It is knowledge, held in the store, checked against the live page on every
+  # run, and repaired by bounded read-only discovery when it stops holding.
+  # A path in this file would quietly re-introduce the guessing.
+
+  # Safety limits on that discovery. It may make at most this many navigations,
+  # within this many seconds, and only on the host above. Running out is an
+  # escalation to a person, never a best guess.
+  discovery_actions: 12
+  discovery_seconds: 120.0
+
+  # How long a page may take to render before its route is called dead. The
+  # portal's Documentation route renders about two seconds after a hard
+  # navigation; this is ten times that, so a slow morning is not mistaken for
+  # a deleted route.
+  settle_budget_ms: 20000
+
+  login_timeout_ms: 30000
+  timeout_ms: 30000

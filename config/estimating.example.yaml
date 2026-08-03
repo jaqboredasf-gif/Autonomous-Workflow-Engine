@@ -1,0 +1,93 @@
+# Rate card for the visit-findings estimate.
+#
+# ============================ READ THIS FIRST ============================
+# The numbers below are PLACEHOLDERS. They are not Lippolis Electric's rates,
+# they are not anybody's rates, and they exist so the estimating code has a
+# shape to work against. While `placeholder: true` every total the tool
+# produces is stamped NOT PRICED and every output says the money is not real.
+#
+# To make estimates mean something:
+#   1. copy this file:  cp config/estimating.example.yaml config/estimating.yaml
+#   2. put your own labour rate, hours and material allowances in it
+#   3. set `placeholder: false` -- a deliberate act by whoever owns the numbers
+#   4. run with --rate-card config/estimating.yaml
+#
+# config/estimating.yaml is gitignored, because a contractor's rates are not
+# something to commit.
+# =========================================================================
+
+rate_card:
+  currency: "USD"
+  placeholder: true
+
+  # One blended rate. Split it per trade/shift when the real numbers arrive.
+  labour_rate_per_hour: 100.00
+
+  # Extra hours for isolating, locking out and re-energising, applied to any
+  # item whose repair text calls for a shutdown.
+  shutdown_premium_hours: 2.0
+
+  # No item is estimated at less than this, however small.
+  minimum_hours: 2.0
+
+  # How wide the low/high range is, as a fraction of the expected value. A row
+  # may override its own; otherwise the work type's entry is used, then
+  # `default`.
+  uncertainty:
+    default: 0.35
+    repair: 0.35
+    replace: 0.45
+    "repair and replace": 0.50
+
+  # Hours and material allowance per item, by work type and then by equipment
+  # class. `by_equipment` keys match if they appear anywhere in the equipment
+  # type printed on the report, so "Switchgear" covers "Switchgear - Vertical
+  # Section". A work type with no matching row and no default is NOT estimated
+  # -- it is reported as such rather than priced from the nearest guess.
+  work:
+    repair:
+      default:
+        labour_hours: 4.0
+        material_allowance: 250.00
+      by_equipment:
+        "Switchgear":
+          labour_hours: 6.0
+          material_allowance: 400.00
+        "Switchboard":
+          labour_hours: 5.0
+          material_allowance: 350.00
+        "Branch Circuit Panel":
+          labour_hours: 3.0
+          material_allowance: 150.00
+        "Disconnect Switch":
+          labour_hours: 3.0
+          material_allowance: 200.00
+
+    replace:
+      default:
+        labour_hours: 8.0
+        material_allowance: 1200.00
+        uncertainty: 0.50
+      by_equipment:
+        "Switchgear":
+          labour_hours: 12.0
+          material_allowance: 3500.00
+        "Switchboard":
+          labour_hours: 10.0
+          material_allowance: 2500.00
+        "Branch Circuit Panel":
+          labour_hours: 6.0
+          material_allowance: 900.00
+        "Disconnect Switch":
+          labour_hours: 5.0
+          material_allowance: 750.00
+
+    "repair and replace":
+      default:
+        labour_hours: 10.0
+        material_allowance: 1500.00
+
+  notes:
+    - "hours assume normal business-hours access; after-hours work is not costed"
+    - "no allowance for permits, engineering, scaffolding or third-party testing"
+    - "fuse and lug part numbers quoted by the technician are not price-checked"

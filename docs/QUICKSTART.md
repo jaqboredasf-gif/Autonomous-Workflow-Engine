@@ -48,7 +48,7 @@ It does not need to be on PATH -- the usual install locations are checked, and
 from a file:
 
 ```bash
-export TEGG_USERNAME='PLippolis1'
+export TEGG_USERNAME='<your-portal-username>'
 export TEGG_PASSWORD='...'
 ```
 
