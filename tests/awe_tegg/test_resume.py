@@ -98,7 +98,7 @@ def test_an_interrupted_run_leaves_its_progress_on_disk(
         "reach_documentation", "verify_documentation",
     ]
     assert ledger.next_step() == "list_records"
-    assert ledger.resume_command() == "python -m awe_tegg resume --run-id crashed"
+    assert ledger.resume_command() == "awe-tegg resume --run-id crashed"
     # The expensive part survived the crash.
     assert ledger.data["corrected_knowledge"]
     assert record_of(store, PROCEDURE_RECORD_ID) is not None

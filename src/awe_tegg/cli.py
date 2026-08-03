@@ -257,9 +257,14 @@ def cmd_doctor(args) -> int:
     missing = credentials_present()
     for name in ("TEGG_USERNAME", "TEGG_PASSWORD"):
         # The name is printed. The value is never read, printed or logged.
-        check(name not in missing, f"{name} is set in this shell",
-              "set it with: export %s='...'  (this terminal only)" % name
-              if name in missing else "present; its value is never read here")
+        present = name not in missing
+        # The label has to read correctly in both states. It used to say
+        # "TEGG_USERNAME is set in this shell" and then report PROBLEM, which
+        # says the opposite of what it means.
+        check(present,
+              f"{name} — set" if present else f"{name} — NOT set",
+              "its value is never read, printed or stored here" if present
+              else f"set it with: export {name}='...'  (this terminal only)")
         _say(checks[-1])
 
     print("\nwho this is configured to act as")

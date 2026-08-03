@@ -473,3 +473,96 @@ Two things, recorded so nobody mistakes them for oversights:
 verified by the person who wrote it. That is itself the largest founder
 dependency in the repository, and no amount of documentation removes it — only
 a second person on a second machine does.
+
+---
+
+# Clean-room validation — 2026-08-03
+
+Performed as a first-time coworker: a fresh `git clone` into a new directory,
+then following **only** `README.md` and `docs/OPERATOR_RUNBOOK.md`, with
+nothing assumed.
+
+It found four defects that every earlier check had missed, because every
+earlier check was run by somebody who already had a working installation and
+who always passed an argument.
+
+## What broke
+
+### V-1 · The headline command failed with no arguments
+
+`./scripts/visit-findings.sh` — the command the README shows — died with:
+
+```
+./scripts/visit-findings.sh: line 41: ARGS[@]: unbound variable
+```
+
+`"${ARGS[@]}"` under `set -u` is an unbound-variable error on bash 3.2, which
+is what macOS ships, when the array is empty. **The no-argument path is the
+documented default**, and every test of this script had passed an argument. The
+one form nobody tried was the one everybody would type first.
+
+### V-2 · A failing run never explained its exit code
+
+`set -euo pipefail` with `cmd; CODE=$?` — `set -e` terminates the script the
+moment the command fails, so the `case` statement that translates the code into
+a sentence only ever ran on success. Exactly backwards: the explanation exists
+for failures.
+
+### V-3 · `doctor` said the opposite of what it meant
+
+```
+PROBLEM  TEGG_USERNAME is set in this shell -- set it with: export ...
+```
+
+The label was written for the success case and reused for the failure case.
+
+### V-4 · The README's quickstart assumed a `.venv` a fresh clone does not have
+
+It opened with `.venv/bin/awe-tegg doctor` and no install step. A first-timer
+copy-pasting the first block gets `no such file or directory`.
+
+## What was done
+
+`scripts/_awe.sh` — a shared preamble for capability launcher scripts, holding
+the four things that go wrong in every one anybody writes: the empty-array
+expansion, the swallowed exit code, running from the wrong directory, and
+checking a credential by echoing it. Both launchers now use it.
+
+`tests/awe_runtime/test_launcher_scripts.py` — shell is not covered by the
+Python suite, and all four defects were in shell or in a message. Seven tests,
+including one that asserts the no-argument path produces no unbound-variable
+error and one that asserts a *failing* run still gets explained.
+
+README gains the one-time install block, and says in words what the error means
+if you skip it.
+
+## What passed
+
+A second, independent installation — cloned, `pip install -e '.[portal,dev]'`,
+credentials exported — ran `./scripts/visit-findings.sh` **with no arguments**
+against the live portal:
+
+```
+13/13 steps, 100 seconds
+site visit read   T26-PAUL  Crestron Electronics  8/31/2026  [Completed]
+knowledge used    procedure:documentation-read.reach-documentation v3 (VERIFIED)
+                  3 item(s) still outstanding, 2 immediate or high
+```
+
+Notable: it selected the visit by the standing rule with no input, and it
+inherited working portal knowledge from the committed store rather than
+rediscovering anything. `awe-tegg runs` reported its 3.2 MB and correctly
+declined to sweep it.
+
+## What this validation still cannot tell you
+
+It was a second **installation**, not a second **person** and not a second
+**machine**. I could not test:
+
+- a machine with no Chrome or Chromium at all;
+- Windows path handling;
+- whether the documentation is comprehensible to somebody who did not write it.
+
+The third is the one that matters and it is unfalsifiable from here. A reader
+who already knows the answer cannot tell whether a sentence would have taught
+it to them.

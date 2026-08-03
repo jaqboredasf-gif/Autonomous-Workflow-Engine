@@ -605,7 +605,7 @@ def result_from(ledger: RunLedger) -> OperationResult:
         contradictions=list(data.get("contradictions", [])),
         human_action_required=list(data.get("human_action_required", [])),
         external_changes=list(data.get("external_changes", [])),
-        resume_command=f"python -m awe_tegg resume --run-id {ledger.run_id}",
+        resume_command=f"awe-tegg resume --run-id {ledger.run_id}",
         evidence_dir=str(ledger.path),
         notes=notes + ([f"review: {review.get('markdown')}"] if review else []),
     )

@@ -11,6 +11,17 @@ anything, sends an email, uploads a file, or changes a TEGG record.
 
 ## If you are here to run it
 
+**First time on this machine**, once:
+
+```bash
+cd ~/TEGG
+python3 -m venv .venv
+.venv/bin/pip install -e '.[portal,dev]'
+.venv/bin/python -m playwright install chromium
+```
+
+**Every time:**
+
 ```bash
 cd ~/TEGG
 export TEGG_USERNAME='your portal username'
@@ -21,6 +32,9 @@ export TEGG_PASSWORD='your portal password'
 ```
 
 The answer lands in `work/operations/<run id>/review/review.md`.
+
+If you skip the first block, the second fails with `no such file or
+directory: .venv/bin/awe-tegg` — that is the only thing that message means.
 
 **→ [`docs/OPERATOR_RUNBOOK.md`](docs/OPERATOR_RUNBOOK.md) is the guide.**
 Installation, credentials, choosing a visit, reading the result, exit codes,

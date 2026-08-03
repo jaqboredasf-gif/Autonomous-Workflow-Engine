@@ -148,7 +148,7 @@ def test_the_operator_output_says_what_happened(
     assert STALE_RECORD_ID in rendered
     assert PROCEDURE_RECORD_ID in rendered
     assert "VERIFIED -> DEGRADED" in rendered
-    assert "python -m awe_tegg resume --run-id reporting" in rendered
+    assert "awe-tegg resume --run-id reporting" in rendered
     # The one thing the run touched, named rather than hidden.
     assert "client-side view filter" in rendered
     assert "nothing submitted" in rendered

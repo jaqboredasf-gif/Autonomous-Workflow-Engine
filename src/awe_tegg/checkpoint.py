@@ -363,4 +363,4 @@ class RunLedger:
         self.save()
 
     def resume_command(self) -> str:
-        return f"python -m awe_tegg resume --run-id {self.run_id}"
+        return f"awe-tegg resume --run-id {self.run_id}"
