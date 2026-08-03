@@ -42,8 +42,8 @@ if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
     ARGS+=(--site-visit "$1")
     shift
 fi
-if [ -f "$HERE/config/estimating.yaml" ]; then
-    ARGS+=(--rate-card config/estimating.yaml)
+if [ -f "$HERE/config/ratecard.yaml" ]; then
+    ARGS+=(--rate-card config/ratecard.yaml)
 fi
 
 echo "Reading one completed site visit from TEGG."

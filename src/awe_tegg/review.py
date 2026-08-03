@@ -1,31 +1,40 @@
 """The thing a coworker actually opens.
 
 One Markdown file per site visit, written so the first screen answers the only
-question they have -- *what do I need to price, and how urgent is it* -- and
-every claim below it can be traced back to a page of a report they can open.
+question they have -- *what needs doing, how urgent is it, and roughly what
+does it involve* -- and every claim below it can be traced back to a page of a
+report they can open.
 
-Three rules this file holds to:
+Four rules this file holds to:
 
-  * **The draft banner is first, not last.** A person who reads only the top of
+  * **The draft banner is first, not last.** Somebody who reads only the top of
     the page must still know the money is a draft.
-  * **Nothing is summarised away.** An item that could not be estimated appears
-    in the same table as one that could, with the reason in place of the price.
+  * **Nothing is summarised away.** An item that could not be priced appears in
+    the same table as one that could, with the reason in place of the number.
   * **Every recommendation carries its citation.** "Standard IR Report, page 2A"
     is a place somebody can go and check; "the inspection found" is not.
+  * **Confidence is never a bare word.** A reader who is told "medium" and
+    nothing else has learned nothing they can act on.
+
+This module renders; it decides nothing. Everything it shows was computed by
+:mod:`awe_estimating` and can be recomputed from the JSON beside it.
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from .estimate import Estimate
+from awe_estimating import Estimate, ScopeItem, to_cents
+from awe_estimating.confidence import ConfidenceReport
+
 from .findings import FindingSet
 from .recommend import RecommendationSet
 
-REVIEW_SCHEMA_VERSION = 1
+REVIEW_SCHEMA_VERSION = 2
 
 URGENCY_LABEL = {
     "immediate": "IMMEDIATE",
@@ -33,6 +42,13 @@ URGENCY_LABEL = {
     "scheduled": "scheduled",
     "monitor": "monitor",
     "closed": "closed on the visit",
+}
+
+CONFIDENCE_LABEL = {
+    "high": "HIGH",
+    "medium": "medium",
+    "low": "LOW — read the reasons before quoting anything",
+    "insufficient": "NOT ENOUGH TO GO ON — this is not a usable estimate",
 }
 
 
@@ -56,18 +72,28 @@ class Review:
         return {"markdown": md, "json": js}
 
 
+def _placeholder(estimate: Estimate) -> bool:
+    return any("template" in w for w in estimate.warnings)
+
+
+def _amount(estimate: Estimate, value: Decimal) -> str:
+    return f"{estimate.currency} {to_cents(value):,.0f}"
+
+
 def build(
     findings: FindingSet,
     recommendations: RecommendationSet,
     estimate: Estimate,
+    confidence: ConfidenceReport | None = None,
     *,
     run_id: str = "",
     evidence_dir: str = "",
 ) -> Review:
     lines: list[str] = []
     add = lines.append
+    placeholder = _placeholder(estimate)
 
-    title = findings.site_visit or "site visit"
+    title = findings.site_visit or estimate.source_reference or "site visit"
     add(f"# Site visit {title} — repair items for review")
     add("")
     add("> **DRAFT — NOT A QUOTATION, NOT AN APPROVAL.**")
@@ -75,187 +101,153 @@ def build(
     add("> cites the page it came from. Nothing here has been sent to anyone,")
     add("> submitted to TEGG, or agreed with the customer. A qualified person")
     add("> must check every item before it is priced, scheduled or quoted.")
-    if estimate.placeholder_rates:
+    if placeholder:
         add(">")
         add("> **The money below is not real.** The rate card in use is marked")
         add("> `placeholder`, so every figure is illustrative only.")
     add("")
 
-    # -- the answer, first --------------------------------------------------
     if findings.empty_reason:
-        add("## Nothing to quote")
-        add("")
-        add("**This site visit recorded no equipment problems.** Both reports")
-        add("were retrieved and both are empty of findings, so there is no")
-        add("repair work to price.")
-        add("")
-        add(f"- evidence: {findings.empty_reason}")
-        add("")
-        add(_context_block(findings))
-        add("")
-        add("## Where this came from")
-        add("")
-        for document in findings.documents:
-            add(f"- **{document['document']}** — `{document['filename']}`, "
-                f"{document['bytes']:,} bytes, sha256 `{document['sha256'][:16]}…`")
-        if run_id:
-            add(f"- run id `{run_id}`")
-        if evidence_dir:
-            add(f"- the source PDFs are in `{evidence_dir}` — open them if you")
-            add("  expected findings here")
-        add("")
-        return Review(
-            markdown="\n".join(lines) + "\n",
-            payload={
-                "schema_version": REVIEW_SCHEMA_VERSION,
-                "run_id": run_id,
-                "findings": findings.to_dict(),
-                "recommendations": recommendations.to_dict(),
-                "estimate": estimate.to_dict(),
-            },
+        return _nothing_to_quote(
+            lines, findings, recommendations, estimate, run_id, evidence_dir
         )
 
-    open_items = [r for r in recommendations.recommendations if not r.already_corrected]
-    urgent = [r for r in open_items if r.urgency in ("immediate", "high")]
+    # -- the answer, first --------------------------------------------------
+    work = estimate.work_scope
+    outstanding = [i for i in work if not i.excluded_reason]
+    urgent = [i for i in outstanding if i.urgency in ("immediate", "high")]
+    priced = [i for i in outstanding if i.priceable]
+
     add("## What this comes to")
     add("")
-    add(f"- **{len(open_items)}** item(s) still outstanding after the visit")
+    add(f"- **{len(outstanding)}** item(s) still outstanding after the visit")
     add(f"- **{len(urgent)}** of those are immediate or high urgency")
-    add(f"- **{len(estimate.priced_lines)}** could be given a rough size; "
-        f"**{len(estimate.lines) - len(estimate.priced_lines)}** could not "
-        f"(reasons in the table)")
-    totals = estimate.totals()
-    if estimate.priced_lines:
-        status = " *(placeholder rates — not real money)*" if estimate.placeholder_rates else ""
-        add(f"- rough range for the priced items: **{estimate.currency} "
-            f"{totals['low']:,.0f} – {totals['high']:,.0f}** "
-            f"(expected {estimate.currency} {totals['expected']:,.0f}){status}")
+    add(f"- **{len(priced)}** could be priced; "
+        f"**{len(outstanding) - len(priced)}** could not "
+        f"(the reason is on each row)")
+    if priced:
+        low, base, high = estimate.range
+        status = " *(placeholder rates — not real money)*" if placeholder else ""
+        add(f"- rough range: **{_amount(estimate, low)} – "
+            f"{_amount(estimate, high)}** "
+            f"(expected {_amount(estimate, base)}){status}")
     add("")
 
-    add(_context_block(findings))
+    # -- confidence, with its reasons --------------------------------------
+    if confidence is not None:
+        label = CONFIDENCE_LABEL.get(confidence.level.value, confidence.level.value)
+        add(f"## How much to trust this: **{label}**")
+        add("")
+        for reason in confidence.reasons:
+            add(f"- {reason}")
+        add("")
+
+    add(_context_block(findings, estimate))
     add("")
 
     # -- the table ----------------------------------------------------------
     add("## Items")
     add("")
-    add("| Urgency | Tag | Equipment | Work | Outage | Rough range | Source |")
+    add("| Urgency | Tag | Equipment | Work | Outage | Rough cost | Source |")
     add("|---|---|---|---|---|---|---|")
-    by_id = {line.finding_id: line for line in estimate.lines}
-    for recommendation in recommendations.recommendations:
-        line = by_id.get(recommendation.finding_id)
-        if line is not None and line.priced:
-            money = (f"{estimate.currency} {line.total['low']:,.0f}–"
-                     f"{line.total['high']:,.0f}")
-        else:
-            money = f"*not estimated — {(line.not_priced_reason if line else 'no line')}*"
-        outage = {True: "yes", False: "no", None: "unknown"}[recommendation.requires_shutdown]
-        source = _first_citation(recommendation.evidence)
-        add(
-            f"| {URGENCY_LABEL.get(recommendation.urgency, recommendation.urgency)} "
-            f"| {recommendation.tag_id} "
-            f"| {_cell(recommendation.equipment_type)} "
-            f"| {recommendation.work_type or '*not stated*'} "
-            f"| {outage} | {money} | {source} |"
-        )
+    for item in sorted(work, key=_row_order):
+        if item.ancillary:
+            continue
+        add(_row(item, estimate))
     add("")
+
+    ancillary = [i for i in estimate.scope if i.ancillary and i.priceable]
+    if ancillary:
+        add("Plus, once per visit:")
+        add("")
+        for item in ancillary:
+            add(f"- {item.issue or item.scope_id}: "
+                f"{_amount(estimate, item.subtotal())}")
+        add("")
+
+    # -- how the total is built --------------------------------------------
+    if priced:
+        add("## How the total is built")
+        add("")
+        add("| | amount |")
+        add("|---|---:|")
+        add(f"| direct cost | {_amount(estimate, estimate.subtotal)} |")
+        for adjustment, base, amount in estimate.applied_adjustments():
+            label = adjustment.label or adjustment.kind.value
+            add(f"| {label} ({adjustment.rate:.2%} of "
+                f"{_amount(estimate, base)}) | {_amount(estimate, amount)} |")
+        add(f"| **total** | **{_amount(estimate, estimate.total)}** |")
+        add("")
+        add(f"Priced from `{estimate.pricing_source}`.")
+        add("")
 
     # -- one section per item ----------------------------------------------
     add("## Each item in full")
     add("")
-    for recommendation in recommendations.recommendations:
-        line = by_id.get(recommendation.finding_id)
-        add(f"### {recommendation.tag_id} — {recommendation.equipment_type or 'equipment'}"
-            f"  ({URGENCY_LABEL.get(recommendation.urgency, recommendation.urgency)})")
+    for item in sorted(work, key=_row_order):
+        if item.ancillary:
+            continue
+        lines.extend(_item_detail(item, estimate))
+
+    # -- open questions -----------------------------------------------------
+    questions = estimate.open_questions
+    add("## Questions that need answering")
+    add("")
+    if questions:
+        add("Each of these was asked instead of guessing. The ones marked")
+        add("**blocking** are why an item has no price.")
         add("")
-        if recommendation.customer_id:
-            add(f"- **customer's own id:** {recommendation.customer_id}")
-        if recommendation.location:
-            add(f"- **location:** {recommendation.location}")
-        add(f"- **severity on the report:** {recommendation.severity or 'not stated'}")
-        if recommendation.consequences:
-            add(f"- **consequences if not corrected:** "
-                f"{', '.join(recommendation.consequences)}")
-        add(f"- **already corrected on the visit:** "
-            f"{'yes' if recommendation.already_corrected else 'no'}")
-        add(f"- **estimate required (per the report):** "
-            f"{'yes' if recommendation.estimate_required else 'no'}")
+        for question in questions:
+            mark = "**blocking** — " if question.blocks_pricing else ""
+            about = f" *(item {question.about})*" if question.about else ""
+            add(f"- {mark}{question.question}{about}")
+            if question.why_it_matters:
+                add(f"  - why it matters: {question.why_it_matters}")
         add("")
-        if recommendation.problem_description:
-            add(f"**Problem, as recorded:** {recommendation.problem_description}")
-            add("")
-        if recommendation.technician_recommendation:
-            add("**Technician's recommendation, verbatim:**")
-            add("")
-            for text in recommendation.technician_recommendation:
-                add(f"> {text}")
-            add("")
-        add("**Why this line says what it says:**")
-        add("")
-        for reason in recommendation.rationale:
-            add(f"- {reason}")
-        if line is not None and line.assumptions:
-            for assumption in line.assumptions:
-                add(f"- estimate: {assumption}")
-        if line is not None and not line.priced:
-            add(f"- **not estimated:** {line.not_priced_reason}")
-        add("")
-        if recommendation.warnings:
-            add("**Needs a person to look at it:**")
-            add("")
-            for warning in recommendation.warnings:
-                add(f"- {warning}")
-            add("")
-        add(f"**Source:** {_citations(recommendation.evidence)}")
+    else:
+        add("- none; nothing had to be guessed at")
         add("")
 
-    # -- the small print, which is not small -------------------------------
+    # -- assumptions and exclusions ----------------------------------------
+    add("## Assumptions behind every number above")
+    add("")
+    seen: set[str] = set()
+    for assumption in _all_assumptions(estimate):
+        if assumption.text in seen:
+            continue
+        seen.add(assumption.text)
+        flag = " **(needs confirming)**" if not assumption.provenance.may_price else ""
+        add(f"- {assumption.text}{flag}  \n  *{assumption.provenance.cite()}*")
+    if not seen:
+        add("- none recorded")
+    add("")
+
+    if estimate.exclusions:
+        add("## Not included in the price")
+        add("")
+        for exclusion in estimate.exclusions:
+            add(f"- {exclusion.text}")
+        add("")
+
     if recommendations.policy:
         add("## The judgement calls in force for this run")
         add("")
         add("Urgency, what counts as a safety matter, and what wording means an")
-        add("outage are decisions, not facts. These are the ones that were")
-        add("applied. If they are wrong for your business, they are settings —")
-        add("see `policy:` in `config/service.yaml`.")
+        add("outage are decisions, not facts. If they are wrong for your")
+        add("business, they are settings — see `policy:` in `config/service.yaml`.")
         add("")
         for line in recommendations.policy:
             add(f"- {line}")
         add("")
 
-    add("## Assumptions behind every number above")
-    add("")
-    for assumption in estimate.assumptions:
-        add(f"- {assumption}")
-    add("")
-    add(f"Rate card: `{estimate.rate_card}`  ·  status: **{estimate.status}**")
-    add("")
-
     warnings = list(dict.fromkeys(list(findings.warnings) + list(estimate.warnings)))
     add("## Anything the tool was not sure about")
     add("")
-    if warnings:
-        for warning in warnings:
-            add(f"- {warning}")
-    else:
-        add("- nothing; every page parsed cleanly and every mark was accounted for")
+    for warning in warnings or ["nothing; every page parsed cleanly"]:
+        add(f"- {warning}")
     add("")
 
-    add("## Where this came from")
-    add("")
-    for document in findings.documents:
-        add(f"- **{document['document']}** — `{document['filename']}`, "
-            f"{document['bytes']:,} bytes, sha256 `{document['sha256'][:16]}…`")
-    if run_id:
-        add(f"- run id `{run_id}`")
-    if evidence_dir:
-        add(f"- evidence and the source PDFs: `{evidence_dir}`")
-    add("")
-    add("## What this tool did NOT do")
-    add("")
-    add("- it did not submit, approve, email, upload or change anything in TEGG")
-    add("- it did not contact the customer")
-    add("- it did not price materials from a supplier")
-    add("- it did not visit the site or verify any measurement")
-    add("")
+    lines.extend(_provenance_block(findings, run_id, evidence_dir))
 
     payload = {
         "schema_version": REVIEW_SCHEMA_VERSION,
@@ -263,40 +255,157 @@ def build(
         "findings": findings.to_dict(),
         "recommendations": recommendations.to_dict(),
         "estimate": estimate.to_dict(),
+        "confidence": confidence.to_dict() if confidence else None,
     }
     return Review(markdown="\n".join(lines) + "\n", payload=payload)
 
 
-def _context_block(findings: FindingSet) -> str:
+# -- pieces ----------------------------------------------------------------
+
+
+def _row_order(item: ScopeItem) -> tuple[int, str]:
+    order = ["immediate", "high", "scheduled", "monitor", "closed", ""]
+    urgency = item.urgency if item.urgency in order else ""
+    return (order.index(urgency), item.asset_id or item.scope_id)
+
+
+def _row(item: ScopeItem, estimate: Estimate) -> str:
+    if item.priceable:
+        cost = _amount(estimate, item.subtotal())
+    elif item.excluded_reason:
+        cost = f"*not priced — {item.excluded_reason}*"
+    else:
+        cost = "*not priced — see the questions below*"
+    outage = "yes" if any("outage" in c or "shutdown" in c
+                          for c in item.access_constraints) else "no"
+    return (
+        f"| {URGENCY_LABEL.get(item.urgency, item.urgency or '—')} "
+        f"| {item.asset_id} | {_cell(item.asset_type)} "
+        f"| {item.work_type or '*not stated*'} | {outage} | {cost} "
+        f"| {_first_citation(item)} |"
+    )
+
+
+def _item_detail(item: ScopeItem, estimate: Estimate) -> list[str]:
+    out: list[str] = []
+    add = out.append
+    add(f"### {item.asset_id or item.scope_id} — "
+        f"{item.asset_type or 'equipment'}  "
+        f"({URGENCY_LABEL.get(item.urgency, item.urgency or 'not graded')})")
+    add("")
+    if item.location:
+        add(f"- **location:** {item.location}")
+    add(f"- **work:** {item.work_type or '*the report does not say*'}")
+    add(f"- **outstanding:** {'no — ' + item.excluded_reason if item.excluded_reason else 'yes'}")
+    add("")
+    if item.issue:
+        add(f"**Problem, as recorded:** {item.issue}")
+        add("")
+    if item.recommended_work:
+        add("**Technician's recommendation, verbatim:**")
+        add("")
+        add(f"> {item.recommended_work}")
+        add("")
+
+    if item.lines:
+        add("| | quantity | rate | amount | from |")
+        add("|---|---:|---:|---:|---|")
+        for line in item.lines:
+            amount = _amount(estimate, line.total) if line.priceable else "*—*"
+            add(f"| {line.description or line.kind.value} "
+                f"| {line.quantity} {line.unit} "
+                f"| {to_cents(line.unit_cost):,} "
+                f"| {amount} | `{line.rate_provenance.locator}` |")
+        add("")
+    if not item.priceable and not item.excluded_reason:
+        add("**Not priced.** " + "; ".join(item.blocked_by))
+        add("")
+    add(f"**Source:** {_citations(item)}")
+    add("")
+    return out
+
+
+def _nothing_to_quote(lines, findings, recommendations, estimate, run_id, evidence_dir):
+    add = lines.append
+    add("## Nothing to quote")
+    add("")
+    add("**This site visit recorded no equipment problems.** Both reports were")
+    add("retrieved and both are empty of findings, so there is no repair work")
+    add("to price.")
+    add("")
+    add(f"- evidence: {findings.empty_reason}")
+    add("")
+    add(_context_block(findings, estimate))
+    add("")
+    lines.extend(_provenance_block(findings, run_id, evidence_dir))
+    return Review(
+        markdown="\n".join(lines) + "\n",
+        payload={
+            "schema_version": REVIEW_SCHEMA_VERSION,
+            "run_id": run_id,
+            "findings": findings.to_dict(),
+            "recommendations": recommendations.to_dict(),
+            "estimate": estimate.to_dict(),
+            "confidence": None,
+        },
+    )
+
+
+def _all_assumptions(estimate: Estimate):
+    for assumption in estimate.assumptions:
+        yield assumption
+    for item in estimate.scope:
+        for assumption in item.assumptions:
+            yield assumption
+
+
+def _context_block(findings: FindingSet, estimate: Estimate) -> str:
     rows = [
-        ("customer", findings.customer),
-        ("site", findings.site),
-        ("site visit", findings.site_visit),
+        ("customer", findings.customer or estimate.customer),
+        ("site", findings.site or estimate.site),
+        ("site visit", findings.site_visit or estimate.source_reference),
         ("agreement", findings.agreement),
         ("contractor", findings.contractor),
     ]
-    lines = ["## The visit", ""]
-    for name, value in rows:
-        if value:
-            lines.append(f"- **{name}:** {value}")
-    return "\n".join(lines)
+    out = ["## The visit", ""]
+    out += [f"- **{name}:** {value}" for name, value in rows if value]
+    return "\n".join(out)
 
 
-def _first_citation(evidence: list[dict[str, Any]]) -> str:
-    if not evidence:
+def _provenance_block(findings: FindingSet, run_id: str, evidence_dir: str) -> list[str]:
+    out = ["## Where this came from", ""]
+    for document in findings.documents:
+        out.append(f"- **{document['document']}** — `{document['filename']}`, "
+                   f"{document['bytes']:,} bytes, sha256 "
+                   f"`{document['sha256'][:16]}…`")
+    if run_id:
+        out.append(f"- run id `{run_id}`")
+    if evidence_dir:
+        out.append(f"- evidence and the source PDFs: `{evidence_dir}`")
+    out += [
+        "",
+        "## What this tool did NOT do",
+        "",
+        "- it did not submit, approve, email, upload or change anything in TEGG",
+        "- it did not contact the customer",
+        "- it did not price materials from a supplier",
+        "- it did not visit the site or verify any measurement",
+        "",
+    ]
+    return out
+
+
+def _first_citation(item: ScopeItem) -> str:
+    if not item.evidence:
         return "*none*"
-    first = evidence[0]
-    return f"p.{first.get('page_label') or first.get('page')}"
+    locator = item.evidence[0].locator
+    return locator.split(", ")[-1] if ", " in locator else locator
 
 
-def _citations(evidence: list[dict[str, Any]]) -> str:
-    if not evidence:
+def _citations(item: ScopeItem) -> str:
+    if not item.evidence:
         return "*no source recorded — do not rely on this line*"
-    return "; ".join(
-        f"{item.get('document', '?')}, page {item.get('page_label') or item.get('page')}"
-        f" (sha256 {str(item.get('sha256', ''))[:12]}…)"
-        for item in evidence
-    )
+    return "; ".join(e.cite() for e in item.evidence[:3])
 
 
 def _cell(value: str) -> str:

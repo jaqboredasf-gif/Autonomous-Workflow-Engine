@@ -341,7 +341,13 @@ def price(
         pricing_source=card.describe(),
     )
 
-    if card.mobilization_per_visit > 0:
+    # Mobilization is the cost of turning up, so it is only real if there is
+    # something to turn up for. Charging it against an estimate whose every
+    # item was already fixed on the visit bills a customer for a job that does
+    # not exist -- and the total looks entirely plausible, which is worse.
+    if card.mobilization_per_visit > 0 and any(
+        item.priceable for item in priced if not item.ancillary
+    ):
         estimate.scope.append(_mobilization(card))
 
     if card.placeholder:

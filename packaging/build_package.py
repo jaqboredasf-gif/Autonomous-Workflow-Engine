@@ -22,7 +22,7 @@ What goes in, and why each is needed at runtime:
       What earlier runs learned about the portal. Without it a coworker's
       first run rediscovers the route from scratch; with it, it just works.
       Contains no credential and no customer record.
-  config/service.yaml, config/estimating.example.yaml
+  config/service.yaml, config/ratecard.example.yaml
       The two files a coworker may edit.
   scripts/, and the three .command launchers
       What they double-click.
@@ -33,7 +33,7 @@ What stays out, and why:
   docs/ (most)      maintainer documents; the operator gets one runbook
   packaging/        this file
   work/, .venv/     machine state, and work/ holds customer documents
-  config/estimating.yaml   somebody's real commercial rates
+  config/ratecard.yaml     somebody's real commercial rates
   .git/             the coworker is not a developer and must not need Git
 """
 
@@ -62,7 +62,7 @@ DIRECTORIES = (
 #: Individual files, with their destination path in the package.
 FILES = {
     "config/service.yaml": "config/service.yaml",
-    "config/estimating.example.yaml": "config/estimating.example.yaml",
+    "config/ratecard.example.yaml": "config/ratecard.example.yaml",
     "config/workflow.yaml": "config/workflow.yaml",
     "scripts/_awe.sh": "scripts/_awe.sh",
     "scripts/visit-findings.sh": "scripts/visit-findings.sh",
@@ -78,7 +78,7 @@ FILES = {
 #: Never copied, whatever else says so. Checked against every file that would
 #: be written, so a new match inside an allowed directory is still caught.
 FORBIDDEN = (
-    "estimating.yaml",          # somebody's real rates
+    "ratecard.yaml",            # somebody's real rates
     ".env",
     "credentials",
     ".pyc",

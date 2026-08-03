@@ -61,8 +61,8 @@ says so on its first screen.
 
 To make the figures mean something, someone who owns the numbers needs to:
 
-1. make a copy of `config/estimating.example.yaml` called
-   `config/estimating.yaml`;
+1. make a copy of `config/ratecard.example.yaml` called
+   `config/ratecard.yaml`;
 2. put your real labour rate, hours and material allowances into it;
 3. change the line `placeholder: true` to `placeholder: false`.
 

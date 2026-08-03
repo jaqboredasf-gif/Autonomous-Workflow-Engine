@@ -173,23 +173,23 @@ derive says so instead of guessing.
 
 **The estimate is a draft, and out of the box the money is not real.**
 
-The rate card that ships — `config/estimating.example.yaml` — is marked
+The rate card that ships — `config/ratecard.example.yaml` — is marked
 `placeholder: true`. While that is true, every total is stamped `NOT PRICED`
 and the review says on its first screen that the figures are illustrative.
 
 To make estimates mean something:
 
 ```bash
-cp config/estimating.example.yaml config/estimating.yaml
+cp config/ratecard.example.yaml config/ratecard.yaml
 # put your own labour rate, hours and material allowances in it
 # then set: placeholder: false
 ./scripts/visit-findings.sh
 ```
 
-`./scripts/visit-findings.sh` picks up `config/estimating.yaml` automatically
-once it exists. The long form needs `--rate-card config/estimating.yaml`.
+`./scripts/visit-findings.sh` picks up `config/ratecard.yaml` automatically
+once it exists. The long form needs `--rate-card config/ratecard.yaml`.
 
-`config/estimating.yaml` is gitignored — your rates are not committed.
+`config/ratecard.yaml` is gitignored — your rates are not committed.
 
 Even with real rates, the output is a **draft for an estimator**. It is not a
 quotation. It contains no site conditions, no access or permit costs, no lead

@@ -239,13 +239,16 @@ def test_a_document_that_is_simply_the_wrong_one_still_says_so(tmp_path):
 
 def test_no_findings_with_no_reason_is_still_a_failure(tmp_path):
     """The empty-visit path must not become a way to return nothing quietly."""
-    from awe_tegg import estimate as E
+    from awe_estimating import price
+    from awe_estimating.ratecard import RateCard
     from awe_tegg import recommend as R
+    from awe_tegg.scope_adapter import from_recommendations
     from awe_tegg.visit_operation import validate
 
     built = F.FindingSet(site_visit="T-1")                   # no findings, no reason
     recommendations = R.recommend(built)
-    result = E.estimate(recommendations, E.RateCard.load("config/estimating.example.yaml"))
+    card = RateCard.load("config/ratecard.example.yaml")
+    result = price(from_recommendations(recommendations), card).estimate
     assert validate(built, recommendations, result)["fatal"]
 
     built.empty_reason = "the report rendered and carried no problems at all"

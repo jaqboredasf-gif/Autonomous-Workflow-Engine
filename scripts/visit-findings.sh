@@ -40,8 +40,8 @@ fi
 
 # A real rate card, if somebody has supplied one. Otherwise the placeholder,
 # and every total comes out stamped NOT PRICED.
-if [[ -f "$ROOT/config/estimating.yaml" ]]; then
-    ARGS+=(--rate-card config/estimating.yaml)
+if [[ -f "$ROOT/config/ratecard.yaml" ]]; then
+    ARGS+=(--rate-card config/ratecard.yaml)
 fi
 
 # ${ARGS[@]+"${ARGS[@]}"} rather than "${ARGS[@]}": the latter is an

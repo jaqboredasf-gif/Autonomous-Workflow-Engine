@@ -32,6 +32,13 @@ from .evidence import (
     from_technician,
     proposed_by_ai,
 )
+from .confidence import (
+    DEFAULT_RULES,
+    ConfidenceReport,
+    ConfidenceRules,
+    apply as apply_confidence,
+    assess as assess_confidence,
+)
 from .pricing import PricingResult, ScopeSource, price, price_item
 from .ratecard import (
     Material,
@@ -70,4 +77,6 @@ __all__ = [
     "Material", "PricingResult", "RateCard", "RateCardError", "Role",
     "ScopeSource", "WorkRule", "price", "price_item",
     "require_production", "validate", "validate_for_production",
+    "ConfidenceReport", "ConfidenceRules", "DEFAULT_RULES",
+    "apply_confidence", "assess_confidence",
 ]

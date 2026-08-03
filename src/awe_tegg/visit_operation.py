@@ -42,11 +42,15 @@ from typing import Any, Callable
 from awe_knowledge.models import KnowledgeError
 
 from . import documents as documents_module
-from . import estimate as estimate_module
+from awe_estimating import price as price_scope
+from awe_estimating.confidence import ConfidenceRules, apply as apply_confidence
+from awe_estimating.ratecard import RateCard, RateCardError, validate_for_production
+
 from . import findings as findings_module
 from . import markers as marker_module
 from . import recommend as recommend_module
 from . import review as review_module
+from . import scope_adapter
 from .checkpoint import COMPLETED, RunLedger, make_run_id
 from .documents import RetrievalBudget, RetrievalError
 from .guard import Budget, ReadOnlyPage
@@ -91,7 +95,7 @@ PRECONDITION_STEPS = frozenset({"sign_in", "locate_workspace", "reach_documentat
 #: *if* the artefact is still there and still matches its recorded checksum.
 DURABLE_STEPS = frozenset({"retrieve_documents"})
 
-DEFAULT_RATE_CARD = Path("config/estimating.example.yaml")
+DEFAULT_RATE_CARD = Path("config/ratecard.example.yaml")
 
 
 @dataclass
@@ -383,21 +387,56 @@ def run_operation(
 
     announce("build_estimate")
     try:
-        card = estimate_module.RateCard.load(visit_settings.rate_card)
-    except estimate_module.RateCardError as error:
+        card = RateCard.load(visit_settings.rate_card)
+    except RateCardError as error:
         ledger.escalate(str(error))
         raise Escalated(str(error)) from error
-    estimate = estimate_module.estimate(
-        recommendations, card, include_corrected=visit_settings.include_corrected
+
+    scope_source = scope_adapter.from_recommendations(
+        recommendations,
+        customer=str(visit.get("customer", "")),
+        site=str(visit.get("site", "")),
+        site_visit=str(visit.get("identifier", "")),
+        include_corrected=visit_settings.include_corrected,
     )
+    pricing = price_scope(
+        scope_source, card,
+        prepared_by="awe-tegg visit-findings",
+        prepared_at=ledger.data.get("started_at", ""),
+        estimate_id=ledger.run_id,
+    )
+    estimate = pricing.estimate
+    confidence = apply_confidence(
+        estimate, ConfidenceRules.from_mapping(
+            settings.confidence_rules,
+            source=("config/service.yaml" if settings.confidence_rules
+                    else "built-in defaults (nobody has confirmed these)"),
+        )
+    )
+    # A card that claims to be production is checked before its numbers are
+    # believed. A template is allowed through -- it announces itself on every
+    # page -- but a card asserting it is real and failing the check is not.
+    if not card.placeholder:
+        problems = validate_for_production(card)
+        if problems:
+            ledger.escalate(
+                f"{visit_settings.rate_card} says it holds production rates but "
+                "does not qualify: " + "; ".join(problems[:3])
+            )
+            raise Escalated("the rate card is not usable for real pricing")
+
+    counts = estimate.to_dict()["counts"]
     ledger.checkpoint(
         "build_estimate",
-        f"{len(estimate.priced_lines)} of {len(estimate.lines)} item(s) sized; "
-        f"status {estimate.status}",
-        counts=estimate.to_dict()["counts"],
-        totals=estimate.totals(),
+        f"{counts['priced']} of {counts['scope_items']} item(s) priced; "
+        f"confidence {confidence.level.value}",
+        counts=counts,
+        total=str(estimate.total),
+        range={"low": str(estimate.range[0]), "high": str(estimate.range[2])},
         rate_card=str(visit_settings.rate_card),
-        placeholder_rates=estimate.placeholder_rates,
+        placeholder_rates=card.placeholder,
+        confidence=confidence.to_dict(),
+        unmatched_vocabulary=[list(u) for u in pricing.unmatched],
     )
 
     announce("validate_result")
@@ -414,7 +453,7 @@ def run_operation(
 
     announce("publish_review")
     result = review_module.build(
-        finding_set, recommendations, estimate,
+        finding_set, recommendations, estimate, confidence,
         run_id=ledger.run_id, evidence_dir=str(ledger.path),
     )
     written = result.write(ledger.path / "review")
@@ -508,13 +547,18 @@ def _reusable_documents(ledger: RunLedger, directory: Path) -> dict[str, Any]:
 def validate(
     finding_set: findings_module.FindingSet,
     recommendations: recommend_module.RecommendationSet,
-    estimate: estimate_module.Estimate,
+    estimate: Any,
 ) -> dict[str, list[str]]:
     """Check the result against itself before anyone is shown it.
 
     ``fatal`` stops the run. ``advisory`` is printed and carried into the
     review, because a coworker who is told what the tool was unsure about can
     do something about it, and one who is not, cannot.
+
+    The checks are about *internal consistency*, not about whether the numbers
+    are right -- nothing here can know that. They catch the class of fault
+    where the pipeline lost or duplicated something between stages, which is
+    invisible in the output and fatal to trust.
     """
     fatal: list[str] = []
     advisory: list[str] = []
@@ -527,33 +571,38 @@ def validate(
             f"{len(recommendations.recommendations)} recommendation(s); every "
             "finding must produce exactly one"
         )
-    if len(estimate.lines) != len(recommendations.recommendations):
+
+    work_scope = [i for i in estimate.work_scope]
+    if len(work_scope) != len(recommendations.recommendations):
         fatal.append(
             f"{len(recommendations.recommendations)} recommendation(s) produced "
-            f"{len(estimate.lines)} estimate line(s)"
+            f"{len(work_scope)} scope item(s); nothing may be lost crossing "
+            "into estimating"
         )
 
     for recommendation in recommendations.recommendations:
         if not recommendation.evidence:
-            fatal.append(
-                f"{recommendation.finding_id} carries no source citation"
-            )
+            fatal.append(f"{recommendation.finding_id} carries no source citation")
         if not recommendation.review_required:
             fatal.append(
                 f"{recommendation.finding_id} is not marked as needing review"
             )
 
-    for line in estimate.priced_lines:
-        total = line.total
-        if not (total.get("low", 0) <= total.get("expected", 0) <= total.get("high", 0)):
-            fatal.append(f"{line.finding_id}: the estimate range is not ordered")
-        if total.get("low", 0) < 0:
-            fatal.append(f"{line.finding_id}: a negative total")
+    for item in estimate.scope:
+        if item.priceable and not item.evidence and not item.ancillary:
+            fatal.append(f"{item.scope_id} is priced but cites no source")
+        for line in item.lines:
+            if line.priceable and line.total < 0:
+                fatal.append(f"{item.scope_id}: a negative amount")
 
-    if estimate.placeholder_rates and estimate.status != estimate_module.NOT_PRICED:
+    low, base, high = estimate.range
+    if not (low <= base <= high):
+        fatal.append("the estimate range is not ordered")
+
+    placeholder = any("template" in w for w in estimate.warnings)
+    if placeholder and estimate.approval.status.value == "approved":
         fatal.append(
-            "placeholder rates were used but the estimate is not stamped "
-            f"{estimate_module.NOT_PRICED}"
+            "an estimate built on template rates cannot be approved"
         )
 
     unreadable = [f for f in finding_set.findings if f.warnings]
@@ -566,11 +615,17 @@ def validate(
     if undecided:
         advisory.append(
             f"{len(undecided)} item(s) do not say whether to repair or replace "
-            "and could not be sized"
+            "and could not be priced"
         )
-    if estimate.placeholder_rates:
+    if placeholder:
         advisory.append(
-            "the rate card is a placeholder, so no figure in this result is money"
+            "the rate card is a template, so no figure in this result is money"
+        )
+    blocking = [q for q in estimate.open_questions if q.blocks_pricing]
+    if blocking:
+        advisory.append(
+            f"{len(blocking)} question(s) must be answered before every item "
+            "can be priced"
         )
     if finding_set.empty_reason:
         advisory.append(
@@ -685,7 +740,7 @@ def _drive(
         if not ledger.data.get("human_action_required") and str(stop):
             ledger.escalate(str(stop))
         return result_from(ledger)
-    except (OperationError, KnowledgeError, RetrievalError,
+    except (OperationError, KnowledgeError, RetrievalError, RateCardError,
             findings_module.FindingsError) as error:
         # A failure a coworker cannot act on is a failure they will bring to
         # whoever wrote this. Every one of these carries a sentence about what

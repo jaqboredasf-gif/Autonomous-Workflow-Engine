@@ -245,3 +245,20 @@ def test_the_range_comes_from_the_card(production):
     low, base, high = estimate.range
     assert to_cents(low) == to_cents(base * Decimal("0.85"))
     assert to_cents(high) == to_cents(base * Decimal("1.30"))
+
+
+def test_mobilization_is_not_charged_when_there_is_nothing_to_do(production):
+    """Turning up is only a cost if there is something to turn up for.
+
+    An estimate whose every item was already fixed on the visit must total
+    zero. Billing the call-out against it produces a plausible-looking number
+    for a job that does not exist.
+    """
+    result = price([_item(excluded_reason="fixed on the visit")], production)
+    assert result.estimate.total == Decimal("0")
+    assert not any(i.ancillary for i in result.estimate.scope)
+
+
+def test_mobilization_is_charged_once_there_is_real_work(production):
+    result = price([_item(excluded_reason="fixed"), _item(scope_id="s2")], production)
+    assert any(i.ancillary for i in result.estimate.scope)

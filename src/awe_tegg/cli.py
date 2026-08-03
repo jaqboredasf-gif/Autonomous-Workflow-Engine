@@ -180,7 +180,7 @@ def preflight_problems(args, *, operation: str = "") -> list[str]:
             getattr(args, "rate_card", None) or visit_module.DEFAULT_RATE_CARD
         )
         try:
-            from .estimate import RateCard
+            from awe_estimating.ratecard import RateCard
 
             RateCard.load(card)
         except Exception as error:                          # noqa: BLE001
@@ -366,18 +366,18 @@ def cmd_doctor(args) -> int:
     card_path = root_module.resolve(
         args.rate_card or visit_module.DEFAULT_RATE_CARD)
     try:
-        from .estimate import RateCard
+        from awe_estimating.ratecard import RateCard
 
         card = RateCard.load(card_path)
         # A placeholder card is not a failure -- the tool is designed to run on
         # one -- but reporting it as OK let a coworker believe the money meant
         # something. It is a warning, and it says what to do about it.
         check(not card.placeholder, str(card_path),
-              f"real rates, {card.currency} {card.labour_rate_per_hour}/h"
+              f"real rates: {card.name} {card.version}, {len(card.roles)} role(s)"
               if not card.placeholder else
-              "PLACEHOLDER rates. Runs work and every total is stamped NOT "
-              "PRICED. For real figures: cp config/estimating.example.yaml "
-              "config/estimating.yaml, put your numbers in it, set "
+              "PLACEHOLDER rates. Runs work and every figure is marked as "
+              "illustrative. For real figures: cp config/ratecard.example.yaml "
+              "config/ratecard.yaml, put your numbers in it, set "
               "placeholder: false",
               warn=True)
     except Exception as error:                              # noqa: BLE001

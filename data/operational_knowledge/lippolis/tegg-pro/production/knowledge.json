@@ -1,6 +1,6 @@
 {
   "base_url": "https://tegg2.teggpro.com",
-  "document_version": 21,
+  "document_version": 22,
   "environment": "production",
   "integration": "tegg-pro",
   "last_known_good": null,
@@ -233,6 +233,17 @@
           "observed_at": "2026-08-03T12:48:45+00:00",
           "tenant": "lippolis",
           "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "d3258d480e6fe34153a6a9d2a95e136281ef4ec0",
+          "execution_id": "visit-findings-20260803T172828+0000",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-08-03T17:28:32+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
         }
       ],
       "expires_at": "",
@@ -241,8 +252,8 @@
       "kind": "auth",
       "last_failure": "",
       "last_failure_execution": "",
-      "last_success": "2026-08-03T12:48:45+00:00",
-      "last_verified": "2026-08-03T12:48:45+00:00",
+      "last_success": "2026-08-03T17:28:32+00:00",
+      "last_verified": "2026-08-03T17:28:32+00:00",
       "name": "contractor-selection",
       "notes": "observed by the TEGG driver at step 'login_contractor'; evidence kept locally under work/evidence-list",
       "payload": {
@@ -478,6 +489,17 @@
             "observed_at": "2026-08-03T12:48:45+00:00",
             "tenant": "lippolis",
             "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "d3258d480e6fe34153a6a9d2a95e136281ef4ec0",
+            "execution_id": "visit-findings-20260803T172828+0000",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-08-03T17:28:32+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
           }
         ],
         "expires_at": "",
@@ -486,8 +508,8 @@
         "kind": "auth",
         "last_failure": "",
         "last_failure_execution": "",
-        "last_success": "2026-08-03T12:48:45+00:00",
-        "last_verified": "2026-08-03T12:48:45+00:00",
+        "last_success": "2026-08-03T17:28:32+00:00",
+        "last_verified": "2026-08-03T17:28:32+00:00",
         "name": "contractor-selection",
         "notes": "observed by the TEGG driver at step 'login_contractor'; evidence kept locally under work/evidence-list",
         "payload": {
@@ -497,12 +519,12 @@
           "resolves_to": "TEGGPro Lippolis"
         },
         "record_id": "auth:contractor-selection",
-        "success_count": 20,
+        "success_count": 21,
         "superseded_by": "",
         "supersedes": "",
         "tenant": "lippolis",
         "trust": "VERIFIED",
-        "updated_at": "2026-08-03T12:48:45+00:00",
+        "updated_at": "2026-08-03T17:28:32+00:00",
         "verified_by_runs": [
           "evidence-list@2026-07-30T18:46:54+00:00",
           "evidence-list@2026-07-30T18:49:45+00:00",
@@ -521,17 +543,18 @@
           "p5e-no-agreement",
           "visit-findings-20260803T115122+0000",
           "visit-findings-20260803T121959+0000",
-          "visit-findings-20260803T124839+0000"
+          "visit-findings-20260803T124839+0000",
+          "visit-findings-20260803T172828+0000"
         ],
         "version": 5
       },
       "record_id": "auth:contractor-selection",
-      "success_count": 20,
+      "success_count": 21,
       "superseded_by": "",
       "supersedes": "",
       "tenant": "lippolis",
       "trust": "VERIFIED",
-      "updated_at": "2026-08-03T12:48:45+00:00",
+      "updated_at": "2026-08-03T17:28:32+00:00",
       "verified_by_runs": [
         "evidence-list@2026-07-30T18:46:54+00:00",
         "evidence-list@2026-07-30T18:49:45+00:00",
@@ -550,7 +573,8 @@
         "p5e-no-agreement",
         "visit-findings-20260803T115122+0000",
         "visit-findings-20260803T121959+0000",
-        "visit-findings-20260803T124839+0000"
+        "visit-findings-20260803T124839+0000",
+        "visit-findings-20260803T172828+0000"
       ],
       "version": 5
     },
@@ -1921,6 +1945,19 @@
           "observed_at": "2026-08-03T12:48:49+00:00",
           "tenant": "lippolis",
           "url": "https://tegg2.teggpro.com/sales/documentation"
+        },
+        {
+          "artifacts": [
+            "/Users/jackdaly/TEGG/work/operations/visit-findings-20260803T172828+0000/evidence/documentation-verified.png"
+          ],
+          "code_version": "0.1.0",
+          "commit": "d3258d480e6fe34153a6a9d2a95e136281ef4ec0",
+          "execution_id": "visit-findings-20260803T172828+0000",
+          "kind": "run",
+          "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+          "observed_at": "2026-08-03T17:28:36+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/sales/documentation"
         }
       ],
       "expires_at": "",
@@ -1929,8 +1966,8 @@
       "kind": "procedure",
       "last_failure": "",
       "last_failure_execution": "",
-      "last_success": "2026-08-03T12:48:49+00:00",
-      "last_verified": "2026-08-03T12:48:49+00:00",
+      "last_success": "2026-08-03T17:28:36+00:00",
+      "last_verified": "2026-08-03T17:28:36+00:00",
       "name": "documentation-read.reach-documentation",
       "notes": "discovered live by bounded read-only route discovery",
       "payload": {
@@ -2213,6 +2250,19 @@
             "observed_at": "2026-08-03T12:48:49+00:00",
             "tenant": "lippolis",
             "url": "https://tegg2.teggpro.com/sales/documentation"
+          },
+          {
+            "artifacts": [
+              "/Users/jackdaly/TEGG/work/operations/visit-findings-20260803T172828+0000/evidence/documentation-verified.png"
+            ],
+            "code_version": "0.1.0",
+            "commit": "d3258d480e6fe34153a6a9d2a95e136281ef4ec0",
+            "execution_id": "visit-findings-20260803T172828+0000",
+            "kind": "run",
+            "note": "verified by markers: documentation, document library, choose timeframe, site visits, site forms, attach images + headers customer, site name, status, agreement (52 row(s))",
+            "observed_at": "2026-08-03T17:28:36+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/sales/documentation"
           }
         ],
         "expires_at": "",
@@ -2221,8 +2271,8 @@
         "kind": "procedure",
         "last_failure": "",
         "last_failure_execution": "",
-        "last_success": "2026-08-03T12:48:49+00:00",
-        "last_verified": "2026-08-03T12:48:49+00:00",
+        "last_success": "2026-08-03T17:28:36+00:00",
+        "last_verified": "2026-08-03T17:28:36+00:00",
         "name": "documentation-read.reach-documentation",
         "notes": "discovered live by bounded read-only route discovery",
         "payload": {
@@ -2328,12 +2378,12 @@
           "url": "https://tegg2.teggpro.com/sales/documentation"
         },
         "record_id": "procedure:documentation-read.reach-documentation",
-        "success_count": 15,
+        "success_count": 16,
         "superseded_by": "",
         "supersedes": "navigation:documentation-area",
         "tenant": "lippolis",
         "trust": "VERIFIED",
-        "updated_at": "2026-08-03T12:48:49+00:00",
+        "updated_at": "2026-08-03T17:28:36+00:00",
         "verified_by_runs": [
           "live-1",
           "live-2",
@@ -2347,17 +2397,18 @@
           "p5e-no-agreement",
           "visit-findings-20260803T115122+0000",
           "visit-findings-20260803T121959+0000",
-          "visit-findings-20260803T124839+0000"
+          "visit-findings-20260803T124839+0000",
+          "visit-findings-20260803T172828+0000"
         ],
         "version": 3
       },
       "record_id": "procedure:documentation-read.reach-documentation",
-      "success_count": 15,
+      "success_count": 16,
       "superseded_by": "",
       "supersedes": "navigation:documentation-area",
       "tenant": "lippolis",
       "trust": "VERIFIED",
-      "updated_at": "2026-08-03T12:48:49+00:00",
+      "updated_at": "2026-08-03T17:28:36+00:00",
       "verified_by_runs": [
         "live-1",
         "live-2",
@@ -2371,7 +2422,8 @@
         "p5e-no-agreement",
         "visit-findings-20260803T115122+0000",
         "visit-findings-20260803T121959+0000",
-        "visit-findings-20260803T124839+0000"
+        "visit-findings-20260803T124839+0000",
+        "visit-findings-20260803T172828+0000"
       ],
       "version": 3
     },
@@ -2602,6 +2654,17 @@
           "observed_at": "2026-08-03T12:48:45+00:00",
           "tenant": "lippolis",
           "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "d3258d480e6fe34153a6a9d2a95e136281ef4ec0",
+          "execution_id": "visit-findings-20260803T172828+0000",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-08-03T17:28:32+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
         }
       ],
       "expires_at": "",
@@ -2610,8 +2673,8 @@
       "kind": "selector",
       "last_failure": "",
       "last_failure_execution": "",
-      "last_success": "2026-08-03T12:48:45+00:00",
-      "last_verified": "2026-08-03T12:48:45+00:00",
+      "last_success": "2026-08-03T17:28:32+00:00",
+      "last_verified": "2026-08-03T17:28:32+00:00",
       "name": "login.password",
       "notes": "seen on the sign-in form at step 'login_form'",
       "payload": {
@@ -2853,6 +2916,17 @@
             "observed_at": "2026-08-03T12:48:45+00:00",
             "tenant": "lippolis",
             "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "d3258d480e6fe34153a6a9d2a95e136281ef4ec0",
+            "execution_id": "visit-findings-20260803T172828+0000",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-08-03T17:28:32+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
           }
         ],
         "expires_at": "",
@@ -2861,8 +2935,8 @@
         "kind": "selector",
         "last_failure": "",
         "last_failure_execution": "",
-        "last_success": "2026-08-03T12:48:45+00:00",
-        "last_verified": "2026-08-03T12:48:45+00:00",
+        "last_success": "2026-08-03T17:28:32+00:00",
+        "last_verified": "2026-08-03T17:28:32+00:00",
         "name": "login.password",
         "notes": "seen on the sign-in form at step 'login_form'",
         "payload": {
@@ -2878,12 +2952,12 @@
           "status": "verified"
         },
         "record_id": "selector:login.password",
-        "success_count": 20,
+        "success_count": 21,
         "superseded_by": "",
         "supersedes": "",
         "tenant": "lippolis",
         "trust": "VERIFIED",
-        "updated_at": "2026-08-03T12:48:45+00:00",
+        "updated_at": "2026-08-03T17:28:32+00:00",
         "verified_by_runs": [
           "evidence-list@2026-07-30T18:46:54+00:00",
           "evidence-list@2026-07-30T18:49:45+00:00",
@@ -2902,17 +2976,18 @@
           "p5e-no-agreement",
           "visit-findings-20260803T115122+0000",
           "visit-findings-20260803T121959+0000",
-          "visit-findings-20260803T124839+0000"
+          "visit-findings-20260803T124839+0000",
+          "visit-findings-20260803T172828+0000"
         ],
         "version": 5
       },
       "record_id": "selector:login.password",
-      "success_count": 20,
+      "success_count": 21,
       "superseded_by": "",
       "supersedes": "",
       "tenant": "lippolis",
       "trust": "VERIFIED",
-      "updated_at": "2026-08-03T12:48:45+00:00",
+      "updated_at": "2026-08-03T17:28:32+00:00",
       "verified_by_runs": [
         "evidence-list@2026-07-30T18:46:54+00:00",
         "evidence-list@2026-07-30T18:49:45+00:00",
@@ -2931,7 +3006,8 @@
         "p5e-no-agreement",
         "visit-findings-20260803T115122+0000",
         "visit-findings-20260803T121959+0000",
-        "visit-findings-20260803T124839+0000"
+        "visit-findings-20260803T124839+0000",
+        "visit-findings-20260803T172828+0000"
       ],
       "version": 5
     },
@@ -3162,6 +3238,17 @@
           "observed_at": "2026-08-03T12:48:45+00:00",
           "tenant": "lippolis",
           "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "d3258d480e6fe34153a6a9d2a95e136281ef4ec0",
+          "execution_id": "visit-findings-20260803T172828+0000",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-08-03T17:28:32+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
         }
       ],
       "expires_at": "",
@@ -3170,8 +3257,8 @@
       "kind": "selector",
       "last_failure": "",
       "last_failure_execution": "",
-      "last_success": "2026-08-03T12:48:45+00:00",
-      "last_verified": "2026-08-03T12:48:45+00:00",
+      "last_success": "2026-08-03T17:28:32+00:00",
+      "last_verified": "2026-08-03T17:28:32+00:00",
       "name": "login.submit",
       "notes": "seen on the sign-in form at step 'login_form'",
       "payload": {
@@ -3413,6 +3500,17 @@
             "observed_at": "2026-08-03T12:48:45+00:00",
             "tenant": "lippolis",
             "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "d3258d480e6fe34153a6a9d2a95e136281ef4ec0",
+            "execution_id": "visit-findings-20260803T172828+0000",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-08-03T17:28:32+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
           }
         ],
         "expires_at": "",
@@ -3421,8 +3519,8 @@
         "kind": "selector",
         "last_failure": "",
         "last_failure_execution": "",
-        "last_success": "2026-08-03T12:48:45+00:00",
-        "last_verified": "2026-08-03T12:48:45+00:00",
+        "last_success": "2026-08-03T17:28:32+00:00",
+        "last_verified": "2026-08-03T17:28:32+00:00",
         "name": "login.submit",
         "notes": "seen on the sign-in form at step 'login_form'",
         "payload": {
@@ -3438,12 +3536,12 @@
           "status": "verified"
         },
         "record_id": "selector:login.submit",
-        "success_count": 20,
+        "success_count": 21,
         "superseded_by": "",
         "supersedes": "",
         "tenant": "lippolis",
         "trust": "VERIFIED",
-        "updated_at": "2026-08-03T12:48:45+00:00",
+        "updated_at": "2026-08-03T17:28:32+00:00",
         "verified_by_runs": [
           "evidence-list@2026-07-30T18:46:54+00:00",
           "evidence-list@2026-07-30T18:49:45+00:00",
@@ -3462,17 +3560,18 @@
           "p5e-no-agreement",
           "visit-findings-20260803T115122+0000",
           "visit-findings-20260803T121959+0000",
-          "visit-findings-20260803T124839+0000"
+          "visit-findings-20260803T124839+0000",
+          "visit-findings-20260803T172828+0000"
         ],
         "version": 5
       },
       "record_id": "selector:login.submit",
-      "success_count": 20,
+      "success_count": 21,
       "superseded_by": "",
       "supersedes": "",
       "tenant": "lippolis",
       "trust": "VERIFIED",
-      "updated_at": "2026-08-03T12:48:45+00:00",
+      "updated_at": "2026-08-03T17:28:32+00:00",
       "verified_by_runs": [
         "evidence-list@2026-07-30T18:46:54+00:00",
         "evidence-list@2026-07-30T18:49:45+00:00",
@@ -3491,7 +3590,8 @@
         "p5e-no-agreement",
         "visit-findings-20260803T115122+0000",
         "visit-findings-20260803T121959+0000",
-        "visit-findings-20260803T124839+0000"
+        "visit-findings-20260803T124839+0000",
+        "visit-findings-20260803T172828+0000"
       ],
       "version": 5
     },
@@ -3722,6 +3822,17 @@
           "observed_at": "2026-08-03T12:48:45+00:00",
           "tenant": "lippolis",
           "url": "https://tegg2.teggpro.com/auth/login"
+        },
+        {
+          "artifacts": [],
+          "code_version": "0.1.0",
+          "commit": "d3258d480e6fe34153a6a9d2a95e136281ef4ec0",
+          "execution_id": "visit-findings-20260803T172828+0000",
+          "kind": "run",
+          "note": "",
+          "observed_at": "2026-08-03T17:28:32+00:00",
+          "tenant": "lippolis",
+          "url": "https://tegg2.teggpro.com/auth/login"
         }
       ],
       "expires_at": "",
@@ -3730,8 +3841,8 @@
       "kind": "selector",
       "last_failure": "",
       "last_failure_execution": "",
-      "last_success": "2026-08-03T12:48:45+00:00",
-      "last_verified": "2026-08-03T12:48:45+00:00",
+      "last_success": "2026-08-03T17:28:32+00:00",
+      "last_verified": "2026-08-03T17:28:32+00:00",
       "name": "login.username",
       "notes": "seen on the sign-in form at step 'login_form'",
       "payload": {
@@ -3973,6 +4084,17 @@
             "observed_at": "2026-08-03T12:48:45+00:00",
             "tenant": "lippolis",
             "url": "https://tegg2.teggpro.com/auth/login"
+          },
+          {
+            "artifacts": [],
+            "code_version": "0.1.0",
+            "commit": "d3258d480e6fe34153a6a9d2a95e136281ef4ec0",
+            "execution_id": "visit-findings-20260803T172828+0000",
+            "kind": "run",
+            "note": "",
+            "observed_at": "2026-08-03T17:28:32+00:00",
+            "tenant": "lippolis",
+            "url": "https://tegg2.teggpro.com/auth/login"
           }
         ],
         "expires_at": "",
@@ -3981,8 +4103,8 @@
         "kind": "selector",
         "last_failure": "",
         "last_failure_execution": "",
-        "last_success": "2026-08-03T12:48:45+00:00",
-        "last_verified": "2026-08-03T12:48:45+00:00",
+        "last_success": "2026-08-03T17:28:32+00:00",
+        "last_verified": "2026-08-03T17:28:32+00:00",
         "name": "login.username",
         "notes": "seen on the sign-in form at step 'login_form'",
         "payload": {
@@ -3998,12 +4120,12 @@
           "status": "verified"
         },
         "record_id": "selector:login.username",
-        "success_count": 20,
+        "success_count": 21,
         "superseded_by": "",
         "supersedes": "",
         "tenant": "lippolis",
         "trust": "VERIFIED",
-        "updated_at": "2026-08-03T12:48:45+00:00",
+        "updated_at": "2026-08-03T17:28:32+00:00",
         "verified_by_runs": [
           "evidence-list@2026-07-30T18:46:54+00:00",
           "evidence-list@2026-07-30T18:49:45+00:00",
@@ -4022,17 +4144,18 @@
           "p5e-no-agreement",
           "visit-findings-20260803T115122+0000",
           "visit-findings-20260803T121959+0000",
-          "visit-findings-20260803T124839+0000"
+          "visit-findings-20260803T124839+0000",
+          "visit-findings-20260803T172828+0000"
         ],
         "version": 5
       },
       "record_id": "selector:login.username",
-      "success_count": 20,
+      "success_count": 21,
       "superseded_by": "",
       "supersedes": "",
       "tenant": "lippolis",
       "trust": "VERIFIED",
-      "updated_at": "2026-08-03T12:48:45+00:00",
+      "updated_at": "2026-08-03T17:28:32+00:00",
       "verified_by_runs": [
         "evidence-list@2026-07-30T18:46:54+00:00",
         "evidence-list@2026-07-30T18:49:45+00:00",
@@ -4051,12 +4174,13 @@
         "p5e-no-agreement",
         "visit-findings-20260803T115122+0000",
         "visit-findings-20260803T121959+0000",
-        "visit-findings-20260803T124839+0000"
+        "visit-findings-20260803T124839+0000",
+        "visit-findings-20260803T172828+0000"
       ],
       "version": 5
     }
   },
   "schema_version": 1,
   "tenant": "lippolis",
-  "updated_at": "2026-08-03T12:50:11+00:00"
+  "updated_at": "2026-08-03T17:30:00+00:00"
 }
