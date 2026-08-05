@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+/*
+ * Light-only on purpose: this gets demoed on a projector and printed, so the
+ * palette must not change with the viewer's OS theme.
+ */
+:root {
+  color-scheme: light;
+  --background: #f4f5f7;
+  --foreground: #14181f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* --- Print rules ------------------------------------------------------ */
+/* Save as PDF uses the browser's own print dialog; only the PO sheet prints. */
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .print-sheet {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Keep the material table from splitting a row across pages. */
+  tr,
+  td,
+  th {
+    break-inside: avoid;
+  }
+}
+
+@page {
+  size: letter portrait;
+  margin: 0.5in;
+}

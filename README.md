@@ -9,6 +9,9 @@ is callable by AI agents in the larger calendar-automation project.
 ```
 apps/mobile/        React Native (Expo) field app — clock in/out, GPS, offline queue
 apps/web/           Next.js admin dashboard — timesheets, map, payroll, reports
+apps/purchasing/    Next.js purchasing-control DEMO — material requests, approvals,
+                    printable POs, supplier email drafts. Standalone prototype:
+                    no database, no credentials, nothing is sent. See its README.
 packages/shared/    Shared TypeScript types + domain constants
 supabase/           Postgres migrations, RLS policies
 docs/               Roadmap, API contract
