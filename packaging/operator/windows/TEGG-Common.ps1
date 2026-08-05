@@ -171,6 +171,21 @@ function Test-ToolInstalled {
     return (Test-Path -LiteralPath (Get-VenvTool -Root $Root))
 }
 
+# ----------------------------------------------------------- run folders ---
+#
+# The most recent run folder, or $null. Used to tell the operator where their
+# documents and their email draft actually are, and to name the run they can
+# carry on from. -LiteralPath throughout: the installation path routinely
+# contains a space ("C:\Users\Paul Smith\TEGG Report Tool") and every one of
+# these calls has been wrong about that at least once.
+function Get-LatestRunFolder {
+    param([string]$Root)
+    $operations = Join-Path $Root 'work\operations'
+    if (-not (Test-Path -LiteralPath $operations)) { return $null }
+    return (Get-ChildItem -LiteralPath $operations -Directory -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+}
+
 # ---------------------------------------------------------- credentials ----
 #
 # Stored with the Windows Data Protection API, through PowerShell's own

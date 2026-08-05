@@ -92,10 +92,20 @@ FORMAT_SELECT = "#ReportViewer1_ctl01_ctl05_ctl00"
 EXPORT_LINK = "#ReportViewer1_ctl01_ctl05_ctl01"
 PDF_FORMAT = "Acrobat (PDF) file"
 
-#: The two reports this operation needs, as a path through the report tree.
+#: Two report paths named here because other modules import them by name. The
+#: full set the package requires lives in :mod:`awe_tegg.deliverables`, which
+#: is the single place the contract is written down.
 #: A ">" step is a parent that only expands; the last step is the report.
 STANDARD_IR = ("Standard IR Report",)
 EQUIPMENT_ITEM_PROBLEMS = ("Equipment Item Problems", "Exclude All Images")
+
+#: The Document Library tab, which is NOT the Standard ESA Reports route.
+#: Different tab, different parameter (Solution, not Agreement), different
+#: action (Print/Generate Document, not Print Report -> Export), and the file
+#: arrives as a legacy ``.doc`` rather than a PDF. Confirmed live 2026-07-29.
+CERTIFICATE_TAB = "Document Library"
+CERTIFICATE_SECTION = "Certificates"
+CERTIFICATE_ACTION = "Print/Generate Document"
 
 
 class RetrievalError(Exception):
@@ -505,6 +515,126 @@ class ReportRun:
             destination.unlink(missing_ok=True)
             raise RetrievalError("what came back was not a PDF")
         return destination, how
+
+    # -- the Document Library route ---------------------------------------
+    #
+    # Kept on this class because it needs the same signed-in page, the same
+    # budget and the same label screening -- but it is a genuinely different
+    # route and it is written out separately rather than parameterised into
+    # the report flow, because the two have nothing in common but the tab bar.
+    def retrieve_certificate(
+        self, *, agreement: str, filename: str,
+    ) -> "Retrieved":
+        """Document Library -> Certificates -> Solution -> Print/Generate.
+
+        Returns whatever the portal hands back, which on the live site is a
+        legacy ``.doc``. Converting it is the caller's problem; this method's
+        job is to come back with the file or to say precisely why not.
+        """
+        start = self._clock()
+        mark = len(self.budget.trail)
+        parameters: list[str] = []
+
+        for label in (CERTIFICATE_TAB, CERTIFICATE_SECTION):
+            check_label(label)
+            self._spend(f"open {label!r}")
+            control = self._visible(self.page.get_by_text(label, exact=True))
+            if control is None:
+                raise RetrievalError(
+                    f"the {label!r} tab is not on this page, so the certificate "
+                    "route could not be opened. This is the Document Library "
+                    "route, not the Standard ESA Reports one."
+                )
+            control.click(timeout=25_000)
+            self.page.wait_for_timeout(2500)
+            self._settle()
+
+        # The Solution dropdown holds agreements. It is named differently from
+        # the reports' Agreement parameter and must not be confused with it.
+        chosen = False
+        selects = self.page.locator("select")
+        for index in range(selects.count()):
+            control = selects.nth(index)
+            try:
+                if not control.is_visible():
+                    continue
+                options = [
+                    o.strip() for o in control.locator("option").all_text_contents()
+                ]
+            except Exception:                               # noqa: BLE001
+                continue
+            if agreement and agreement in options:
+                self._spend("set the certificate's Solution parameter")
+                control.select_option(label=agreement)
+                parameters.append(f"Solution={agreement}")
+                chosen = True
+                self.page.wait_for_timeout(1500)
+                self._settle()
+                break
+        if agreement and not chosen:
+            raise RetrievalError(
+                f"the Document Library did not offer solution {agreement!r} for "
+                "this site, so no certificate was requested"
+            )
+
+        check_label(CERTIFICATE_ACTION)
+        self._spend(f"click {CERTIFICATE_ACTION!r}")
+        control = self._visible(
+            self.page.get_by_text(CERTIFICATE_ACTION, exact=True)
+        )
+        if control is None:
+            raise RetrievalError(
+                f"there is no {CERTIFICATE_ACTION!r} control on the Certificates "
+                "page"
+            )
+
+        destination = self.out_dir / filename
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        downloads: list[Any] = []
+        self.page.context.on("download", lambda d: downloads.append(d))
+        bodies: list[bytes] = []
+
+        def grab(response: Any) -> None:
+            try:
+                ctype = (response.headers or {}).get("content-type", "").lower()
+                if any(word in ctype for word in ("msword", "officedocument",
+                                                  "octet-stream", "pdf")):
+                    bodies.append(response.body())
+            except Exception:                               # noqa: BLE001
+                pass
+
+        self.page.context.on("response", grab)
+        control.click(timeout=30_000)
+
+        waited = 0
+        while waited < self.export_timeout_ms and not downloads and not bodies:
+            self.page.wait_for_timeout(2000)
+            waited += 2000
+
+        how = ""
+        if downloads:
+            downloads[0].save_as(str(destination))
+            how = "download event"
+        elif bodies:
+            destination.write_bytes(bodies[0])
+            how = "inline response"
+        if not how:
+            raise RetrievalError(
+                "no certificate file arrived within "
+                f"{self.export_timeout_ms // 1000} s of "
+                f"{CERTIFICATE_ACTION!r}. In the 2026-07-29 dry run this same "
+                "step produced no file, and it has not been proven since."
+            )
+        return Retrieved(
+            name="Certificate",
+            path=str(destination),
+            bytes=destination.stat().st_size,
+            how=how,
+            seconds=round(self._clock() - start, 1),
+            parameters=parameters,
+            actions=list(self.budget.trail[mark:]),
+        )
 
     # -- one report, end to end -------------------------------------------
     def retrieve(

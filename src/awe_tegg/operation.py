@@ -415,6 +415,12 @@ class Settings:
     #: which is what an operator gets. Tests point it at a temporary directory
     #: so no test can reach, or change, the real one.
     store_root: Path | None = None
+    #: The exact control labels that create or update a report record in TEGG.
+    #: Empty by default and empty in the shipped service.yaml: an unconfigured
+    #: write escalates to a person rather than hunting for a likely button.
+    #: Only consulted when --create-tegg-report is passed AND confirmed.
+    #: See awe_tegg.portal_write.
+    write: dict[str, Any] = field(default_factory=dict)
 
     @property
     def dashboard_url(self) -> str:

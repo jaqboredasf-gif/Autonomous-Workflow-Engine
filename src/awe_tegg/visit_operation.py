@@ -1,13 +1,29 @@
 """The second operation: one completed site visit, read end to end.
 
-    sign in -> reach Documentation -> choose one completed visit ->
-    put the portal in that site's context -> retrieve the Standard IR Report
-    and the Equipment Item Problems Report -> read the findings out of them ->
-    recommend -> estimate -> validate -> write something a coworker can review
+    ask the operator what this report is -> sign in -> reach Documentation ->
+    choose the completed visit -> put the portal in that site's context ->
+    assemble the package (see below) -> read the findings out of two of the
+    documents -> recommend -> estimate -> validate -> write something a
+    coworker can review -> draft an email nobody has sent
 
-Read-only with respect to TEGG throughout. It renders two reports, which is a
-read: the documents are built from data that is already there, and no TEGG
-record is created, changed, submitted, approved or sent.
+## The package
+
+Eight documents, from three different places, all named in
+:mod:`awe_tegg.deliverables`:
+
+  * the **Table of Contents** is copied from ``assets/static``;
+  * the **Certificate** comes from the Document Library tab, by Solution,
+    and arrives as a ``.doc`` that has to be converted;
+  * **six Standard ESA Reports** are rendered by SSRS and exported as PDF.
+
+Nothing is reported as finished unless all eight are present, valid, distinct
+and correctly filed. See :meth:`deliverables.Manifest.enforce`.
+
+Read-only with respect to TEGG by default. Rendering a report is a read: the
+documents are built from data that is already there, and no TEGG record is
+created, changed, submitted, approved or sent unless the run was explicitly
+armed to do so -- see :mod:`awe_tegg.portal_write`, which is off unless asked
+for on the command line *and* confirmed at the keyboard.
 
 It reuses everything ``documentation-read`` proved rather than forking it: the
 same run ledger, the same knowledge store and ``KnowledgeRun``, the same
@@ -35,19 +51,25 @@ not free, and it is not polite.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 from awe_knowledge.models import KnowledgeError
+from awe_runtime import workspace_root as root_module
 
 from . import documents as documents_module
 from awe_estimating import price as price_scope
 from awe_estimating.confidence import ConfidenceRules, apply as apply_confidence
 from awe_estimating.ratecard import RateCard, RateCardError, validate_for_production
 
+from . import deliverables as deliverables_module
+from . import email_draft as email_module
 from . import findings as findings_module
+from . import intake as intake_module
 from . import markers as marker_module
+from . import portal_write
 from . import recommend as recommend_module
 from . import review as review_module
 from . import scope_adapter
@@ -79,11 +101,14 @@ STEPS: tuple[str, ...] = (
     "select_visit",
     "open_visit_context",
     "retrieve_documents",
+    "create_tegg_report",
     "extract_findings",
     "recommend_repairs",
     "build_estimate",
     "validate_result",
     "publish_review",
+    "check_deliverables",
+    "draft_email",
     "finish",
 )
 
@@ -104,9 +129,18 @@ class VisitSettings:
 
     site_visit: str = ""
     rate_card: Path = DEFAULT_RATE_CARD
-    retrieval_actions: int = 40
-    retrieval_seconds: float = 900.0
+    #: Six SSRS renders plus a Document Library fetch, not two. Each render is
+    #: a form, a Print Report, a viewer and an export, so the budget has to
+    #: cover roughly three and a half times what two reports needed.
+    retrieval_actions: int = 110
+    retrieval_seconds: float = 2700.0
     include_corrected: bool = False
+    #: The operator's confirmed answers. Never carries a credential.
+    intake: intake_module.Intake | None = None
+    #: Off unless the command line asked for it *and* a person confirmed.
+    write_policy: portal_write.WritePolicy = field(
+        default_factory=portal_write.WritePolicy
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -115,6 +149,9 @@ class VisitSettings:
             "retrieval_actions": self.retrieval_actions,
             "retrieval_seconds": self.retrieval_seconds,
             "include_corrected": self.include_corrected,
+            "intake": self.intake.to_dict() if self.intake else {},
+            "write_enabled": self.write_policy.enabled,
+            "write_confirmed": self.write_policy.confirmed,
         }
 
 
@@ -227,17 +264,45 @@ def run_operation(
     documents_dir = ledger.path / "documents"
     documents_dir.mkdir(parents=True, exist_ok=True)
 
+    # A resume must not re-ask nine questions, and must not quietly answer
+    # them differently: the intake belongs to the run, so it comes back off
+    # the ledger when this attempt was not given one.
+    operator = visit_settings.intake or intake_module.Intake.from_dict(
+        ledger.data.get("intake") or {"site_visit": visit_settings.site_visit}
+    )
+    ledger.data["intake"] = operator.to_dict()
+
     reusable = _reusable_documents(ledger, documents_dir)
     if reusable:
         ledger.note(
-            "both reports were already retrieved by this run and their "
-            "checksums still match, so the portal was not asked for them again"
+            f"{len(reusable)} report(s) were already retrieved by this run and "
+            "their checksums still match, so the portal was not asked for them "
+            "again"
         )
 
     visit: dict[str, Any] = dict(ledger.data.get("visit") or {})
     retrieved: dict[str, Any] = dict(reusable)
+    manifest = deliverables_module.Manifest.create(
+        str(visit.get("identifier", "") or operator.site_visit)
+    )
 
-    if not reusable or not visit:
+    def show(entry: deliverables_module.Entry) -> None:
+        if on_step is None:
+            return
+        state = "OK" if entry.ok else entry.status.upper()
+        on_step(
+            f"        {state:<9} {entry.canonical_name} "
+            f"({entry.generated_filename or entry.expected_filename})"
+        )
+
+    # A resume that already holds every portal document must not sign in. The
+    # Table of Contents is not counted: it is a local copy, remade every time,
+    # and needing the portal for it would be absurd.
+    complete_already = all(
+        item.key in reusable for item in deliverables_module.PORTAL_REQUIRED
+    )
+
+    if not complete_already or not visit:
         announce("open_knowledge")
         with _knowledge(ledger, settings) as run:
             known = [r.record_id for r in run.applicable()]
@@ -291,10 +356,15 @@ def run_operation(
 
                 announce("select_visit")
                 listing = _list_records(explorer, settings, ledger)
-                visit, why = choose_visit(
-                    listing["records"], visit_settings.site_visit
-                )
+                # The visit ID the operator typed at the intake screen is the
+                # authority. Falling back to the standing rule when they gave
+                # one would silently report on a different customer.
+                wanted = visit_settings.site_visit or operator.site_visit
+                visit, why = choose_visit(listing["records"], wanted)
                 ledger.data["visit"] = visit
+                manifest = deliverables_module.Manifest.create(
+                    str(visit.get("identifier", "") or wanted)
+                )
                 ledger.checkpoint(
                     "select_visit",
                     f"{visit['identifier']} -- {why}",
@@ -337,28 +407,79 @@ def run_operation(
                 )
 
                 announce("retrieve_documents")
-                retrieved = _retrieve(reports, visit, ledger)
+                # Three sources, in package order, each with its own mechanism.
+                show(stage_table_of_contents(manifest, documents_dir))
+
+                certificate = reusable.get("certificate")
+                if certificate:
+                    show(manifest.record(
+                        "certificate", Path(certificate["path"]),
+                        status=deliverables_module.REUSED,
+                        sha256=str(certificate.get("sha256", "")),
+                    ))
+                else:
+                    entry = retrieve_certificate(
+                        reports, visit, manifest, documents_dir / "converted"
+                    )
+                    show(entry)
+                    if entry.ok:
+                        certificate = {"path": entry.location,
+                                       "sha256": entry.sha256}
+
+                retrieved = _retrieve(
+                    reports, visit, ledger, manifest,
+                    already=reusable, on_document=show,
+                )
+                if certificate:
+                    retrieved["certificate"] = certificate
                 ledger.checkpoint(
                     "retrieve_documents",
-                    f"{len(retrieved)} report(s) retrieved, read-only",
+                    f"{len(manifest.produced)} of "
+                    f"{deliverables_module.REQUIRED_COUNT} document(s) produced",
                     documents=retrieved,
+                    manifest=manifest.to_dict(),
                     budget=retrieval_budget.to_dict(),
                 )
+
+                announce("create_tegg_report")
+                outcome = _maybe_write(
+                    explorer.page, visit_settings.write_policy, ledger
+                )
+                ledger.checkpoint(
+                    "create_tegg_report", outcome["detail"], **outcome["data"]
+                )
     else:
+        # Every document was already on disk with a matching checksum, so the
+        # portal is not contacted at all. The manifest is rebuilt from what is
+        # there, so a resume still proves the set rather than assuming it.
         for step in ("open_knowledge", "sign_in", "locate_workspace",
                      "reach_documentation", "select_visit", "open_visit_context",
-                     "retrieve_documents"):
+                     "retrieve_documents", "create_tegg_report"):
             announce(step)
+        show(stage_table_of_contents(manifest, documents_dir))
+        for key, record in reusable.items():
+            if key in deliverables_module.BY_KEY:
+                show(manifest.record(
+                    key, Path(record["path"]),
+                    status=deliverables_module.REUSED,
+                    sha256=str(record.get("sha256", "")),
+                ))
 
     # -- everything below is offline: no browser, no portal ----------------
     announce("extract_findings")
     finding_set = findings_module.build(
-        equipment_item_problems=Path(retrieved["equipment_item_problems"]["path"]),
-        standard_ir=(Path(retrieved["standard_ir"]["path"])
-                     if "standard_ir" in retrieved else None),
+        equipment_item_problems=Path(
+            retrieved[deliverables_module.FINDINGS_SOURCE]["path"]
+        ),
+        standard_ir=(
+            Path(retrieved[deliverables_module.FINDINGS_CORROBORATION]["path"])
+            if deliverables_module.FINDINGS_CORROBORATION in retrieved else None
+        ),
         site_visit=str(visit.get("identifier", "")),
-        customer=str(visit.get("customer", "")),
-        site=str(visit.get("site", "")),
+        # What the operator typed is what goes on the customer's report. The
+        # portal's own spelling is kept in the ledger either way.
+        customer=operator.customer or str(visit.get("customer", "")),
+        site=operator.site or str(visit.get("site", "")),
         agreement=str(visit.get("agreement", "")),
         contractor=settings.contractor,
     )
@@ -394,8 +515,8 @@ def run_operation(
 
     scope_source = scope_adapter.from_recommendations(
         recommendations,
-        customer=str(visit.get("customer", "")),
-        site=str(visit.get("site", "")),
+        customer=operator.customer or str(visit.get("customer", "")),
+        site=operator.site or str(visit.get("site", "")),
         site_visit=str(visit.get("identifier", "")),
         include_corrected=visit_settings.include_corrected,
     )
@@ -464,64 +585,304 @@ def run_operation(
         **{k: str(v) for k, v in written.items()},
     )
 
+    # -- the package, and whether it is one --------------------------------
+    announce("check_deliverables")
+    manifest.add_additional("Review page", written["markdown"], source="generated")
+    manifest.add_additional("Review data", written["json"], source="generated")
+    manifest_path = manifest.write(ledger.path)
+    ledger.data["deliverables"] = manifest.to_dict()
+    ledger.data["manifest_path"] = str(manifest_path)
+
+    try:
+        manifest.enforce()
+    except deliverables_module.DeliverableError as short:
+        # This is the defect the mock run exposed, closed. A package with
+        # a short package is never reported as a success, and the
+        # run says exactly which are missing and why.
+        ledger.escalate(str(short))
+        raise Escalated(str(short)) from short
+
+    ledger.checkpoint(
+        "check_deliverables",
+        f"all {deliverables_module.REQUIRED_COUNT} required documents present "
+        "and valid",
+        manifest=str(manifest_path),
+        documents=manifest.filenames(),
+    )
+
+    announce("draft_email")
+    if not operator.recipient_email:
+        ledger.note(
+            "no recipient was given at the intake screen, so no email draft "
+            "was written. The documents are in the folder above."
+        )
+        ledger.checkpoint("draft_email", "skipped: no recipient given", drafted=False)
+    else:
+        draft = email_module.build(
+            operator, manifest,
+            review_note=(
+                "Generated automatically and NOT sent. A person must read this "
+                f"and press Send. Review page: {written['markdown']}"
+            ),
+            year=str(visit.get("end_date", "") or "")[-4:],
+        )
+        draft = email_module.write(draft, ledger.path / "email")
+        ledger.data["email_draft"] = draft.to_dict()
+        ledger.checkpoint(
+            "draft_email",
+            f"draft written for {draft.to_email}; NOT sent",
+            **draft.to_dict(),
+        )
+
     announce("finish")
     ledger.checkpoint(
         "finish",
-        "finished read-only; nothing was submitted, approved, sent or changed",
+        "finished; the email was drafted and NOT sent, and nothing was "
+        "submitted or approved in TEGG",
     )
     ledger.complete()
     return result_from(ledger)
+
+
+def _maybe_write(
+    page: Any,
+    policy: portal_write.WritePolicy,
+    ledger: RunLedger,
+) -> dict[str, Any]:
+    """Create or update the TEGG report record, if and only if fully armed.
+
+    The default path through this function clicks nothing. It exists so that
+    "did this run write to TEGG?" is answered explicitly in every ledger,
+    rather than being inferred from the absence of a step.
+    """
+    if not policy.armed:
+        return {
+            "detail": policy.describe(),
+            "data": {"wrote": False, "reason": policy.describe()},
+        }
+    try:
+        outcome = portal_write.create_or_update(
+            page, policy, on_note=ledger.note
+        )
+    except (portal_write.WriteRefused, portal_write.WriteNotConfigured) as error:
+        # A refused write is not a failed run: the documents are still
+        # the useful output, and the operator is told plainly what did not
+        # happen. Escalating records it where they will actually read it.
+        ledger.escalate(f"the TEGG report record was NOT created: {error}")
+        return {
+            "detail": f"refused: {error}",
+            "data": {"wrote": False, "reason": str(error)},
+        }
+    ledger.data.setdefault("external_changes", []).extend(policy.actions)
+    return {
+        "detail": "a report record was created or updated in TEGG",
+        "data": outcome,
+    }
+
+
+def stage_table_of_contents(
+    manifest: deliverables_module.Manifest,
+    destination: Path,
+    *,
+    assets_dir: Path | None = None,
+) -> deliverables_module.Entry:
+    """Copy the Table of Contents into the package.
+
+    It is a static file that ships with the tool -- not fetched from TEGG, not
+    generated. ``assets/static/ESA Table of Contents.pdf``.
+
+    Open question, recorded in ``assets/static/README.md`` and GAPS #8 and not
+    resolved here: whether the contents page is genuinely identical for every
+    report or varies with report length. If it varies it has to be generated
+    per job, and this function becomes wrong -- but it will be wrong loudly,
+    because the same file will appear in every package.
+    """
+    expected = deliverables_module.BY_KEY["table_of_contents"]
+    assets_dir = Path(assets_dir or root_module.resolve("assets/static"))
+    source = assets_dir / expected.static_source
+    if not source.exists():
+        return manifest.fail(
+            expected.key,
+            f"the static Table of Contents is not at {source}. It ships with "
+            "the tool; if it is missing the package cannot be assembled.",
+        )
+    destination = Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    target = destination / expected.filename(manifest.site_visit)
+    shutil.copy2(source, target)
+    return manifest.record(
+        expected.key, target,
+        status=deliverables_module.COPIED,
+        sha256=findings_module.checksum(target),
+    )
+
+
+def retrieve_certificate(
+    reports: documents_module.ReportRun,
+    visit: dict[str, Any],
+    manifest: deliverables_module.Manifest,
+    work_dir: Path,
+) -> deliverables_module.Entry:
+    """Fetch the certificate from the Document Library and convert it to PDF.
+
+    Two steps that fail for unrelated reasons, so they are reported
+    separately: the portal may not hand the file over (which it did not in the
+    2026-07-29 dry run), and the conversion needs LibreOffice, which a
+    coworker's PC may simply not have.
+    """
+    from tegg import certdoc
+    from tegg.certificate import CertificateError
+
+    expected = deliverables_module.BY_KEY["certificate"]
+    agreement = str(visit.get("agreement", ""))
+    raw_name = f"{manifest.site_visit or 'visit'}-Certificate.doc"
+
+    try:
+        got = reports.retrieve_certificate(agreement=agreement, filename=raw_name)
+    except RetrievalError as error:
+        return manifest.fail(expected.key, str(error))
+
+    source = Path(got.path)
+    if source.suffix.lower() == ".pdf":
+        return manifest.record(
+            expected.key, source,
+            status=deliverables_module.GENERATED,
+            sha256=findings_module.checksum(source),
+        )
+
+    try:
+        outcome = certdoc.prepare(
+            source, Path(work_dir),
+            output_pdf_name=expected.filename(manifest.site_visit),
+        )
+    except CertificateError as error:
+        return manifest.fail(
+            expected.key,
+            f"the certificate arrived as {source.name} but could not be "
+            f"converted to PDF: {error}. Converting a .doc needs LibreOffice "
+            "on this PC.",
+        )
+    if outcome.pdf is None or not Path(outcome.pdf).exists():
+        return manifest.fail(
+            expected.key,
+            f"the certificate arrived as {source.name} and the conversion "
+            "produced no PDF",
+        )
+    return manifest.record(
+        expected.key, Path(outcome.pdf),
+        status=deliverables_module.CONVERTED,
+        sha256=findings_module.checksum(Path(outcome.pdf)),
+    )
 
 
 def _retrieve(
     reports: documents_module.ReportRun,
     visit: dict[str, Any],
     ledger: RunLedger,
+    manifest: deliverables_module.Manifest,
+    *,
+    already: dict[str, Any] | None = None,
+    on_document: Callable[[deliverables_module.Entry], None] | None = None,
 ) -> dict[str, Any]:
-    """Both reports, or an escalation naming the one that did not come back."""
+    """The six Standard ESA Reports, recorded into the manifest as they land.
+
+    The Table of Contents and the Certificate are NOT here. They come from
+    different places -- a shipped static file and the Document Library -- and
+    each is produced by its own function, because sharing one loop across
+    three mechanisms is how a route gets applied to the wrong document.
+
+    One report failing does not abandon the rest: the operator is better served
+    by "seven of eight, and here is which one and why" than by a run that stops
+    at the first refusal and tells them nothing about the others. The shortfall
+    is enforced later, by :meth:`Manifest.enforce`, which is the only place
+    that decides whether the package is publishable.
+
+    ``already`` carries documents an earlier attempt produced and whose
+    checksums still match, so a resume re-renders only what is genuinely
+    missing. Re-rendering a customer's reports because a laptop lid closed is
+    neither free nor polite.
+    """
     agreement = str(visit.get("agreement", ""))
     identifier = str(visit.get("identifier", "visit"))
-    wanted = (
-        ("standard_ir", "Standard IR Report", documents_module.STANDARD_IR,
-         f"{identifier}-StandardIRReport.pdf"),
-        ("equipment_item_problems", "Equipment Item Problems Report",
-         documents_module.EQUIPMENT_ITEM_PROBLEMS,
-         f"{identifier}-EquipmentItemProblems.pdf"),
-    )
+    already = dict(already or {})
     out: dict[str, Any] = {}
     failures: list[str] = []
-    for key, name, path, filename in wanted:
-        try:
-            got = reports.retrieve(name, path, agreement=agreement, filename=filename)
-        except RetrievalError as error:
-            failures.append(f"{name}: {error}")
+
+    esa_reports = [
+        item for item in deliverables_module.REQUIRED
+        if item.source == deliverables_module.FROM_ESA_REPORT
+    ]
+
+    for expected in esa_reports:
+        filename = expected.filename(identifier)
+
+        reused = already.get(expected.key)
+        if reused:
+            record = dict(reused)
+            entry = manifest.record(
+                expected.key, Path(record["path"]),
+                status=deliverables_module.REUSED,
+                sha256=str(record.get("sha256", "")),
+            )
+            out[expected.key] = record
+            if on_document is not None:
+                on_document(entry)
             continue
+
+        try:
+            got = reports.retrieve(
+                expected.canonical_name, expected.route,
+                agreement=agreement, filename=filename,
+            )
+        except RetrievalError as error:
+            failures.append(f"{expected.canonical_name}: {error}")
+            entry = manifest.fail(expected.key, str(error))
+            if on_document is not None:
+                on_document(entry)
+            continue
+
         record = got.to_dict()
         record["sha256"] = findings_module.checksum(Path(got.path))
-        out[key] = record
+        entry = manifest.record(
+            expected.key, Path(got.path),
+            status=deliverables_module.GENERATED,
+            sha256=record["sha256"],
+        )
+        # A file that arrived but did not validate is not a document. Keeping
+        # it as "generated" would let an empty SSRS render reach a customer.
+        if not entry.ok:
+            failures.append(f"{expected.canonical_name}: {entry.detail}")
+        else:
+            out[expected.key] = record
+        if on_document is not None:
+            on_document(entry)
 
-    if "equipment_item_problems" not in out:
+    # The findings parser reads this one. Its absence is fatal here, earlier
+    # and for a different reason than the package merely being short.
+    if deliverables_module.FINDINGS_SOURCE not in out:
         detail = "; ".join(failures) or "no reason recorded"
         ledger.escalate(
             "the Equipment Item Problems Report could not be retrieved, and it "
             f"is what the findings are read from: {detail}"
         )
         raise Escalated(detail)
-    if "standard_ir" not in out:
+    if failures:
         ledger.note(
-            "the Standard IR Report could not be retrieved; the findings stand "
-            "without their thermal corroboration: "
-            + ("; ".join(failures) or "no reason recorded")
+            f"{len(failures)} of {len(esa_reports)} Standard ESA Report(s) did "
+            "not come back: " + "; ".join(failures)
         )
     return out
 
 
 def _reusable_documents(ledger: RunLedger, directory: Path) -> dict[str, Any]:
-    """Documents this run already fetched, if they are still exactly those.
+    """Documents an earlier attempt fetched, if they are still exactly those.
 
     Checked by checksum rather than by existence. A file that changed under us
     is not the file the ledger is talking about, and re-fetching is cheaper
     than being wrong about which customer's report is on disk.
+
+    Returns whatever still holds, per document, rather than all-or-nothing: a
+    resume that lost one report should re-render that one, not all of them.
     """
     for entry in reversed(ledger.data.get("steps", [])):
         if entry.get("step") != "retrieve_documents":
@@ -531,11 +892,11 @@ def _reusable_documents(ledger: RunLedger, directory: Path) -> dict[str, Any]:
         for key, record in recorded.items():
             path = Path(record.get("path", ""))
             if not path.exists():
-                return {}
+                continue
             if record.get("sha256") and findings_module.checksum(path) != record["sha256"]:
-                return {}
+                continue
             out[key] = record
-        return out if "equipment_item_problems" in out else {}
+        return out
     return {}
 
 
@@ -649,6 +1010,19 @@ def result_from(ledger: RunLedger) -> OperationResult:
     visit = data.get("visit") or {}
     review = data.get("review") or {}
     notes = [n.get("message", "") for n in data.get("notes", [])]
+
+    package = data.get("deliverables") or {}
+    if package:
+        notes.append(
+            f"documents: {package.get('produced', 0)} of "
+            f"{package.get('required', deliverables_module.REQUIRED_COUNT)} required"
+        )
+    draft = data.get("email_draft") or {}
+    if draft:
+        notes.append(
+            f"email draft for {draft.get('to_email', '')} written to "
+            f"{draft.get('path', '')} -- NOT sent"
+        )
     return OperationResult(
         run_id=ledger.run_id,
         status=ledger.status,

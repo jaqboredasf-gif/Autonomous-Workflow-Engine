@@ -31,6 +31,13 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    # Starts a real browser and renders reports through the mock SSRS portal.
+    # Minutes, not seconds -- but it is the only thing that proves the five
+    # documents come back through the actual click-path. Run it before any
+    # release: `pytest -m slow tests/awe_tegg`.
+    "slow: drives a real browser; takes minutes",
+]
 # NOTE: `pytest tests/awe_tegg tests/knowledge` in one invocation fails to
 # collect -- both directories have a conftest.py, both are importable as bare
 # `conftest` under the default prepend import mode, and the wrong one wins.

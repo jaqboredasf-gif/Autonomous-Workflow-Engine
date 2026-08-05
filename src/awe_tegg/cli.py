@@ -23,6 +23,9 @@ from pathlib import Path
 from awe_runtime import exits, locking, retention
 from awe_runtime import workspace_root as root_module
 
+from . import deliverables as deliverables_module
+from . import intake as intake_module
+from . import portal_write
 from . import report as report_module
 from . import visit_operation as visit_module
 from .checkpoint import COMPLETED, ESCALATED, RunLedger
@@ -185,6 +188,31 @@ def preflight_problems(args, *, operation: str = "") -> list[str]:
             RateCard.load(card)
         except Exception as error:                          # noqa: BLE001
             problems.append(str(error))
+
+        # Two of the eight documents do not come from the report route, and
+        # each has its own precondition. Both are checkable here, in a second,
+        # rather than after the browser has rendered six reports.
+        toc = deliverables_module.BY_KEY["table_of_contents"]
+        toc_path = root_module.resolve("assets/static") / toc.static_source
+        if not toc_path.exists():
+            problems.append(
+                f"the {toc.canonical_name} is not at {toc_path}. It ships with "
+                "the tool and is copied into every package; without it the "
+                "package cannot be completed."
+            )
+
+        try:
+            from tegg.certificate import find_soffice
+
+            if not find_soffice():
+                problems.append(
+                    "LibreOffice was not found, and the Certificate arrives "
+                    "from TEGG as a .doc that has to be converted to PDF. "
+                    "Install it (Windows: https://www.libreoffice.org/download) "
+                    "or the package will stop one document short."
+                )
+        except Exception as error:                          # noqa: BLE001
+            problems.append(f"could not check for LibreOffice: {_short(error)}")
 
     work_root = _work_root(args)
     for path in (work_root, work_root / "operations"):
@@ -529,12 +557,66 @@ def cmd_exit_codes(args) -> int:
     return EXIT_OK
 
 
-def _visit_settings(args) -> "visit_module.VisitSettings":
+def _gather_intake(args, *, prefill: dict | None = None) -> "intake_module.Intake | None":
+    """Ask the operator what this report is about, before anything else.
+
+    Skipped only when explicitly asked (``--no-intake``, used by the test
+    suite and by anyone scripting this) or when there is no terminal to ask
+    at. Skipping is announced, because a run that silently stopped asking is
+    exactly the defect this exists to close.
+    """
+    if getattr(args, "no_intake", False):
+        return None
+    if not sys.stdin.isatty():
+        print(
+            "note: not running interactively, so the intake questions were not "
+            "asked. Site and recipient details will come from the portal and "
+            "no email draft will be written. Use --no-intake to silence this.",
+            file=sys.stderr,
+        )
+        return None
+    return intake_module.collect(
+        ask=lambda prompt: input(prompt),
+        say=print,
+        prefill=prefill or ({"site_visit": args.site_visit}
+                            if getattr(args, "site_visit", "") else None),
+    )
+
+
+def _write_policy(args, operator) -> "portal_write.WritePolicy":
+    """Arm the TEGG write only if asked for AND confirmed at the keyboard."""
+    settings_map = {}
+    try:
+        settings_map = dict(load_settings(_service_file(args)).write or {})
+    except Exception:                                       # noqa: BLE001
+        settings_map = {}
+    policy = portal_write.WritePolicy.from_settings(
+        settings_map, enabled=bool(getattr(args, "create_tegg_report", False))
+    )
+    if not policy.enabled:
+        return policy
+    if not sys.stdin.isatty():
+        print("refusing to write to TEGG without a person at the keyboard.",
+              file=sys.stderr)
+        policy.enabled = False
+        return policy
+    return portal_write.confirm(
+        policy, ask=lambda prompt: input(prompt), say=print,
+        customer=getattr(operator, "customer", ""),
+        site=getattr(operator, "site", ""),
+        site_visit=getattr(operator, "site_visit", ""),
+    )
+
+
+def _visit_settings(args, operator=None) -> "visit_module.VisitSettings":
     return visit_module.VisitSettings(
-        site_visit=getattr(args, "site_visit", "") or "",
+        site_visit=(getattr(operator, "site_visit", "")
+                    or getattr(args, "site_visit", "") or ""),
         rate_card=root_module.resolve(
             getattr(args, "rate_card", None) or visit_module.DEFAULT_RATE_CARD),
         include_corrected=bool(getattr(args, "include_corrected", False)),
+        intake=operator,
+        write_policy=_write_policy(args, operator),
     )
 
 
@@ -568,26 +650,44 @@ STEP_MESSAGES = {
     "list_records": "listing the completed site visits",
     "select_visit": "choosing which site visit to read",
     "open_visit_context": "opening that site's reports",
-    "retrieve_documents": "asking TEGG for the two reports (this is the slow part, ~40s)",
+    "retrieve_documents": (
+        f"asking TEGG for the {deliverables_module.REQUIRED_COUNT} reports "
+        "(this is the slow part -- about 30-40s each, so give it 3 minutes)"
+    ),
+    "create_tegg_report": "creating/updating the report record in TEGG",
     "extract_findings": "reading the equipment problems out of them",
     "recommend_repairs": "collecting the technician's recommendations",
     "build_estimate": "sizing the outstanding work",
     "validate_result": "checking the result against itself",
     "publish_review": "writing the page for you to review",
+    "check_deliverables": (
+        f"checking all {deliverables_module.REQUIRED_COUNT} documents are "
+        "present and readable"
+    ),
+    "draft_email": "writing the email draft (it is NOT sent)",
     "finish": "finishing",
 }
 
 
 def _progress(quiet: bool):
-    """Print each step as it starts, unless asked not to."""
+    """Print each step as it starts, unless asked not to.
+
+    A step name that is not in the table is passed through verbatim, which is
+    how the per-document lines from the retrieval step reach the screen: the
+    operator watching a three-minute step needs to see it moving, not a
+    stopped cursor.
+    """
     if quiet:
         return None
     state = {"n": 0}
 
     def announce(step: str) -> None:
+        if step.startswith(" "):
+            print(step, flush=True)
+            return
         state["n"] += 1
         message = STEP_MESSAGES.get(step, step.replace("_", " "))
-        print(f"  [{state['n']:>2}] {message}", flush=True)
+        print(f"  [{state['n']:>2}/{len(visit_module.STEPS)}] {message}", flush=True)
 
     return announce
 
@@ -596,6 +696,16 @@ def cmd_run(args) -> int:
     blocked = _blocked(args, args.operation)
     if blocked is not None:
         return blocked
+
+    # The questions come before the browser, so an operator who realises they
+    # have the wrong visit ID has cost nothing and changed nothing.
+    operator = None
+    if args.operation == visit_module.OPERATION:
+        try:
+            operator = _gather_intake(args)
+        except intake_module.IntakeCancelled as stop:
+            print(f"\nStopped: {stop}")
+            return EXIT_OK
 
     settings = _settings(args)
     work_root = _work_root(args)
@@ -616,11 +726,11 @@ def cmd_run(args) -> int:
     try:
         if args.operation == visit_module.OPERATION:
             result = visit_module.start(
-                settings, _visit_settings(args),
+                settings, _visit_settings(args, operator),
                 work_root=work_root, run_id=args.run_id,
                 on_step=_progress(args.json),
             )
-            return _finish_visit(result, args.json)
+            return _finish_visit(result, args.json, work_root=work_root)
         result = start(settings, work_root=work_root, run_id=args.run_id,
                        on_step=_progress(args.json))
         return _finish(result, args.json)
@@ -636,6 +746,18 @@ def cmd_resume(args) -> int:
     if blocked is not None:
         return blocked
     settings = _settings(args)
+    # A resume re-uses the answers the run was started with. They are on the
+    # ledger, so the operator is not made to retype nine fields to recover
+    # from a dropped connection.
+    operator = None
+    if operation == visit_module.OPERATION:
+        stored = (ledger.data.get("intake") or {})
+        if stored:
+            operator = intake_module.Intake.from_dict(stored)
+            print(f"resuming the run started for visit "
+                  f"{operator.site_visit or args.run_id}; the answers you gave "
+                  "are reused.\n")
+
     lock = locking.RunLock(work_root, operation or "awe-tegg", args.run_id)
     try:
         lock.acquire()
@@ -645,10 +767,10 @@ def cmd_resume(args) -> int:
     try:
         if operation == visit_module.OPERATION:
             result = visit_module.resume(
-                settings, _visit_settings(args), args.run_id, work_root=work_root,
-                on_step=_progress(args.json),
+                settings, _visit_settings(args, operator), args.run_id,
+                work_root=work_root, on_step=_progress(args.json),
             )
-            return _finish_visit(result, args.json)
+            return _finish_visit(result, args.json, work_root=work_root)
         result = resume_operation(settings, args.run_id, work_root=work_root,
                                   on_step=_progress(args.json))
         return _finish(result, args.json)
@@ -656,9 +778,11 @@ def cmd_resume(args) -> int:
         lock.release()
 
 
-def _finish_visit(result, as_json: bool) -> int:
+def _finish_visit(result, as_json: bool, *, work_root: Path | None = None) -> int:
     print(report_module.render_json(result) if as_json
           else report_module.render_visit(result))
+    if not as_json:
+        _print_package(result, work_root)
     if result.status == COMPLETED:
         return EXIT_OK
     if result.status == ESCALATED or result.human_action_required:
@@ -666,11 +790,54 @@ def _finish_visit(result, as_json: bool) -> int:
     return EXIT_FAILED
 
 
+def _print_package(result, work_root: Path | None) -> None:
+    """The closing screen: the documents, the draft, and where they are.
+
+    Read back off the ledger rather than passed down, so it says the same
+    thing after a resume, after a status query, and after a failure -- three
+    paths that used to print three different amounts of nothing.
+    """
+    run_id = getattr(result, "run_id", "")
+    if not run_id:
+        return
+    try:
+        ledger = RunLedger.find(work_root or DEFAULT_WORK_ROOT, run_id)
+    except Exception:                                       # noqa: BLE001
+        return
+
+    package = ledger.data.get("deliverables") or {}
+    if package:
+        manifest = deliverables_module.Manifest(
+            site_visit=str(package.get("site_visit", "")),
+            entries=[deliverables_module.Entry(**row)
+                     for row in package.get("documents", [])],
+            additional=[deliverables_module.Entry(**row)
+                        for row in package.get("additional", [])],
+        )
+        print()
+        print(manifest.render())
+
+    draft = ledger.data.get("email_draft") or {}
+    print()
+    if draft:
+        print(f"  Email draft   {draft.get('path', '')}")
+        print(f"    to          {draft.get('to_email', '')}")
+        print(f"    subject     {draft.get('subject', '')}")
+        print("    status      DRAFT -- this tool has NOT sent it. "
+              "Open it, read it, press Send yourself.")
+    else:
+        print("  Email draft   none written")
+
+    print()
+    print(f"  Everything is in:  {ledger.path}")
+
+
 def cmd_status(args) -> int:
     if args.run_id:
         ledger = RunLedger.find(_work_root(args), args.run_id)
         if str(ledger.data.get("operation", "")) == visit_module.OPERATION:
-            return _finish_visit(visit_module.result_from(ledger), args.json)
+            return _finish_visit(visit_module.result_from(ledger), args.json,
+                                 work_root=_work_root(args))
         return _finish(result_from(ledger), args.json)
 
     work_root = _work_root(args)
@@ -725,6 +892,19 @@ def build_parser() -> argparse.ArgumentParser:
         child.add_argument(
             "--include-corrected", action="store_true",
             help="Also size items the technician already fixed on the visit.",
+        )
+        child.add_argument(
+            "--no-intake", action="store_true",
+            help="Skip the questions and take everything from the portal. No "
+                 "email draft is written. For scripting and tests.",
+        )
+        child.add_argument(
+            "--create-tegg-report", action="store_true",
+            help="Let this run CREATE OR UPDATE a report record in the live "
+                 "TEGG portal. Off by default. Also needs a confirmation "
+                 "phrase typed at the keyboard, and the control labels set "
+                 "under service.write in config/service.yaml. Everything else "
+                 "this tool does only reads.",
         )
 
     run_cmd = sub.add_parser("run", help="Start an operation")
