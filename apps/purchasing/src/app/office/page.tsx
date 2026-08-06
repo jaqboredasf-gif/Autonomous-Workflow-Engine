@@ -16,7 +16,7 @@ export const metadata = { title: 'Office — Lippolis Purchasing' };
 export default async function OfficePage() {
   const actor = await requireAccess('/office');
   const ctx = purchasingRequestContext();
-  const requests = S.listRequests(ctx, actor);
+  const requests = await S.listRequests(ctx, actor);
   const now = new Date().toISOString();
   const cards = summarize(requests, now);
 

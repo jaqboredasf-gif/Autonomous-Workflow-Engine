@@ -18,10 +18,10 @@ export default async function AccountingPage() {
 
   // Anything with a purchase order and at least one receipt is payable-ish;
   // anything with a discrepancy is the reason this screen exists.
-  const candidates = S.listRequests(ctx, actor).filter((r: any) =>
+  const candidates = (await S.listRequests(ctx, actor)).filter((r: any) =>
     ['PARTIALLY_RECEIVED', 'RECEIVED', 'COMPLETED'].includes(r.status),
   );
-  const packets = candidates.map((r: any) => accountingPacket(ctx, actor, r.id));
+  const packets = await Promise.all(candidates.map((r: any) => accountingPacket(ctx, actor, r.id)));
 
   return (
     <div className="space-y-5">

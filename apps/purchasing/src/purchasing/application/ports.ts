@@ -70,8 +70,8 @@ export interface AuthPort {
  * purchasing table.
  */
 export interface IdentityPort {
-  load(userId: string): Actor | null;
-  listUsers(orgId: string): any[];
+  load(userId: string): Promise<Actor | null>;
+  listUsers(orgId: string): Promise<any[]>;
   /**
    * Administrative writes on the PERSON — never on their credentials. Creating
    * a user here does not create a way to sign in; that is AuthPort.setPassword,
@@ -80,12 +80,12 @@ export interface IdentityPort {
   createUser(input: {
     orgId: string; fullName: string; email: string; roles: string[];
     canApprove: boolean; isDeliveryReceiver: boolean; createdBy: string; now: string;
-  }): string;
-  setActive(userId: string, active: boolean, actorId: string, now: string): void;
-  setRoles(userId: string, roles: string[], actorId: string, now: string): void;
-  setDeliveryReceiver(userId: string, isReceiver: boolean, actorId: string, now: string): void;
-  assignJob(userId: string, jobNumber: string, actorId: string, now: string): void;
-  unassignJob(userId: string, jobNumber: string): void;
+  }): Promise<string>;
+  setActive(userId: string, active: boolean, actorId: string, now: string): Promise<void>;
+  setRoles(userId: string, roles: string[], actorId: string, now: string): Promise<void>;
+  setDeliveryReceiver(userId: string, isReceiver: boolean, actorId: string, now: string): Promise<void>;
+  assignJob(userId: string, jobNumber: string, actorId: string, now: string): Promise<void>;
+  unassignJob(userId: string, jobNumber: string): Promise<void>;
 }
 
 /**
@@ -93,15 +93,15 @@ export interface IdentityPort {
  * how long they are kept and who else can read them is the platform's problem.
  */
 export interface AuditPort {
-  record(orgId: string, actor: Actor | null, event: any): void;
-  timelineFor(requestId: string): any[];
-  orgLog(orgId: string, limit: number): any[];
+  record(orgId: string, actor: Actor | null, event: any): Promise<void>;
+  timelineFor(requestId: string): Promise<any[]>;
+  orgLog(orgId: string, limit: number): Promise<any[]>;
 }
 
 /** Notification fan-out. Purchasing names the event; delivery is not its job. */
 export interface NotificationPort {
-  publish(orgId: string, event: string, requestId: string | null, payload: unknown): void;
-  inboxFor(userId: string): any[];
+  publish(orgId: string, event: string, requestId: string | null, payload: unknown): Promise<void>;
+  inboxFor(userId: string): Promise<any[]>;
 }
 
 /** Generated documents (the PO PDF). Storage is a platform capability. */
@@ -114,9 +114,9 @@ export interface DocumentPort {
     bytes: Buffer;
     templateKey: string;
     generatedBy: string;
-  }, now: string): { id: string; filename: string; byteSize: number };
-  get(id: string): any | null;
-  listFor(purchaseOrderId: string): any[];
+  }, now: string): Promise<{ id: string; filename: string; byteSize: number }>;
+  get(id: string): Promise<any | null>;
+  listFor(purchaseOrderId: string): Promise<any[]>;
 }
 
 /** Rendering. Purchasing supplies the data; the renderer owns the paper. */
@@ -127,8 +127,8 @@ export interface DocumentRenderer {
 
 /** User-uploaded files (photos of a panel, a packing slip). */
 export interface AttachmentPort {
-  attachToRequest(requestId: string, file: any, actorId: string, now: string): { id: string; filename: string };
-  attachToReceipt(receiptId: string, file: any, actorId: string, now: string): void;
+  attachToRequest(requestId: string, file: any, actorId: string, now: string): Promise<{ id: string; filename: string }>;
+  attachToReceipt(receiptId: string, file: any, actorId: string, now: string): Promise<void>;
 }
 
 /**
@@ -141,7 +141,24 @@ export interface EmailDraftPort {
   readonly externalSendEnabled: false;
 }
 
-/** Transaction boundary. A use case that writes more than one row uses it. */
+/**
+ * Transaction boundary. A use case that writes more than one record uses it.
+ *
+ * The callback is async because the repositories are, and that makes
+ * serialization the implementation's problem: between an `await` inside a
+ * transaction and the next statement, another request can run, and two
+ * interleaved transactions on one connection is a corrupted write, not a slow
+ * one. An implementation MUST either queue or hold a real per-connection
+ * transaction.
+ *
+ * What each provider can honestly promise:
+ *   local (SQLite)  — `begin immediate` … `commit`, serialized in-process, so
+ *                     the whole callback is atomic and isolated.
+ *   Supabase (next) — a single-statement RPC per atomic unit, or a Postgres
+ *                     function; supabase-js has no client-side transaction, so
+ *                     multi-statement atomicity MUST move server-side rather
+ *                     than be simulated here. See PURCHASING_ASYNC_REFACTOR_HANDOFF.md.
+ */
 export interface UnitOfWork {
-  run<T>(fn: () => T): T;
+  run<T>(fn: () => Promise<T> | T): Promise<T>;
 }

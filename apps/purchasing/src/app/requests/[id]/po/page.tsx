@@ -20,7 +20,7 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
   const ctx = purchasingRequestContext();
   let detail: any;
   try {
-    detail = S.getRequestDetail(ctx, actor, id);
+    detail = await S.getRequestDetail(ctx, actor, id);
   } catch {
     notFound();
   }
@@ -32,7 +32,7 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
     );
   }
 
-  const view = S.purchaseOrderView(ctx, detail.purchaseOrder.id);
+  const view = await S.purchaseOrderView(ctx, detail.purchaseOrder.id);
   const doc = detail.purchaseOrder.documents[0];
 
   return (

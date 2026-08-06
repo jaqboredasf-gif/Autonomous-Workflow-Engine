@@ -10,7 +10,7 @@ export default async function EmailDraftPage({ params }: { params: Promise<{ id:
   const actor = await requireAccess('/email-drafts');
   const ctx = purchasingRequestContext();
 
-  const draft = ctx.drafts.findById(id);
+  const draft = await ctx.drafts.findById(id);
   if (!draft || draft.orgId !== actor.orgId) notFound();
   redirect(`/requests/${draft.requestId}/email`);
 }

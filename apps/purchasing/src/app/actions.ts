@@ -23,11 +23,11 @@ import { currentActor, purchasingRequestContext } from '../server/session.ts';
 
 type Result = { ok: true; data?: any } | { ok: false; error: string; reason?: string; details?: any };
 
-async function run<T>(fn: (ctx: any, actor: S.Actor) => T): Promise<Result> {
+async function run<T>(fn: (ctx: any, actor: S.Actor) => Promise<T> | T): Promise<Result> {
   const actor = await currentActor();
   if (!actor) return { ok: false, error: 'You are signed out. Sign in again.', reason: 'no_session' };
   try {
-    const data = fn(purchasingRequestContext(), actor);
+    const data = await fn(purchasingRequestContext(), actor);
     return { ok: true, data };
   } catch (err: any) {
     return {
@@ -48,8 +48,8 @@ async function run<T>(fn: (ctx: any, actor: S.Actor) => T): Promise<Result> {
 
 export async function createRequestAction(_prev: unknown, formData: FormData): Promise<Result> {
   const items = parseItems(formData);
-  const result = await run((ctx, actor) =>
-    S.createRequest(ctx, actor, {
+  const result = await run(async (ctx, actor) =>
+    await S.createRequest(ctx, actor, {
       jobNumber: String(formData.get('jobNumber') ?? ''),
       needByDate: String(formData.get('needByDate') ?? ''),
       needByTime: String(formData.get('needByTime') ?? ''),
@@ -64,7 +64,7 @@ export async function createRequestAction(_prev: unknown, formData: FormData): P
 
   const submit = String(formData.get('submit') ?? '') === 'now';
   if (submit) {
-    const submitted = await run((ctx, actor) => S.submitRequest(ctx, actor, result.data.id));
+    const submitted = await run(async (ctx, actor) => await S.submitRequest(ctx, actor, result.data.id));
     if (!submitted.ok) return submitted;
   }
   revalidatePath('/');
@@ -90,25 +90,25 @@ function parseItems(formData: FormData) {
 
 export async function submitRequestAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run((ctx, actor) => S.submitRequest(ctx, actor, id));
+  await run(async (ctx, actor) => await S.submitRequest(ctx, actor, id));
   revalidatePath(`/requests/${id}`);
 }
 
 export async function cancelRequestAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run((ctx, actor) => S.cancelRequest(ctx, actor, id, String(formData.get('reason') ?? '')));
+  await run(async (ctx, actor) => await S.cancelRequest(ctx, actor, id, String(formData.get('reason') ?? '')));
   revalidatePath(`/requests/${id}`);
 }
 
 export async function addNoteAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run((ctx, actor) => S.addNote(ctx, actor, id, String(formData.get('note') ?? '')));
+  await run(async (ctx, actor) => await S.addNote(ctx, actor, id, String(formData.get('note') ?? '')));
   revalidatePath(`/requests/${id}`);
 }
 
 export async function answerClarificationAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run((ctx, actor) => S.answerClarification(ctx, actor, id, String(formData.get('answer') ?? '')));
+  await run(async (ctx, actor) => await S.answerClarification(ctx, actor, id, String(formData.get('answer') ?? '')));
   revalidatePath(`/requests/${id}`);
 }
 
@@ -117,8 +117,8 @@ export async function answerClarificationAction(formData: FormData) {
 export async function saveReviewAction(_prev: unknown, formData: FormData): Promise<Result> {
   const id = String(formData.get('requestId'));
   const lines = parseReviewLines(formData);
-  const result = await run((ctx, actor) =>
-    S.saveReview(ctx, actor, id, { workshopNotes: String(formData.get('workshopNotes') ?? ''), lines }),
+  const result = await run(async (ctx, actor) =>
+    await S.saveReview(ctx, actor, id, { workshopNotes: String(formData.get('workshopNotes') ?? ''), lines }),
   );
   if (result.ok) revalidatePath(`/requests/${id}/review`);
   return result;
@@ -161,8 +161,8 @@ export async function reviewAndDecideAction(_prev: unknown, formData: FormData):
 
   // Save-then-decide is ONE use case (the decision must refer to saved
   // numbers), so this action only unpacks the form and calls it.
-  const result = await run((ctx, actor) =>
-    saveReviewAndDecide(
+  const result = await run(async (ctx, actor) =>
+    await saveReviewAndDecide(
       ctx,
       actor,
       requestId,
@@ -186,8 +186,8 @@ export async function reviewAndDecideAction(_prev: unknown, formData: FormData):
 export async function decideAction(_prev: unknown, formData: FormData): Promise<Result> {
   const id = String(formData.get('requestId'));
   const decision = String(formData.get('decision')) as 'APPROVE' | 'REJECT' | 'CLARIFY';
-  const result = await run((ctx, actor) =>
-    S.decide(ctx, actor, id, decision, {
+  const result = await run(async (ctx, actor) =>
+    await S.decide(ctx, actor, id, decision, {
       notes: String(formData.get('notes') ?? ''),
       reason: String(formData.get('reason') ?? ''),
       question: String(formData.get('question') ?? ''),
@@ -204,22 +204,22 @@ export async function decideAction(_prev: unknown, formData: FormData): Promise<
 
 export async function generatePoAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  const result = await run((ctx, actor) => S.generatePurchaseOrder(ctx, actor, id));
+  const result = await run(async (ctx, actor) => await S.generatePurchaseOrder(ctx, actor, id));
   revalidatePath(`/requests/${id}`);
   if (result.ok) redirect(`/requests/${id}/po`);
 }
 
 export async function generateEmailDraftAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  const result = await run((ctx, actor) => S.generateVendorEmailDraft(ctx, actor, id));
+  const result = await run(async (ctx, actor) => await S.generateVendorEmailDraft(ctx, actor, id));
   revalidatePath(`/requests/${id}`);
   if (result.ok) redirect(`/requests/${id}/email`);
 }
 
 export async function updateEmailDraftAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run((ctx, actor) =>
-    S.updateEmailDraft(ctx, actor, String(formData.get('draftId')), {
+  await run(async (ctx, actor) =>
+    await S.updateEmailDraft(ctx, actor, String(formData.get('draftId')), {
       subject: String(formData.get('subject') ?? ''),
       body: String(formData.get('body') ?? ''),
     }),
@@ -229,8 +229,8 @@ export async function updateEmailDraftAction(formData: FormData) {
 
 export async function advanceEmailDraftAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run((ctx, actor) =>
-    S.advanceEmailDraft(ctx, actor, String(formData.get('draftId')), String(formData.get('to')) as any),
+  await run(async (ctx, actor) =>
+    await S.advanceEmailDraft(ctx, actor, String(formData.get('draftId')), String(formData.get('to')) as any),
   );
   revalidatePath(`/requests/${id}/email`);
 }
@@ -239,14 +239,14 @@ export async function advanceEmailDraftAction(formData: FormData) {
 
 export async function markOrderedAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run((ctx, actor) => S.markOrdered(ctx, actor, id, { notes: String(formData.get('notes') ?? '') }));
+  await run(async (ctx, actor) => await S.markOrdered(ctx, actor, id, { notes: String(formData.get('notes') ?? '') }));
   revalidatePath(`/requests/${id}`);
 }
 
 export async function updateTrackingAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run((ctx, actor) =>
-    S.updateTracking(ctx, actor, id, {
+  await run(async (ctx, actor) =>
+    await S.updateTracking(ctx, actor, id, {
       trackingNumber: String(formData.get('trackingNumber') ?? ''),
       carrier: String(formData.get('carrier') ?? ''),
       expectedArrivalDate: String(formData.get('expectedArrivalDate') ?? ''),
@@ -265,8 +265,8 @@ export async function recordReceiptAction(_prev: unknown, formData: FormData): P
   const overrides = formData.getAll('receiptOverrideReason').map(String);
   const notes = formData.getAll('receiptLineNotes').map(String);
 
-  const result = await run((ctx, actor) =>
-    S.recordReceipt(ctx, actor, id, {
+  const result = await run(async (ctx, actor) =>
+    await S.recordReceipt(ctx, actor, id, {
       receivedDate: String(formData.get('receivedDate') ?? ''),
       packingSlipNumber: String(formData.get('packingSlipNumber') ?? ''),
       notes: String(formData.get('receiptNotes') ?? ''),
@@ -287,20 +287,13 @@ export async function recordReceiptAction(_prev: unknown, formData: FormData): P
 
 // --- administration ---------------------------------------------------------
 
-/** Some administrative use cases talk to the auth provider, so they await. */
-async function runAsync(fn: (ctx: any, actor: S.Actor) => Promise<any>): Promise<Result> {
-  const actor = await currentActor();
-  if (!actor) return { ok: false, error: 'You are signed out. Sign in again.', reason: 'no_session' };
-  try {
-    return { ok: true, data: await fn(purchasingRequestContext(), actor) };
-  } catch (err: any) {
-    return { ok: false, error: err?.message ?? 'Something went wrong.', reason: err?.reason, details: err?.details ?? null };
-  }
-}
+// run() awaits its callback, so there is one helper rather than a sync and an
+// async variant that could drift.
+const runAsync = run;
 
 export async function inviteUserAction(_prev: unknown, formData: FormData): Promise<Result> {
-  const result = await runAsync((ctx, actor) =>
-    admin.inviteUser(ctx, actor, {
+  const result = await runAsync(async (ctx, actor) =>
+    await admin.inviteUser(ctx, actor, {
       fullName: String(formData.get('fullName') ?? ''),
       email: String(formData.get('email') ?? ''),
       roles: formData.getAll('roles').map(String),
@@ -315,30 +308,30 @@ export async function inviteUserAction(_prev: unknown, formData: FormData): Prom
 }
 
 export async function setUserDisabledAction(formData: FormData) {
-  await runAsync((ctx, actor) =>
-    admin.setUserDisabled(ctx, actor, String(formData.get('userId')), String(formData.get('disabled')) === 'true'),
+  await runAsync(async (ctx, actor) =>
+    await admin.setUserDisabled(ctx, actor, String(formData.get('userId')), String(formData.get('disabled')) === 'true'),
   );
   revalidatePath('/admin');
 }
 
 export async function resetUserAccessAction(_prev: unknown, formData: FormData): Promise<Result> {
-  const result = await runAsync((ctx, actor) =>
-    admin.resetUserAccess(ctx, actor, String(formData.get('userId')), String(formData.get('temporaryPassword') ?? '')),
+  const result = await runAsync(async (ctx, actor) =>
+    await admin.resetUserAccess(ctx, actor, String(formData.get('userId')), String(formData.get('temporaryPassword') ?? '')),
   );
   if (result.ok) revalidatePath('/admin');
   return result;
 }
 
 export async function setUserRolesAction(formData: FormData) {
-  await run((ctx, actor) =>
-    admin.setUserRoles(ctx, actor, String(formData.get('userId')), formData.getAll('roles').map(String)),
+  await run(async (ctx, actor) =>
+    await admin.setUserRoles(ctx, actor, String(formData.get('userId')), formData.getAll('roles').map(String)),
   );
   revalidatePath('/admin');
 }
 
 export async function setJobAssignmentAction(formData: FormData) {
-  await run((ctx, actor) =>
-    admin.setJobAssignment(
+  await run(async (ctx, actor) =>
+    await admin.setJobAssignment(
       ctx, actor, String(formData.get('userId')), String(formData.get('jobNumber') ?? ''),
       String(formData.get('assigned')) === 'true',
     ),
@@ -347,15 +340,15 @@ export async function setJobAssignmentAction(formData: FormData) {
 }
 
 export async function setDeliveryReceiverAction(formData: FormData) {
-  await run((ctx, actor) =>
-    admin.setDeliveryReceiver(ctx, actor, String(formData.get('userId')), String(formData.get('isReceiver')) === 'true'),
+  await run(async (ctx, actor) =>
+    await admin.setDeliveryReceiver(ctx, actor, String(formData.get('userId')), String(formData.get('isReceiver')) === 'true'),
   );
   revalidatePath('/admin');
 }
 
 export async function updatePoConfigAction(formData: FormData) {
-  await run((ctx, actor) =>
-    S.updatePoConfig(ctx, actor, {
+  await run(async (ctx, actor) =>
+    await S.updatePoConfig(ctx, actor, {
       prefix: String(formData.get('prefix') ?? ''),
       padding: Number(formData.get('padding') ?? 5),
       suffix: String(formData.get('suffix') ?? ''),
@@ -366,14 +359,14 @@ export async function updatePoConfigAction(formData: FormData) {
 }
 
 export async function setApprovalAuthorityAction(formData: FormData) {
-  await run((ctx, actor) =>
-    S.setApprovalAuthority(ctx, actor, String(formData.get('userId')), String(formData.get('canApprove')) === 'true'),
+  await run(async (ctx, actor) =>
+    await S.setApprovalAuthority(ctx, actor, String(formData.get('userId')), String(formData.get('canApprove')) === 'true'),
   );
   revalidatePath('/admin');
 }
 
 export async function completeRequestAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run((ctx, actor) => S.completeRequest(ctx, actor, id, String(formData.get('notes') ?? '')));
+  await run(async (ctx, actor) => await S.completeRequest(ctx, actor, id, String(formData.get('notes') ?? '')));
   revalidatePath(`/requests/${id}`);
 }

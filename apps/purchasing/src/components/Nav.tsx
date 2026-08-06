@@ -19,7 +19,7 @@ export default async function Nav() {
 
   const workspaces = workspacesFor(actor);
   const ctx = purchasingRequestContext();
-  const unread = ctx.notifications.inboxFor(actor.id).filter((n: any) => !n.read_at).length;
+  const unread = (await ctx.notifications.inboxFor(actor.id)).filter((n: any) => !n.read_at).length;
 
   return (
     <header className="no-print sticky top-0 z-20 border-b border-slate-200 bg-white">

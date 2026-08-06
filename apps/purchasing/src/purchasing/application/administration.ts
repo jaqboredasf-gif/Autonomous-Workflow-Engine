@@ -14,8 +14,8 @@ import { events } from '../domain/events.mjs';
 import { validatePoConfig } from '../domain/po-number.mjs';
 import { ROLES } from '../domain/roles.mjs';
 
-export function poConfig(ctx: PurchasingContext, actor: Actor) {
-  return ctx.reference.poConfig(actor.orgId);
+export async function poConfig(ctx: PurchasingContext, actor: Actor) {
+  return await ctx.reference.poConfig(actor.orgId);
 }
 
 /**
@@ -23,12 +23,12 @@ export function poConfig(ctx: PurchasingContext, actor: Actor) {
  * winding a sequence backwards would re-issue numbers that vendors and invoices
  * already reference.
  */
-export function updatePoConfig(
+export async function updatePoConfig(
   ctx: PurchasingContext, actor: Actor,
   input: { prefix?: string; padding?: number; suffix?: string; nextValue?: number },
 ) {
-  must(ctx, actor, 'admin.po_config');
-  const current = ctx.reference.poConfig(actor.orgId);
+  await must(ctx, actor, 'admin.po_config');
+  const current = await ctx.reference.poConfig(actor.orgId);
 
   const validation = validatePoConfig({
     prefix: input.prefix ?? current.prefix,
@@ -42,7 +42,7 @@ export function updatePoConfig(
     throw new PurchasingError('sequence_rewind', 'a PO sequence can only move forward — issued numbers are permanent');
   }
 
-  ctx.reference.updatePoConfig(
+  await ctx.reference.updatePoConfig(
     actor.orgId,
     {
       prefix: input.prefix ?? current.prefix,
@@ -54,7 +54,7 @@ export function updatePoConfig(
     ctx.clock.now(),
   );
 
-  emit(ctx, actor, actor.orgId, [
+  await emit(ctx, actor, actor.orgId, [
     events.poConfigChanged(
       { prefix: current.prefix, padding: current.padding, suffix: current.suffix, nextValue: current.next_value },
       { prefix: input.prefix ?? current.prefix, padding: input.padding ?? current.padding, nextValue },
@@ -81,7 +81,7 @@ export type InviteInput = {
 };
 
 export async function inviteUser(ctx: PurchasingContext, actor: Actor, input: InviteInput) {
-  must(ctx, actor, 'admin.invite');
+  await must(ctx, actor, 'admin.invite');
   if (!input.fullName?.trim() || !input.email?.trim()) {
     throw new PurchasingError('validation_failed', 'a name and an email address are required');
   }
@@ -93,7 +93,7 @@ export async function inviteUser(ctx: PurchasingContext, actor: Actor, input: In
     if (!ROLES.includes(role)) throw new PurchasingError('validation_failed', `unknown role ${role}`);
   }
 
-  const userId = ctx.identity.createUser({
+  const userId = await ctx.identity.createUser({
     orgId: actor.orgId,
     fullName: input.fullName.trim(),
     email: input.email.trim().toLowerCase(),
@@ -108,10 +108,10 @@ export async function inviteUser(ctx: PurchasingContext, actor: Actor, input: In
   await ctx.auth.setPassword(userId, input.temporaryPassword);
 
   for (const jobNumber of input.jobNumbers ?? []) {
-    ctx.identity.assignJob(userId, jobNumber, actor.id, ctx.clock.now());
+    await ctx.identity.assignJob(userId, jobNumber, actor.id, ctx.clock.now());
   }
 
-  emit(ctx, actor, actor.orgId, [
+  await emit(ctx, actor, actor.orgId, [
     events.approvalAuthorityChanged(userId, null, { invited: true, roles: input.roles }, `invited ${input.fullName}`),
   ]);
   return { userId };
@@ -119,17 +119,17 @@ export async function inviteUser(ctx: PurchasingContext, actor: Actor, input: In
 
 /** Disable or re-enable an account, on both sides at once. */
 export async function setUserDisabled(ctx: PurchasingContext, actor: Actor, userId: string, disabled: boolean) {
-  must(ctx, actor, 'admin.users');
-  const target = ctx.identity.load(userId);
+  await must(ctx, actor, 'admin.users');
+  const target = await ctx.identity.load(userId);
   if (!target || target.orgId !== actor.orgId) throw new PurchasingError('not_found', 'user not found');
   if (userId === actor.id && disabled) {
     throw new PurchasingError('validation_failed', 'you cannot disable your own account');
   }
 
-  ctx.identity.setActive(userId, !disabled, actor.id, ctx.clock.now());
+  await ctx.identity.setActive(userId, !disabled, actor.id, ctx.clock.now());
   await ctx.auth.setDisabled(userId, disabled);
 
-  emit(ctx, actor, actor.orgId, [
+  await emit(ctx, actor, actor.orgId, [
     events.approvalAuthorityChanged(
       userId, { active: target.isActive }, { active: !disabled },
       `${disabled ? 'disabled' : 're-enabled'} ${target.name}`,
@@ -140,22 +140,22 @@ export async function setUserDisabled(ctx: PurchasingContext, actor: Actor, user
 
 /** Reset access: set a new temporary password through the provider. */
 export async function resetUserAccess(ctx: PurchasingContext, actor: Actor, userId: string, temporaryPassword: string) {
-  must(ctx, actor, 'admin.users');
-  const target = ctx.identity.load(userId);
+  await must(ctx, actor, 'admin.users');
+  const target = await ctx.identity.load(userId);
   if (!target || target.orgId !== actor.orgId) throw new PurchasingError('not_found', 'user not found');
   if (!temporaryPassword || temporaryPassword.length < 10) {
     throw new PurchasingError('validation_failed', 'the temporary password must be at least 10 characters');
   }
   await ctx.auth.setPassword(userId, temporaryPassword);
-  emit(ctx, actor, actor.orgId, [
+  await emit(ctx, actor, actor.orgId, [
     events.approvalAuthorityChanged(userId, null, { accessReset: true }, `reset access for ${target.name}`),
   ]);
   return { ok: true };
 }
 
-export function setUserRoles(ctx: PurchasingContext, actor: Actor, userId: string, roles: string[]) {
-  must(ctx, actor, 'admin.users');
-  const target = ctx.identity.load(userId);
+export async function setUserRoles(ctx: PurchasingContext, actor: Actor, userId: string, roles: string[]) {
+  await must(ctx, actor, 'admin.users');
+  const target = await ctx.identity.load(userId);
   if (!target || target.orgId !== actor.orgId) throw new PurchasingError('not_found', 'user not found');
   for (const role of roles) {
     if (!ROLES.includes(role)) throw new PurchasingError('validation_failed', `unknown role ${role}`);
@@ -166,26 +166,26 @@ export function setUserRoles(ctx: PurchasingContext, actor: Actor, userId: strin
     throw new PurchasingError('validation_failed', 'you cannot remove your own administrator role');
   }
 
-  ctx.identity.setRoles(userId, roles, actor.id, ctx.clock.now());
-  emit(ctx, actor, actor.orgId, [
+  await ctx.identity.setRoles(userId, roles, actor.id, ctx.clock.now());
+  await emit(ctx, actor, actor.orgId, [
     events.approvalAuthorityChanged(userId, { roles: target.roles }, { roles }, `roles changed for ${target.name}`),
   ]);
   return { ok: true };
 }
 
 /** Assign or unassign a foreman to a job site. */
-export function setJobAssignment(
+export async function setJobAssignment(
   ctx: PurchasingContext, actor: Actor, userId: string, jobNumber: string, assigned: boolean,
 ) {
-  must(ctx, actor, 'admin.assignments');
-  const target = ctx.identity.load(userId);
+  await must(ctx, actor, 'admin.assignments');
+  const target = await ctx.identity.load(userId);
   if (!target || target.orgId !== actor.orgId) throw new PurchasingError('not_found', 'user not found');
   if (!jobNumber?.trim()) throw new PurchasingError('validation_failed', 'a job number is required');
 
-  if (assigned) ctx.identity.assignJob(userId, jobNumber.trim(), actor.id, ctx.clock.now());
-  else ctx.identity.unassignJob(userId, jobNumber.trim());
+  if (assigned) await ctx.identity.assignJob(userId, jobNumber.trim(), actor.id, ctx.clock.now());
+  else await ctx.identity.unassignJob(userId, jobNumber.trim());
 
-  emit(ctx, actor, actor.orgId, [
+  await emit(ctx, actor, actor.orgId, [
     events.approvalAuthorityChanged(
       userId, { assignedJobNumbers: target.assignedJobNumbers },
       { jobNumber, assigned }, `${assigned ? 'assigned' : 'unassigned'} ${target.name} ${assigned ? 'to' : 'from'} job ${jobNumber}`,
@@ -195,12 +195,12 @@ export function setJobAssignment(
 }
 
 /** Designate (or undesignate) someone as a delivery receiver. */
-export function setDeliveryReceiver(ctx: PurchasingContext, actor: Actor, userId: string, isReceiver: boolean) {
-  must(ctx, actor, 'admin.assignments');
-  const target = ctx.identity.load(userId);
+export async function setDeliveryReceiver(ctx: PurchasingContext, actor: Actor, userId: string, isReceiver: boolean) {
+  await must(ctx, actor, 'admin.assignments');
+  const target = await ctx.identity.load(userId);
   if (!target || target.orgId !== actor.orgId) throw new PurchasingError('not_found', 'user not found');
-  ctx.identity.setDeliveryReceiver(userId, isReceiver, actor.id, ctx.clock.now());
-  emit(ctx, actor, actor.orgId, [
+  await ctx.identity.setDeliveryReceiver(userId, isReceiver, actor.id, ctx.clock.now());
+  await emit(ctx, actor, actor.orgId, [
     events.approvalAuthorityChanged(
       userId, { isDeliveryReceiver: target.isDeliveryReceiver }, { isDeliveryReceiver: isReceiver },
       `${isReceiver ? 'designated' : 'removed'} ${target.name} as a delivery receiver`,
@@ -210,13 +210,13 @@ export function setDeliveryReceiver(ctx: PurchasingContext, actor: Actor, userId
 }
 
 /** Grant or revoke purchasing approval authority for a user in this org. */
-export function setApprovalAuthority(ctx: PurchasingContext, actor: Actor, userId: string, canApprove: boolean) {
-  must(ctx, actor, 'admin.users');
-  const target = ctx.identity.load(userId);
+export async function setApprovalAuthority(ctx: PurchasingContext, actor: Actor, userId: string, canApprove: boolean) {
+  await must(ctx, actor, 'admin.users');
+  const target = await ctx.identity.load(userId);
   if (!target || target.orgId !== actor.orgId) throw new PurchasingError('not_found', 'user not found');
 
-  ctx.reference.setApprovalAuthority(userId, canApprove, actor.id, ctx.clock.now());
-  emit(ctx, actor, actor.orgId, [
+  await ctx.reference.setApprovalAuthority(userId, canApprove, actor.id, ctx.clock.now());
+  await emit(ctx, actor, actor.orgId, [
     events.approvalAuthorityChanged(
       userId, { canApprove: target.canApprove }, { canApprove },
       `approval authority ${canApprove ? 'granted to' : 'revoked from'} ${target.name}`,

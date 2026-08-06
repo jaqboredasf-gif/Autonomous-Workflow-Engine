@@ -21,14 +21,14 @@ export default async function AdminPage() {
   const actor = await requireAccess('/admin');
 
   const ctx = purchasingRequestContext();
-  const users = S.listUsers(ctx, actor);
-  const vendors = S.listVendors(ctx, actor);
-  const locations = S.listDeliveryLocations(ctx, actor);
-  const jobs = S.listJobs(ctx, actor);
-  const templates = listEmailTemplates(ctx, actor);
-  const settings = ctx.reference.settings(actor.orgId);
-  const po = S.poConfig(ctx, actor);
-  const log = S.auditLog(ctx, actor, 100);
+  const users = await S.listUsers(ctx, actor);
+  const vendors = await S.listVendors(ctx, actor);
+  const locations = await S.listDeliveryLocations(ctx, actor);
+  const jobs = await S.listJobs(ctx, actor);
+  const templates = await listEmailTemplates(ctx, actor);
+  const settings = await ctx.reference.settings(actor.orgId);
+  const po = await S.poConfig(ctx, actor);
+  const log = await S.auditLog(ctx, actor, 100);
 
   return (
     <div className="space-y-5">

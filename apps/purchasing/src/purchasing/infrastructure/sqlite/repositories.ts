@@ -11,6 +11,11 @@
 // arithmetic in this file beyond the sums the database is best placed to do —
 // the rules live in domain/, and the orchestration in application/.
 //
+// The methods are `async` to satisfy the repository contract, but the work
+// inside is synchronous and settles in the same tick. There are no artificial
+// delays: a local file store has nothing to wait for, and pretending otherwise
+// would only make tests slower and less deterministic.
+//
 // The Supabase implementation of the same interfaces is the production
 // counterpart (migration 0016 provides the tables, RLS and RPCs); swapping it in
 // is a change to composition.ts and nothing else.
@@ -114,7 +119,7 @@ const LIST_SELECT = `
 
 export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestRepository {
   return {
-    nextRequestNumber(orgId) {
+    async nextRequestNumber(orgId) {
       const seq = db.prepare('select * from request_number_sequences where org_id = ?').get(orgId) as any;
       if (!seq) throw new Error('no request number sequence configured');
       const value = Number(seq.next_value);
@@ -125,7 +130,7 @@ export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestReposi
       return `${seq.prefix}${String(value).padStart(Number(seq.padding), '0')}${seq.suffix}`;
     },
 
-    insert(record) {
+    async insert(record) {
       const id = record.id ?? uuid();
       db.prepare(
         `insert into purchase_requests
@@ -145,10 +150,10 @@ export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestReposi
         ).run(uuid(), id, idx + 1, item.description, item.requestedQty, item.unit,
               item.stockNumber ?? null, item.notes ?? null, record.now, record.now, record.createdBy);
       });
-      return this.findById(id)!;
+      return (await this.findById(id))!;
     },
 
-    findById(id) {
+    async findById(id) {
       const row = db
         .prepare(
           `select r.*, u.full_name as requestor_name, a.full_name as approver_name,
@@ -166,11 +171,11 @@ export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestReposi
       return row ? toRequest(row) : null;
     },
 
-    listForOrg(orgId) {
+    async listForOrg(orgId) {
       return (db.prepare(`${LIST_SELECT} where r.org_id = ? order by r.created_at desc`).all(orgId) as any[]).map(toRequest);
     },
 
-    listForRequestor(orgId, userId) {
+    async listForRequestor(orgId, userId) {
       return (
         db
           .prepare(`${LIST_SELECT} where r.org_id = ? and (r.requestor_id = ? or r.created_by = ?) order by r.created_at desc`)
@@ -178,7 +183,7 @@ export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestReposi
       ).map(toRequest);
     },
 
-    update(id, expectedVersion, patch) {
+    async update(id, expectedVersion, patch) {
       const columns = Object.keys(patch);
       const sets = [...columns.map((c) => `${c} = ?`), 'version = version + 1'].join(', ');
       const res = db
@@ -191,16 +196,16 @@ export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestReposi
       }
     },
 
-    patch(id, patch) {
+    async patch(id, patch) {
       const sets = Object.keys(patch).map((c) => `${c} = ?`).join(', ');
       db.prepare(`update purchase_requests set ${sets} where id = ?`).run(...(Object.values(patch) as any[]), id);
     },
 
-    itemsFor(requestId) {
+    async itemsFor(requestId) {
       return (db.prepare('select * from purchase_request_items where request_id = ? order by line_no').all(requestId) as any[]).map(toItem);
     },
 
-    replaceItems(requestId, items, actorId, now) {
+    async replaceItems(requestId, items, actorId, now) {
       db.prepare('delete from purchase_request_items where request_id = ?').run(requestId);
       items.forEach((item: any, idx: number) => {
         db.prepare(
@@ -212,7 +217,7 @@ export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestReposi
       });
     },
 
-    attachmentsFor(requestId) {
+    async attachmentsFor(requestId) {
       return db
         .prepare('select id, filename, content_type, byte_size, caption, created_at from purchase_request_attachments where request_id = ?')
         .all(requestId) as any[];
@@ -224,12 +229,12 @@ export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestReposi
 
 export function sqliteReviewRepository(db: DatabaseSync): WorkshopReviewRepository {
   return {
-    findByRequest(requestId) {
+    async findByRequest(requestId) {
       const row = db.prepare('select * from purchase_reviews where request_id = ?').get(requestId) as any;
       return row ? { id: row.id, requestId: row.request_id, savedAt: row.saved_at ?? null, workshopNotes: row.workshop_notes ?? null } : null;
     },
 
-    open(requestId, reviewerId, now) {
+    async open(requestId, reviewerId, now) {
       const id = uuid();
       db.prepare(
         `insert into purchase_reviews (id, request_id, reviewer_id, started_at, created_at, updated_at)
@@ -238,7 +243,7 @@ export function sqliteReviewRepository(db: DatabaseSync): WorkshopReviewReposito
       return { id };
     },
 
-    saveLine(reviewId, requestItemId, values, actorId, now) {
+    async saveLine(reviewId, requestItemId, values, actorId, now) {
       const previous = db
         .prepare('select * from purchase_review_items where review_id = ? and request_item_id = ?')
         .get(reviewId, requestItemId) as any;
@@ -289,7 +294,7 @@ export function sqliteReviewRepository(db: DatabaseSync): WorkshopReviewReposito
      * never merged: `requestedQty` comes from purchase_request_items and cannot
      * be written through this shape.
      */
-    linesFor(requestId): ReviewLineRecord[] {
+    async linesFor(requestId): Promise<ReviewLineRecord[]> {
       return (
         db
           .prepare(
@@ -326,7 +331,7 @@ export function sqliteReviewRepository(db: DatabaseSync): WorkshopReviewReposito
       }));
     },
 
-    markSaved(reviewId, reviewerId, workshopNotes, now) {
+    async markSaved(reviewId, reviewerId, workshopNotes, now) {
       db.prepare('update purchase_reviews set workshop_notes = ?, saved_at = ?, updated_at = ?, reviewer_id = ? where id = ?')
         .run(workshopNotes, now, now, reviewerId, reviewId);
     },
@@ -337,14 +342,14 @@ export function sqliteReviewRepository(db: DatabaseSync): WorkshopReviewReposito
 
 export function sqliteApprovalRepository(db: DatabaseSync): ApprovalRepository {
   return {
-    record(requestId, approverId, decision, notes, reason, changes, now) {
+    async record(requestId, approverId, decision, notes, reason, changes, now) {
       db.prepare(
         `insert into purchase_approvals (id, request_id, approver_id, decision, decided_at, notes, reason, changes_json, created_at)
          values (?,?,?,?,?,?,?,?,?)`,
       ).run(uuid(), requestId, approverId, decision, now, notes, reason, JSON.stringify(changes ?? []), now);
     },
 
-    listForRequest(requestId) {
+    async listForRequest(requestId) {
       return (db.prepare('select * from purchase_approvals where request_id = ? order by decided_at').all(requestId) as any[]).map((a) => ({
         id: a.id,
         decision: a.decision,
@@ -380,15 +385,15 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
       : null;
 
   return {
-    findByRequest(requestId) {
+    async findByRequest(requestId) {
       return map(db.prepare('select * from purchase_orders where request_id = ?').get(requestId));
     },
 
-    findById(id) {
+    async findById(id) {
       return map(db.prepare('select * from purchase_orders where id = ?').get(id));
     },
 
-    insert(order, now) {
+    async insert(order, now) {
       const id = uuid();
       db.prepare(
         `insert into purchase_orders
@@ -414,11 +419,11 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
       return { id, poNumber: order.poNumber };
     },
 
-    itemsFor(purchaseOrderId) {
+    async itemsFor(purchaseOrderId) {
       return db.prepare('select * from purchase_order_items where purchase_order_id = ? order by line_no').all(purchaseOrderId) as any[];
     },
 
-    progressFor(requestId): LineProgressRecord[] {
+    async progressFor(requestId): Promise<LineProgressRecord[]> {
       const po = db.prepare('select * from purchase_orders where request_id = ?').get(requestId) as any;
       if (!po) return [];
       const items = db.prepare('select * from purchase_order_items where purchase_order_id = ? order by line_no').all(po.id) as any[];
@@ -452,7 +457,7 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
       });
     },
 
-    view(purchaseOrderId) {
+    async view(purchaseOrderId) {
       const po = db.prepare('select * from purchase_orders where id = ?').get(purchaseOrderId) as any;
       if (!po) return null;
       const org = db.prepare('select * from orgs where id = ?').get(po.org_id) as any;
@@ -497,11 +502,11 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
 /**
  * PO numbering. The compare-and-set is the whole safety property: even if two
  * callers read the same value, only one update lands, and the caller running
- * inside `inTransaction` holds the write lock while it happens.
+ * inside the unit of work holds the write lock while it happens.
  */
 export function sqlitePoNumberAllocator(db: DatabaseSync): PoNumberAllocator {
   return {
-    allocate(orgId, now) {
+    async allocate(orgId, now) {
       const seq = db.prepare('select * from po_number_sequences where org_id = ?').get(orgId) as any;
       if (!seq) {
         const err: any = new Error('no PO number sequence configured for this organization');
@@ -552,16 +557,16 @@ export function sqliteEmailDraftRepository(db: DatabaseSync): EmailDraftReposito
       : null;
 
   return {
-    findByKey(orgId, draftKey) {
+    async findByKey(orgId, draftKey) {
       return map(db.prepare('select * from purchase_email_drafts where org_id = ? and draft_key = ?').get(orgId, draftKey));
     },
-    findById(id) {
+    async findById(id) {
       return map(db.prepare('select * from purchase_email_drafts where id = ?').get(id));
     },
-    listForRequest(requestId) {
+    async listForRequest(requestId) {
       return (db.prepare('select * from purchase_email_drafts where request_id = ? order by created_at').all(requestId) as any[]).map(map);
     },
-    insert(draft, now) {
+    async insert(draft, now) {
       const id = uuid();
       db.prepare(
         `insert into purchase_email_drafts
@@ -576,12 +581,12 @@ export function sqliteEmailDraftRepository(db: DatabaseSync): EmailDraftReposito
       );
       return { id };
     },
-    updateContent(id, patch, now) {
+    async updateContent(id, patch, now) {
       const current = db.prepare('select * from purchase_email_drafts where id = ?').get(id) as any;
       db.prepare('update purchase_email_drafts set subject = ?, body = ?, updated_at = ? where id = ?')
         .run(patch.subject ?? current.subject, patch.body ?? current.body, now, id);
     },
-    updateStatus(id, columns) {
+    async updateStatus(id, columns) {
       const sets = Object.keys(columns).map((c) => `${c} = ?`).join(', ');
       db.prepare(`update purchase_email_drafts set ${sets} where id = ?`).run(...(Object.values(columns) as any[]), id);
     },
@@ -606,7 +611,7 @@ export function sqliteReceiptRepository(db: DatabaseSync): ReceiptRepository {
   });
 
   return {
-    insert(receipt, now) {
+    async insert(receipt, now) {
       const id = uuid();
       db.prepare(
         `insert into purchase_receipts
@@ -617,7 +622,7 @@ export function sqliteReceiptRepository(db: DatabaseSync): ReceiptRepository {
       return { id };
     },
 
-    insertLine(receiptId, line, now) {
+    async insertLine(receiptId, line, now) {
       db.prepare(
         `insert into purchase_receipt_items
            (id, receipt_id, purchase_order_item_id, received_qty, damaged_qty, backordered_qty,
@@ -628,26 +633,26 @@ export function sqliteReceiptRepository(db: DatabaseSync): ReceiptRepository {
             line.overrideReason ?? null, line.notes ?? null, now);
     },
 
-    markFinal(receiptId) {
+    async markFinal(receiptId) {
       db.prepare('update purchase_receipts set is_final = 1 where id = ?').run(receiptId);
     },
 
-    listForRequest(requestId) {
+    async listForRequest(requestId) {
       return (db.prepare('select * from purchase_receipts where request_id = ? order by created_at').all(requestId) as any[]).map(mapReceipt);
     },
 
-    findById(id) {
+    async findById(id) {
       const row = db.prepare('select * from purchase_receipts where id = ?').get(id) as any;
       return row ? mapReceipt(row) : null;
     },
 
-    attachmentsFor(receiptId) {
+    async attachmentsFor(receiptId) {
       return db
         .prepare('select id, filename, content_type, byte_size, caption, created_at from purchase_receipt_attachments where receipt_id = ?')
         .all(receiptId) as any[];
     },
 
-    attach(receiptId, file, actorId, now) {
+    async attach(receiptId, file, actorId, now) {
       db.prepare(
         `insert into purchase_receipt_attachments (id, receipt_id, filename, content_type, byte_size, data_base64, caption, created_at, created_by)
          values (?,?,?,?,?,?,?,?,?)`,
@@ -662,7 +667,7 @@ export function sqliteReceiptRepository(db: DatabaseSync): ReceiptRepository {
 
 export function sqliteInventoryRepository(db: DatabaseSync): InventoryRepository {
   return {
-    observe(record, now) {
+    async observe(record, now) {
       db.prepare(
         `insert into inventory_observations
            (id, org_id, request_id, request_item_id, item_description, observed_qty, unit,
@@ -672,7 +677,7 @@ export function sqliteInventoryRepository(db: DatabaseSync): InventoryRepository
             record.observedQty, record.unit, now, record.observedBy, record.notes ?? null, now);
     },
 
-    adjust(record, now) {
+    async adjust(record, now) {
       db.prepare(
         `insert into inventory_adjustments
            (id, org_id, request_id, request_item_id, item_description, delta_qty, unit, reason, adjusted_at, adjusted_by, created_at)
@@ -687,7 +692,7 @@ export function sqliteInventoryRepository(db: DatabaseSync): InventoryRepository
 
 export function sqliteReferenceRepository(db: DatabaseSync): ReferenceRepository {
   return {
-    vendors(orgId) {
+    async vendors(orgId) {
       return db
         .prepare(
           `select v.*, c.name as contact_name, c.email as contact_email, c.phone as contact_phone
@@ -697,23 +702,23 @@ export function sqliteReferenceRepository(db: DatabaseSync): ReferenceRepository
         )
         .all(orgId) as any[];
     },
-    primaryContact(vendorId) {
+    async primaryContact(vendorId) {
       return db.prepare('select * from vendor_contacts where vendor_id = ? order by is_primary desc limit 1').get(vendorId) as any;
     },
-    deliveryLocations(orgId) {
+    async deliveryLocations(orgId) {
       return db.prepare('select * from delivery_locations where org_id = ? and is_active = 1 order by kind, name').all(orgId) as any[];
     },
-    jobs(orgId) {
+    async jobs(orgId) {
       return db.prepare('select * from jobs where org_id = ? and is_active = 1 order by job_number').all(orgId) as any[];
     },
-    users(orgId) {
+    async users(orgId) {
       const rows = db.prepare('select * from users where org_id = ? order by full_name').all(orgId) as any[];
       return rows.map((u) => ({
         ...u,
         roles: (db.prepare('select role_key from user_roles where user_id = ?').all(u.id) as any[]).map((r) => r.role_key),
       }));
     },
-    settings(orgId) {
+    async settings(orgId) {
       const s = db.prepare('select * from system_settings where org_id = ?').get(orgId) as any;
       return {
         allowSelfApproval: Boolean(s?.allow_self_approval),
@@ -724,24 +729,24 @@ export function sqliteReferenceRepository(db: DatabaseSync): ReferenceRepository
         poTemplateKey: String(s?.po_template_key ?? 'lippolis_default'),
       };
     },
-    emailTemplate(orgId, key) {
+    async emailTemplate(orgId, key) {
       const row = db
         .prepare('select * from email_templates where org_id = ? and template_key = ? and is_active = 1')
         .get(orgId, key) as any;
       return row ? { subject: row.subject, body: row.body } : null;
     },
-    emailTemplates(orgId) {
+    async emailTemplates(orgId) {
       return db.prepare('select * from email_templates where org_id = ? order by template_key').all(orgId) as any[];
     },
-    poConfig(orgId) {
+    async poConfig(orgId) {
       return db.prepare('select * from po_number_sequences where org_id = ?').get(orgId) as any;
     },
-    updatePoConfig(orgId, patch: any, actorId, now) {
+    async updatePoConfig(orgId, patch: any, actorId, now) {
       db.prepare(
         'update po_number_sequences set prefix = ?, padding = ?, suffix = ?, next_value = ?, updated_at = ?, updated_by = ? where org_id = ?',
       ).run(patch.prefix, patch.padding, patch.suffix, patch.nextValue, now, actorId, orgId);
     },
-    setApprovalAuthority(userId, canApprove, actorId, now) {
+    async setApprovalAuthority(userId, canApprove, actorId, now) {
       db.prepare('update users set can_approve = ?, updated_at = ?, updated_by = ? where id = ?')
         .run(canApprove ? 1 : 0, now, actorId, userId);
     },

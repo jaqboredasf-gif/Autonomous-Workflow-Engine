@@ -15,7 +15,7 @@ export default async function PurchaseOrderPage({ params }: { params: Promise<{ 
   const actor = await requireAccess('/purchase-orders');
   const ctx = purchasingRequestContext();
 
-  const order = ctx.orders.findById(id);
+  const order = await ctx.orders.findById(id);
   if (!order || order.orgId !== actor.orgId) notFound();
   redirect(`/requests/${order.requestId}/po`);
 }

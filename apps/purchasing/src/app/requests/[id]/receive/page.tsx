@@ -14,7 +14,7 @@ export default async function ReceivePage({ params }: { params: Promise<{ id: st
 
   let detail: any;
   try {
-    detail = S.getRequestDetail(purchasingRequestContext(), actor, id);
+    detail = await S.getRequestDetail(purchasingRequestContext(), actor, id);
   } catch {
     notFound();
   }

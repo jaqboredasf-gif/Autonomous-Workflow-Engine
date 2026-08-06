@@ -27,8 +27,8 @@ export type RequestDraftInput = {
   items: Array<{ description: string; qty: string | number; unit: string; stockNumber?: string; notes?: string }>;
 };
 
-export function createPurchaseRequest(ctx: PurchasingContext, actor: Actor, payload: RequestDraftInput & Record<string, unknown>) {
-  must(ctx, actor, 'request.create');
+export async function createPurchaseRequest(ctx: PurchasingContext, actor: Actor, payload: RequestDraftInput & Record<string, unknown>) {
+  await must(ctx, actor, 'request.create');
 
   // The field firewall. An approver raising a request is bound by it too:
   // vendor and cost are decided in review, whoever is typing.
@@ -38,9 +38,9 @@ export function createPurchaseRequest(ctx: PurchasingContext, actor: Actor, payl
   const validation = validateRequestDraft(draft);
   if (!validation.ok) throw new PurchasingError('validation_failed', 'the request is incomplete', validation.errors);
 
-  return ctx.uow.run(() => {
+  return ctx.uow.run(async () => {
     const now = ctx.clock.now();
-    const requestNumber = ctx.requests.nextRequestNumber(actor.orgId);
+    const requestNumber = await ctx.requests.nextRequestNumber(actor.orgId);
 
     // The domain builds it — one job per request, lines validated — and only
     // then does the repository see anything.
@@ -58,9 +58,9 @@ export function createPurchaseRequest(ctx: PurchasingContext, actor: Actor, payl
       items: draft.items.map((i) => ({ ...i, requestedQty: qty(i.qty, 'quantity') })),
     });
 
-    const saved = ctx.requests.insert({ ...entity, createdBy: actor.id, now });
+    const saved = await ctx.requests.insert({ ...entity, createdBy: actor.id, now });
 
-    emit(ctx, actor, actor.orgId, [
+    await emit(ctx, actor, actor.orgId, [
       events.requestCreated(saved, { items: entity.items.length }),
       rejected.length ? events.purchasingFieldsRejected(saved.id, rejected) : null,
     ]);
@@ -69,20 +69,20 @@ export function createPurchaseRequest(ctx: PurchasingContext, actor: Actor, payl
   });
 }
 
-export function updatePurchaseRequest(ctx: PurchasingContext, actor: Actor, requestId: string, payload: Record<string, unknown>) {
-  const request = loadRequest(ctx, actor, requestId);
-  must(ctx, actor, 'request.update.own', request);
+export async function updatePurchaseRequest(ctx: PurchasingContext, actor: Actor, requestId: string, payload: Record<string, unknown>) {
+  const request = await loadRequest(ctx, actor, requestId);
+  await must(ctx, actor, 'request.update.own', request);
 
   const { cleaned, rejected } = stripRequestorFields(payload);
-  const before = currentDraft(ctx, request);
+  const before = await currentDraft(ctx, request);
   const draft = { ...before, ...cleaned } as RequestDraftInput;
 
   const validation = validateRequestDraft(draft);
   if (!validation.ok) throw new PurchasingError('validation_failed', 'the request is incomplete', validation.errors);
 
-  return ctx.uow.run(() => {
+  return ctx.uow.run(async () => {
     const now = ctx.clock.now();
-    ctx.requests.update(requestId, request.version, {
+    await ctx.requests.update(requestId, request.version, {
       job_number: draft.jobNumber,
       need_by_date: draft.needByDate,
       need_by_time: draft.needByTime,
@@ -95,7 +95,7 @@ export function updatePurchaseRequest(ctx: PurchasingContext, actor: Actor, requ
     });
 
     if (Array.isArray((cleaned as any).items)) {
-      ctx.requests.replaceItems(
+      await ctx.requests.replaceItems(
         requestId,
         (cleaned as any).items.map((i: any) => ({ ...i, requestedQty: qty(i.qty, 'quantity') })),
         actor.id,
@@ -103,7 +103,7 @@ export function updatePurchaseRequest(ctx: PurchasingContext, actor: Actor, requ
       );
     }
 
-    emit(ctx, actor, actor.orgId, [
+    await emit(ctx, actor, actor.orgId, [
       events.requestUpdated(requestId, before, draft),
       rejected.length ? events.purchasingFieldsRejected(requestId, rejected) : null,
     ]);
@@ -111,73 +111,73 @@ export function updatePurchaseRequest(ctx: PurchasingContext, actor: Actor, requ
   });
 }
 
-export function submitPurchaseRequest(ctx: PurchasingContext, actor: Actor, requestId: string) {
-  const request = loadRequest(ctx, actor, requestId);
-  must(ctx, actor, 'request.submit', request);
+export async function submitPurchaseRequest(ctx: PurchasingContext, actor: Actor, requestId: string) {
+  const request = await loadRequest(ctx, actor, requestId);
+  await must(ctx, actor, 'request.submit', request);
 
-  const validation = validateRequestDraft(currentDraft(ctx, request));
+  const validation = validateRequestDraft(await currentDraft(ctx, request));
   if (!validation.ok) throw new PurchasingError('validation_failed', 'the request is incomplete', validation.errors);
 
-  return ctx.uow.run(() => {
-    const submitted = transitionTo(ctx, actor, request, 'SUBMITTED', { submitted_at: ctx.clock.now() });
-    emit(ctx, actor, actor.orgId, [events.requestSubmitted(request)]);
+  return ctx.uow.run(async () => {
+    const submitted = await transitionTo(ctx, actor, request, 'SUBMITTED', { submitted_at: ctx.clock.now() });
+    await emit(ctx, actor, actor.orgId, [events.requestSubmitted(request)]);
 
     // A submitted request does not sit in SUBMITTED waiting for someone to
     // notice: it enters the workshop queue in the same transaction, so there is
     // no state in which a request is submitted and nobody owns it.
-    transitionTo(ctx, actor, submitted, 'PENDING_WORKSHOP_REVIEW');
-    emit(ctx, actor, actor.orgId, [events.awaitingReview(request)]);
+    await transitionTo(ctx, actor, submitted, 'PENDING_WORKSHOP_REVIEW');
+    await emit(ctx, actor, actor.orgId, [events.awaitingReview(request)]);
     return { status: 'PENDING_WORKSHOP_REVIEW' };
   });
 }
 
-export function respondToClarification(ctx: PurchasingContext, actor: Actor, requestId: string, answer: string) {
-  const request = loadRequest(ctx, actor, requestId);
-  must(ctx, actor, 'request.respond_clarification', request);
+export async function respondToClarification(ctx: PurchasingContext, actor: Actor, requestId: string, answer: string) {
+  const request = await loadRequest(ctx, actor, requestId);
+  await must(ctx, actor, 'request.respond_clarification', request);
   if (request.status !== 'CLARIFICATION_REQUESTED') {
     throw new PurchasingError('not_in_clarification', 'this request is not waiting on an answer');
   }
   if (!answer.trim()) throw new PurchasingError('validation_failed', 'an answer cannot be empty');
 
-  return ctx.uow.run(() => {
-    const resubmitted = transitionTo(ctx, actor, request, 'RESUBMITTED', { clarification_answer: answer.trim() });
-    emit(ctx, actor, actor.orgId, [events.clarificationAnswered(request, answer.trim())]);
+  return ctx.uow.run(async () => {
+    const resubmitted = await transitionTo(ctx, actor, request, 'RESUBMITTED', { clarification_answer: answer.trim() });
+    await emit(ctx, actor, actor.orgId, [events.clarificationAnswered(request, answer.trim())]);
     // Straight back into the queue: an answered question never waits for
     // someone to remember to re-queue it.
-    transitionTo(ctx, actor, resubmitted, 'PENDING_WORKSHOP_REVIEW');
+    await transitionTo(ctx, actor, resubmitted, 'PENDING_WORKSHOP_REVIEW');
     return { status: 'PENDING_WORKSHOP_REVIEW' };
   });
 }
 
-export function cancelPurchaseRequest(ctx: PurchasingContext, actor: Actor, requestId: string, reason: string) {
-  const request = loadRequest(ctx, actor, requestId);
+export async function cancelPurchaseRequest(ctx: PurchasingContext, actor: Actor, requestId: string, reason: string) {
+  const request = await loadRequest(ctx, actor, requestId);
   const owns = request.requestorId === actor.id || request.createdBy === actor.id;
-  must(ctx, actor, owns ? 'request.cancel.own' : 'request.cancel.any', request);
+  await must(ctx, actor, owns ? 'request.cancel.own' : 'request.cancel.any', request);
   if (!reason || !reason.trim()) throw new PurchasingError('reason_required', 'a cancellation must record a reason');
 
-  return ctx.uow.run(() => {
-    transitionTo(ctx, actor, request, 'CANCELLED', { cancelled_at: ctx.clock.now(), cancel_reason: reason.trim() });
-    emit(ctx, actor, actor.orgId, [events.requestCancelled(request, reason.trim())]);
+  return ctx.uow.run(async () => {
+    await transitionTo(ctx, actor, request, 'CANCELLED', { cancelled_at: ctx.clock.now(), cancel_reason: reason.trim() });
+    await emit(ctx, actor, actor.orgId, [events.requestCancelled(request, reason.trim())]);
     return { status: 'CANCELLED' };
   });
 }
 
-export function addNote(ctx: PurchasingContext, actor: Actor, requestId: string, note: string) {
-  const request = loadRequest(ctx, actor, requestId);
-  must(ctx, actor, 'request.note', request);
+export async function addNote(ctx: PurchasingContext, actor: Actor, requestId: string, note: string) {
+  const request = await loadRequest(ctx, actor, requestId);
+  await must(ctx, actor, 'request.note', request);
   if (!note.trim()) throw new PurchasingError('validation_failed', 'a note cannot be empty');
-  emit(ctx, actor, actor.orgId, [events.noteAdded(requestId, note.trim())]);
+  await emit(ctx, actor, actor.orgId, [events.noteAdded(requestId, note.trim())]);
   return { ok: true };
 }
 
-export function attachFile(
+export async function attachFile(
   ctx: PurchasingContext, actor: Actor, requestId: string,
   file: { filename: string; contentType?: string; dataBase64?: string; caption?: string; byteSize?: number },
 ) {
-  const request = loadRequest(ctx, actor, requestId);
-  must(ctx, actor, 'request.attach', request);
-  const stored = ctx.attachments.attachToRequest(requestId, file, actor.id, ctx.clock.now());
-  emit(ctx, actor, actor.orgId, [events.attachmentAdded(requestId, stored)]);
+  const request = await loadRequest(ctx, actor, requestId);
+  await must(ctx, actor, 'request.attach', request);
+  const stored = await ctx.attachments.attachToRequest(requestId, file, actor.id, ctx.clock.now());
+  await emit(ctx, actor, actor.orgId, [events.attachmentAdded(requestId, stored)]);
   return { id: stored.id };
 }
 
@@ -190,8 +190,8 @@ function qty(value: string | number, label: string): number {
 }
 
 /** The request as the requestor last stated it — the shape validation expects. */
-function currentDraft(ctx: PurchasingContext, request: any): RequestDraftInput {
-  const items = ctx.requests.itemsFor(request.id);
+async function currentDraft(ctx: PurchasingContext, request: any): Promise<RequestDraftInput> {
+  const items = await ctx.requests.itemsFor(request.id);
   return {
     jobNumber: request.jobNumber,
     needByDate: request.needByDate,

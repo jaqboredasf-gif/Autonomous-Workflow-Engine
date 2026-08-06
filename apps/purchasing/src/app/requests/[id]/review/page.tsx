@@ -16,7 +16,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   const ctx = purchasingRequestContext();
   let detail: any;
   try {
-    detail = S.getRequestDetail(ctx, actor, id);
+    detail = await S.getRequestDetail(ctx, actor, id);
   } catch {
     notFound();
   }
@@ -36,7 +36,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     );
   }
 
-  const vendors = S.listVendors(ctx, actor).map((v: Record<string, unknown>) => ({
+  const vendors = (await S.listVendors(ctx, actor)).map((v: Record<string, unknown>) => ({
     id: String(v.id),
     name: String(v.name),
   }));

@@ -37,21 +37,21 @@ export type ReviewLineInput = {
   overrideReason?: string | null;
 };
 
-export function saveWorkshopReview(
+export async function saveWorkshopReview(
   ctx: PurchasingContext, actor: Actor, requestId: string,
   input: { workshopNotes?: string | null; lines: ReviewLineInput[] },
 ) {
-  const request = loadRequest(ctx, actor, requestId);
-  must(ctx, actor, 'review.record_stock', request);
-  must(ctx, actor, 'review.set_quantities', request);
+  const request = await loadRequest(ctx, actor, requestId);
+  await must(ctx, actor, 'review.record_stock', request);
+  await must(ctx, actor, 'review.set_quantities', request);
   if (!QUEUE_STATUSES.includes(request.status)) {
     throw new PurchasingError('not_in_review', `a ${request.status} request is not in the review queue`);
   }
 
-  return ctx.uow.run(() => {
+  return ctx.uow.run(async () => {
     const now = ctx.clock.now();
-    const review = ctx.reviews.findByRequest(requestId) ?? ctx.reviews.open(requestId, actor.id, now);
-    const items = ctx.requests.itemsFor(requestId);
+    const review = await ctx.reviews.findByRequest(requestId) ?? await ctx.reviews.open(requestId, actor.id, now);
+    const items = await ctx.requests.itemsFor(requestId);
     const byId = new Map(items.map((i) => [i.id, i]));
     const emitted: any[] = [];
 
@@ -80,8 +80,8 @@ export function saveWorkshopReview(
       }
 
       // Vendor and cost are separate authorities from recording stock.
-      if (line.vendorId) must(ctx, actor, 'review.set_vendor', request);
-      if (unitCostCents !== null) must(ctx, actor, 'review.set_cost', request);
+      if (line.vendorId) await must(ctx, actor, 'review.set_vendor', request);
+      if (unitCostCents !== null) await must(ctx, actor, 'review.set_cost', request);
 
       const values = {
         usableStockQty: quantities.observedStock,
@@ -99,11 +99,11 @@ export function saveWorkshopReview(
         overrideReason: quantities.overridden ? (line.overrideReason ?? 'workshop override') : null,
       };
 
-      const { previous } = ctx.reviews.saveLine(review.id, item.id, values, actor.id, now);
+      const { previous } = await ctx.reviews.saveLine(review.id, item.id, values, actor.id, now);
 
       // The stock reading is evidence in its own right: it is preserved with
       // the request even if the review is edited afterwards.
-      ctx.inventory.observe(
+      await ctx.inventory.observe(
         {
           orgId: actor.orgId, requestId, requestItemId: item.id, description: item.description,
           observedQty: quantities.observedStock, unit: item.unit, observedBy: actor.id, notes: line.lineNotes ?? null,
@@ -127,15 +127,15 @@ export function saveWorkshopReview(
         ),
       );
       if (previous && previous.vendorId !== values.vendorId && values.vendorId) {
-        const vendor = ctx.reference.vendors(actor.orgId).find((v: any) => v.id === values.vendorId);
+        const vendor = (await ctx.reference.vendors(actor.orgId)).find((v: any) => v.id === values.vendorId);
         emitted.push(events.vendorSelected(requestId, item.id, values.vendorId, vendor?.name));
       }
     }
 
-    ctx.reviews.markSaved(review.id, actor.id, input.workshopNotes ?? null, now);
+    await ctx.reviews.markSaved(review.id, actor.id, input.workshopNotes ?? null, now);
     const totals = recomputeTotals(ctx, requestId);
     emitted.push(events.reviewSaved(requestId, review.id, totals));
-    emit(ctx, actor, actor.orgId, emitted);
+    await emit(ctx, actor, actor.orgId, emitted);
     return totals;
   });
 }
@@ -145,8 +145,8 @@ export function saveWorkshopReview(
  * there is exactly one) and the latest expected arrival. Derived values only —
  * the source of truth stays on the review lines.
  */
-export function recomputeTotals(ctx: PurchasingContext, requestId: string) {
-  const lines = ctx.reviews.linesFor(requestId).map((l) => ({
+export async function recomputeTotals(ctx: PurchasingContext, requestId: string) {
+  const lines = (await ctx.reviews.linesFor(requestId)).map((l) => ({
     ...l,
     estimatedUnitCostCents: l.estimatedUnitCostCents,
     finalOrderQty: l.finalOrderQty,
@@ -154,7 +154,7 @@ export function recomputeTotals(ctx: PurchasingContext, requestId: string) {
   const total = estimatedTotalCents(lines as any);
   const vendorIds = [...new Set(lines.filter((l) => l.finalOrderQty > 0).map((l) => l.vendorId).filter(Boolean))];
   const arrivals = lines.map((l) => l.expectedArrivalDate).filter(Boolean).sort();
-  ctx.requests.patch(requestId, {
+  await ctx.requests.patch(requestId, {
     estimated_total_cents: total,
     vendor_id: vendorIds.length === 1 ? vendorIds[0] : null,
     expected_arrival_date: arrivals[arrivals.length - 1] ?? null,
@@ -168,9 +168,9 @@ export function recomputeTotals(ctx: PurchasingContext, requestId: string) {
 }
 
 /** What the workshop changed relative to what the field asked for. */
-export function changesFromOriginal(ctx: PurchasingContext, requestId: string) {
-  return ctx.reviews
-    .linesFor(requestId)
+export async function changesFromOriginal(ctx: PurchasingContext, requestId: string) {
+  const lines = await ctx.reviews.linesFor(requestId);
+  return lines
     .filter((l) => l.requestedQty !== l.finalOrderQty || l.substituteDescription)
     .map((l) => ({
       lineNo: l.lineNo,

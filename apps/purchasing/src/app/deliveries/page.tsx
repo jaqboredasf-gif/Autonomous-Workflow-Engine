@@ -15,7 +15,15 @@ export const metadata = { title: 'Deliveries — Lippolis Purchasing' };
 export default async function DeliveriesPage() {
   const actor = await requireAccess('/deliveries');
   const ctx = purchasingRequestContext();
-  const deliveries = deliveriesForActor(ctx, actor);
+  const deliveries = await deliveriesForActor(ctx, actor);
+  // Resolve the per-order progress BEFORE rendering: a React tree cannot await
+  // inside a map, and one round trip per row is the shape to avoid once the
+  // provider is remote.
+  const progressByRequest = new Map(
+    await Promise.all(
+      deliveries.map(async (r: any) => [r.id, await ctx.orders.progressFor(r.id)] as const),
+    ),
+  );
 
   return (
     <div className="space-y-5">
@@ -33,7 +41,7 @@ export default async function DeliveriesPage() {
       ) : (
         <ul className="space-y-3">
           {deliveries.map((r: any) => {
-            const progress = ctx.orders.progressFor(r.id);
+            const progress = progressByRequest.get(r.id) ?? [];
             const outstanding = progress.filter((p: any) => p.outstandingQty > 0);
             return (
               <li key={r.id}>

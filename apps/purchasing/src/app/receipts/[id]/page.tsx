@@ -21,7 +21,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
 
   let evidence: any;
   try {
-    evidence = receiptEvidence(ctx, actor, id);
+    evidence = await receiptEvidence(ctx, actor, id);
   } catch {
     notFound();
   }

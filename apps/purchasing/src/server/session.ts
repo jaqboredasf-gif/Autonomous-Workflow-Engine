@@ -55,7 +55,7 @@ export async function currentActor(): Promise<Actor | null> {
   const verified = await verifySession(store.get(SESSION_COOKIE)?.value, config.sessionSecret);
   if (!verified.valid) return null;
 
-  const actor = identityAdapter(database()).load(verified.payload.uid);
+  const actor = await identityAdapter(database()).load(verified.payload.uid);
   if (!actor || !actor.isActive) return null;
   return actor;
 }
@@ -116,7 +116,7 @@ export async function signIn(email: string, password: string, next?: string): Pr
   const result = await authAdapter(db, config).signIn(email, password);
   if (!result.ok) return { ok: false, error: result.reason };
 
-  const actor = identityAdapter(db).load(result.userId);
+  const actor = await identityAdapter(db).load(result.userId);
   if (!actor || !actor.isActive) return { ok: false, error: 'account_disabled' };
 
   const token = await signSession(
@@ -170,7 +170,7 @@ export function demoAccounts() {
 export async function signInAsDemoUser(userId: string): Promise<SignInOutcome> {
   if (!demoModeEnabled()) return { ok: false, error: 'invalid_credentials' };
   const config = loadConfig();
-  const actor = identityAdapter(database()).load(userId);
+  const actor = await identityAdapter(database()).load(userId);
   if (!actor || !actor.isActive) return { ok: false, error: 'account_disabled' };
 
   const token = await signSession(

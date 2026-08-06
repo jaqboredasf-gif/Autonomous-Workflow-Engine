@@ -15,7 +15,7 @@ export const metadata = { title: 'My requests — Lippolis Purchasing' };
 export default async function MyRequestsPage() {
   const actor = await requireAccess('/my-requests');
   const ctx = purchasingRequestContext();
-  const requests = S.listRequests(ctx, actor).filter(
+  const requests = (await S.listRequests(ctx, actor)).filter(
     (r: any) => r.requestorId === actor.id || r.createdBy === actor.id,
   );
   const now = new Date().toISOString();

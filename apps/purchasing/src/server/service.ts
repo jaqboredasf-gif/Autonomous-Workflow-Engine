@@ -56,11 +56,11 @@ export function context(db: DatabaseSync = getDb(), now?: string): PurchasingCon
 
 // --- identity + settings (through the ports, never the tables) --------------
 
-export function loadActor(db: DatabaseSync, userId: string): Actor | null {
+export async function loadActor(db: DatabaseSync, userId: string): Promise<Actor | null> {
   return identityAdapter(db).load(userId);
 }
 
-export function loadSettings(db: DatabaseSync, orgId: string) {
+export async function loadSettings(db: DatabaseSync, orgId: string) {
   return sqliteReferenceRepository(db).settings(orgId);
 }
 

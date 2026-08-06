@@ -24,7 +24,7 @@ export type Decision = 'APPROVE' | 'REJECT' | 'CLARIFY';
  * lives here rather than in a server action because the ordering is a domain
  * rule, not a UI convenience.
  */
-export function saveReviewAndDecide(
+export async function saveReviewAndDecide(
   ctx: PurchasingContext, actor: Actor, requestId: string,
   input: { workshopNotes?: string | null; lines: any[] },
   decision: Decision | 'SAVE',
@@ -36,30 +36,31 @@ export function saveReviewAndDecide(
   return { decided: true, ...totals, ...result };
 }
 
-export function decidePurchaseRequest(
+export async function decidePurchaseRequest(
   ctx: PurchasingContext, actor: Actor, requestId: string, decision: Decision,
   input: { notes?: string; reason?: string; question?: string } = {},
 ) {
-  const request = loadRequest(ctx, actor, requestId);
+  const request = await loadRequest(ctx, actor, requestId);
   // Carries the self-approval refusal: a request cannot be decided by the
   // person who raised it unless the org explicitly allows it.
-  must(ctx, actor, 'review.decide', request);
+  await must(ctx, actor, 'review.decide', request);
   if (!QUEUE_STATUSES.includes(request.status)) {
     throw new PurchasingError('not_in_review', `a ${request.status} request is not awaiting a decision`);
   }
 
-  return ctx.uow.run(() => {
+  return ctx.uow.run(async () => {
     const now = ctx.clock.now();
-    const changes = changesFromOriginal(ctx, requestId);
+    const changes = await changesFromOriginal(ctx, requestId);
 
-    if (decision === 'APPROVE') return approve(ctx, actor, request, changes, input.notes ?? null, now);
-    if (decision === 'REJECT') return reject(ctx, actor, request, changes, input.notes ?? null, input.reason ?? '', now);
-    return clarify(ctx, actor, request, changes, input.notes ?? null, input.question ?? '', now);
+    if (decision === 'APPROVE') return await approve(ctx, actor, request, changes, input.notes ?? null, now);
+    if (decision === 'REJECT') return await reject(ctx, actor, request, changes, input.notes ?? null, input.reason ?? '', now);
+    return await clarify(ctx, actor, request, changes, input.notes ?? null, input.question ?? '', now);
   });
 }
 
-function approve(ctx: PurchasingContext, actor: Actor, request: any, changes: any[], notes: string | null, now: string) {
-  const lines = ctx.reviews.linesFor(request.id);
+async function approve(
+  ctx: PurchasingContext, actor: Actor, request: any, changes: any[], notes: string | null, now: string) {
+  const lines = await ctx.reviews.linesFor(request.id);
   const ordering = lines.filter((l) => l.finalOrderQty > 0);
   if (ordering.length === 0) {
     throw new PurchasingError('nothing_to_order', 'approve with at least one line to order, or reject the request');
@@ -69,14 +70,14 @@ function approve(ctx: PurchasingContext, actor: Actor, request: any, changes: an
     throw new PurchasingError('cost_required', 'every ordered line needs an estimated unit cost');
   }
 
-  transitionTo(ctx, actor, request, 'APPROVED', { approver_id: actor.id, decided_at: now, decision_notes: notes });
-  ctx.approvals.record(request.id, actor.id, 'APPROVED', notes, null, changes, now);
+  await transitionTo(ctx, actor, request, 'APPROVED', { approver_id: actor.id, decided_at: now, decision_notes: notes });
+  await ctx.approvals.record(request.id, actor.id, 'APPROVED', notes, null, changes, now);
 
   // Stock the workshop gives up to this job is an inventory movement, and it
   // gets its own auditable row. Inventory never changes silently.
   const emitted: any[] = [events.approved(request, changes, notes)];
   for (const line of lines.filter((l) => l.stockAppliedQty > 0)) {
-    ctx.inventory.adjust(
+    await ctx.inventory.adjust(
       {
         orgId: actor.orgId, requestId: request.id, requestItemId: line.requestItemId,
         description: line.description, deltaQty: -line.stockAppliedQty, unit: line.unit,
@@ -91,30 +92,32 @@ function approve(ctx: PurchasingContext, actor: Actor, request: any, changes: an
     );
   }
 
-  emit(ctx, actor, actor.orgId, emitted);
+  await emit(ctx, actor, actor.orgId, emitted);
   return { status: 'APPROVED' };
 }
 
-function reject(ctx: PurchasingContext, actor: Actor, request: any, changes: any[], notes: string | null, reason: string, now: string) {
+async function reject(
+  ctx: PurchasingContext, actor: Actor, request: any, changes: any[], notes: string | null, reason: string, now: string) {
   const why = reason.trim();
   if (!why) throw new PurchasingError('reason_required', 'a rejection must record a reason');
 
-  transitionTo(ctx, actor, request, 'REJECTED', {
+  await transitionTo(ctx, actor, request, 'REJECTED', {
     approver_id: actor.id, decided_at: now, decision_notes: notes, rejection_reason: why,
   });
-  ctx.approvals.record(request.id, actor.id, 'REJECTED', notes, why, changes, now);
-  emit(ctx, actor, actor.orgId, [events.rejected(request, why)]);
+  await ctx.approvals.record(request.id, actor.id, 'REJECTED', notes, why, changes, now);
+  await emit(ctx, actor, actor.orgId, [events.rejected(request, why)]);
   return { status: 'REJECTED' };
 }
 
-function clarify(ctx: PurchasingContext, actor: Actor, request: any, changes: any[], notes: string | null, question: string, now: string) {
+async function clarify(
+  ctx: PurchasingContext, actor: Actor, request: any, changes: any[], notes: string | null, question: string, now: string) {
   const asked = question.trim();
   if (!asked) throw new PurchasingError('reason_required', 'a clarification must ask something');
 
-  transitionTo(ctx, actor, request, 'CLARIFICATION_REQUESTED', {
+  await transitionTo(ctx, actor, request, 'CLARIFICATION_REQUESTED', {
     approver_id: actor.id, clarification_question: asked, clarification_answer: null,
   });
-  ctx.approvals.record(request.id, actor.id, 'CLARIFICATION_REQUESTED', notes, asked, changes, now);
-  emit(ctx, actor, actor.orgId, [events.clarificationRequested(request, asked)]);
+  await ctx.approvals.record(request.id, actor.id, 'CLARIFICATION_REQUESTED', notes, asked, changes, now);
+  await emit(ctx, actor, actor.orgId, [events.clarificationRequested(request, asked)]);
   return { status: 'CLARIFICATION_REQUESTED' };
 }

@@ -73,18 +73,27 @@ export function rethrowDomain(err: any): never {
  * 1. AUTHORIZE. Runs before anything else, and a refusal is RECORDED before it
  *    is thrown: a probe should leave a trace, not just a 403.
  */
-export function must(ctx: PurchasingContext, actor: Actor | null, permission: string, request: any = null): void {
-  const settings = actor ? ctx.reference.settings(actor.orgId) : {};
+export async function must(
+  ctx: PurchasingContext, actor: Actor | null, permission: string, request: any = null,
+): Promise<void> {
+  const settings = actor ? await ctx.reference.settings(actor.orgId) : {};
+  // The decision itself is a pure domain call and stays synchronous; only
+  // fetching what it needs to decide with is asynchronous.
   const decision = authorize(actor, permission, { request: authzView(request), settings });
   if (decision.ok) return;
   if (actor) {
-    ctx.audit.record(actor.orgId, actor, events.accessDenied(request?.id ?? null, permission, decision.reason, decision.message));
+    await ctx.audit.record(
+      actor.orgId, actor,
+      events.accessDenied(request?.id ?? null, permission, decision.reason, decision.message),
+    );
   }
   throw new PurchasingError(decision.reason ?? 'denied', decision.message ?? 'not permitted');
 }
 
-export function allowed(ctx: PurchasingContext, actor: Actor | null, permission: string, request: any = null): boolean {
-  const settings = actor ? ctx.reference.settings(actor.orgId) : {};
+export async function allowed(
+  ctx: PurchasingContext, actor: Actor | null, permission: string, request: any = null,
+): Promise<boolean> {
+  const settings = actor ? await ctx.reference.settings(actor.orgId) : {};
   return authorize(actor, permission, { request: authzView(request), settings }).ok;
 }
 
@@ -103,8 +112,8 @@ function authzView(request: any) {
  * 2. LOAD WITHIN THE TENANT. A record from another organization is *not found*,
  *    never *forbidden* — the difference leaks whether it exists.
  */
-export function loadRequest(ctx: PurchasingContext, actor: Actor, requestId: string) {
-  const request = ctx.requests.findById(requestId);
+export async function loadRequest(ctx: PurchasingContext, actor: Actor, requestId: string) {
+  const request = await ctx.requests.findById(requestId);
   if (!request || request.orgId !== actor.orgId) {
     throw new PurchasingError('not_found', `purchase request ${requestId} not found`);
   }
@@ -116,12 +125,13 @@ export function loadRequest(ctx: PurchasingContext, actor: Actor, requestId: str
  *    answered from repositories, so "can this move?" is one question with one
  *    answer wherever it is asked.
  */
-export function transitionTo(
+export async function transitionTo(
   ctx: PurchasingContext, actor: Actor, request: any, to: string, patch: Record<string, unknown> = {},
 ) {
-  const guard = transitionGuard(request.status, to, transitionFacts(ctx, request));
+  // The guard is pure; the FACTS it judges come from persistence.
+  const guard = transitionGuard(request.status, to, await transitionFacts(ctx, request));
   if (!guard.ok) throw new PurchasingError(guard.reason ?? 'illegal_transition', guard.message ?? 'illegal transition');
-  ctx.requests.update(request.id, request.version, {
+  await ctx.requests.update(request.id, request.version, {
     status: to,
     updated_at: ctx.clock.now(),
     updated_by: actor.id,
@@ -130,14 +140,17 @@ export function transitionTo(
   return { ...request, status: to, version: request.version + 1 };
 }
 
-export function transitionFacts(ctx: PurchasingContext, request: any) {
-  const review = ctx.reviews.findByRequest(request.id);
-  const order = ctx.orders.findByRequest(request.id);
-  const reviewedDraft = ctx.drafts
-    .listForRequest(request.id)
-    .some((d: any) => d.templateKey === 'VENDOR_PURCHASE_ORDER' && d.reviewedAt);
-  const receipts = ctx.receipts.listForRequest(request.id);
-  const progress = ctx.orders.progressFor(request.id);
+export async function transitionFacts(ctx: PurchasingContext, request: any) {
+  // Independent reads, so they go together rather than in a queue of round
+  // trips — this is the shape that matters once the provider is remote.
+  const [review, order, drafts, receipts, progress] = await Promise.all([
+    ctx.reviews.findByRequest(request.id),
+    ctx.orders.findByRequest(request.id),
+    ctx.drafts.listForRequest(request.id),
+    ctx.receipts.listForRequest(request.id),
+    ctx.orders.progressFor(request.id),
+  ]);
+  const reviewedDraft = drafts.some((d: any) => d.templateKey === 'VENDOR_PURCHASE_ORDER' && d.reviewedAt);
   return {
     hasReview: Boolean(review?.savedAt),
     hasPurchaseOrder: Boolean(order),
@@ -148,10 +161,12 @@ export function transitionFacts(ctx: PurchasingContext, request: any) {
 }
 
 /** Publish a use case's domain events: audit first, then notification. */
-export function emit(ctx: PurchasingContext, actor: Actor, orgId: string, list: any[]) {
+export async function emit(ctx: PurchasingContext, actor: Actor, orgId: string, list: any[]) {
+  // Sequential on purpose: the audit trail is ordered, and a notification must
+  // never be published for an event that failed to record.
   for (const event of list) {
     if (!event) continue;
-    ctx.audit.record(orgId, actor, event);
-    if (event.notify) ctx.notifications.publish(orgId, event.notify, event.requestId, event.payload);
+    await ctx.audit.record(orgId, actor, event);
+    if (event.notify) await ctx.notifications.publish(orgId, event.notify, event.requestId, event.payload);
   }
 }

@@ -21,7 +21,7 @@ import {
   sqliteOrderRepository, sqlitePoNumberAllocator, sqliteReceiptRepository,
   sqliteReferenceRepository, sqliteRequestRepository, sqliteReviewRepository,
 } from './infrastructure/sqlite/repositories.ts';
-import { getDb, inTransaction } from './infrastructure/sqlite/database.ts';
+import { getDb } from './infrastructure/sqlite/database.ts';
 import { authAdapter } from './infrastructure/auth/index.ts';
 import { loadConfig } from './infrastructure/env.ts';
 
@@ -35,9 +35,9 @@ export function purchasingContext(db: DatabaseSync = getDb(), now?: string): Pur
   const clock = systemClock(now);
   return {
     clock,
-    // One transaction boundary, and it nests safely: a use case that calls
-    // another (approve -> nothing, PO -> document) does not open a second one.
-    uow: { run: <T>(fn: () => T): T => (inTransactionDepth > 0 ? fn() : runTransaction(db, fn)) },
+    // One transaction boundary. It nests (a use case calling another does not
+    // open a second transaction) and it SERIALIZES.
+    uow: { run: <T>(fn: () => Promise<T> | T): Promise<T> => runTransaction(db, fn) },
     requests: sqliteRequestRepository(db),
     reviews: sqliteReviewRepository(db),
     approvals: sqliteApprovalRepository(db),
@@ -61,14 +61,40 @@ export function purchasingContext(db: DatabaseSync = getDb(), now?: string): Pur
 }
 
 // SQLite has no nested transactions, and a use case calling another use case is
-// normal. Tracking depth keeps the outermost `begin immediate` as the boundary.
+// normal. Depth keeps the outermost `begin immediate` as the boundary.
 let inTransactionDepth = 0;
 
-function runTransaction<T>(db: DatabaseSync, fn: () => T): T {
-  inTransactionDepth++;
-  try {
-    return inTransaction(db, fn);
-  } finally {
-    inTransactionDepth--;
-  }
+// Every write transaction joins this chain, so only one is ever open on the
+// connection. With async repositories a second request can otherwise run
+// between one transaction's `await` and its `commit`, interleaving statements
+// inside it — that is not slowness, it is corruption. Waiting is the honest
+// cost of a single-writer store.
+let writeQueue: Promise<unknown> = Promise.resolve();
+
+function runTransaction<T>(db: DatabaseSync, fn: () => Promise<T> | T): Promise<T> {
+  if (inTransactionDepth > 0) return Promise.resolve(fn());
+
+  const run = async (): Promise<T> => {
+    inTransactionDepth++;
+    db.exec('begin immediate');
+    try {
+      const out = await fn();
+      db.exec('commit');
+      return out;
+    } catch (err) {
+      try {
+        db.exec('rollback');
+      } catch {
+        /* rolling back an already-rolled-back transaction must not mask the real failure */
+      }
+      throw err;
+    } finally {
+      inTransactionDepth--;
+    }
+  };
+
+  // Chain on a SETTLED promise: a failed transaction must not poison the queue.
+  const result = writeQueue.then(run, run);
+  writeQueue = result.then(() => undefined, () => undefined);
+  return result;
 }

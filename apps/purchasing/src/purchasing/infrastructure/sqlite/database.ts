@@ -62,26 +62,11 @@ export function resetInstance() {
   instance = null;
 }
 
-/**
- * Run `fn` inside an IMMEDIATE transaction: the write lock is taken up front,
- * so two callers allocating a PO number serialize instead of racing. This is
- * the pilot's equivalent of `select ... for update` in next_po_number().
- */
-export function inTransaction<T>(db: DatabaseSync, fn: () => T): T {
-  db.exec('begin immediate');
-  try {
-    const out = fn();
-    db.exec('commit');
-    return out;
-  } catch (err) {
-    try {
-      db.exec('rollback');
-    } catch {
-      /* rollback of an already-rolled-back transaction is not an error worth masking the real one */
-    }
-    throw err;
-  }
-}
+// NOTE: there is deliberately no exported `inTransaction(db, fn)` helper.
+// A synchronous wrapper around now-asynchronous repository calls commits before
+// the work inside resolves — it looks like a transaction and is not one. The
+// only transaction boundary is UnitOfWork.run (see composition.ts), which is
+// async, nested-safe and serialized.
 
 const SCHEMA = `
 -- --- tenancy + people ------------------------------------------------------

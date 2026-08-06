@@ -44,7 +44,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const APP = join(ROOT, 'apps', 'purchasing', 'src');
 
-const { openDatabase, inTransaction } = await import(join(APP, 'purchasing', 'infrastructure', 'sqlite', 'database.ts'));
+const { openDatabase } = await import(join(APP, 'purchasing', 'infrastructure', 'sqlite', 'database.ts'));
 const { seed, DEMO_ORG_ID } = await import(join(APP, 'purchasing', 'infrastructure', 'seed.ts'));
 const S = await import(join(APP, 'server', 'service.ts'));
 const { suggestedOrderQty, parseQty, formatQty, formatMoney, lineTotalCents, receiptGuard } =
@@ -69,10 +69,14 @@ const check = (cond, m) => (cond ? ok() : bad(m));
 const eq = (actual, expected, m) =>
   check(JSON.stringify(actual) === JSON.stringify(expected), `${m} (got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)})`);
 
-/** Assert that `fn` throws a ServiceError whose reason is `reason`. */
-function refuses(fn, reason, m) {
+/**
+ * Assert that `fn` rejects with a ServiceError whose reason is `reason`.
+ * Awaited, because the use cases are async now: a refusal that arrives as a
+ * rejected promise nobody awaited is a passing test and a broken application.
+ */
+async function refuses(fn, reason, m) {
   try {
-    fn();
+    await fn();
     bad(`${m} — expected refusal (${reason}) but it succeeded`);
   } catch (err) {
     if (err?.reason === reason) ok();
@@ -80,10 +84,10 @@ function refuses(fn, reason, m) {
   }
 }
 
-/** Assert that `fn` throws at all, with a message matching `pattern`. */
-function throws(fn, pattern, m) {
+/** Assert that `fn` fails at all, with a message matching `pattern`. */
+async function throws(fn, pattern, m) {
   try {
-    fn();
+    await fn();
     bad(`${m} — expected a failure but it succeeded`);
   } catch (err) {
     if (pattern.test(String(err?.message ?? err))) ok();
@@ -103,7 +107,10 @@ seed(db, new Date(clock).toISOString());
 const ctx = () => S.context(db, tick());
 
 const users = Object.fromEntries(
-  db.prepare('select id, email from users').all().map((u) => [u.email.split('@')[0], S.loadActor(db, u.id)]),
+  await Promise.all(
+    db.prepare('select id, email from users').all()
+      .map(async (u) => [u.email.split('@')[0], await S.loadActor(db, u.id)]),
+  ),
 );
 const mike = users.mike;
 const rick = users.rick;
@@ -112,9 +119,9 @@ const office = users.karen;
 const officeApprover = users.tom;
 const admin = users.admin;
 
-const locations = S.listDeliveryLocations(ctx(), foreman);
+const locations = await S.listDeliveryLocations(ctx(), foreman);
 const jobsite = locations.find((l) => l.kind === 'JOBSITE');
-const vendors = S.listVendors(ctx(), mike);
+const vendors = await S.listVendors(ctx(), mike);
 const graybar = vendors.find((v) => v.name.startsWith('Graybar'));
 
 console.log('--- vocabulary + parity ---------------------------------------');
@@ -192,7 +199,7 @@ check(
 
 console.log('--- the field firewall -----------------------------------------');
 
-const created = S.createRequest(ctx(), foreman, {
+const created = await S.createRequest(ctx(), foreman, {
   ...baseDraft,
   // Everything below is a purchasing decision. The requestor must not be able
   // to set any of it, even by hand-crafting the payload.
@@ -216,33 +223,33 @@ check(
 
 console.log('--- submission + queue -----------------------------------------');
 
-S.submitRequest(ctx(), foreman, created.id);
+await S.submitRequest(ctx(), foreman, created.id);
 eq(db.prepare('select status from purchase_requests where id = ?').get(created.id).status,
    'PENDING_WORKSHOP_REVIEW', 'a submitted request enters the workshop queue');
 
-refuses(
-  () => S.submitRequest(ctx(), foreman, created.id),
+await refuses(
+  async () => S.submitRequest(ctx(), foreman, created.id),
   'request_locked',
   'a requestor cannot touch a request once the workshop owns it',
 );
-refuses(() => S.approvalQueue(ctx(), foreman), 'missing_permission', 'a requestor cannot open the approval queue');
-check(S.approvalQueue(ctx(), mike).some((r) => r.id === created.id), "Mike's queue contains the request");
-check(S.approvalQueue(ctx(), rick).some((r) => r.id === created.id), "Rick's queue contains the request too");
+await refuses(async () => S.approvalQueue(ctx(), foreman), 'missing_permission', 'a requestor cannot open the approval queue');
+check((await S.approvalQueue(ctx(), mike)).some((r) => r.id === created.id), "Mike's queue contains the request");
+check((await S.approvalQueue(ctx(), rick)).some((r) => r.id === created.id), "Rick's queue contains the request too");
 
 console.log('--- requestor cannot make purchasing decisions ------------------');
 
-refuses(
-  () => S.saveReview(ctx(), foreman, created.id, { lines: [] }),
+await refuses(
+  async () => S.saveReview(ctx(), foreman, created.id, { lines: [] }),
   'missing_permission',
   'a requestor cannot record workshop stock',
 );
-refuses(
-  () => S.decide(ctx(), foreman, created.id, 'APPROVE'),
+await refuses(
+  async () => S.decide(ctx(), foreman, created.id, 'APPROVE'),
   'missing_permission',
   'a requestor cannot approve a request',
 );
-refuses(
-  () => S.decide(ctx(), office, created.id, 'APPROVE'),
+await refuses(
+  async () => S.decide(ctx(), office, created.id, 'APPROVE'),
   'missing_permission',
   'an office user without the grant cannot approve',
 );
@@ -250,8 +257,8 @@ check(
   permissionsFor(officeApprover).includes('review.decide'),
   'an office user WITH the approval grant carries review.decide',
 );
-refuses(
-  () => S.generatePurchaseOrder(ctx(), foreman, created.id),
+await refuses(
+  async () => S.generatePurchaseOrder(ctx(), foreman, created.id),
   'missing_permission',
   'a requestor cannot generate a purchase order',
 );
@@ -262,8 +269,8 @@ eq(suggestedOrderQty(20_000, 6_000), 14_000, 'suggested = approved - stock');
 eq(suggestedOrderQty(6_000, 20_000), 0, 'the suggestion never goes negative');
 eq(suggestedOrderQty(0, 0), 0, 'nothing needed, nothing suggested');
 
-const item = S.getRequestDetail(ctx(), mike, created.id).originalItems[0];
-S.saveReview(ctx(), mike, created.id, {
+const item = (await S.getRequestDetail(ctx(), mike, created.id)).originalItems[0];
+await S.saveReview(ctx(), mike, created.id, {
   workshopNotes: 'Six on the shelf; taking four extra for stock.',
   lines: [{
     requestItemId: item.id,
@@ -276,7 +283,7 @@ S.saveReview(ctx(), mike, created.id, {
   }],
 });
 
-const reviewed = S.getRequestDetail(ctx(), mike, created.id);
+const reviewed = await S.getRequestDetail(ctx(), mike, created.id);
 const line = reviewed.reviewLines[0];
 eq(line.requestedQty, 20_000, 'the requested quantity is untouched by the review');
 eq(line.usableStockQty, 6_000, 'Mike can record workshop stock');
@@ -292,13 +299,13 @@ eq(reviewed.originalItems[0].requestedQty, 20_000, 'Section A still shows what t
 
 console.log('--- decisions --------------------------------------------------');
 
-refuses(
-  () => S.generatePurchaseOrder(ctx(), mike, created.id),
+await refuses(
+  async () => S.generatePurchaseOrder(ctx(), mike, created.id),
   'po_before_approval',
   'an unapproved request cannot produce a purchase order',
 );
 
-S.decide(ctx(), mike, created.id, 'APPROVE', { notes: 'Ordering 18 to leave four on the shelf.' });
+await S.decide(ctx(), mike, created.id, 'APPROVE', { notes: 'Ordering 18 to leave four on the shelf.' });
 eq(db.prepare('select status from purchase_requests where id = ?').get(created.id).status, 'APPROVED', 'Mike approves');
 check(
   db.prepare("select changes_json from purchase_approvals where request_id = ?").get(created.id).changes_json.includes('18000'),
@@ -315,7 +322,7 @@ check(
 
 console.log('--- purchase order ---------------------------------------------');
 
-const po = S.generatePurchaseOrder(ctx(), mike, created.id);
+const po = await S.generatePurchaseOrder(ctx(), mike, created.id);
 check(/^LE-\d{5}$/.test(po.poNumber), `the PO number is formatted (${po.poNumber})`);
 eq(po.poNumber, 'LE-52901', 'the first PO number comes from the configured sequence');
 const poRow = db.prepare('select * from purchase_orders where request_id = ?').get(created.id);
@@ -333,7 +340,7 @@ check(pdfBytes.includes(Buffer.from('$1,555.20')), 'the PDF contains the total')
 check(doc.sha256.length === 64, 'the document is hashed for evidence');
 writeFileSync(join(TMP, 'sample-po.pdf'), pdfBytes);
 
-const regenerated = S.generatePurchaseOrder(ctx(), mike, created.id);
+const regenerated = await S.generatePurchaseOrder(ctx(), mike, created.id);
 eq(regenerated.poNumber, po.poNumber, 'regenerating returns the same permanent PO number');
 eq(
   db.prepare('select next_value from po_number_sequences where org_id = ?').get(DEMO_ORG_ID).next_value,
@@ -343,7 +350,7 @@ eq(
 
 console.log('--- vendor email draft -----------------------------------------');
 
-const draft = S.generateVendorEmailDraft(ctx(), mike, created.id);
+const draft = await S.generateVendorEmailDraft(ctx(), mike, created.id);
 const draftRow = db.prepare('select * from purchase_email_drafts where id = ?').get(draft.id);
 eq(draftRow.status, 'GENERATED', 'the draft starts as GENERATED');
 eq(Number(draftRow.external_send_enabled), 0, 'the draft records that sending is disabled');
@@ -355,33 +362,33 @@ check(JSON.parse(draftRow.attachments)[0].filename === 'LE-52901.pdf', 'the PO P
 check(JSON.parse(draftRow.to_addrs)[0].endsWith('@example.invalid'), 'the recipient is a fixture address');
 eq(db.prepare('select status from purchase_requests where id = ?').get(created.id).status, 'EMAIL_DRAFTED', 'the request moves to EMAIL_DRAFTED');
 
-refuses(
-  () => S.advanceEmailDraft(ctx(), mike, draft.id, 'SENT'),
+await refuses(
+  async () => S.advanceEmailDraft(ctx(), mike, draft.id, 'SENT'),
   'illegal_transition',
   'a draft cannot jump straight to sent',
 );
-S.advanceEmailDraft(ctx(), mike, draft.id, 'REVIEWED');
-refuses(
-  () => S.updateEmailDraft(ctx(), mike, draft.id, { body: 'rewritten after review' }),
+await S.advanceEmailDraft(ctx(), mike, draft.id, 'REVIEWED');
+await refuses(
+  async () => S.updateEmailDraft(ctx(), mike, draft.id, { body: 'rewritten after review' }),
   'draft_frozen',
   'a reviewed draft is frozen — the review refers to those words',
 );
-S.advanceEmailDraft(ctx(), mike, draft.id, 'APPROVED_TO_SEND');
-S.advanceEmailDraft(ctx(), mike, draft.id, 'SENT');
+await S.advanceEmailDraft(ctx(), mike, draft.id, 'APPROVED_TO_SEND');
+await S.advanceEmailDraft(ctx(), mike, draft.id, 'SENT');
 eq(db.prepare('select status from purchase_email_drafts where id = ?').get(draft.id).status, 'SENT',
    'a human can record that they sent it themselves');
 
 console.log('--- ordering, tracking, receiving ------------------------------');
 
-S.markOrdered(ctx(), mike, created.id, { notes: 'Called it in to the counter.' });
-S.updateTracking(ctx(), office, created.id, { trackingNumber: '1Z999AA10123456784', carrier: 'UPS', expectedArrivalDate: '2026-08-06' });
+await S.markOrdered(ctx(), mike, created.id, { notes: 'Called it in to the counter.' });
+await S.updateTracking(ctx(), office, created.id, { trackingNumber: '1Z999AA10123456784', carrier: 'UPS', expectedArrivalDate: '2026-08-06' });
 eq(db.prepare('select tracking_number from purchase_requests where id = ?').get(created.id).tracking_number,
    '1Z999AA10123456784', 'office can add tracking');
 
 const poItem = db.prepare('select * from purchase_order_items where purchase_order_id = ?').get(poRow.id);
 
-refuses(
-  () => S.recordReceipt(ctx(), mike, created.id, {
+await refuses(
+  async () => S.recordReceipt(ctx(), mike, created.id, {
     receivedDate: '2026-08-05',
     lines: [{ purchaseOrderItemId: poItem.id, receivedQty: '19' }],
   }),
@@ -389,7 +396,7 @@ refuses(
   'receiving more than was ordered needs an explicit override',
 );
 
-const partial = S.recordReceipt(ctx(), mike, created.id, {
+const partial = await S.recordReceipt(ctx(), mike, created.id, {
   receivedDate: '2026-08-05',
   packingSlipNumber: 'PS-88213',
   lines: [{ purchaseOrderItemId: poItem.id, receivedQty: '12' }],
@@ -398,13 +405,13 @@ eq(partial.outstandingLines, 1, 'a partial receipt leaves the line outstanding')
 eq(db.prepare('select status from purchase_requests where id = ?').get(created.id).status, 'PARTIALLY_RECEIVED',
    'the request moves to PARTIALLY_RECEIVED');
 
-refuses(
-  () => S.completeRequest(ctx(), mike, created.id),
+await refuses(
+  async () => S.completeRequest(ctx(), mike, created.id),
   'illegal_transition',
   'a partially received request cannot be completed',
 );
 
-const final = S.recordReceipt(ctx(), mike, created.id, {
+const final = await S.recordReceipt(ctx(), mike, created.id, {
   receivedDate: '2026-08-06',
   packingSlipNumber: 'PS-88377',
   lines: [{ purchaseOrderItemId: poItem.id, receivedQty: '6' }],
@@ -418,7 +425,7 @@ check(
   'the requestor is notified that the material is ready',
 );
 
-S.completeRequest(ctx(), mike, created.id, 'Foreman collected the balance.');
+await S.completeRequest(ctx(), mike, created.id, 'Foreman collected the balance.');
 eq(db.prepare('select status from purchase_requests where id = ?').get(created.id).status, 'COMPLETED', 'the request completes');
 
 console.log('--- over-receipt override --------------------------------------');
@@ -432,7 +439,7 @@ eq(receiptGuard({ orderedQty: 18_000, alreadyReceivedQty: 0, incomingQty: 100_00
 
 console.log('--- activity timeline ------------------------------------------');
 
-const detail = S.getRequestDetail(ctx(), mike, created.id);
+const detail = await S.getRequestDetail(ctx(), mike, created.id);
 const actions = detail.timeline.map((t) => t.action);
 for (const required of [
   'request.created', 'request.submitted', 'review.stock_recorded', 'review.saved', 'decision.approved',
@@ -458,56 +465,56 @@ check(detail.timeline.every((t) => t.actorName), 'every action is attributed to 
 
 console.log('--- rejection path ---------------------------------------------');
 
-const rejected = S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Second run of fixtures.' });
-S.submitRequest(ctx(), foreman, rejected.id);
-refuses(
-  () => S.decide(ctx(), mike, rejected.id, 'REJECT'),
+const rejected = await S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Second run of fixtures.' });
+await S.submitRequest(ctx(), foreman, rejected.id);
+await refuses(
+  async () => S.decide(ctx(), mike, rejected.id, 'REJECT'),
   'reason_required',
   'a rejection must record a reason',
 );
-S.saveReview(ctx(), mike, rejected.id, {
+await S.saveReview(ctx(), mike, rejected.id, {
   lines: [{
-    requestItemId: S.getRequestDetail(ctx(), mike, rejected.id).originalItems[0].id,
+    requestItemId: (await S.getRequestDetail(ctx(), mike, rejected.id)).originalItems[0].id,
     usableStock: '25', approvedQty: '20', finalOrderQty: '0',
   }],
 });
-S.decide(ctx(), mike, rejected.id, 'REJECT', { reason: 'Twenty-five already on the shelf.' });
-refuses(
-  () => S.generatePurchaseOrder(ctx(), mike, rejected.id),
+await S.decide(ctx(), mike, rejected.id, 'REJECT', { reason: 'Twenty-five already on the shelf.' });
+await refuses(
+  async () => S.generatePurchaseOrder(ctx(), mike, rejected.id),
   'po_before_approval',
   'a rejected request cannot generate a purchase order',
 );
-refuses(
-  () => S.decide(ctx(), rick, rejected.id, 'APPROVE'),
+await refuses(
+  async () => S.decide(ctx(), rick, rejected.id, 'APPROVE'),
   'not_in_review',
   'a rejected request cannot be approved afterwards',
 );
 
 console.log('--- clarification path + Rick as backup approver ----------------');
 
-const clarify = S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Panel feeders.' });
-S.submitRequest(ctx(), foreman, clarify.id);
-S.decide(ctx(), rick, clarify.id, 'CLARIFY', { question: 'Which floor is this for?' });
+const clarify = await S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Panel feeders.' });
+await S.submitRequest(ctx(), foreman, clarify.id);
+await S.decide(ctx(), rick, clarify.id, 'CLARIFY', { question: 'Which floor is this for?' });
 eq(db.prepare('select status from purchase_requests where id = ?').get(clarify.id).status, 'CLARIFICATION_REQUESTED',
    'Rick can send a request back for clarification');
-refuses(
-  () => S.answerClarification(ctx(), office, clarify.id, 'Third floor'),
+await refuses(
+  async () => S.answerClarification(ctx(), office, clarify.id, 'Third floor'),
   'not_owner',
   'only the requestor answers their own clarification',
 );
-S.answerClarification(ctx(), foreman, clarify.id, 'Third floor, east side.');
+await S.answerClarification(ctx(), foreman, clarify.id, 'Third floor, east side.');
 eq(db.prepare('select status from purchase_requests where id = ?').get(clarify.id).status, 'PENDING_WORKSHOP_REVIEW',
    'an answered clarification returns to the queue');
 
-const clarifyItem = S.getRequestDetail(ctx(), rick, clarify.id).originalItems[0];
-S.saveReview(ctx(), rick, clarify.id, {
+const clarifyItem = (await S.getRequestDetail(ctx(), rick, clarify.id)).originalItems[0];
+await S.saveReview(ctx(), rick, clarify.id, {
   lines: [{ requestItemId: clarifyItem.id, usableStock: '0', approvedQty: '20', finalOrderQty: '20',
             vendorId: graybar.id, estimatedUnitCost: '86.40' }],
 });
-S.decide(ctx(), rick, clarify.id, 'APPROVE', { notes: 'Backup approver.' });
+await S.decide(ctx(), rick, clarify.id, 'APPROVE', { notes: 'Backup approver.' });
 eq(db.prepare('select status from purchase_requests where id = ?').get(clarify.id).status, 'APPROVED',
    'Rick can approve as the authorized backup');
-const rickPo = S.generatePurchaseOrder(ctx(), rick, clarify.id);
+const rickPo = await S.generatePurchaseOrder(ctx(), rick, clarify.id);
 eq(rickPo.poNumber, 'LE-52902', 'the next PO number is issued in sequence');
 
 console.log('--- the PO -> email flow (reachable from the PO itself) ---------');
@@ -515,48 +522,48 @@ console.log('--- the PO -> email flow (reachable from the PO itself) ---------')
 // The bug this covers: the purchase order page linked to an email page that
 // could only say "nothing here", because the create action lived on the request
 // page. What the PO page offers is driven by this state, so assert the state.
-const beforeDraft = S.getRequestDetail(ctx(), rick, clarify.id);
+const beforeDraft = await S.getRequestDetail(ctx(), rick, clarify.id);
 eq(beforeDraft.emailDrafts.length, 0, 'a fresh purchase order has no email draft yet');
 check(Boolean(beforeDraft.purchaseOrder), 'the PO page has a purchase order to offer a draft for');
 
-const fromPo = S.generateVendorEmailDraft(ctx(), rick, clarify.id);
-const afterDraft = S.getRequestDetail(ctx(), rick, clarify.id);
+const fromPo = await S.generateVendorEmailDraft(ctx(), rick, clarify.id);
+const afterDraft = await S.getRequestDetail(ctx(), rick, clarify.id);
 eq(afterDraft.emailDrafts.length, 1, 'the draft is created without leaving the purchase order');
 eq(afterDraft.emailDrafts[0].purchaseOrderId, afterDraft.purchaseOrder.id,
    'the draft is bound to the purchase order it was created from');
 
-const again = S.generateVendorEmailDraft(ctx(), rick, clarify.id);
+const again = await S.generateVendorEmailDraft(ctx(), rick, clarify.id);
 eq(again.id, fromPo.id, 'pressing create twice does not produce a second draft');
-eq(S.getRequestDetail(ctx(), rick, clarify.id).emailDrafts.length, 1,
+eq((await S.getRequestDetail(ctx(), rick, clarify.id)).emailDrafts.length, 1,
    'the draft state survives a re-read — a refresh shows the same one draft');
 
 console.log('--- office approver grant --------------------------------------');
 
-const officeReq = S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Wire for the same job.' });
-S.submitRequest(ctx(), foreman, officeReq.id);
-const officeItem = S.getRequestDetail(ctx(), officeApprover, officeReq.id).originalItems[0];
-S.saveReview(ctx(), officeApprover, officeReq.id, {
+const officeReq = await S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Wire for the same job.' });
+await S.submitRequest(ctx(), foreman, officeReq.id);
+const officeItem = (await S.getRequestDetail(ctx(), officeApprover, officeReq.id)).originalItems[0];
+await S.saveReview(ctx(), officeApprover, officeReq.id, {
   lines: [{ requestItemId: officeItem.id, usableStock: '2', approvedQty: '20', finalOrderQty: '18',
             vendorId: graybar.id, estimatedUnitCost: '10.00' }],
 });
-S.decide(ctx(), officeApprover, officeReq.id, 'APPROVE', { notes: 'Granted approval authority.' });
+await S.decide(ctx(), officeApprover, officeReq.id, 'APPROVE', { notes: 'Granted approval authority.' });
 eq(db.prepare('select status from purchase_requests where id = ?').get(officeReq.id).status, 'APPROVED',
    'an office user with an explicit grant can approve');
 
 console.log('--- self-approval ----------------------------------------------');
 
-const mikesOwn = S.createRequest(ctx(), mike, { ...baseDraft, reason: 'Workshop restock.' });
-S.submitRequest(ctx(), mike, mikesOwn.id);
-refuses(
-  () => S.decide(ctx(), mike, mikesOwn.id, 'APPROVE'),
+const mikesOwn = await S.createRequest(ctx(), mike, { ...baseDraft, reason: 'Workshop restock.' });
+await S.submitRequest(ctx(), mike, mikesOwn.id);
+await refuses(
+  async () => S.decide(ctx(), mike, mikesOwn.id, 'APPROVE'),
   'self_approval',
   'nobody decides on the request they raised',
 );
-S.saveReview(ctx(), rick, mikesOwn.id, {
-  lines: [{ requestItemId: S.getRequestDetail(ctx(), rick, mikesOwn.id).originalItems[0].id,
+await S.saveReview(ctx(), rick, mikesOwn.id, {
+  lines: [{ requestItemId: (await S.getRequestDetail(ctx(), rick, mikesOwn.id)).originalItems[0].id,
             usableStock: '0', approvedQty: '20', finalOrderQty: '20', vendorId: graybar.id, estimatedUnitCost: '5.00' }],
 });
-S.decide(ctx(), rick, mikesOwn.id, 'APPROVE');
+await S.decide(ctx(), rick, mikesOwn.id, 'APPROVE');
 eq(db.prepare('select status from purchase_requests where id = ?').get(mikesOwn.id).status, 'APPROVED',
    "but the other approver can decide on their colleague's request");
 
@@ -569,27 +576,27 @@ db.prepare('insert into orgs (id, name, created_at, updated_at) values (?,?,?,?)
 db.prepare('insert into users (id, org_id, full_name, email, is_active, can_approve, created_at, updated_at) values (?,?,?,?,1,1,?,?)')
   .run(otherUser, otherOrg, 'Someone Else', 'else@example.invalid', nowIso, nowIso);
 db.prepare('insert into user_roles (user_id, role_key, granted_at) values (?,?,?)').run(otherUser, 'ADMIN', nowIso);
-const stranger = S.loadActor(db, otherUser);
+const stranger = await S.loadActor(db, otherUser);
 
-refuses(() => S.getRequestDetail(ctx(), stranger, created.id), 'not_found', "another org's request is not found");
-refuses(() => S.decide(ctx(), stranger, clarify.id, 'APPROVE'), 'not_found', "another org's request cannot be approved");
-check(S.listRequests(ctx(), stranger).length === 0, 'another org sees no requests');
+await refuses(async () => S.getRequestDetail(ctx(), stranger, created.id), 'not_found', "another org's request is not found");
+await refuses(async () => S.decide(ctx(), stranger, clarify.id, 'APPROVE'), 'not_found', "another org's request cannot be approved");
+check((await S.listRequests(ctx(), stranger)).length === 0, 'another org sees no requests');
 check(
   authorize({ id: 'x', orgId: 'A', roles: ['ADMIN'], canApprove: true, isActive: true }, 'review.decide',
             { request: { id: 'r', orgId: 'B', status: 'PENDING_WORKSHOP_REVIEW' } }).reason === 'cross_tenant',
   'the tenant check fires before the role check',
 );
 
-const foremanView = S.listRequests(ctx(), foreman);
+const foremanView = await S.listRequests(ctx(), foreman);
 check(foremanView.every((r) => r.requestorId === foreman.id), 'a requestor sees only their own requests');
-check(S.listRequests(ctx(), office).length > foremanView.length, 'office sees all requests');
-refuses(
-  () => S.getRequestDetail(ctx(), users.sam, created.id),
+check((await S.listRequests(ctx(), office)).length > foremanView.length, 'office sees all requests');
+await refuses(
+  async () => S.getRequestDetail(ctx(), users.sam, created.id),
   'not_owner',
   "a field worker cannot open someone else's request",
 );
-refuses(() => S.auditLog(ctx(), foreman), 'missing_permission', 'a requestor cannot read the audit log');
-check(S.auditLog(ctx(), admin).length > 0, 'an admin can read the audit log');
+await refuses(async () => S.auditLog(ctx(), foreman), 'missing_permission', 'a requestor cannot read the audit log');
+check((await S.auditLog(ctx(), admin)).length > 0, 'an admin can read the audit log');
 check(
   db.prepare("select count(*) c from purchase_activity_log where action = 'authz.denied'").get().c > 0,
   'refusals are recorded, not merely refused',
@@ -597,7 +604,7 @@ check(
 
 console.log('--- dashboard --------------------------------------------------');
 
-const all = S.listRequests(ctx(), office);
+const all = await S.listRequests(ctx(), office);
 const cards = summarize(all, '2026-08-06T12:00:00Z');
 check(cards.pending_workshop_review >= 0 && cards.open_order_value_cents >= 0, 'the summary cards compute');
 eq(cards.received_this_month >= 1, true, 'the completed request counts toward received this month');
@@ -644,13 +651,16 @@ console.log('--- PO numbering under real concurrency ------------------------');
 const WORKERS = 8;
 const workerSource = `
 import { workerData, parentPort } from 'node:worker_threads';
-const { openDatabase, inTransaction } = await import(workerData.dbModule);
+const { openDatabase } = await import(workerData.dbModule);
 const S = await import(workerData.serviceModule);
 const db = openDatabase(workerData.dbPath);
 const ctx = S.context(db, new Date().toISOString());
 const out = [];
 for (let i = 0; i < workerData.iterations; i++) {
-  out.push(inTransaction(db, () => S.allocatePoNumber(ctx, workerData.orgId)).poNumber);
+  // Through the application's own transaction boundary — the async, serialized
+  // unit of work — so this gate exercises what the app actually does.
+  const allocated = await ctx.uow.run(() => S.allocatePoNumber(ctx, workerData.orgId));
+  out.push(allocated.poNumber);
 }
 parentPort.postMessage(out);
 `;
@@ -684,7 +694,7 @@ eq(
   Number(seqAfter),
   'the sequence advanced exactly once per issued number',
 );
-throws(
+await throws(
   () => db.prepare('insert into purchase_orders (id, org_id, request_id, po_number, sequence_value, vendor_id, job_number, approver_id, delivery_location_id, delivery_method, need_by_date, need_by_time, generated_at, generated_by, created_at, updated_at) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .run(randomUUID(), DEMO_ORG_ID, clarify.id, 'LE-52901', 99999, graybar.id, '24-118', mike.id, jobsite.id, 'DELIVERY', '2026-08-07', '07:00', nowIso, mike.id, nowIso, nowIso),
   /UNIQUE/i,
@@ -693,9 +703,9 @@ throws(
 
 console.log('--- email cannot outrun the purchase order ---------------------');
 
-const noPo = S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Third run.' });
-refuses(
-  () => S.generateVendorEmailDraft(ctx(), mike, noPo.id),
+const noPo = await S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Third run.' });
+await refuses(
+  async () => S.generateVendorEmailDraft(ctx(), mike, noPo.id),
   'email_before_po',
   'a vendor email cannot be drafted without a purchase order',
 );

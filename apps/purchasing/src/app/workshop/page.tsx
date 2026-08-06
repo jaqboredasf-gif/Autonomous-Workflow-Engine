@@ -13,7 +13,7 @@ export const metadata = { title: 'Workshop queue — Lippolis Purchasing' };
 export default async function WorkshopPage() {
   const actor = await requireAccess('/workshop');
   const ctx = purchasingRequestContext();
-  const requests = S.listRequests(ctx, actor);
+  const requests = await S.listRequests(ctx, actor);
   const now = new Date().toISOString();
   const cards = summarize(requests, now);
 

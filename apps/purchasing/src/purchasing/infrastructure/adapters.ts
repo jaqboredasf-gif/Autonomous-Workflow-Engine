@@ -45,7 +45,7 @@ export function systemClock(fixed?: string): Clock {
  */
 export function identityAdapter(db: DatabaseSync): IdentityPort {
   return {
-    load(userId) {
+    async load(userId) {
       const u = db.prepare('select * from users where id = ?').get(userId) as any;
       if (!u) return null;
       const roles = (db.prepare('select role_key from user_roles where user_id = ? order by role_key').all(userId) as any[])
@@ -70,7 +70,7 @@ export function identityAdapter(db: DatabaseSync): IdentityPort {
         assignedJobNumbers,
       };
     },
-    listUsers(orgId) {
+    async listUsers(orgId) {
       const rows = db.prepare('select * from users where org_id = ? order by full_name').all(orgId) as any[];
       return rows.map((u) => ({
         ...u,
@@ -85,7 +85,7 @@ export function identityAdapter(db: DatabaseSync): IdentityPort {
     // called separately, so "user exists" and "user has credentials" stay two
     // decisions rather than one accident.
 
-    createUser(input) {
+    async createUser(input) {
       const id = uuid();
       db.prepare(
         `insert into users (id, org_id, full_name, email, is_active, can_approve, is_primary_approver,
@@ -100,12 +100,12 @@ export function identityAdapter(db: DatabaseSync): IdentityPort {
       return id;
     },
 
-    setActive(userId, active, actorId, now) {
+    async setActive(userId, active, actorId, now) {
       db.prepare('update users set is_active = ?, updated_at = ?, updated_by = ? where id = ?')
         .run(active ? 1 : 0, now, actorId, userId);
     },
 
-    setRoles(userId, roles, actorId, now) {
+    async setRoles(userId, roles, actorId, now) {
       db.prepare('delete from user_roles where user_id = ?').run(userId);
       for (const role of roles) {
         db.prepare('insert into user_roles (user_id, role_key, granted_at, granted_by) values (?,?,?,?)')
@@ -114,19 +114,19 @@ export function identityAdapter(db: DatabaseSync): IdentityPort {
       db.prepare('update users set updated_at = ?, updated_by = ? where id = ?').run(now, actorId, userId);
     },
 
-    setDeliveryReceiver(userId, isReceiver, actorId, now) {
+    async setDeliveryReceiver(userId, isReceiver, actorId, now) {
       db.prepare('update users set is_delivery_receiver = ?, updated_at = ?, updated_by = ? where id = ?')
         .run(isReceiver ? 1 : 0, now, actorId, userId);
     },
 
-    assignJob(userId, jobNumber, actorId, now) {
+    async assignJob(userId, jobNumber, actorId, now) {
       db.prepare(
         `insert or ignore into user_job_assignments (user_id, job_number, assigned_at, assigned_by)
          values (?,?,?,?)`,
       ).run(userId, jobNumber, now, actorId);
     },
 
-    unassignJob(userId, jobNumber) {
+    async unassignJob(userId, jobNumber) {
       db.prepare('delete from user_job_assignments where user_id = ? and job_number = ?').run(userId, jobNumber);
     },
   };
@@ -139,7 +139,7 @@ export function identityAdapter(db: DatabaseSync): IdentityPort {
  */
 export function auditAdapter(db: DatabaseSync, clock: Clock): AuditPort {
   return {
-    record(orgId: string, actor: Actor | null, event: any) {
+    async record(orgId: string, actor: Actor | null, event: any) {
       const seqRow = db
         .prepare('select coalesce(max(seq), 0) as m from purchase_activity_log where request_id is ?')
         .get(event.requestId ?? null) as any;
@@ -157,7 +157,7 @@ export function auditAdapter(db: DatabaseSync, clock: Clock): AuditPort {
       );
     },
 
-    timelineFor(requestId: string) {
+    async timelineFor(requestId: string) {
       return (db.prepare('select * from purchase_activity_log where request_id = ? order by at, seq').all(requestId) as any[]).map((t) => ({
         id: t.id, at: t.at, seq: t.seq, actorId: t.actor_id, actorName: t.actor_name,
         action: t.action, entityType: t.entity_type, entityId: t.entity_id,
@@ -167,7 +167,7 @@ export function auditAdapter(db: DatabaseSync, clock: Clock): AuditPort {
       }));
     },
 
-    orgLog(orgId: string, limit: number) {
+    async orgLog(orgId: string, limit: number) {
       return db
         .prepare('select * from purchase_activity_log where org_id = ? order by at desc, seq desc limit ?')
         .all(orgId, limit) as any[];
@@ -183,7 +183,7 @@ export function auditAdapter(db: DatabaseSync, clock: Clock): AuditPort {
  */
 export function notificationAdapter(db: DatabaseSync, clock: Clock): NotificationPort {
   return {
-    publish(orgId, event, requestId, payload) {
+    async publish(orgId, event, requestId, payload) {
       const audience = (NOTIFICATION_AUDIENCE as Record<string, string[]>)[event] ?? [];
       const recipients = new Set<string>();
       for (const group of audience) {
@@ -211,7 +211,7 @@ export function notificationAdapter(db: DatabaseSync, clock: Clock): Notificatio
       }
     },
 
-    inboxFor(userId) {
+    async inboxFor(userId) {
       return db
         .prepare('select * from purchase_notifications where recipient_id = ? order by created_at desc limit 50')
         .all(userId) as any[];
@@ -222,7 +222,7 @@ export function notificationAdapter(db: DatabaseSync, clock: Clock): Notificatio
 /** Document storage. Production: Supabase Storage + a row holding the path. */
 export function documentAdapter(db: DatabaseSync): DocumentPort {
   return {
-    store(doc, now) {
+    async store(doc, now) {
       const id = uuid();
       db.prepare(
         `insert into purchase_order_documents
@@ -236,10 +236,10 @@ export function documentAdapter(db: DatabaseSync): DocumentPort {
       );
       return { id, filename: doc.filename, byteSize: doc.bytes.byteLength };
     },
-    get(id) {
+    async get(id) {
       return db.prepare('select * from purchase_order_documents where id = ?').get(id) as any;
     },
-    listFor(purchaseOrderId) {
+    async listFor(purchaseOrderId) {
       return db
         .prepare('select id, filename, content_type, byte_size, generated_at from purchase_order_documents where purchase_order_id = ?')
         .all(purchaseOrderId) as any[];
@@ -250,7 +250,7 @@ export function documentAdapter(db: DatabaseSync): DocumentPort {
 /** User uploads. Production: Supabase Storage; the row keeps the object path. */
 export function attachmentAdapter(db: DatabaseSync): AttachmentPort {
   return {
-    attachToRequest(requestId, file, actorId, now) {
+    async attachToRequest(requestId, file, actorId, now) {
       const id = uuid();
       db.prepare(
         `insert into purchase_request_attachments
@@ -263,7 +263,7 @@ export function attachmentAdapter(db: DatabaseSync): AttachmentPort {
       );
       return { id, filename: file.filename };
     },
-    attachToReceipt(receiptId, file, actorId, now) {
+    async attachToReceipt(receiptId, file, actorId, now) {
       db.prepare(
         `insert into purchase_receipt_attachments (id, receipt_id, filename, content_type, byte_size, data_base64, caption, created_at, created_by)
          values (?,?,?,?,?,?,?,?,?)`,

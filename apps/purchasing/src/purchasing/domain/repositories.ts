@@ -9,9 +9,11 @@
 //
 // Rules of the boundary:
 //   * repositories take and return plain, serializable records
-//   * every method is synchronous, because the pilot store is synchronous and
-//     the production adapter will run inside a server action that awaits once,
-//     at the edge (see application/ports.ts, UnitOfWork)
+//   * every method is ASYNC. The local store answers immediately and resolves
+//     in the same tick, but a network-backed provider cannot, and an interface
+//     only a local database can satisfy is not a boundary — it is the local
+//     database wearing one. Async here is a real persistence boundary, not
+//     decoration: pure domain calculation stays synchronous.
 //   * a repository NEVER decides. It has no opinion on status, permission or
 //     arithmetic — those live in the domain and are checked in use cases.
 // ---------------------------------------------------------------------------
@@ -106,79 +108,79 @@ export type LineProgressRecord = {
 };
 
 export interface PurchaseRequestRepository {
-  nextRequestNumber(orgId: Id): string;
-  insert(record: any): PurchaseRequestRecord;
-  findById(id: Id): PurchaseRequestRecord | null;
-  listForOrg(orgId: Id): PurchaseRequestRecord[];
-  listForRequestor(orgId: Id, userId: Id): PurchaseRequestRecord[];
+  nextRequestNumber(orgId: Id): Promise<string>;
+  insert(record: any): Promise<PurchaseRequestRecord>;
+  findById(id: Id): Promise<PurchaseRequestRecord | null>;
+  listForOrg(orgId: Id): Promise<PurchaseRequestRecord[]>;
+  listForRequestor(orgId: Id, userId: Id): Promise<PurchaseRequestRecord[]>;
   /** Optimistic write: fails if `version` moved under us. */
-  update(id: Id, expectedVersion: number, patch: Record<string, unknown>): void;
+  update(id: Id, expectedVersion: number, patch: Record<string, unknown>): Promise<void>;
   /** Non-versioned field write (tracking, totals) — never a status change. */
-  patch(id: Id, patch: Record<string, unknown>): void;
-  itemsFor(requestId: Id): RequestItemRecord[];
-  replaceItems(requestId: Id, items: any[], actorId: Id, now: string): void;
-  attachmentsFor(requestId: Id): any[];
+  patch(id: Id, patch: Record<string, unknown>): Promise<void>;
+  itemsFor(requestId: Id): Promise<RequestItemRecord[]>;
+  replaceItems(requestId: Id, items: any[], actorId: Id, now: string): Promise<void>;
+  attachmentsFor(requestId: Id): Promise<any[]>;
 }
 
 export interface WorkshopReviewRepository {
-  findByRequest(requestId: Id): { id: Id; requestId: Id; savedAt: string | null; workshopNotes: string | null } | null;
-  open(requestId: Id, reviewerId: Id, now: string): { id: Id };
-  saveLine(reviewId: Id, requestItemId: Id, values: Record<string, unknown>, actorId: Id, now: string): { previous: any };
-  linesFor(requestId: Id): ReviewLineRecord[];
-  markSaved(reviewId: Id, reviewerId: Id, workshopNotes: string | null, now: string): void;
+  findByRequest(requestId: Id): Promise<{ id: Id; requestId: Id; savedAt: string | null; workshopNotes: string | null } | null>;
+  open(requestId: Id, reviewerId: Id, now: string): Promise<{ id: Id }>;
+  saveLine(reviewId: Id, requestItemId: Id, values: Record<string, unknown>, actorId: Id, now: string): Promise<{ previous: any }>;
+  linesFor(requestId: Id): Promise<ReviewLineRecord[]>;
+  markSaved(reviewId: Id, reviewerId: Id, workshopNotes: string | null, now: string): Promise<void>;
 }
 
 export interface ApprovalRepository {
-  record(requestId: Id, approverId: Id, decision: string, notes: string | null, reason: string | null, changes: unknown, now: string): void;
-  listForRequest(requestId: Id): any[];
+  record(requestId: Id, approverId: Id, decision: string, notes: string | null, reason: string | null, changes: unknown, now: string): Promise<void>;
+  listForRequest(requestId: Id): Promise<any[]>;
 }
 
 export interface PurchaseOrderRepository {
-  findByRequest(requestId: Id): any | null;
-  findById(id: Id): any | null;
-  insert(order: any, now: string): { id: Id; poNumber: string };
-  itemsFor(purchaseOrderId: Id): any[];
-  progressFor(requestId: Id): LineProgressRecord[];
+  findByRequest(requestId: Id): Promise<any | null>;
+  findById(id: Id): Promise<any | null>;
+  insert(order: any, now: string): Promise<{ id: Id; poNumber: string }>;
+  itemsFor(purchaseOrderId: Id): Promise<any[]>;
+  progressFor(requestId: Id): Promise<LineProgressRecord[]>;
   /** Everything the PO template and the vendor email need, in one shape. */
-  view(purchaseOrderId: Id): any;
+  view(purchaseOrderId: Id): Promise<any>;
 }
 
 export interface EmailDraftRepository {
-  findByKey(orgId: Id, draftKey: string): any | null;
-  findById(id: Id): any | null;
-  listForRequest(requestId: Id): any[];
-  insert(draft: any, now: string): { id: Id };
-  updateContent(id: Id, patch: { subject?: string; body?: string }, now: string): void;
-  updateStatus(id: Id, columns: Record<string, unknown>): void;
+  findByKey(orgId: Id, draftKey: string): Promise<any | null>;
+  findById(id: Id): Promise<any | null>;
+  listForRequest(requestId: Id): Promise<any[]>;
+  insert(draft: any, now: string): Promise<{ id: Id }>;
+  updateContent(id: Id, patch: { subject?: string; body?: string }, now: string): Promise<void>;
+  updateStatus(id: Id, columns: Record<string, unknown>): Promise<void>;
 }
 
 export interface ReceiptRepository {
-  insert(receipt: any, now: string): { id: Id };
-  insertLine(receiptId: Id, line: any, now: string): void;
-  markFinal(receiptId: Id): void;
-  listForRequest(requestId: Id): any[];
-  findById(id: Id): any | null;
-  attach(receiptId: Id, file: any, actorId: Id, now: string): void;
-  attachmentsFor(receiptId: Id): any[];
+  insert(receipt: any, now: string): Promise<{ id: Id }>;
+  insertLine(receiptId: Id, line: any, now: string): Promise<void>;
+  markFinal(receiptId: Id): Promise<void>;
+  listForRequest(requestId: Id): Promise<any[]>;
+  findById(id: Id): Promise<any | null>;
+  attach(receiptId: Id, file: any, actorId: Id, now: string): Promise<void>;
+  attachmentsFor(receiptId: Id): Promise<any[]>;
 }
 
 export interface InventoryRepository {
-  observe(record: any, now: string): void;
-  adjust(record: any, now: string): void;
+  observe(record: any, now: string): Promise<void>;
+  adjust(record: any, now: string): Promise<void>;
 }
 
 export interface ReferenceRepository {
-  vendors(orgId: Id): any[];
-  primaryContact(vendorId: Id): any | null;
-  deliveryLocations(orgId: Id): any[];
-  jobs(orgId: Id): any[];
-  users(orgId: Id): any[];
-  settings(orgId: Id): any;
-  emailTemplate(orgId: Id, key: string): any | null;
-  emailTemplates(orgId: Id): any[];
-  poConfig(orgId: Id): any;
-  updatePoConfig(orgId: Id, patch: Record<string, unknown>, actorId: Id, now: string): void;
-  setApprovalAuthority(userId: Id, canApprove: boolean, actorId: Id, now: string): void;
+  vendors(orgId: Id): Promise<any[]>;
+  primaryContact(vendorId: Id): Promise<any | null>;
+  deliveryLocations(orgId: Id): Promise<any[]>;
+  jobs(orgId: Id): Promise<any[]>;
+  users(orgId: Id): Promise<any[]>;
+  settings(orgId: Id): Promise<any>;
+  emailTemplate(orgId: Id, key: string): Promise<any | null>;
+  emailTemplates(orgId: Id): Promise<any[]>;
+  poConfig(orgId: Id): Promise<any>;
+  updatePoConfig(orgId: Id, patch: Record<string, unknown>, actorId: Id, now: string): Promise<void>;
+  setApprovalAuthority(userId: Id, canApprove: boolean, actorId: Id, now: string): Promise<void>;
 }
 
 /**
@@ -187,5 +189,5 @@ export interface ReferenceRepository {
  * lock; nothing above this interface may invent a number.
  */
 export interface PoNumberAllocator {
-  allocate(orgId: Id, now: string): { poNumber: string; sequenceValue: number };
+  allocate(orgId: Id, now: string): Promise<{ poNumber: string; sequenceValue: number }>;
 }
