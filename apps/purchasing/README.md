@@ -188,6 +188,19 @@ Contract: `docs/testing/PURCHASING.md`.
 
 ---
 
+## Documentation
+
+| Document | For |
+| --- | --- |
+| [`docs/PURCHASING_USER_GUIDE.md`](../../docs/PURCHASING_USER_GUIDE.md) | foremen, workshop, office, accounting |
+| [`docs/PURCHASING_ADMIN_GUIDE.md`](../../docs/PURCHASING_ADMIN_GUIDE.md) | administrators: users, roles, assignments, PO numbering |
+| [`docs/PURCHASING_DEPLOYMENT.md`](../../docs/PURCHASING_DEPLOYMENT.md) | deploying privately: Supabase, environment, backup, rollback |
+| [`docs/PURCHASING_PILOT_CHECKLIST.md`](../../docs/PURCHASING_PILOT_CHECKLIST.md) | running the Lippolis pilot |
+| [`docs/PURCHASING_PRODUCTION_GAPS.md`](../../docs/PURCHASING_PRODUCTION_GAPS.md) | **what is unproven, and what does not exist** |
+| [`docs/testing/PURCHASING.md`](../../docs/testing/PURCHASING.md) | the test contract |
+
+---
+
 ## Deploying to a private URL
 
 Nothing here deploys automatically. The remaining steps, in order:
@@ -225,6 +238,19 @@ Nothing here deploys automatically. The remaining steps, in order:
 10. The PO layout (`infrastructure/pdf-adapter.ts`, `LAYOUT`) is a placeholder carrying every
     required field; mapping it onto the real Lippolis form is an edit to that one object.
 11. All vendors, contacts, jobs and addresses are invented; every address is `@example.invalid`.
+
+## Shared, multi-user deployment
+
+The application runs today on a **local provider**: one server, one file-backed database. That
+is a demonstration host, not a shared system of record.
+
+Shared data needs Supabase repositories, and those are blocked on one concrete thing: the
+repository interfaces are **synchronous**, so no network-backed provider can implement them.
+The change and its order are written up in
+[`docs/PURCHASING_PRODUCTION_GAPS.md`](../../docs/PURCHASING_PRODUCTION_GAPS.md) §2. It was
+attempted and reverted in the session that wrote this paragraph, because a mechanical transform
+produced code that typechecked in places and was wrong in others — a half-migrated persistence
+layer is worse than an honest one.
 
 ## What is not finished
 
