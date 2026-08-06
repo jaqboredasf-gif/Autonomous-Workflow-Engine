@@ -18,7 +18,7 @@ described to anyone as working.
 | --- | --- | --- |
 | Supabase migrations 0016 / 0017 | written, parity-linted, **never run** | a project + `supabase db push` |
 | Supabase Auth adapter | written and wired behind `AuthPort`, **never contacted a server** | project URL, anon key, service role key |
-| Supabase repositories | **do not exist** — see §2 | the async refactor below, then the adapter |
+| Supabase repositories | **do not exist** | the adapter itself — the async boundary it plugs into is done (§2), so this is now writing code rather than changing the application |
 | Supabase Storage | **not implemented**; attachments are stored inline in the pilot database | bucket, policies, signed URL flow |
 | Real email delivery | deliberately absent; drafts only, and the schema pins `external_send_enabled = false` | a reviewed decision to send at all |
 | Production deployment | never performed | a host, a domain, TLS, credentials |
@@ -94,7 +94,7 @@ Each of these is asserted by a test that fails if it stops being true:
 | Question | Answer |
 | --- | --- |
 | Local implementation readiness | **High.** The end-to-end purchasing loop runs, is tested, and survives a production build. |
-| Controlled pilot readiness (real people, one shared server) | **Not yet.** Shared data needs §2 and §1. A single-machine pilot on the local provider is possible today but gives one workstation, no backup story, and no rate limiting. |
+| Controlled pilot readiness (real people, one shared server) | **Not yet.** Shared data needs the Supabase adapter and everything in §1. A single-machine pilot on the local provider is possible today but gives one workstation, no backup story, and no rate limiting. |
 | Production readiness | **No.** Everything in §1 is unexecuted, and §4 contains work a real purchasing department would notice within a day. |
 
 Anyone reporting this as production-ready is reporting §1 as done. It is not.
