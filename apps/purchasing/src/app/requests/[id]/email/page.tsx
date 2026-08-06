@@ -1,198 +1,129 @@
-'use client';
-
-import { useEffect, useState } from 'react';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// Vendor email draft review. Nothing on this page sends anything: the buttons
+// move a row through GENERATED -> REVIEWED -> APPROVED_TO_SEND -> SENT, and
+// "sent" means a human copied the text into their own mail client.
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { inputClass } from '@/components/Field';
-import { buildEmailDraft, buildMailtoHref, draftToClipboardText } from '@/lib/email-draft';
-import { formatDate, formatMoney } from '@/lib/format';
-import { usePurchasing } from '@/lib/store-context';
+import { notFound, redirect } from 'next/navigation';
 
-export default function EmailDraftPreview() {
-  const params = useParams<{ id: string }>();
-  const { requestById, jobById, vendorById, requestorById, hydrated } = usePurchasing();
-  const [copied, setCopied] = useState(false);
+import { currentActor } from '../../../../server/session.ts';
+import { getDb } from '../../../../server/db.ts';
+import * as S from '../../../../server/service.ts';
+import { Empty, Section, buttonClass, inputClass, secondaryButtonClass } from '../../../../components/ui';
+import { advanceEmailDraftAction, updateEmailDraftAction } from '../../../actions.ts';
 
-  const request = requestById(params.id);
-  const job = request ? jobById(request.jobId) : undefined;
-  const vendor = request ? vendorById(request.vendorId) : undefined;
-  const requestor = request ? requestorById(request.requestorId) : undefined;
+export const dynamic = 'force-dynamic';
 
-  const generated = request
-    ? buildEmailDraft(request, vendor, job, requestor?.name ?? 'Lippolis Electric')
-    : null;
+export default async function EmailDraftPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const actor = await currentActor();
+  if (!actor) redirect('/signin');
 
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
+  let detail: any;
+  try {
+    detail = S.getRequestDetail(S.context(getDb()), actor, id);
+  } catch {
+    notFound();
+  }
 
-  // Re-seed the editable fields whenever the underlying draft changes (first
-  // load, hydration from localStorage, a newly generated PO number).
-  useEffect(() => {
-    if (generated) setSubject(generated.subject);
-  }, [generated?.subject]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (generated) setBody(generated.body);
-  }, [generated?.body]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!request || !generated) {
+  const drafts = detail.emailDrafts;
+  if (!drafts.length) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-16 text-center">
-        <h1 className="text-xl font-bold text-neutral-900">
-          {hydrated ? 'Request not found' : 'Loading…'}
-        </h1>
-      </main>
+      <Section title="Vendor email">
+        <Empty>No email draft yet. Generate the purchase order first, then draft the vendor email.</Empty>
+      </Section>
     );
   }
 
-  const edited = { ...generated, subject, body };
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(draftToClipboardText(edited));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8">
-      <Link
-        href={`/requests/${request.id}`}
-        className="text-sm font-medium text-neutral-600 hover:text-neutral-900"
-      >
-        ← Return to request
-      </Link>
-
-      <h1 className="mt-3 text-2xl font-bold tracking-tight text-neutral-900">Email Draft</h1>
-      <p className="mt-1 text-sm text-neutral-600">
-        Nothing is sent from this screen. Copy the text, or open it in your own mail client and
-        review it before you press send there.
-      </p>
-
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <section className="rounded-lg border border-neutral-200 bg-white p-4 lg:col-span-2">
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-600">
-                To (supplier recipient placeholder)
-              </label>
-              <input
-                readOnly
-                value={generated.to}
-                className={`mt-1.5 ${inputClass} bg-neutral-50 font-mono text-xs text-neutral-600`}
-              />
-              <p className="mt-1 text-xs text-neutral-500">
-                Demo address on a reserved <code>.test</code> domain — it cannot receive mail.
-              </p>
-            </div>
-
-            <div>
-              <label
-                htmlFor="subject"
-                className="block text-xs font-semibold uppercase tracking-wide text-neutral-600"
-              >
-                Subject
-              </label>
-              <input
-                id="subject"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                className={`mt-1.5 ${inputClass}`}
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="body"
-                className="block text-xs font-semibold uppercase tracking-wide text-neutral-600"
-              >
-                Body (editable)
-              </label>
-              <textarea
-                id="body"
-                rows={22}
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                className={`mt-1.5 ${inputClass} font-mono text-xs leading-relaxed`}
-              />
-            </div>
-
-            <div className="rounded-md border border-dashed border-neutral-300 bg-neutral-50 px-3 py-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                Attachment
-              </p>
-              <p className="mt-1 text-sm text-neutral-700">📎 {generated.attachmentLabel}</p>
-              <p className="text-xs text-neutral-500">
-                Placeholder — file attachment is not implemented in the demo.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={copy}
-              className="rounded-md bg-blue-700 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-            >
-              {copied ? 'Copied ✓' : 'Copy email'}
-            </button>
-            <a
-              href={buildMailtoHref(edited)}
-              className="rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-50"
-            >
-              Open in email client
-            </a>
-            <Link
-              href={`/requests/${request.id}`}
-              className="rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-50"
-            >
-              Return to request
-            </Link>
-          </div>
-        </section>
-
-        <aside className="space-y-4">
-          <section className="rounded-lg border border-neutral-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-neutral-900">PO summary</h2>
-            <dl className="mt-3 space-y-2 text-sm">
-              <Row label="PO number" value={request.poNumber ?? 'Not generated yet'} mono />
-              <Row label="Request" value={request.id} />
-              <Row label="Vendor" value={vendor?.name ?? '—'} />
-              <Row label="Job" value={job ? `${job.number} — ${job.name}` : '—'} />
-              <Row label="Needed by" value={formatDate(request.neededBy)} />
-              <Row label="Line items" value={String(request.lines.length)} />
-              <Row label="Estimated cost" value={formatMoney(request.estimatedCost)} />
-            </dl>
-            {!request.poNumber && (
-              <p className="mt-3 rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-                Generate a PO first so the supplier has a number to reference.
-              </p>
-            )}
-          </section>
-
-          <section className="rounded-lg border border-amber-300 bg-amber-50 p-4">
-            <h2 className="text-sm font-semibold text-amber-900">What this button does</h2>
-            <p className="mt-1 text-xs text-amber-900">
-              <strong>Open in email client</strong> hands the draft to whatever mail app is
-              registered on this machine. The prototype has no mail server, no API key, and no
-              send capability of its own.
-            </p>
-          </section>
-        </aside>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl font-semibold text-slate-900">Vendor email drafts</h1>
+        <Link href={`/requests/${id}`} className={secondaryButtonClass}>
+          Back to request
+        </Link>
       </div>
-    </main>
-  );
-}
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <dt className="text-neutral-500">{label}</dt>
-      <dd className={`text-right font-medium text-neutral-900 ${mono ? 'font-mono text-xs' : ''}`}>
-        {value}
-      </dd>
+      <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+        This system does not send email. Review the draft, then send it from your own mail client and mark it sent so
+        the record matches what actually happened.
+      </div>
+
+      {drafts.map((d: any) => (
+        <Section
+          key={d.id}
+          title={`${d.templateKey.replace(/_/g, ' ').toLowerCase()} · ${d.status}`}
+          subtitle={`To ${d.to.join(', ') || '(no recipient on file)'}`}
+        >
+          {d.status === 'GENERATED' ? (
+            <form action={updateEmailDraftAction} className="space-y-2">
+              <input type="hidden" name="requestId" value={id} />
+              <input type="hidden" name="draftId" value={d.id} />
+              <input name="subject" className={inputClass} defaultValue={d.subject} />
+              <textarea name="body" rows={16} className={`${inputClass} font-mono text-sm`} defaultValue={d.body} />
+              <button className={secondaryButtonClass}>Save edits</button>
+            </form>
+          ) : (
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-900">{d.subject}</div>
+              <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-800">
+                {d.body}
+              </pre>
+              <p className="text-xs text-slate-500">Frozen: this draft has been reviewed, so the words cannot change.</p>
+            </div>
+          )}
+
+          {d.attachments.length ? (
+            <p className="mt-2 text-xs text-slate-600">
+              Attachment: {d.attachments.map((a: any) => a.filename).join(', ')}
+            </p>
+          ) : null}
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {d.status === 'GENERATED' ? (
+              <form action={advanceEmailDraftAction}>
+                <input type="hidden" name="requestId" value={id} />
+                <input type="hidden" name="draftId" value={d.id} />
+                <input type="hidden" name="to" value="REVIEWED" />
+                <button className={buttonClass}>Mark reviewed</button>
+              </form>
+            ) : null}
+            {d.status === 'REVIEWED' ? (
+              <form action={advanceEmailDraftAction}>
+                <input type="hidden" name="requestId" value={id} />
+                <input type="hidden" name="draftId" value={d.id} />
+                <input type="hidden" name="to" value="APPROVED_TO_SEND" />
+                <button className={buttonClass}>Approve to send</button>
+              </form>
+            ) : null}
+            {d.status === 'APPROVED_TO_SEND' ? (
+              <>
+                <a
+                  className={secondaryButtonClass}
+                  href={`mailto:${encodeURIComponent(d.to.join(','))}?subject=${encodeURIComponent(d.subject)}&body=${encodeURIComponent(d.body)}`}
+                >
+                  Open in my mail client
+                </a>
+                <form action={advanceEmailDraftAction}>
+                  <input type="hidden" name="requestId" value={id} />
+                  <input type="hidden" name="draftId" value={d.id} />
+                  <input type="hidden" name="to" value="SENT" />
+                  <button className={buttonClass}>I sent it — mark sent</button>
+                </form>
+              </>
+            ) : null}
+            {['GENERATED', 'REVIEWED', 'APPROVED_TO_SEND'].includes(d.status) ? (
+              <form action={advanceEmailDraftAction}>
+                <input type="hidden" name="requestId" value={id} />
+                <input type="hidden" name="draftId" value={d.id} />
+                <input type="hidden" name="to" value="CANCELLED" />
+                <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700">
+                  Cancel draft
+                </button>
+              </form>
+            ) : null}
+          </div>
+        </Section>
+      ))}
     </div>
   );
 }

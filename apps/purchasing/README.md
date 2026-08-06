@@ -1,176 +1,187 @@
-# Lippolis Electric — Purchasing Control Dashboard (Demo)
+# Lippolis Electric — Purchasing Control Center
 
-A clickable prototype of a purchasing-control workflow: a foreman or office staffer
-raises a material request, it clears (or skips) approval, a PO number is issued, and the
-office produces a printable purchase order and a supplier email draft.
+One shared web application for material purchasing: a foreman raises a request on a phone,
+the workshop reviews stock and decides what to buy, an approval issues a controlled purchase
+order number, the PO PDF is generated and stored, a vendor email **draft** is prepared for a
+human to send, and the order is tracked and received — partially if that is what turns up.
+Every meaningful action lands on an audit timeline.
 
-**This is a mock built for a walkthrough.** It has no database, no server, no credentials,
-and no ability to send an email or place an order. The point is to put the workflow in
-front of management, find the rules we got wrong, and fix them before anything is wired
-to a real system.
+This is not a mockup. It has a real data model, real role-based authorization enforced on the
+server, real transactions, a real PO sequence that survives two people pressing Approve at the
+same second, real PDF generation, and an automated test suite.
 
 ---
 
-## Install and run
+## Run it
 
-From the repository root (npm workspaces, Node 20+):
+Requires **Node 24+** (the app uses `node:sqlite`, which ships with Node). From the repository
+root:
 
 ```bash
 npm install
-npm run dev -w purchasing
+npm run dev -w purchasing      # http://localhost:3000
 ```
 
-Then open **http://localhost:3000**.
-
-To run the production build instead:
+Production build:
 
 ```bash
 npm run build -w purchasing
 npm run start -w purchasing
 ```
 
-Other scripts: `npm run typecheck -w purchasing`.
+Other scripts: `npm run typecheck -w purchasing`, `npm run lint -w purchasing`.
 
-### Demo login
+The database is created on first run at `apps/purchasing/.data/purchasing.db` and seeded with
+one organization, the cast below, three vendors, five delivery locations and three jobs.
+Delete that file to start over. Override the location with `PURCHASING_DB_PATH`.
 
-There is **no login and no authentication**. Use the **Acting as** dropdown in the yellow
-DEMO MODE bar to switch between people — whoever is selected is recorded as the actor in
-the request history. Real roles and permissions are a phase-two decision (see below).
+### Signing in
 
-### Demo data
+There is no password. The sign-in page lists the seeded people; picking one sets an httpOnly
+session cookie, and **the server derives your identity from that cookie only** — a form field
+claiming to be Mike does not make you Mike. This is identification, not authentication: see
+"What is not finished" below.
 
-All data lives in this browser's `localStorage`, so each person demoing gets their own
-copy and nothing is shared. **Settings → Reset demo data** restores the seeded vendors,
-jobs, requestors, and requests and sets the next PO number back to `DEMO-52901`.
+| Person | Role | Notes |
+| --- | --- | --- |
+| Mike | `WORKSHOP_APPROVER` | primary approver |
+| Rick | `WORKSHOP_APPROVER` | authorized backup approver |
+| Dave Kearns | `REQUESTOR` | foreman |
+| Sam Ortiz | `REQUESTOR` | field |
+| Karen Doyle | `OFFICE` | full visibility, **no** approval authority |
+| Tom Reilly | `OFFICE` | office **with** an explicit approval grant |
+| System Administrator | `ADMIN` | users, PO numbering, settings, audit |
+
+Karen and Tom exist so the rule "office users cannot approve unless separately granted
+approval authority" is demonstrable in both directions.
 
 ---
 
 ## The demo walkthrough
 
-1. **Dashboard** — seeded requests across every status, with filters for status, job
-   number, vendor, and requestor.
-2. **New Purchase Request** — press Submit with the form empty to show the validation.
-   Then fill it in: one job, one vendor, and as many material rows as you like. The form
-   tells you up front whether the request will need approval.
-3. **Request detail** — status timeline, approve/reject, notes, and full history.
-4. **Generate PO** — issues the next sequential number (`DEMO-52901`, `DEMO-52902`, …) and
-   opens the printable purchase order. **Print** and **Save as PDF** both use the browser's
-   own print dialog.
-5. **Generate Email Draft** — a pre-written supplier email you can edit, copy, or open in
-   your own mail client. Nothing is sent.
-6. **Mark Ordered → Mark Received → Mark Completed** — records what happened; no order is
-   transmitted anywhere.
-7. **Settings** — change the approval rule and watch step 2 change behavior with no rebuild.
+1. Sign in as **Dave** (a phone-sized window is the right way to see this). **New request** →
+   job `24-118`, need-by date and time, deliver to a job site, one line: 20 × `2x4 LED troffer,
+   4000K`. Submit. Note what the form does *not* ask for: no vendor, no price, no stock, and no
+   priority — need-by date and time replaced it.
+2. Sign in as **Mike** → **Workshop queue** → open the request.
+   - Section A shows exactly what Dave submitted, read-only.
+   - Section B: record **6** usable in stock. The suggestion becomes **14** (approved − stock,
+     never below zero). Type **18** over it to keep four spare on the shelf, pick Graybar, enter
+     `86.40`. The line total computes to `$1,555.20`.
+   - Section C: Approve.
+3. Back on the request: **Generate purchase order** → `LE-52901`, with a stored PDF you can
+   download or print.
+4. **Draft vendor email** → the draft carries the PO number, the job number, the need-by date
+   and time, the order summary and the PDF attachment. Edit it, mark it reviewed (it freezes),
+   approve to send, open it in your own mail client, then mark it sent.
+5. **Mark ordered**, add a tracking number, then **Record receiving**: 12 of 18. The request
+   goes to *Partially received* and refuses to complete. Receive the remaining 6 → *Received*,
+   the requestor is notified the material is ready → **Complete**.
+6. The **Activity** panel shows every step, with who did it, when, and what changed.
+
+Try the refusals, too — they are the point:
+
+- As Dave, open `/queue` or `/admin`: refused.
+- As Dave, open another person's request: not found.
+- As Karen, approve something: refused. As Tom (same role, explicit grant): allowed.
+- As Mike, approve a request Mike raised: refused — an approver is not an independent reviewer
+  of their own request. (`allow_self_approval` in settings exists for a one-approver shop.)
 
 ---
 
-## What is real vs simulated
-
-| Real | Simulated / placeholder |
-|---|---|
-| The workflow, statuses, and allowed transitions | All vendors, supplier contacts, jobs, requestors, and requests |
-| Form validation rules | Estimated costs — requestor guesses, not quotes |
-| Configurable approval behavior | Approval authority — anyone can approve in the demo |
-| Sequential PO numbering, persisted across reloads | PO numbers are `DEMO-` prefixed and unrelated to the real PO book |
-| The printable PO layout and print/PDF output | Company address and phone on the PO are placeholders |
-| Email subject/body composition and the `mailto:` link | Email delivery — there is no mail server, API key, or send path |
-| Data persistence (per browser) | Data storage — `localStorage` only; nothing is on a server |
-| — | Attachments — the PO attachment on the email screen is a label, not a file |
-
-### Why it cannot send anything
-
-The app makes **zero network requests** beyond loading its own pages — verified in the
-browser during testing. There is no `fetch`, no mail library, no API client, and no
-environment variables. The only outward-facing control is **Open in email client**, a
-`mailto:` link that hands a draft to whatever mail app is on the machine; the person still
-has to press send there. Every printed PO carries the footer *"DEMO PROTOTYPE — NOT A
-VALID PURCHASE ORDER."*
-
----
-
-## Assumptions baked in (change these if they're wrong)
-
-1. **One job and one vendor per request.** Two suppliers means two requests. This is
-   structural — the form has single selects and validation re-checks it.
-2. **A PO number is required before a request can be marked ordered**, and a PO can only
-   be cut after approval.
-3. **PO numbers are issued at PO-generation time**, not when the request is created, and
-   are never reused.
-4. **Job name and job address come from the job record**, filled in automatically from the
-   job number rather than typed by the requestor.
-5. **Approval default:** required at or above **$1,000**, and always required for
-   Emergency priority. Configurable in Settings.
-6. **Rejected and canceled are terminal.** Neither can be reopened — you raise a new
-   request.
-7. **Supplier suggestion is advisory.** Vendors serving the job's area sort to the top of
-   the picker, but any vendor can be chosen.
-8. **Estimated cost is a single number** entered by the requestor — no per-line pricing,
-   tax, or freight.
-
-## Missing business decisions (what we need from management)
-
-1. **Who approves, and at what dollar amount?** Is it one threshold company-wide, or does
-   it vary by job, requestor, or vendor?
-2. **Does a foreman's request need approval at all**, or only office-originated ones?
-3. **Where does the real PO number come from?** Which system owns the sequence once this
-   is live, and how do we avoid colliding with the paper book?
-4. **Should the PO number be assigned at request time** so the field can reference it on
-   the phone, or only when the order is actually placed?
-5. **What happens to a request canceled after it was ordered?** Return, restock fee, or
-   credit — none of that is modeled.
-6. **Partial receipts.** Backorders are common; today Received is all-or-nothing.
-7. **Job numbers.** What is the source of truth, and what does a foreman do when the job
-   has no number yet?
-8. **Pricing.** Do we want quoted unit prices per line, tax and freight, and a real total —
-   or is a rough estimate enough for control purposes?
-9. **Attachments.** Do requests need photos, quotes, or spec sheets?
-10. **Who is allowed to see what?** Should a foreman see other crews' requests and costs?
-
-## Recommended phase-two integrations
-
-- **Replace the demo store with a real API.** All persistence goes through
-  `src/lib/store.ts`; swapping it for route handlers against the existing Supabase
-  database is the whole migration on the client side. `src/lib/types.ts` is already
-  shaped like a schema.
-- **Join purchasing to jobs.** Jobs, sites, and people already exist in the Exattime
-  database (`job_sites`, `users`) — the demo's `jobs`/`requestors` lists should become
-  reads from those tables so job numbers stop being retyped.
-- **Real vendor list** with contacts, account numbers, and per-branch coverage.
-- **Email through the approval pipeline that already exists.** Workstream B has
-  `message_policies` and `outbound_messages` with a draft/auto toggle per message type —
-  supplier POs should ride that, not a new send path.
-- **PDF generation server-side** so a PO can be attached to an email instead of printed.
-- **Cost tracking against the job** — link received material to job costing and the
-  invoice pipeline.
-- **Roles and permissions**, once the approval questions above are answered.
-
----
-
-## Layout
+## How it is built
 
 ```
-src/app/                    Routes
-  page.tsx                  Dashboard: filters + recent requests
-  requests/new/             New purchase request form
-  requests/[id]/            Request detail: timeline, actions, history
-  requests/[id]/po/         Printable purchase order
-  requests/[id]/email/      Email draft preview
-  settings/                 Approval rules, PO counter, reset
-src/components/             Reusable UI (StatusBadge, RequestTable, FilterBar, …)
-src/lib/
-  types.ts                  Domain types — the shape a real schema would take
-  demo-data.ts              ALL invented seed data; replace this one file
-  store.ts                  The only read/write path for demo data
-  store-context.tsx         React binding for the store
-  status.ts                 Status machine + approval policy
-  validation.ts             Request validation rules
-  po.ts                     PO numbering (DEMO- prefix, starts at 52901)
-  email-draft.ts            Email composition (returns strings; no transport)
+apps/purchasing/src/
+  domain/          pure, dependency-free rules — no I/O, no clock, no React
+    status.mjs       the 14 statuses and the closed transition graph
+    roles.mjs        roles, permissions, and authorize()
+    numbers.mjs      money (integer cents) and quantity (integer thousandths) arithmetic
+    validation.mjs   intake rules + the requestor field firewall
+    email.mjs        six templates, draft statuses, and the send gate
+    po-number.mjs    PO number formatting (allocation belongs to the database)
+    activity.mjs     the audit vocabulary and notification events
+    dashboard.mjs    summary cards and filters
+  server/          the only code that touches data
+    db.ts            schema + transactions (node:sqlite)
+    service.ts       every write: authorize -> guard -> write -> audit -> notify
+    pdf.ts           the PO PDF, written by hand (no dependency, deterministic bytes)
+    seed.ts          the pilot's starting data
+    session.ts       the server-side session
+  app/             Next.js routes and server actions
+  components/      UI
 ```
 
-### Known issue
+**Two persistence paths, one data model.** `supabase/migrations/0016_purchasing_control.sql`
+is the production path: the same tables, RLS policies, a transition trigger, security-definer
+RPCs, and `next_po_number()` under a row lock. The pilot runs SQLite so the shop can use it
+with no credentials, no Docker and no network. `scripts/lib/validate-migration-0016.mjs`
+asserts the two stay in lockstep — statuses, roles, permissions, transitions and tables — so a
+change in one cannot silently diverge from the other.
 
-`npm run lint` does not run in this monorepo: `eslint-config-next` is hoisted to the root
-`node_modules` where `next` is not resolvable. This affects `apps/web` identically and
-predates this app. Type safety is covered by `npm run typecheck -w purchasing` and by
-`next build`, which type-checks the whole app.
+**Authorization is server-side.** Every mutation calls `authorize()` before anything else, and
+a refusal is written to the activity log before it is thrown. Hidden buttons are a courtesy;
+the server is the control. The UI derives what to offer from the same function, so an offered
+action always succeeds and an unoffered one always fails.
+
+**Money and quantities never touch a float.** Money is integer cents (numeric(12,2) in
+Postgres); quantities are integer thousandths (numeric(14,3)). 18 × $86.40 is $1,555.20,
+exactly, every time.
+
+**Email cannot be sent.** There is no transport in this module: no SMTP, no Graph, no fetch.
+"Sent" means a human copied an approved draft into their own mail client. The database refuses
+to store `external_send_enabled = true`, so turning sending on is a reviewed migration, not a
+flag someone flips.
+
+---
+
+## Tests
+
+```bash
+bash scripts/eval-purchasing.sh
+```
+
+152 assertions, offline, no credentials, ~15 seconds. It drives the modules the app actually
+ships (Node strips the TypeScript types on import) against a throwaway database, and covers the
+intake rules, the field firewall, every authorization rule, the quantity algebra, the state
+machine, PO-number uniqueness **under eight concurrent worker threads**, the draft-only email
+gate, partial receiving and the over-receipt override, the audit timeline, tenant isolation, and
+the full demo scenario end to end. Contract: `docs/testing/PURCHASING.md`.
+
+---
+
+## Assumptions made (say if any are wrong)
+
+1. **One job per request and one vendor per purchase order.** A request needing two vendors is
+   split into two requests. Multi-vendor splitting is a designed extension, not a hidden rule.
+2. **The workshop approves what the field asked for by default.** Approved quantity starts at
+   the requested quantity and Mike or Rick edit it.
+3. **Nobody decides on a request they raised**, unless an admin turns on `allow_self_approval`.
+4. **Office staff may record receiving** (signing for a delivery is clerical) but may not make
+   purchasing decisions without an explicit grant.
+5. **Only the requestor answers their own clarification.** Office can see and annotate; the
+   answer is evidence of who said what.
+6. **Over-receipt needs a written reason**, and more than twice the ordered quantity is refused
+   outright as a data-entry error.
+7. **PO numbers start at `LE-52901`**, five digits. Admin → PO numbering changes it; the
+   sequence can only move forward.
+8. **The PO template is a placeholder layout** (`src/server/pdf.ts`, `LAYOUT`) carrying every
+   required field. Mapping it onto the real Lippolis form is an edit to that one object.
+9. All vendors, contacts, jobs and addresses in the seed are invented, and every email address
+   is `@example.invalid`.
+
+## What is not finished (and is deliberately visible)
+
+- **Authentication.** Sign-in identifies, it does not authenticate. Swap `src/server/session.ts`
+  for Supabase Auth before this is reachable from outside the shop — every policy in migration
+  0016 is already written against `auth.uid()`, and `service.ts` only ever receives an actor.
+- **Admin editing** covers approval authority and PO numbering. Vendors, delivery locations and
+  email templates are read-only screens in this milestone; the tables, permissions and RLS for
+  editing them already exist, so it is screens, not architecture.
+- **Attachments** are modelled and recorded end to end, but the intake form does not yet upload
+  files; the production path stores them in Supabase Storage rather than inline.
+- **Notifications** are written as rows and emitted as events (the same `emit_event` contract as
+  the rest of AWE). Delivering them to a phone is the next integration, not a new subsystem.
+- **The migration has not been run against a live Postgres** — no local Supabase or Docker was
+  available in this environment. Its parity with the app is linted; its execution is not.
+  Run `supabase db push` (or apply `0016` via the management API) before relying on it.

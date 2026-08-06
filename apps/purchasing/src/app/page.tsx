@@ -1,108 +1,101 @@
-'use client';
-
-import { useMemo, useState } from 'react';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// The landing page: the purchasing dashboard for anyone who can see all
+// requests, and "my requests" for a foreman on a phone.
 import Link from 'next/link';
-import FilterBar, { EMPTY_FILTERS, type Filters } from '@/components/FilterBar';
-import RequestTable from '@/components/RequestTable';
-import { formatMoney } from '@/lib/format';
-import { usePurchasing } from '@/lib/store-context';
+import { redirect } from 'next/navigation';
 
-export default function Dashboard() {
-  const { state } = usePurchasing();
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+import { currentActor } from '../server/session.ts';
+import { getDb } from '../server/db.ts';
+import * as S from '../server/service.ts';
+import { hasPermission } from '../domain/roles.mjs';
+import { summarize, isOverdue } from '../domain/dashboard.mjs';
+import { formatMoney } from '../domain/numbers.mjs';
+import { Card, Empty, Section, StatusBadge } from '../components/ui';
+import RequestTable from '../components/RequestTable';
 
-  const visible = useMemo(() => {
-    return state.requests
-      .filter((r) => !filters.status || r.status === filters.status)
-      .filter((r) => !filters.jobId || r.jobId === filters.jobId)
-      .filter((r) => !filters.vendorId || r.vendorId === filters.vendorId)
-      .filter((r) => !filters.requestorId || r.requestorId === filters.requestorId)
-      .slice()
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [state.requests, filters]);
+export const dynamic = 'force-dynamic';
 
-  const pendingApproval = state.requests.filter((r) => r.status === 'Pending Approval');
-  const awaitingPo = state.requests.filter((r) => r.status === 'Approved' && !r.poNumber);
-  const openValue = state.requests
-    .filter((r) => !['Completed', 'Rejected', 'Canceled'].includes(r.status))
-    .reduce((sum, r) => sum + r.estimatedCost, 0);
+export default async function HomePage() {
+  const actor = await currentActor();
+  if (!actor) redirect('/signin');
 
-  return (
-    <main className="mx-auto max-w-7xl px-4 py-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
-            Purchasing Dashboard
-          </h1>
-          <p className="mt-1 text-sm text-neutral-600">
-            Material requests, approvals, and purchase orders.
-          </p>
+  const ctx = S.context(getDb());
+  const requests = S.listRequests(ctx, actor);
+  const now = new Date().toISOString();
+
+  if (!hasPermission(actor, 'request.read.all')) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold text-slate-900">My requests</h1>
+          <Link href="/requests/new" className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white">
+            New request
+          </Link>
         </div>
-        <Link
-          href="/requests/new"
-          className="inline-flex items-center justify-center rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
-        >
-          + New Purchase Request
-        </Link>
+        {requests.length === 0 ? (
+          <Empty>Nothing yet. Raise a request and it goes straight to the workshop queue.</Empty>
+        ) : (
+          <ul className="space-y-2">
+            {requests.map((r: any) => (
+              <li key={r.id}>
+                <Link
+                  href={`/requests/${r.id}`}
+                  className="block rounded-lg border border-slate-200 bg-white p-4 shadow-sm hover:border-slate-400"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-slate-900">{r.requestNumber}</span>
+                    <StatusBadge status={r.status} />
+                  </div>
+                  <div className="mt-1 text-xs text-slate-600">
+                    Job {r.jobNumber} · needed {r.needByDate} at {r.needByTime}
+                    {isOverdue(r, now) ? <span className="ml-2 font-medium text-rose-700">overdue</span> : null}
+                  </div>
+                  {r.poNumber ? <div className="mt-1 text-xs text-slate-500">PO {r.poNumber}</div> : null}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
+    );
+  }
 
-      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Total requests" value={String(state.requests.length)} />
-        <Stat label="Pending approval" value={String(pendingApproval.length)} accent="amber" />
-        <Stat label="Approved, no PO" value={String(awaitingPo.length)} accent="blue" />
-        <Stat label="Open estimated value" value={formatMoney(openValue)} />
-      </div>
-
-      <div className="mt-6">
-        <FilterBar
-          filters={filters}
-          onChange={setFilters}
-          jobs={state.jobs}
-          vendors={state.vendors}
-          requestors={state.requestors}
-        />
-      </div>
-
-      <div className="mt-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-neutral-700">
-          Recent requests
-          <span className="ml-2 font-normal text-neutral-500">
-            showing {visible.length} of {state.requests.length}
-          </span>
-        </h2>
-      </div>
-
-      <div className="mt-2">
-        <RequestTable
-          requests={visible}
-          jobs={state.jobs}
-          vendors={state.vendors}
-          requestors={state.requestors}
-        />
-      </div>
-    </main>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: 'amber' | 'blue';
-}) {
-  const accentClass =
-    accent === 'amber'
-      ? 'text-amber-700'
-      : accent === 'blue'
-        ? 'text-blue-700'
-        : 'text-neutral-900';
+  const cards = summarize(requests, now);
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white px-4 py-3">
-      <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">{label}</p>
-      <p className={`mt-1 text-xl font-bold tabular-nums ${accentClass}`}>{value}</p>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl font-semibold text-slate-900">Purchasing dashboard</h1>
+        <div className="flex gap-2">
+          <Link href="/requests/new" className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white">
+            New request
+          </Link>
+          {hasPermission(actor, 'review.read_queue') ? (
+            <Link href="/queue" className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium">
+              Workshop queue
+            </Link>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <Card title="Pending review" value={cards.pending_workshop_review} tone="attention" href="/queue" />
+        <Card title="Clarification" value={cards.clarification_requested} tone="warn" href="/requests?status=CLARIFICATION_REQUESTED" />
+        <Card title="Approved, no PO" value={cards.approved_no_po} href="/requests?status=APPROVED" />
+        <Card title="PO not ordered" value={cards.po_not_ordered} href="/requests?status=PO_GENERATED" />
+        <Card title="Open orders" value={cards.open_orders} href="/requests?status=ORDERED" />
+        <Card title="Overdue" value={cards.overdue_orders} tone="bad" href="/requests?overdueOnly=1" />
+        <Card title="Partially received" value={cards.partially_received} href="/requests?status=PARTIALLY_RECEIVED" />
+        <Card title="Received this month" value={cards.received_this_month} tone="good" />
+        <Card
+          title="Open order value"
+          value={formatMoney(cards.open_order_value_cents)}
+          hint="estimated, on open orders"
+        />
+      </div>
+
+      <Section title="Requests" subtitle="Filter, search and open any request.">
+        <RequestTable requests={requests} now={now} />
+      </Section>
     </div>
   );
 }

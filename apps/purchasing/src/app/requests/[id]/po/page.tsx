@@ -1,216 +1,158 @@
-'use client';
-
-import { useEffect, useState } from 'react';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// The purchase order: on screen, printable, and downloadable as the stored PDF.
+// The PDF is generated once at approval time and kept with the request; this
+// page renders the same data, it does not re-derive a second version of it.
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { formatDate, formatMoney } from '@/lib/format';
-import { usePurchasing } from '@/lib/store-context';
+import { notFound, redirect } from 'next/navigation';
 
-/** Blank rows so the printed sheet keeps the proportions of the paper form. */
-const MIN_ROWS = 12;
+import { currentActor } from '../../../../server/session.ts';
+import { getDb } from '../../../../server/db.ts';
+import * as S from '../../../../server/service.ts';
+import { formatMoney, formatQty } from '../../../../domain/numbers.mjs';
+import { Empty, Section, secondaryButtonClass } from '../../../../components/ui';
 
-export default function PoPreview() {
-  const params = useParams<{ id: string }>();
-  const { requestById, jobById, vendorById, requestorById, generatePo, hydrated } =
-    usePurchasing();
+export const dynamic = 'force-dynamic';
 
-  // Today's date is read after mount — computing it during render would bake
-  // the prerender date into the markup and mismatch on hydration.
-  const [today, setToday] = useState<string | null>(null);
-  useEffect(() => setToday(new Date().toISOString()), []);
+export default async function PoPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const actor = await currentActor();
+  if (!actor) redirect('/signin');
 
-  const request = requestById(params.id);
-
-  if (!request) {
+  const ctx = S.context(getDb());
+  let detail: any;
+  try {
+    detail = S.getRequestDetail(ctx, actor, id);
+  } catch {
+    notFound();
+  }
+  if (!detail.purchaseOrder) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-16 text-center">
-        <h1 className="text-xl font-bold text-neutral-900">
-          {hydrated ? 'Request not found' : 'Loading…'}
-        </h1>
-      </main>
+      <Section title="Purchase order">
+        <Empty>No purchase order has been generated for this request yet.</Empty>
+      </Section>
     );
   }
 
-  const job = jobById(request.jobId);
-  const vendor = vendorById(request.vendorId);
-  const requestor = requestorById(request.requestorId);
-  const blanks = Math.max(0, MIN_ROWS - request.lines.length);
-
-  // The PO carries the date its number was issued; unissued POs show today.
-  const issuedAt = request.history.find((h) => h.action === 'PO generated')?.at ?? today;
+  const view = S.purchaseOrderView(ctx, detail.purchaseOrder.id);
+  const doc = detail.purchaseOrder.documents[0];
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-8">
-      <div className="no-print flex flex-wrap items-center justify-between gap-3">
-        <Link
-          href={`/requests/${request.id}`}
-          className="text-sm font-medium text-neutral-600 hover:text-neutral-900"
-        >
-          ← Back to request
-        </Link>
-        <div className="flex flex-wrap gap-2">
-          {!request.poNumber && (
-            <button
-              type="button"
-              onClick={() => generatePo(request.id)}
-              className="rounded-md bg-blue-700 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-            >
-              Generate PO number
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-50"
-          >
-            Print
-          </button>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-50"
-          >
-            Save as PDF
-          </button>
+    <div className="space-y-4">
+      <div className="no-print flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl font-semibold text-slate-900">Purchase order {view.purchaseOrder.poNumber}</h1>
+        <div className="flex gap-2">
+          {doc ? (
+            <a href={`/api/documents/${doc.id}`} className={secondaryButtonClass}>
+              Download PDF
+            </a>
+          ) : null}
+          <Link href={`/requests/${id}/email`} className={secondaryButtonClass}>
+            Vendor email draft
+          </Link>
+          <Link href={`/requests/${id}`} className={secondaryButtonClass}>
+            Back to request
+          </Link>
         </div>
       </div>
 
-      {!request.poNumber && (
-        <p className="no-print mt-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          No PO number assigned yet. Generate one to fill in the form — numbers are handed out
-          in sequence and never reused.
-        </p>
-      )}
-      <p className="no-print mt-4 text-xs text-neutral-500">
-        Save as PDF opens the same browser print dialog — choose &ldquo;Save as PDF&rdquo; as the
-        destination. Nothing is uploaded.
-      </p>
-
-      {/* ---------- The printable sheet ---------- */}
-      <article className="print-sheet mx-auto mt-4 max-w-3xl border border-neutral-300 bg-white p-8 text-neutral-900 shadow-sm">
-        <header className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
+      <div className="print-sheet mx-auto max-w-3xl rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
+        <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-black uppercase tracking-tight">Lippolis Electric</h1>
-            <p className="mt-0.5 text-xs text-neutral-600">
-              Electrical Contractor · Company address placeholder · (555) 000-0000
-            </p>
+            <div className="text-lg font-semibold">{view.org.name}</div>
+            <div className="text-xs text-slate-600">{view.org.address}</div>
+            <div className="text-xs text-slate-600">{view.org.phone}</div>
           </div>
           <div className="text-right">
-            <h2 className="text-lg font-bold uppercase tracking-widest">Purchase Order</h2>
-            <table className="mt-2 ml-auto text-sm">
-              <tbody>
-                <tr>
-                  <td className="pr-3 text-right font-semibold uppercase text-neutral-600">P.O. No.</td>
-                  <td className="border-b border-neutral-400 px-2 font-mono font-bold">
-                    {request.poNumber ?? '—'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="pr-3 pt-1 text-right font-semibold uppercase text-neutral-600">Date</td>
-                  <td className="border-b border-neutral-400 px-2 pt-1">
-                    {formatDate(issuedAt)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div className="text-lg font-semibold tracking-wide">PURCHASE ORDER</div>
+            <div className="text-sm font-medium">{view.purchaseOrder.poNumber}</div>
+            <div className="text-xs text-slate-600">Issued {String(view.purchaseOrder.generatedAt).slice(0, 10)}</div>
           </div>
-        </header>
+        </div>
 
-        <section className="mt-4 grid grid-cols-2 gap-4 text-sm">
-          <div className="border border-neutral-300 p-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-neutral-500">Vendor</p>
-            <p className="mt-1 font-semibold">{vendor?.name ?? '—'}</p>
-            <p className="text-neutral-700">{vendor?.contact.branch ?? ''}</p>
-            <p className="text-neutral-700">
-              Attn: {vendor?.contact.name ?? '—'} · {vendor?.contact.phone ?? ''}
-            </p>
+        <div className="mt-6 grid grid-cols-2 gap-6 text-sm">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Vendor</div>
+            <div>{view.vendor.name}</div>
+            {view.vendorContact ? <div>Attn: {view.vendorContact.name}</div> : null}
+            {view.vendorContact ? <div className="text-slate-600">{view.vendorContact.email}</div> : null}
+            <div className="text-slate-600">{view.vendor.phone}</div>
+            <div className="text-slate-600">{view.vendor.address}</div>
+            {view.vendor.accountNumber ? <div className="text-slate-600">Account {view.vendor.accountNumber}</div> : null}
           </div>
-          <div className="border border-neutral-300 p-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-neutral-500">Job</p>
-            <p className="mt-1 font-semibold">
-              {job?.number ?? '—'} — {job?.name ?? '—'}
-            </p>
-            <p className="text-neutral-700">{job?.address ?? '—'}</p>
-            <p className="text-neutral-700">
-              Needed by: {formatDate(request.neededBy)} · Priority: {request.priority}
-            </p>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {view.request.deliveryMethod === 'PICKUP' ? 'Pick up from' : 'Deliver to'}
+            </div>
+            <div>{view.request.deliveryLocationName}</div>
+            <div className="text-slate-600">{view.request.deliveryAddress}</div>
+            <div className="mt-1">
+              Needed by {view.request.needByDate} at {view.request.needByTime}
+            </div>
+            <div className="text-slate-600">Requested by {view.request.requestorName}</div>
           </div>
-        </section>
+        </div>
 
-        <table className="mt-4 w-full border-collapse text-sm">
-          <thead>
-            <tr className="bg-neutral-100">
-              <th className="w-20 border border-neutral-400 px-2 py-1 text-left text-xs font-bold uppercase">
-                Quantity
-              </th>
-              <th className="w-32 border border-neutral-400 px-2 py-1 text-left text-xs font-bold uppercase">
-                Stock No.
-              </th>
-              <th className="border border-neutral-400 px-2 py-1 text-left text-xs font-bold uppercase">
-                Description
-              </th>
+        <div className="mt-6 flex justify-between border-t border-slate-200 pt-3 text-sm">
+          <div className="font-medium">Job number: {view.request.jobNumber}</div>
+          <div className="text-slate-600">Request {view.request.requestNumber}</div>
+          <div className="text-slate-600">Approved by {view.approver.name}</div>
+        </div>
+
+        <table className="mt-4 min-w-full text-left text-sm">
+          <thead className="border-y border-slate-300 text-xs uppercase text-slate-600">
+            <tr>
+              <th className="py-2 pr-2">#</th>
+              <th className="py-2 pr-2">Description</th>
+              <th className="py-2 pr-2 text-right">Qty</th>
+              <th className="py-2 pr-2">Unit</th>
+              <th className="py-2 pr-2 text-right">Unit cost</th>
+              <th className="py-2 text-right">Line total</th>
             </tr>
           </thead>
-          <tbody>
-            {request.lines.map((l) => (
-              <tr key={l.id}>
-                <td className="border border-neutral-400 px-2 py-1 tabular-nums">
-                  {l.quantity} {l.unit}
+          <tbody className="divide-y divide-slate-100">
+            {view.items.map((i: any) => (
+              <tr key={i.lineNo}>
+                <td className="py-2 pr-2">{i.lineNo}</td>
+                <td className="py-2 pr-2">
+                  {i.description}
+                  {i.substituteFor ? (
+                    <span className="block text-xs text-slate-500">substitute for: {i.substituteFor}</span>
+                  ) : null}
+                  {i.expectedArrivalDate ? (
+                    <span className="block text-xs text-slate-500">expected {i.expectedArrivalDate}</span>
+                  ) : null}
                 </td>
-                <td className="border border-neutral-400 px-2 py-1 font-mono text-xs">
-                  {l.stockNumber || ''}
-                </td>
-                <td className="border border-neutral-400 px-2 py-1">{l.description}</td>
-              </tr>
-            ))}
-            {Array.from({ length: blanks }).map((_, i) => (
-              <tr key={`blank-${i}`}>
-                <td className="border border-neutral-400 px-2 py-1">&nbsp;</td>
-                <td className="border border-neutral-400 px-2 py-1">&nbsp;</td>
-                <td className="border border-neutral-400 px-2 py-1">&nbsp;</td>
+                <td className="py-2 pr-2 text-right tabular-nums">{formatQty(i.finalOrderQty)}</td>
+                <td className="py-2 pr-2">{i.unit}</td>
+                <td className="py-2 pr-2 text-right tabular-nums">{formatMoney(i.estimatedUnitCostCents)}</td>
+                <td className="py-2 text-right tabular-nums">{formatMoney(i.lineTotalCents)}</td>
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr className="border-t border-slate-300">
+              <td colSpan={5} className="py-2 pr-2 text-right font-semibold">
+                Estimated total
+              </td>
+              <td className="py-2 text-right font-semibold tabular-nums">
+                {formatMoney(view.purchaseOrder.estimatedTotalCents)}
+              </td>
+            </tr>
+          </tfoot>
         </table>
 
-        <section className="mt-4 grid grid-cols-3 gap-4 text-sm">
-          <div className="col-span-2 border border-neutral-300 p-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-neutral-500">Notes</p>
-            <p className="mt-1 min-h-12 whitespace-pre-wrap">{request.notes || '—'}</p>
+        {view.purchaseOrder.notes ? (
+          <div className="mt-4 text-sm">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes</div>
+            <div>{view.purchaseOrder.notes}</div>
           </div>
-          <div className="border border-neutral-300 p-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-neutral-500">
-              Estimated total
-            </p>
-            <p className="mt-1 text-lg font-bold tabular-nums">
-              {formatMoney(request.estimatedCost)}
-            </p>
-            <p className="text-xs text-neutral-500">
-              Requestor estimate. Tax, freight, and final pricing not included.
-            </p>
-          </div>
-        </section>
+        ) : null}
 
-        <section className="mt-8 grid grid-cols-2 gap-8 text-sm">
-          <div>
-            <div className="h-8 border-b border-neutral-500" />
-            <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-neutral-600">
-              Authorized by
-            </p>
-          </div>
-          <div>
-            <div className="h-8 border-b border-neutral-500" />
-            <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-neutral-600">
-              Date
-            </p>
-          </div>
-        </section>
-
-        <footer className="mt-6 border-t border-neutral-300 pt-2 text-center text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
-          Demo prototype — not a valid purchase order. Requested by{' '}
-          {requestor?.name ?? 'unknown'} · Request {request.id}
-        </footer>
-      </article>
-    </main>
+        <p className="mt-8 border-t border-slate-200 pt-3 text-xs text-slate-600">
+          Confirm price and delivery date on receipt of this order. Reference the PO number on all packing slips and
+          invoices.
+        </p>
+      </div>
+    </div>
   );
 }

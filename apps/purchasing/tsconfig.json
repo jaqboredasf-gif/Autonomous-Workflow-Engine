@@ -9,6 +9,11 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    // Server modules import each other with an explicit .ts extension so the
+    // offline harness (scripts/eval-purchasing.mjs) can import the SAME files
+    // Next ships — Node's type stripping does no extension guessing. Safe here
+    // because noEmit is true: nothing is compiled to JS with these specifiers.
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
