@@ -5,7 +5,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
-import { currentActor, purchasingRequestContext } from '../../../../server/session.ts';
+import { requireAccess, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import { Empty, Section, buttonClass, inputClass, secondaryButtonClass } from '../../../../components/ui';
 import { advanceEmailDraftAction, updateEmailDraftAction } from '../../../actions.ts';
@@ -14,8 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function EmailDraftPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const actor = await currentActor();
-  if (!actor) redirect('/signin');
+  const actor = await requireAccess('/requests');
 
   let detail: any;
   try {

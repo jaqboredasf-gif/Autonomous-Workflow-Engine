@@ -22,6 +22,8 @@ import {
   sqliteReferenceRepository, sqliteRequestRepository, sqliteReviewRepository,
 } from './infrastructure/sqlite/repositories.ts';
 import { getDb, inTransaction } from './infrastructure/sqlite/database.ts';
+import { authAdapter } from './infrastructure/auth/index.ts';
+import { loadConfig } from './infrastructure/env.ts';
 
 /**
  * Build the purchasing context over a SQLite handle.
@@ -46,6 +48,9 @@ export function purchasingContext(db: DatabaseSync = getDb(), now?: string): Pur
     reference: sqliteReferenceRepository(db),
     poNumbers: sqlitePoNumberAllocator(db),
     identity: identityAdapter(db),
+    // Credentials: Supabase Auth in production, the local scrypt store for the
+    // pilot. Chosen once, here, by configuration.
+    auth: authAdapter(db, loadConfig()),
     audit: auditAdapter(db, clock),
     notifications: notificationAdapter(db, clock),
     documents: documentAdapter(db),

@@ -147,8 +147,8 @@ export function Empty({ children }: { children: React.ReactNode }) {
 export function PilotBanner() {
   return (
     <div className="no-print bg-amber-100 px-4 py-2 text-center text-xs text-amber-950">
-      <strong>PILOT</strong> — email is draft-only: nothing is sent to a vendor by this system. Sign-in
-      identifies you; it does not yet authenticate you.
+      <strong>PILOT</strong> — email is draft-only: no message is sent to a supplier by this system. A
+      human reviews every draft and sends it from their own mail client.
     </div>
   );
 }

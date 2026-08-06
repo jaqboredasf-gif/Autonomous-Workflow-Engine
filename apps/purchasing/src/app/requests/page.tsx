@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 
-import { currentActor, purchasingRequestContext } from '../../server/session.ts';
+import { requireAccess, purchasingRequestContext } from '../../server/session.ts';
 import * as S from '../../server/service.ts';
 import RequestTable from '../../components/RequestTable';
 import { Section } from '../../components/ui';
@@ -10,8 +10,7 @@ import { hasPermission } from '../../purchasing/domain/roles.mjs';
 export const dynamic = 'force-dynamic';
 
 export default async function RequestsPage() {
-  const actor = await currentActor();
-  if (!actor) redirect('/signin');
+  const actor = await requireAccess('/requests');
   const requests = S.listRequests(purchasingRequestContext(), actor);
 
   return (

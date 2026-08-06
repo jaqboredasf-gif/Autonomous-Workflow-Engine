@@ -17,24 +17,43 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 
 import { TEMPLATES, EMAIL_TEMPLATE_TYPES } from '../domain/email.mjs';
+import { hashPassword } from './auth/local-auth.ts';
 import { DEFAULT_PO_CONFIG } from '../domain/po-number.mjs';
 
 export const DEMO_ORG_ID = '11111111-1111-4111-8111-111111111111';
 
+/**
+ * The pilot cast. `password` seeds the local credential provider — these are
+ * DEMO accounts on a closed pilot, documented in the README, and the seeding
+ * only ever happens on a database that has none. A real deployment invites
+ * users through Admin and sets a password per person.
+ */
+export const DEMO_PASSWORD = 'Purchasing!2026';
+
 export const DEMO_USERS = [
-  { key: 'mike', name: 'Mike (workshop)', email: 'mike@example.invalid', roles: ['WORKSHOP_APPROVER'], primary: true, backup: false, canApprove: true },
-  { key: 'rick', name: 'Rick (workshop backup)', email: 'rick@example.invalid', roles: ['WORKSHOP_APPROVER'], primary: false, backup: true, canApprove: true },
-  { key: 'foreman', name: 'Dave Kearns (foreman)', email: 'dave@example.invalid', roles: ['REQUESTOR'], primary: false, backup: false, canApprove: false },
-  { key: 'apprentice', name: 'Sam Ortiz (field)', email: 'sam@example.invalid', roles: ['REQUESTOR'], primary: false, backup: false, canApprove: false },
-  { key: 'office', name: 'Karen Doyle (office)', email: 'karen@example.invalid', roles: ['OFFICE'], primary: false, backup: false, canApprove: false },
+  { key: 'mike', name: 'Mike (workshop)', email: 'mike@example.invalid', roles: ['WORKSHOP_APPROVER'], primary: true, backup: false, canApprove: true, jobs: [] },
+  { key: 'rick', name: 'Rick (workshop backup)', email: 'rick@example.invalid', roles: ['WORKSHOP_APPROVER'], primary: false, backup: true, canApprove: true, jobs: [] },
+  // A foreman: raises requests AND signs for what lands on his sites.
+  { key: 'foreman', name: 'Dave Kearns (foreman)', email: 'dave@example.invalid', roles: ['FOREMAN'], primary: false, backup: false, canApprove: false, receiver: true, jobs: ['24-118', '25-007'] },
+  // A second foreman, assigned to a DIFFERENT job — so "a foreman can access
+  // only assigned job-site deliveries" is demonstrable rather than asserted.
+  { key: 'foreman2', name: 'Luis Ferrara (foreman)', email: 'luis@example.invalid', roles: ['FOREMAN'], primary: false, backup: false, canApprove: false, receiver: true, jobs: ['24-203'] },
+  { key: 'apprentice', name: 'Sam Ortiz (field)', email: 'sam@example.invalid', roles: ['REQUESTOR'], primary: false, backup: false, canApprove: false, jobs: [] },
+  { key: 'office', name: 'Karen Doyle (office)', email: 'karen@example.invalid', roles: ['OFFICE'], primary: false, backup: false, canApprove: false, jobs: [] },
   // Deliberate: an office user WITH the approval grant, so "office cannot
   // approve unless separately granted" is demonstrable in both directions.
-  { key: 'office_approver', name: 'Tom Reilly (office, approval granted)', email: 'tom@example.invalid', roles: ['OFFICE'], primary: false, backup: false, canApprove: true },
-  { key: 'admin', name: 'System Administrator', email: 'admin@example.invalid', roles: ['ADMIN'], primary: false, backup: false, canApprove: true },
+  { key: 'office_approver', name: 'Tom Reilly (office, approval granted)', email: 'tom@example.invalid', roles: ['OFFICE'], primary: false, backup: false, canApprove: true, jobs: [] },
+  { key: 'accounting', name: 'Ann Petrillo (accounting)', email: 'ann@example.invalid', roles: ['ACCOUNTING'], primary: false, backup: false, canApprove: false, jobs: [] },
+  { key: 'admin', name: 'System Administrator', email: 'admin@example.invalid', roles: ['ADMIN'], primary: false, backup: false, canApprove: true, jobs: [] },
+  // A disabled account, so the "a disabled user cannot sign in" gate has
+  // something real to fail against.
+  { key: 'disabled', name: 'Former Employee', email: 'former@example.invalid', roles: ['REQUESTOR'], primary: false, backup: false, canApprove: false, jobs: [], disabled: true },
 ];
 
 const ROLE_ROWS = [
-  ['REQUESTOR', 'Requestor', 'Foremen, field workers and anyone raising a material request.'],
+  ['REQUESTOR', 'Requestor', 'Field workers and anyone raising a material request.'],
+  ['FOREMAN', 'Foreman', 'Raises requests and signs for deliveries on assigned job sites.'],
+  ['ACCOUNTING', 'Accounting', 'Reads receipt evidence and produces the AP packet. No purchasing authority.'],
   ['OFFICE', 'Office', 'Office staff: full visibility, no purchasing authority unless granted.'],
   ['WORKSHOP_APPROVER', 'Workshop approver', 'Records stock, chooses vendor and cost, approves, generates POs, receives.'],
   ['ADMIN', 'Administrator', 'Users, roles, vendors, templates, PO numbering, settings, audit.'],
@@ -62,7 +81,13 @@ const JOBS = [
 
 export function seed(db: DatabaseSync, now = new Date().toISOString()) {
   const existing = db.prepare('select id from orgs where id = ?').get(DEMO_ORG_ID) as any;
-  if (existing) return { seeded: false, orgId: DEMO_ORG_ID };
+  if (existing) {
+    // An already-seeded pilot database predates the credential store: its users
+    // exist but have no way to sign in. Give each one the documented demo
+    // password rather than stranding a running pilot behind a login form.
+    backfillPilotCredentials(db, now);
+    return { seeded: false, orgId: DEMO_ORG_ID };
+  }
 
   db.exec('begin immediate');
   try {
@@ -81,14 +106,28 @@ export function seed(db: DatabaseSync, now = new Date().toISOString()) {
 
     for (const u of DEMO_USERS) {
       const id = randomUUID();
+      const disabled = 'disabled' in u && u.disabled === true;
       db.prepare(
         `insert into users (id, org_id, full_name, email, is_active, can_approve, is_primary_approver,
-                            is_backup_approver, created_at, updated_at)
-         values (?,?,?,?,1,?,?,?,?,?)`,
-      ).run(id, DEMO_ORG_ID, u.name, u.email, u.canApprove ? 1 : 0, u.primary ? 1 : 0, u.backup ? 1 : 0, now, now);
+                            is_backup_approver, is_delivery_receiver, created_at, updated_at)
+         values (?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(
+        id, DEMO_ORG_ID, u.name, u.email, disabled ? 0 : 1, u.canApprove ? 1 : 0,
+        u.primary ? 1 : 0, u.backup ? 1 : 0, 'receiver' in u && u.receiver ? 1 : 0, now, now,
+      );
       for (const role of u.roles) {
         db.prepare('insert into user_roles (user_id, role_key, granted_at) values (?,?,?)').run(id, role, now);
       }
+      for (const jobNumber of u.jobs ?? []) {
+        db.prepare('insert into user_job_assignments (user_id, job_number, assigned_at) values (?,?,?)')
+          .run(id, jobNumber, now);
+      }
+      // Credentials go to the auth provider's table, never to a purchasing one.
+      const { hash, salt } = hashPassword(DEMO_PASSWORD);
+      db.prepare(
+        `insert into auth_identities (user_id, email, password_hash, salt, disabled, created_at, updated_at)
+         values (?,?,?,?,?,?,?)`,
+      ).run(id, u.email, hash, salt, disabled ? 1 : 0, now, now);
     }
 
     for (const v of VENDORS) {
@@ -142,6 +181,40 @@ export function seed(db: DatabaseSync, now = new Date().toISOString()) {
     throw err;
   }
   return { seeded: true, orgId: DEMO_ORG_ID };
+}
+
+/**
+ * Give every user without one a credential row, and every seeded foreman their
+ * job assignments. Runs only on a database that already has an organization —
+ * a fresh one gets both from the seed itself.
+ *
+ * This is a PILOT convenience with a documented password, not a production
+ * path: an installation that has invited its own users never reaches it,
+ * because those users already have identities.
+ */
+function backfillPilotCredentials(db: DatabaseSync, now: string) {
+  const users = db.prepare('select id, email, is_active from users').all() as any[];
+  for (const user of users) {
+    const identity = db.prepare('select user_id from auth_identities where user_id = ?').get(user.id) as any;
+    if (identity) continue;
+    const { hash, salt } = hashPassword(DEMO_PASSWORD);
+    db.prepare(
+      `insert into auth_identities (user_id, email, password_hash, salt, disabled, created_at, updated_at)
+       values (?,?,?,?,?,?,?)`,
+    ).run(user.id, user.email, hash, salt, user.is_active ? 0 : 1, now, now);
+  }
+
+  // Seeded foremen keep their job assignments across an upgrade, so the
+  // deliveries workspace is not empty on a database that predates it.
+  for (const u of DEMO_USERS) {
+    if (!u.jobs?.length) continue;
+    const row = db.prepare('select id from users where lower(email) = lower(?)').get(u.email) as any;
+    if (!row) continue;
+    for (const jobNumber of u.jobs) {
+      db.prepare('insert or ignore into user_job_assignments (user_id, job_number, assigned_at) values (?,?,?)')
+        .run(row.id, jobNumber, now);
+    }
+  }
 }
 
 /**

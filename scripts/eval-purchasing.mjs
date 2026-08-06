@@ -131,7 +131,8 @@ check(
   Object.values(TRANSITIONS).flat().every((s) => REQUEST_STATUSES.includes(s)),
   'no transition targets an unknown status',
 );
-eq(ROLES, ['REQUESTOR', 'OFFICE', 'WORKSHOP_APPROVER', 'ADMIN'], 'the four spec roles exist');
+eq(ROLES, ['REQUESTOR', 'FOREMAN', 'OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'],
+   'every role the website routes by exists');
 check(EMAIL_TEMPLATE_TYPES.length === 6, 'all six email templates exist');
 check(EMAIL_DRAFT_STATUSES.length === 6, 'all six draft statuses exist');
 check(EXTERNAL_SEND_ENABLED === false, 'external sending is disabled at the source');

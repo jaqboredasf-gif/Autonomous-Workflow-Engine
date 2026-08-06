@@ -15,7 +15,7 @@
 // approve unless separately granted approval authority" — a grant, not a role.
 // ---------------------------------------------------------------------------
 
-export const ROLES = ['REQUESTOR', 'OFFICE', 'WORKSHOP_APPROVER', 'ADMIN'];
+export const ROLES = ['REQUESTOR', 'FOREMAN', 'OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'];
 
 /**
  * Every distinguishable action in the system. One string per thing a human can
@@ -49,8 +49,15 @@ export const PERMISSIONS = [
   'inventory.adjust',
   'request.complete',
   'request.cancel.any',
+  // Job-site delivery confirmation (a foreman signing for what arrived)
+  'deliveries.confirm',
+  // Accounting: read-only evidence, and the packet it hands to AP
+  'accounting.read',
+  'accounting.packet',
   // Administration
   'admin.users',
+  'admin.invite',
+  'admin.assignments',
   'admin.vendors',
   'admin.templates',
   'admin.po_config',
@@ -98,11 +105,34 @@ const WORKSHOP_APPROVER_PERMISSIONS = [
   'request.cancel.any',
 ];
 
+/**
+ * A foreman is a requestor who also signs for deliveries — but only on the job
+ * sites they are assigned to. The permission opens the workspace; the
+ * assignment decides which requests inside it (see authorize() below).
+ */
+const FOREMAN_PERMISSIONS = [...REQUESTOR_PERMISSIONS, 'deliveries.confirm', 'receiving.record', 'order.track'];
+
+/**
+ * Accounting reads: it needs the evidence behind a receipt to pay an invoice,
+ * and it must not be able to change a purchasing decision. No write permission
+ * appears in this list on purpose.
+ */
+const ACCOUNTING_PERMISSIONS = [
+  'request.read.own',
+  'request.read.all',
+  'request.note',
+  'order.track',
+  'accounting.read',
+  'accounting.packet',
+];
+
 const ADMIN_PERMISSIONS = [...PERMISSIONS];
 
 export const ROLE_PERMISSIONS = {
   REQUESTOR: REQUESTOR_PERMISSIONS,
+  FOREMAN: FOREMAN_PERMISSIONS,
   OFFICE: OFFICE_PERMISSIONS,
+  ACCOUNTING: ACCOUNTING_PERMISSIONS,
   WORKSHOP_APPROVER: WORKSHOP_APPROVER_PERMISSIONS,
   ADMIN: ADMIN_PERMISSIONS,
 };
@@ -173,7 +203,21 @@ export const DENY_REASONS = [
   'not_owner',
   'self_approval',
   'request_locked',
+  'not_assigned',
 ];
+
+/**
+ * Permissions a field user may only exercise on a job they are assigned to. A
+ * foreman signs for what lands on HIS site; he does not sign for the whole
+ * company. Office and workshop staff are not scoped this way — receiving at the
+ * shop counter is their job.
+ */
+const ASSIGNMENT_SCOPED = ['deliveries.confirm', 'receiving.record'];
+
+function isFieldOnly(user) {
+  const roles = user?.roles ?? [];
+  return !roles.some((r) => ['OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'].includes(r));
+}
 
 /**
  * THE authorization decision. Every server mutation calls this first.
@@ -223,6 +267,15 @@ export function authorize(user, permission, ctx = {}) {
     const owns = request.requestorId === user.id || request.createdBy === user.id;
     if (owns && !allowSelf) {
       return deny('self_approval', 'a request cannot be decided by the person who raised it');
+    }
+  }
+
+  // Job-site delivery confirmation is scoped to the caller's assigned jobs.
+  // The assignment list comes from the server (never from the browser).
+  if (request && ASSIGNMENT_SCOPED.includes(permission) && isFieldOnly(user)) {
+    const assigned = ctx.assignedJobNumbers ?? user.assignedJobNumbers ?? [];
+    if (!assigned.includes(request.jobNumber)) {
+      return deny('not_assigned', `job ${request.jobNumber} is not assigned to you`);
     }
   }
 

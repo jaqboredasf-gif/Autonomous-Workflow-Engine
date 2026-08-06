@@ -15,7 +15,7 @@ import type {
   WorkshopReviewRepository,
 } from '../domain/repositories.ts';
 import type {
-  Actor, AttachmentPort, AuditPort, Clock, DocumentPort, DocumentRenderer,
+  Actor, AttachmentPort, AuditPort, AuthPort, Clock, DocumentPort, DocumentRenderer,
   EmailDraftPort, IdentityPort, NotificationPort, UnitOfWork,
 } from './ports.ts';
 
@@ -36,6 +36,7 @@ export type PurchasingContext = {
   reference: ReferenceRepository;
   poNumbers: PoNumberAllocator;
   identity: IdentityPort;
+  auth: AuthPort;
   audit: AuditPort;
   notifications: NotificationPort;
   documents: DocumentPort;

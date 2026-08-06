@@ -591,6 +591,20 @@ export function sqliteEmailDraftRepository(db: DatabaseSync): EmailDraftReposito
 // --- receiving --------------------------------------------------------------
 
 export function sqliteReceiptRepository(db: DatabaseSync): ReceiptRepository {
+  const mapReceipt = (r: any) => ({
+    id: r.id,
+    orgId: r.org_id,
+    requestId: r.request_id,
+    purchaseOrderId: r.purchase_order_id ?? null,
+    receivedDate: r.received_date,
+    receivedBy: r.received_by,
+    packingSlipNumber: r.packing_slip_number,
+    notes: r.notes,
+    isFinal: Boolean(r.is_final),
+    createdAt: r.created_at,
+    items: db.prepare('select * from purchase_receipt_items where receipt_id = ?').all(r.id),
+  });
+
   return {
     insert(receipt, now) {
       const id = uuid();
@@ -619,14 +633,18 @@ export function sqliteReceiptRepository(db: DatabaseSync): ReceiptRepository {
     },
 
     listForRequest(requestId) {
-      return (db.prepare('select * from purchase_receipts where request_id = ? order by created_at').all(requestId) as any[]).map((r) => ({
-        id: r.id,
-        receivedDate: r.received_date,
-        packingSlipNumber: r.packing_slip_number,
-        notes: r.notes,
-        isFinal: Boolean(r.is_final),
-        items: db.prepare('select * from purchase_receipt_items where receipt_id = ?').all(r.id),
-      }));
+      return (db.prepare('select * from purchase_receipts where request_id = ? order by created_at').all(requestId) as any[]).map(mapReceipt);
+    },
+
+    findById(id) {
+      const row = db.prepare('select * from purchase_receipts where id = ?').get(id) as any;
+      return row ? mapReceipt(row) : null;
+    },
+
+    attachmentsFor(receiptId) {
+      return db
+        .prepare('select id, filename, content_type, byte_size, caption, created_at from purchase_receipt_attachments where receipt_id = ?')
+        .all(receiptId) as any[];
     },
 
     attach(receiptId, file, actorId, now) {

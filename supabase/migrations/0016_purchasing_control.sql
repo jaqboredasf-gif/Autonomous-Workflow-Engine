@@ -50,7 +50,8 @@ create type purchase_request_status as enum (
 -- The purchasing roles. `users.role` (0001) still holds worker/foreman/admin;
 -- these are the purchasing responsibilities, held in a join table, exactly the
 -- Phase 5 `user_roles` shape STAKEHOLDERS asked for.
-create type purchasing_role as enum ('REQUESTOR', 'OFFICE', 'WORKSHOP_APPROVER', 'ADMIN');
+create type purchasing_role as enum
+  ('REQUESTOR', 'FOREMAN', 'OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN');
 
 create type purchase_decision as enum ('APPROVED', 'REJECTED', 'CLARIFICATION_REQUESTED');
 
@@ -149,6 +150,28 @@ insert into purchasing_role_permissions (role, permission) values
   ('OFFICE', 'order.track'),
   ('OFFICE', 'receiving.record'),
 
+  ('FOREMAN', 'request.create'),
+  ('FOREMAN', 'request.read.own'),
+  ('FOREMAN', 'request.update.own'),
+  ('FOREMAN', 'request.submit'),
+  ('FOREMAN', 'request.cancel.own'),
+  ('FOREMAN', 'request.respond_clarification'),
+  ('FOREMAN', 'request.attach'),
+  ('FOREMAN', 'request.note'),
+  -- A foreman signs for deliveries, but only on assigned job sites: the
+  -- permission opens the workspace, purchasing_job_assignments scopes it.
+  ('FOREMAN', 'deliveries.confirm'),
+  ('FOREMAN', 'receiving.record'),
+  ('FOREMAN', 'order.track'),
+
+  ('ACCOUNTING', 'request.read.own'),
+  ('ACCOUNTING', 'request.read.all'),
+  ('ACCOUNTING', 'request.note'),
+  ('ACCOUNTING', 'order.track'),
+  -- Read-only by construction: no write permission appears on this role.
+  ('ACCOUNTING', 'accounting.read'),
+  ('ACCOUNTING', 'accounting.packet'),
+
   ('WORKSHOP_APPROVER', 'request.create'),
   ('WORKSHOP_APPROVER', 'request.read.own'),
   ('WORKSHOP_APPROVER', 'request.read.all'),
@@ -180,8 +203,9 @@ insert into purchasing_role_permissions (role, permission)
 select 'ADMIN'::purchasing_role, p from (
   select distinct permission as p from purchasing_role_permissions
   union values
-    ('admin.users'), ('admin.vendors'), ('admin.templates'), ('admin.po_config'),
-    ('admin.locations'), ('admin.settings'), ('admin.audit')
+    ('admin.users'), ('admin.invite'), ('admin.assignments'), ('admin.vendors'),
+    ('admin.templates'), ('admin.po_config'), ('admin.locations'), ('admin.settings'),
+    ('admin.audit')
 ) as all_permissions
 on conflict do nothing;
 

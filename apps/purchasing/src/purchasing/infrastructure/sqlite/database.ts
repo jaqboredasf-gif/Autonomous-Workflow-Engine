@@ -576,16 +576,71 @@ create table if not exists system_settings (
   updated_by             text references users(id)
 );
 
+-- --- authentication (a PROVIDER table, not a purchasing domain table) -------
+--
+-- Credentials live here and nowhere else. purchase_* tables reference a user
+-- id and never a password, exactly as they will when Supabase Auth owns
+-- credentials — at which point this table simply stops being written to.
+
+create table if not exists auth_identities (
+  user_id          text primary key references users(id),
+  email            text not null unique,
+  -- scrypt(N=16384,r=8,p=1) with a per-identity salt. Never a plaintext
+  -- password, never a reversible encryption.
+  password_hash    text not null,
+  salt             text not null,
+  disabled         integer not null default 0 check (disabled in (0,1)),
+  reset_token      text unique,
+  reset_expires_at text,
+  last_sign_in_at  text,
+  created_at       text not null,
+  updated_at       text not null
+);
+
+-- Which job sites a foreman signs for. A delivery confirmation is scoped to
+-- these rows; without one, the request is not theirs to receive.
+create table if not exists user_job_assignments (
+  user_id     text not null references users(id),
+  job_number  text not null,
+  assigned_at text not null,
+  assigned_by text references users(id),
+  primary key (user_id, job_number)
+);
+
+create index if not exists user_job_assignments_job_idx on user_job_assignments(job_number);
+
 create table if not exists schema_meta (
   key   text primary key,
   value text not null
 );
 `;
 
+/**
+ * Columns added after the first cut. SQLite has no `add column if not exists`,
+ * so each one is attempted and a duplicate-column error is the expected
+ * outcome on an already-migrated database.
+ */
+const ADDED_COLUMNS = [
+  // Set once Supabase Auth has authenticated this person: the link between the
+  // credential provider's user and ours.
+  "alter table users add column auth_user_id text",
+  // A designated receiver may confirm deliveries for their assigned jobs.
+  "alter table users add column is_delivery_receiver integer not null default 0",
+];
+
 export const SCHEMA_VERSION = '0016-purchasing-control';
 
 function migrate(db: DatabaseSync) {
   db.exec(SCHEMA);
+  for (const statement of ADDED_COLUMNS) {
+    try {
+      db.exec(statement);
+    } catch (err) {
+      // "duplicate column name" means the migration already ran. Anything else
+      // is a real failure and must not be swallowed.
+      if (!/duplicate column name/i.test(String((err as Error).message))) throw err;
+    }
+  }
   const row = db.prepare('select value from schema_meta where key = ?').get('version') as
     | { value: string }
     | undefined;
@@ -625,4 +680,6 @@ export const TABLES = [
   'purchase_activity_log',
   'purchase_notifications',
   'system_settings',
+  'auth_identities',
+  'user_job_assignments',
 ];

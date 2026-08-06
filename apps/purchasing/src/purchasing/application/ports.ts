@@ -32,10 +32,35 @@ export type Actor = {
   isActive: boolean;
   isPrimaryApprover: boolean;
   isBackupApprover: boolean;
+  /** Designated to sign for deliveries on their assigned job sites. */
+  isDeliveryReceiver: boolean;
+  /** The job numbers this person may confirm deliveries for. Server-resolved. */
+  assignedJobNumbers: string[];
 };
 
 export interface Clock {
   now(): string;
+}
+
+export type AuthResult =
+  | { ok: true; userId: string }
+  | { ok: false; reason: 'invalid_credentials' | 'account_disabled' | 'unavailable' };
+
+/**
+ * Credentials. Purchasing never stores a password and never decides whether one
+ * is correct: it asks the provider, and gets back an application user id or a
+ * refusal. Two adapters implement this — Supabase Auth (production) and a local
+ * scrypt credential store (pilot) — and nothing above this interface can tell
+ * which is running.
+ */
+export interface AuthPort {
+  readonly provider: 'local' | 'supabase';
+  signIn(email: string, password: string): Promise<AuthResult>;
+  requestPasswordReset(email: string): Promise<{ ok: boolean; token?: string }>;
+  resetPassword(token: string, newPassword: string): Promise<{ ok: boolean; reason?: string }>;
+  /** Administrative: invite a user, or reset access for one. */
+  setPassword(userId: string, password: string): Promise<void>;
+  setDisabled(userId: string, disabled: boolean): Promise<void>;
 }
 
 /**
@@ -47,6 +72,20 @@ export interface Clock {
 export interface IdentityPort {
   load(userId: string): Actor | null;
   listUsers(orgId: string): any[];
+  /**
+   * Administrative writes on the PERSON — never on their credentials. Creating
+   * a user here does not create a way to sign in; that is AuthPort.setPassword,
+   * called separately and deliberately.
+   */
+  createUser(input: {
+    orgId: string; fullName: string; email: string; roles: string[];
+    canApprove: boolean; isDeliveryReceiver: boolean; createdBy: string; now: string;
+  }): string;
+  setActive(userId: string, active: boolean, actorId: string, now: string): void;
+  setRoles(userId: string, roles: string[], actorId: string, now: string): void;
+  setDeliveryReceiver(userId: string, isReceiver: boolean, actorId: string, now: string): void;
+  assignJob(userId: string, jobNumber: string, actorId: string, now: string): void;
+  unassignJob(userId: string, jobNumber: string): void;
 }
 
 /**

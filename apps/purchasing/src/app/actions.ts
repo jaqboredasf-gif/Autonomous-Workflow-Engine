@@ -18,9 +18,8 @@ import { redirect } from 'next/navigation';
 
 import * as S from '../server/service.ts';
 import { saveReviewAndDecide } from '../purchasing/application/decisions.ts';
-import {
-  currentActor, purchasingRequestContext, signIn as setSession, signOut as clearSession,
-} from '../server/session.ts';
+import * as admin from '../purchasing/application/administration.ts';
+import { currentActor, purchasingRequestContext } from '../server/session.ts';
 
 type Result = { ok: true; data?: any } | { ok: false; error: string; reason?: string; details?: any };
 
@@ -42,15 +41,8 @@ async function run<T>(fn: (ctx: any, actor: S.Actor) => T): Promise<Result> {
 
 // --- session ---------------------------------------------------------------
 
-export async function signInAction(formData: FormData) {
-  await setSession(String(formData.get('userId')));
-  redirect('/');
-}
-
-export async function signOutAction() {
-  await clearSession();
-  redirect('/signin');
-}
+// Sign-in and sign-out now live in auth-actions.ts: they are the only actions
+// callable without a session, and keeping them apart makes that visible.
 
 // --- requests --------------------------------------------------------------
 
@@ -294,6 +286,72 @@ export async function recordReceiptAction(_prev: unknown, formData: FormData): P
 }
 
 // --- administration ---------------------------------------------------------
+
+/** Some administrative use cases talk to the auth provider, so they await. */
+async function runAsync(fn: (ctx: any, actor: S.Actor) => Promise<any>): Promise<Result> {
+  const actor = await currentActor();
+  if (!actor) return { ok: false, error: 'You are signed out. Sign in again.', reason: 'no_session' };
+  try {
+    return { ok: true, data: await fn(purchasingRequestContext(), actor) };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? 'Something went wrong.', reason: err?.reason, details: err?.details ?? null };
+  }
+}
+
+export async function inviteUserAction(_prev: unknown, formData: FormData): Promise<Result> {
+  const result = await runAsync((ctx, actor) =>
+    admin.inviteUser(ctx, actor, {
+      fullName: String(formData.get('fullName') ?? ''),
+      email: String(formData.get('email') ?? ''),
+      roles: formData.getAll('roles').map(String),
+      temporaryPassword: String(formData.get('temporaryPassword') ?? ''),
+      canApprove: formData.get('canApprove') === 'on',
+      isDeliveryReceiver: formData.get('isDeliveryReceiver') === 'on',
+      jobNumbers: String(formData.get('jobNumbers') ?? '').split(',').map((j) => j.trim()).filter(Boolean),
+    }),
+  );
+  if (result.ok) revalidatePath('/admin');
+  return result;
+}
+
+export async function setUserDisabledAction(formData: FormData) {
+  await runAsync((ctx, actor) =>
+    admin.setUserDisabled(ctx, actor, String(formData.get('userId')), String(formData.get('disabled')) === 'true'),
+  );
+  revalidatePath('/admin');
+}
+
+export async function resetUserAccessAction(_prev: unknown, formData: FormData): Promise<Result> {
+  const result = await runAsync((ctx, actor) =>
+    admin.resetUserAccess(ctx, actor, String(formData.get('userId')), String(formData.get('temporaryPassword') ?? '')),
+  );
+  if (result.ok) revalidatePath('/admin');
+  return result;
+}
+
+export async function setUserRolesAction(formData: FormData) {
+  await run((ctx, actor) =>
+    admin.setUserRoles(ctx, actor, String(formData.get('userId')), formData.getAll('roles').map(String)),
+  );
+  revalidatePath('/admin');
+}
+
+export async function setJobAssignmentAction(formData: FormData) {
+  await run((ctx, actor) =>
+    admin.setJobAssignment(
+      ctx, actor, String(formData.get('userId')), String(formData.get('jobNumber') ?? ''),
+      String(formData.get('assigned')) === 'true',
+    ),
+  );
+  revalidatePath('/admin');
+}
+
+export async function setDeliveryReceiverAction(formData: FormData) {
+  await run((ctx, actor) =>
+    admin.setDeliveryReceiver(ctx, actor, String(formData.get('userId')), String(formData.get('isReceiver')) === 'true'),
+  );
+  revalidatePath('/admin');
+}
 
 export async function updatePoConfigAction(formData: FormData) {
   await run((ctx, actor) =>

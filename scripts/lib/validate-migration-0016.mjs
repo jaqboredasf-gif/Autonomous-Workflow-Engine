@@ -30,6 +30,9 @@ import { dirname, join } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
 const MIGRATION = join(ROOT, 'supabase', 'migrations', '0016_purchasing_control.sql');
+// 0017 adds the auth link and job assignments; parity is checked over both,
+// because the app does not care which file a table arrived in.
+const MIGRATION_0017 = join(ROOT, 'supabase', 'migrations', '0017_purchasing_auth_and_assignments.sql');
 const APP = join(ROOT, 'apps', 'purchasing', 'src');
 
 /**
@@ -66,10 +69,14 @@ export const TABLE_MAP = {
   purchase_activity_log: 'purchase_activity_log',
   purchase_notifications: 'purchase_notifications',
   system_settings: 'purchasing_settings',
+  // Credentials are the auth provider's, never purchasing's: in production
+  // Supabase Auth owns them in auth.users and 0017 stores only the reference.
+  auth_identities: null,
+  user_job_assignments: 'purchasing_job_assignments',
 };
 
 export async function validate() {
-  const sql = readFileSync(MIGRATION, 'utf8');
+  const sql = `${readFileSync(MIGRATION, 'utf8')}\n${readFileSync(MIGRATION_0017, 'utf8')}`;
   const problems = [];
   const bad = (m) => problems.push(m);
 
@@ -117,11 +124,10 @@ export async function validate() {
   }
 
   // --- role / permission matrix --------------------------------------------
-  const rolePermRows = new Set(
-    [...sql.matchAll(/\('(REQUESTOR|OFFICE|WORKSHOP_APPROVER|ADMIN)',\s*'([\w.]+)'\)/g)].map(
-      (m) => `${m[1]}:${m[2]}`,
-    ),
-  );
+  // Built from the app's own role list, so adding a role cannot silently
+  // narrow what this lint looks at.
+  const rolePermPattern = new RegExp(`\\('(${ROLES.join('|')})',\\s*'([\\w.]+)'\\)`, 'g');
+  const rolePermRows = new Set([...sql.matchAll(rolePermPattern)].map((m) => `${m[1]}:${m[2]}`));
   for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
     if (role === 'ADMIN') continue; // seeded by the union query, checked below
     for (const p of permissions) {
@@ -189,7 +195,7 @@ export async function validate() {
 }
 
 function enumValues(sql, name) {
-  const m = sql.match(new RegExp(`create type ${name} as enum \\(([\\s\\S]*?)\\);`));
+  const m = sql.match(new RegExp(`create type ${name} as enum\\s*\\(([\\s\\S]*?)\\);`));
   if (!m) return [];
   return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
 }

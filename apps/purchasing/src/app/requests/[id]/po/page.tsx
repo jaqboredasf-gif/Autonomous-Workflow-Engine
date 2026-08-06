@@ -5,7 +5,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
-import { currentActor, purchasingRequestContext } from '../../../../server/session.ts';
+import { requireAccess, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import { formatMoney, formatQty } from '../../../../purchasing/domain/numbers.mjs';
 import { Empty, Section, secondaryButtonClass } from '../../../../components/ui';
@@ -14,8 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function PoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const actor = await currentActor();
-  if (!actor) redirect('/signin');
+  const actor = await requireAccess('/requests');
 
   const ctx = purchasingRequestContext();
   let detail: any;

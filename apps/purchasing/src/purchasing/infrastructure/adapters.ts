@@ -50,6 +50,12 @@ export function identityAdapter(db: DatabaseSync): IdentityPort {
       if (!u) return null;
       const roles = (db.prepare('select role_key from user_roles where user_id = ? order by role_key').all(userId) as any[])
         .map((r) => r.role_key as string);
+      // Job assignments come from the server, every time. A browser can claim a
+      // role or a job number all it likes; it never reaches this object.
+      const assignedJobNumbers = (
+        db.prepare('select job_number from user_job_assignments where user_id = ? order by job_number').all(userId) as any[]
+      ).map((r) => r.job_number as string);
+
       return {
         id: u.id,
         orgId: u.org_id,
@@ -60,6 +66,8 @@ export function identityAdapter(db: DatabaseSync): IdentityPort {
         isActive: Boolean(u.is_active),
         isPrimaryApprover: Boolean(u.is_primary_approver),
         isBackupApprover: Boolean(u.is_backup_approver),
+        isDeliveryReceiver: Boolean(u.is_delivery_receiver),
+        assignedJobNumbers,
       };
     },
     listUsers(orgId) {
@@ -67,7 +75,59 @@ export function identityAdapter(db: DatabaseSync): IdentityPort {
       return rows.map((u) => ({
         ...u,
         roles: (db.prepare('select role_key from user_roles where user_id = ?').all(u.id) as any[]).map((r) => r.role_key),
+        jobs: (db.prepare('select job_number from user_job_assignments where user_id = ? order by job_number')
+          .all(u.id) as any[]).map((r) => r.job_number),
       }));
+    },
+
+    // --- administrative writes on the PERSON ---------------------------------
+    // None of these creates a way to sign in. That is AuthPort.setPassword,
+    // called separately, so "user exists" and "user has credentials" stay two
+    // decisions rather than one accident.
+
+    createUser(input) {
+      const id = uuid();
+      db.prepare(
+        `insert into users (id, org_id, full_name, email, is_active, can_approve, is_primary_approver,
+                            is_backup_approver, is_delivery_receiver, created_at, updated_at, created_by)
+         values (?,?,?,?,1,?,0,0,?,?,?,?)`,
+      ).run(id, input.orgId, input.fullName, input.email, input.canApprove ? 1 : 0,
+            input.isDeliveryReceiver ? 1 : 0, input.now, input.now, input.createdBy);
+      for (const role of input.roles) {
+        db.prepare('insert into user_roles (user_id, role_key, granted_at, granted_by) values (?,?,?,?)')
+          .run(id, role, input.now, input.createdBy);
+      }
+      return id;
+    },
+
+    setActive(userId, active, actorId, now) {
+      db.prepare('update users set is_active = ?, updated_at = ?, updated_by = ? where id = ?')
+        .run(active ? 1 : 0, now, actorId, userId);
+    },
+
+    setRoles(userId, roles, actorId, now) {
+      db.prepare('delete from user_roles where user_id = ?').run(userId);
+      for (const role of roles) {
+        db.prepare('insert into user_roles (user_id, role_key, granted_at, granted_by) values (?,?,?,?)')
+          .run(userId, role, now, actorId);
+      }
+      db.prepare('update users set updated_at = ?, updated_by = ? where id = ?').run(now, actorId, userId);
+    },
+
+    setDeliveryReceiver(userId, isReceiver, actorId, now) {
+      db.prepare('update users set is_delivery_receiver = ?, updated_at = ?, updated_by = ? where id = ?')
+        .run(isReceiver ? 1 : 0, now, actorId, userId);
+    },
+
+    assignJob(userId, jobNumber, actorId, now) {
+      db.prepare(
+        `insert or ignore into user_job_assignments (user_id, job_number, assigned_at, assigned_by)
+         values (?,?,?,?)`,
+      ).run(userId, jobNumber, now, actorId);
+    },
+
+    unassignJob(userId, jobNumber) {
+      db.prepare('delete from user_job_assignments where user_id = ? and job_number = ?').run(userId, jobNumber);
     },
   };
 }

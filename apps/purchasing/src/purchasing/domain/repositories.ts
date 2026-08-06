@@ -157,7 +157,9 @@ export interface ReceiptRepository {
   insertLine(receiptId: Id, line: any, now: string): void;
   markFinal(receiptId: Id): void;
   listForRequest(requestId: Id): any[];
+  findById(id: Id): any | null;
   attach(receiptId: Id, file: any, actorId: Id, now: string): void;
+  attachmentsFor(receiptId: Id): any[];
 }
 
 export interface InventoryRepository {

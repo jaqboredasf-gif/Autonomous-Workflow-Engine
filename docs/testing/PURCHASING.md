@@ -1,13 +1,39 @@
 # Purchasing Control Center — test contract
 
-Two gates, both offline:
+Three gates. The first two are offline; the third builds and drives the real website:
 
 | Gate | Runner | Scope |
 | --- | --- | --- |
 | **Unit** | `bash scripts/eval-purchasing-domain.sh` | `src/purchasing/domain/**` only — no database, no clock, no app. 165 assertions, milliseconds. |
-| **Integration + end-to-end** | `bash scripts/eval-purchasing.sh` | the real use cases, repositories and adapters against a throwaway SQLite database, plus the §16 demo scenario. 152 assertions. |
+| **Integration + end-to-end** | `bash scripts/eval-purchasing.sh` | the real use cases, repositories and adapters against a throwaway SQLite database, plus the full purchasing scenario. 152 assertions. |
+| **Website acceptance** | `bash scripts/eval-purchasing-web.sh` | a production build, started on a spare port, driven over real HTTP. 88 assertions. |
 
-`npm run test -w purchasing` runs typecheck, then both.
+`npm run test -w purchasing` runs typecheck, then all three.
+
+## The website gate
+
+It is not offline-pure like the other two, and that is the point: route protection tested only
+through unit calls is route protection nobody has opened a URL against. The runner builds for
+production (so "the production build passes" is part of the gate), starts the server against a
+throwaway database, and asserts:
+
+- an unauthenticated request to every workspace redirects to `/sign-in`
+- the sign-in screen is branded, asks for a password, offers a reset, and does **not** expose
+  the developer identity picker
+- invalid credentials are refused; an unknown address is indistinguishable from a wrong
+  password; a disabled account is refused with its own reason; none of them mint a cookie
+- valid credentials create an httpOnly, SameSite session cookie carrying no personal data
+- each role lands on its own workspace, and can open it
+- every cross-workspace attempt redirects to `/unauthorized` — including a foreman opening the
+  workshop queue, an office user opening administration, and a query string appended to fake it
+- a foreman sees only their assigned job sites' deliveries, and not another foreman's
+- refreshing a protected page preserves the session
+- an expired cookie lands on `/session-expired`; a forged one lands on `/sign-in`
+- sign-out clears access
+- the phone-sized pages render, declare a viewport, use native date and time inputs, and carry
+  no vendor, cost or stock input
+- the shell names the user, offers sign-out, and hides workspaces they cannot open
+- `/api/health` reports environment, database and migration status without echoing a secret
 
 ## The unit gate (domain invariants)
 
@@ -48,7 +74,7 @@ Exit 0 iff every gate passes. 152 assertions, roughly 15 seconds.
 
 ### Vocabulary and parity
 - All 14 statuses exist and every transition targets a known status.
-- The four roles exist; the permission vocabulary has no duplicates.
+- All six roles exist; the permission vocabulary has no duplicates.
 - Six email templates, six draft statuses, eleven notification events.
 - `EXTERNAL_SEND_ENABLED === false` at the source.
 - **Migration parity** (`scripts/lib/validate-migration-0016.mjs`): the status enum, the role

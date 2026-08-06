@@ -4,33 +4,27 @@
 // read-only inventories of what is configured, plus the audit log. Vendor,
 // template and location editing is the next slice — the tables and the
 // permissions for it already exist, so it is screens, not architecture.
-import { redirect } from 'next/navigation';
 
-import { currentActor, purchasingRequestContext } from '../../server/session.ts';
+import { requireAccess, purchasingRequestContext } from '../../server/session.ts';
 import * as S from '../../server/service.ts';
 import { listEmailTemplates } from '../../purchasing/application/queries.ts';
-import { Empty, ReadOnly, Section, buttonClass, inputClass, secondaryButtonClass } from '../../components/ui';
+import { ReadOnly, Section, buttonClass, inputClass, secondaryButtonClass } from '../../components/ui';
+import AdminUsers from '../../components/AdminUsers';
 import { describeActivity } from '../../purchasing/domain/activity.mjs';
-import { isAdmin } from '../../purchasing/domain/roles.mjs';
-import { setApprovalAuthorityAction, updatePoConfigAction } from '../actions.ts';
+import { updatePoConfigAction } from '../actions.ts';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminPage() {
-  const actor = await currentActor();
-  if (!actor) redirect('/signin');
-  if (!isAdmin(actor)) {
-    return (
-      <Section title="Administration">
-        <Empty>Administration is restricted to administrators.</Empty>
-      </Section>
-    );
-  }
+  // requireAccess() already refused anyone without admin.settings — a page that
+  // renders a polite "not for you" with a 200 has not blocked anything.
+  const actor = await requireAccess('/admin');
 
   const ctx = purchasingRequestContext();
   const users = S.listUsers(ctx, actor);
   const vendors = S.listVendors(ctx, actor);
   const locations = S.listDeliveryLocations(ctx, actor);
+  const jobs = S.listJobs(ctx, actor);
   const templates = listEmailTemplates(ctx, actor);
   const settings = ctx.reference.settings(actor.orgId);
   const po = S.poConfig(ctx, actor);
@@ -40,43 +34,7 @@ export default async function AdminPage() {
     <div className="space-y-5">
       <h1 className="text-xl font-semibold text-slate-900">Administration</h1>
 
-      <Section title="Users, roles and approval authority">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
-            <tr>
-              <th className="py-2 pr-3">Name</th>
-              <th className="py-2 pr-3">Roles</th>
-              <th className="py-2 pr-3">Approval</th>
-              <th className="py-2 pr-3">Change</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {users.map((u: any) => (
-              <tr key={u.id}>
-                <td className="py-2 pr-3">
-                  {u.full_name}
-                  <span className="block text-xs text-slate-500">{u.email}</span>
-                </td>
-                <td className="py-2 pr-3">{u.roles.join(', ')}</td>
-                <td className="py-2 pr-3">
-                  {u.can_approve ? 'yes' : 'no'}
-                  {u.is_primary_approver ? ' · primary' : ''}
-                  {u.is_backup_approver ? ' · backup' : ''}
-                </td>
-                <td className="py-2 pr-3">
-                  <form action={setApprovalAuthorityAction}>
-                    <input type="hidden" name="userId" value={u.id} />
-                    <input type="hidden" name="canApprove" value={u.can_approve ? 'false' : 'true'} />
-                    <button className="text-xs text-slate-700 underline">
-                      {u.can_approve ? 'Revoke approval authority' : 'Grant approval authority'}
-                    </button>
-                  </form>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Section>
+      <AdminUsers users={users} jobs={jobs.map((j: any) => String(j.job_number))} />
 
       <Section title="PO numbering" subtitle="The sequence is database-controlled and can only move forward.">
         <form action={updatePoConfigAction} className="grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -160,7 +118,7 @@ export default async function AdminPage() {
             </li>
           ))}
         </ul>
-        <a href="/queue" className={`${secondaryButtonClass} mt-3`}>
+        <a href="/workshop" className={`${secondaryButtonClass} mt-3`}>
           Back to the queue
         </a>
       </Section>
