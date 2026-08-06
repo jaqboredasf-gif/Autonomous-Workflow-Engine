@@ -197,6 +197,7 @@ Contract: `docs/testing/PURCHASING.md`.
 | [`docs/PURCHASING_DEPLOYMENT.md`](../../docs/PURCHASING_DEPLOYMENT.md) | deploying privately: Supabase, environment, backup, rollback |
 | [`docs/PURCHASING_PILOT_CHECKLIST.md`](../../docs/PURCHASING_PILOT_CHECKLIST.md) | running the Lippolis pilot |
 | [`docs/PURCHASING_PRODUCTION_GAPS.md`](../../docs/PURCHASING_PRODUCTION_GAPS.md) | **what is unproven, and what does not exist** |
+| [`docs/PURCHASING_ASYNC_REFACTOR_HANDOFF.md`](../../docs/PURCHASING_ASYNC_REFACTOR_HANDOFF.md) | the async boundary, the transaction contract, and the next step for Supabase |
 | [`docs/testing/PURCHASING.md`](../../docs/testing/PURCHASING.md) | the test contract |
 
 ---
@@ -244,13 +245,12 @@ Nothing here deploys automatically. The remaining steps, in order:
 The application runs today on a **local provider**: one server, one file-backed database. That
 is a demonstration host, not a shared system of record.
 
-Shared data needs Supabase repositories, and those are blocked on one concrete thing: the
-repository interfaces are **synchronous**, so no network-backed provider can implement them.
-The change and its order are written up in
-[`docs/PURCHASING_PRODUCTION_GAPS.md`](../../docs/PURCHASING_PRODUCTION_GAPS.md) §2. It was
-attempted and reverted in the session that wrote this paragraph, because a mechanical transform
-produced code that typechecked in places and was wrong in others — a half-migrated persistence
-layer is worse than an honest one.
+Shared data needs Supabase repositories. The boundary they plug into now **exists**: every
+repository and port is asynchronous, the transaction boundary is an async, serialized unit of
+work, and the domain stayed pure and synchronous throughout
+([`docs/PURCHASING_ASYNC_REFACTOR_HANDOFF.md`](../../docs/PURCHASING_ASYNC_REFACTOR_HANDOFF.md)).
+Writing the Supabase provider no longer requires an application-wide signature change — but it
+still has not been written, and no Supabase project has ever been contacted.
 
 ## What is not finished
 

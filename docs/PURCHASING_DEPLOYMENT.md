@@ -5,9 +5,10 @@ credentials, so every command below is written to be run by someone who has them
 result is unverified until they do. See `PURCHASING_PRODUCTION_GAPS.md` §1.
 
 **Read this first:** shared multi-user deployment needs the Supabase repositories, which do not
-exist yet, and cannot exist until the repository interfaces are async (gaps register §2). What
-you can deploy today is the *local-provider* application — one server, one file-backed
-database. That is a demonstration host, not a shared system of record.
+exist yet. The async boundary they plug into now does (`PURCHASING_ASYNC_REFACTOR_HANDOFF.md`),
+so writing them no longer requires changing the application. What you can deploy today is the
+*local-provider* application — one server, one file-backed database. That is a demonstration
+host, not a shared system of record.
 
 ---
 

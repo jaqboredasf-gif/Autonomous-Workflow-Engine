@@ -3,7 +3,7 @@
 What is real, what is written but unproven, and what does not exist. Written to be
 disagreed with: if a line here is wrong, fix the line rather than the impression.
 
-Status as of commit `847654c`. Verified locally: **411 automated checks** (165 domain unit,
+Status as of commit `5b35bcc`. Verified locally: **411 automated checks** (165 domain unit,
 158 integration, 88 website acceptance) plus a clean production build.
 
 ---
@@ -24,32 +24,19 @@ described to anyone as working.
 | Production deployment | never performed | a host, a domain, TLS, credentials |
 | Pilot with real Lippolis users | never performed | the above, then people |
 
-## 2. The blocker in front of Supabase persistence
+## 2. The boundary in front of Supabase persistence — RESOLVED
 
-**The repository interfaces are synchronous.** `findById(id): PurchaseRequestRecord | null`
-returns a value, not a promise, because the pilot store is `node:sqlite` and answers
-immediately. No network-backed provider can implement that signature, so
-`supabasePurchasingContext()` cannot be written against the current boundary at all.
+The repository interfaces were synchronous, so no network-backed provider could implement them.
+**That is fixed** (commit `5b35bcc`): every repository and port method returns a Promise, the
+transaction boundary is an async, nest-safe, serialized unit of work, and the domain layer stayed
+synchronous and pure. All 411 checks pass unchanged, and the demo scenario runs end to end
+through the async layer.
 
-This was attempted in this session and reverted deliberately: a mechanical transform produced
-subtly wrong code (`await` applied to the wrong expression, transaction callbacks that awaited
-inside a synchronous `begin immediate`), and a half-migrated persistence layer is worse than an
-honest one. The work is understood, not started.
-
-**The change, in order:**
-
-1. `domain/repositories.ts` — every method returns `Promise<…>`.
-2. `infrastructure/sqlite/repositories.ts` — methods become `async`; the bodies do not change.
-3. `application/ports.ts` — `UnitOfWork.run` takes an async callback.
-4. `composition.ts` — the SQLite unit of work must **serialize**: with async repositories, two
-   requests can interleave statements between one `begin immediate` and its `commit`, which is
-   not slow, it is corrupt. A promise-chain mutex, already drafted, is the fix.
-5. `application/*.ts` — every use case awaits. By hand, file by file: roughly 150 call sites,
-   and the failure mode of doing it mechanically is silent.
-6. `server/service.ts`, `app/**`, and `scripts/eval-purchasing.mjs` — await at the edges.
-
-Estimated at a focused day, including keeping all 411 checks green. Only after it is done can
-the Supabase adapter be written — and it still cannot be *verified* without a project.
+What remains is the adapter itself, which is Checkpoint 1B and is written up step by step in
+`PURCHASING_ASYNC_REFACTOR_HANDOFF.md`. One thing that surfaced during the refactor and matters
+for 1B: **`supabase-js` has no client-side transaction**, so any multi-statement atomic unit must
+become a Postgres function called through a single RPC. Two of them already exist in migration
+0016 (`record_purchase_decision`, `generate_purchase_order`); the receipt path needs a third.
 
 ## 3. Written but unproven (would work, has not been shown to)
 
