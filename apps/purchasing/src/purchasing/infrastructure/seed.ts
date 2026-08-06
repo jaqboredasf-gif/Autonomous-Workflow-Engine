@@ -193,6 +193,12 @@ export function seed(db: DatabaseSync, now = new Date().toISOString()) {
  * because those users already have identities.
  */
 function backfillPilotCredentials(db: DatabaseSync, now: string) {
+  // Reference rows first: FOREMAN and ACCOUNTING did not exist when an older
+  // pilot database was created, and user_roles has a foreign key to roles.
+  for (const [key, label, description] of ROLE_ROWS) {
+    db.prepare('insert or ignore into roles (key, label, description) values (?,?,?)').run(key, label, description);
+  }
+
   const users = db.prepare('select id, email, is_active from users').all() as any[];
   for (const user of users) {
     const identity = db.prepare('select user_id from auth_identities where user_id = ?').get(user.id) as any;
@@ -204,17 +210,51 @@ function backfillPilotCredentials(db: DatabaseSync, now: string) {
     ).run(user.id, user.email, hash, salt, user.is_active ? 0 : 1, now, now);
   }
 
-  // Seeded foremen keep their job assignments across an upgrade, so the
-  // deliveries workspace is not empty on a database that predates it.
+  // Reconcile the SEEDED cast with what the pilot now models: roles that did
+  // not exist when the database was created (FOREMAN, ACCOUNTING), the delivery
+  // receiver designation, and job assignments. Matched by the seeded email
+  // address only — a user an administrator invited is never touched here.
   for (const u of DEMO_USERS) {
-    if (!u.jobs?.length) continue;
-    const row = db.prepare('select id from users where lower(email) = lower(?)').get(u.email) as any;
-    if (!row) continue;
-    for (const jobNumber of u.jobs) {
+    let row = db.prepare('select id from users where lower(email) = lower(?)').get(u.email) as any;
+
+    // Cast members added after this database was created (accounting, the
+    // second foreman, the disabled account) are created rather than skipped —
+    // otherwise an upgraded pilot is missing the people the walkthrough uses.
+    if (!row) {
+      const id = randomUUID();
+      const disabled = 'disabled' in u && u.disabled === true;
+      db.prepare(
+        `insert into users (id, org_id, full_name, email, is_active, can_approve, is_primary_approver,
+                            is_backup_approver, is_delivery_receiver, created_at, updated_at)
+         values (?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(id, DEMO_ORG_ID, u.name, u.email, disabled ? 0 : 1, u.canApprove ? 1 : 0,
+            u.primary ? 1 : 0, u.backup ? 1 : 0, 'receiver' in u && u.receiver ? 1 : 0, now, now);
+      const { hash, salt } = hashPassword(DEMO_PASSWORD);
+      db.prepare(
+        `insert into auth_identities (user_id, email, password_hash, salt, disabled, created_at, updated_at)
+         values (?,?,?,?,?,?,?)`,
+      ).run(id, u.email, hash, salt, disabled ? 1 : 0, now, now);
+      row = { id };
+    }
+
+    const current = (db.prepare('select role_key from user_roles where user_id = ?').all(row.id) as any[])
+      .map((r) => r.role_key as string);
+    if (current.sort().join(',') !== [...u.roles].sort().join(',')) {
+      db.prepare('delete from user_roles where user_id = ?').run(row.id);
+      for (const role of u.roles) {
+        db.prepare('insert into user_roles (user_id, role_key, granted_at) values (?,?,?)').run(row.id, role, now);
+      }
+    }
+
+    db.prepare('update users set is_delivery_receiver = ? where id = ?')
+      .run('receiver' in u && u.receiver ? 1 : 0, row.id);
+
+    for (const jobNumber of u.jobs ?? []) {
       db.prepare('insert or ignore into user_job_assignments (user_id, job_number, assigned_at) values (?,?,?)')
         .run(row.id, jobNumber, now);
     }
   }
+
 }
 
 /**
