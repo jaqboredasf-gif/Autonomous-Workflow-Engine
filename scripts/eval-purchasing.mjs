@@ -510,6 +510,26 @@ eq(db.prepare('select status from purchase_requests where id = ?').get(clarify.i
 const rickPo = S.generatePurchaseOrder(ctx(), rick, clarify.id);
 eq(rickPo.poNumber, 'LE-52902', 'the next PO number is issued in sequence');
 
+console.log('--- the PO -> email flow (reachable from the PO itself) ---------');
+
+// The bug this covers: the purchase order page linked to an email page that
+// could only say "nothing here", because the create action lived on the request
+// page. What the PO page offers is driven by this state, so assert the state.
+const beforeDraft = S.getRequestDetail(ctx(), rick, clarify.id);
+eq(beforeDraft.emailDrafts.length, 0, 'a fresh purchase order has no email draft yet');
+check(Boolean(beforeDraft.purchaseOrder), 'the PO page has a purchase order to offer a draft for');
+
+const fromPo = S.generateVendorEmailDraft(ctx(), rick, clarify.id);
+const afterDraft = S.getRequestDetail(ctx(), rick, clarify.id);
+eq(afterDraft.emailDrafts.length, 1, 'the draft is created without leaving the purchase order');
+eq(afterDraft.emailDrafts[0].purchaseOrderId, afterDraft.purchaseOrder.id,
+   'the draft is bound to the purchase order it was created from');
+
+const again = S.generateVendorEmailDraft(ctx(), rick, clarify.id);
+eq(again.id, fromPo.id, 'pressing create twice does not produce a second draft');
+eq(S.getRequestDetail(ctx(), rick, clarify.id).emailDrafts.length, 1,
+   'the draft state survives a re-read — a refresh shows the same one draft');
+
 console.log('--- office approver grant --------------------------------------');
 
 const officeReq = S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Wire for the same job.' });

@@ -8,7 +8,8 @@ import { notFound, redirect } from 'next/navigation';
 import { requireAccess, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import { formatMoney, formatQty } from '../../../../purchasing/domain/numbers.mjs';
-import { Empty, Section, secondaryButtonClass } from '../../../../components/ui';
+import { Empty, Section, buttonClass, secondaryButtonClass } from '../../../../components/ui';
+import { generateEmailDraftAction } from '../../../actions.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,9 +45,20 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
               Download PDF
             </a>
           ) : null}
-          <Link href={`/requests/${id}/email`} className={secondaryButtonClass}>
-            Vendor email draft
-          </Link>
+          {/* The vendor email is reachable FROM the purchase order, which is
+              where a person is standing when they decide to send it. Before
+              this, the only create button lived back on the request page and
+              this link led to a dead end. */}
+          {detail.emailDrafts.length ? (
+            <Link href={`/requests/${id}/email`} className={secondaryButtonClass}>
+              View vendor email draft
+            </Link>
+          ) : (
+            <form action={generateEmailDraftAction}>
+              <input type="hidden" name="requestId" value={id} />
+              <button className={buttonClass}>Create vendor email draft</button>
+            </form>
+          )}
           <Link href={`/requests/${id}`} className={secondaryButtonClass}>
             Back to request
           </Link>

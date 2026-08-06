@@ -8,7 +8,7 @@ import { notFound, redirect } from 'next/navigation';
 import { requireAccess, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import { Empty, Section, buttonClass, inputClass, secondaryButtonClass } from '../../../../components/ui';
-import { advanceEmailDraftAction, updateEmailDraftAction } from '../../../actions.ts';
+import { advanceEmailDraftAction, generateEmailDraftAction, updateEmailDraftAction } from '../../../actions.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,9 +25,23 @@ export default async function EmailDraftPage({ params }: { params: Promise<{ id:
 
   const drafts = detail.emailDrafts;
   if (!drafts.length) {
+    // A page that only says "nothing here" is a dead end. If a purchase order
+    // exists, the thing you came to do is one button away.
     return (
       <Section title="Vendor email">
-        <Empty>No email draft yet. Generate the purchase order first, then draft the vendor email.</Empty>
+        {detail.purchaseOrder ? (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-700">
+              No draft has been created for purchase order {detail.purchaseOrder.poNumber} yet.
+            </p>
+            <form action={generateEmailDraftAction}>
+              <input type="hidden" name="requestId" value={id} />
+              <button className={buttonClass}>Create vendor email draft</button>
+            </form>
+          </div>
+        ) : (
+          <Empty>Generate the purchase order first, then draft the vendor email.</Empty>
+        )}
       </Section>
     );
   }
