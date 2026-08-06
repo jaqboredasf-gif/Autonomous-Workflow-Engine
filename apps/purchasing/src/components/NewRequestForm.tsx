@@ -5,7 +5,7 @@
 import { useActionState, useState } from 'react';
 
 import { createRequestAction } from '../app/actions.ts';
-import { UNITS } from '../domain/numbers.mjs';
+import { UNITS } from '../purchasing/domain/numbers.mjs';
 import { Field, buttonClass, inputClass, secondaryButtonClass } from './ui';
 
 type Line = { key: number; description: string; qty: string; unit: string; stockNumber: string; notes: string };

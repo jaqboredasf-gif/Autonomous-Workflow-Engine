@@ -4,7 +4,7 @@
 import Link from 'next/link';
 
 import { currentActor } from '../server/session.ts';
-import { hasPermission } from '../domain/roles.mjs';
+import { hasPermission } from '../purchasing/domain/roles.mjs';
 import { signOutAction } from '../app/actions.ts';
 
 export default async function Nav() {

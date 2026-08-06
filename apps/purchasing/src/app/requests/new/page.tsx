@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation';
 
-import { currentActor } from '../../../server/session.ts';
-import { getDb } from '../../../server/db.ts';
+import { currentActor, purchasingRequestContext } from '../../../server/session.ts';
 import * as S from '../../../server/service.ts';
 import NewRequestForm from '../../../components/NewRequestForm';
 
@@ -10,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export default async function NewRequestPage() {
   const actor = await currentActor();
   if (!actor) redirect('/signin');
-  const ctx = S.context(getDb());
+  const ctx = purchasingRequestContext();
 
   return (
     <NewRequestForm

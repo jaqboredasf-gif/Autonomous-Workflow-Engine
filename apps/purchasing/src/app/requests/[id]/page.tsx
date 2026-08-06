@@ -4,8 +4,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
-import { currentActor } from '../../../server/session.ts';
-import { getDb } from '../../../server/db.ts';
+import { currentActor, purchasingRequestContext } from '../../../server/session.ts';
 import * as S from '../../../server/service.ts';
 import Timeline from '../../../components/Timeline';
 import { Money, Qty, ReadOnly, Section, StatusBadge, buttonClass, inputClass, secondaryButtonClass } from '../../../components/ui';
@@ -30,7 +29,7 @@ export default async function RequestDetailPage({ params }: { params: Promise<{ 
 
   let detail: any;
   try {
-    detail = S.getRequestDetail(S.context(getDb()), actor, id);
+    detail = S.getRequestDetail(purchasingRequestContext(), actor, id);
   } catch {
     notFound();
   }

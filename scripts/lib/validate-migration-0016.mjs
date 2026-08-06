@@ -73,10 +73,10 @@ export async function validate() {
   const problems = [];
   const bad = (m) => problems.push(m);
 
-  const { REQUEST_STATUSES, TRANSITIONS } = await import(join(APP, 'domain', 'status.mjs'));
-  const { ROLE_PERMISSIONS, APPROVAL_GRANT_PERMISSIONS, ROLES } = await import(join(APP, 'domain', 'roles.mjs'));
-  const { EMAIL_TEMPLATE_TYPES, EMAIL_DRAFT_STATUSES } = await import(join(APP, 'domain', 'email.mjs'));
-  const { TABLES } = await import(join(APP, 'server', 'db.ts'));
+  const { REQUEST_STATUSES, TRANSITIONS } = await import(join(APP, 'purchasing', 'domain', 'status.mjs'));
+  const { ROLE_PERMISSIONS, APPROVAL_GRANT_PERMISSIONS, ROLES } = await import(join(APP, 'purchasing', 'domain', 'roles.mjs'));
+  const { EMAIL_TEMPLATE_TYPES, EMAIL_DRAFT_STATUSES } = await import(join(APP, 'purchasing', 'domain', 'email.mjs'));
+  const { TABLES } = await import(join(APP, 'purchasing', 'infrastructure', 'sqlite', 'database.ts'));
 
   // --- status enum ----------------------------------------------------------
   const statusEnum = enumValues(sql, 'purchase_request_status');

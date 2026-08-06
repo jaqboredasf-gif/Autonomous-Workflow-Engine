@@ -1,12 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { notFound, redirect } from 'next/navigation';
 
-import { currentActor } from '../../../../server/session.ts';
-import { getDb } from '../../../../server/db.ts';
+import { currentActor, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import ReviewForm from '../../../../components/ReviewForm';
 import { Empty, Section } from '../../../../components/ui';
-import { hasPermission } from '../../../../domain/roles.mjs';
+import { hasPermission } from '../../../../purchasing/domain/roles.mjs';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +14,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   const actor = await currentActor();
   if (!actor) redirect('/signin');
 
-  const ctx = S.context(getDb());
+  const ctx = purchasingRequestContext();
   let detail: any;
   try {
     detail = S.getRequestDetail(ctx, actor, id);

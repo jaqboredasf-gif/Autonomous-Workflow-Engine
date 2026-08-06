@@ -6,9 +6,9 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 
-import { applyFilters, isOverdue } from '../domain/dashboard.mjs';
-import { REQUEST_STATUSES, statusLabel } from '../domain/status.mjs';
-import { formatMoney, formatQty } from '../domain/numbers.mjs';
+import { applyFilters, isOverdue } from '../purchasing/domain/dashboard.mjs';
+import { REQUEST_STATUSES, statusLabel } from '../purchasing/domain/status.mjs';
+import { formatMoney, formatQty } from '../purchasing/domain/numbers.mjs';
 import { StatusBadge, inputClass } from './ui';
 
 export default function RequestTable({ requests, now }: { requests: any[]; now: string }) {

@@ -3,12 +3,11 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
-import { currentActor } from '../../server/session.ts';
-import { getDb } from '../../server/db.ts';
+import { currentActor, purchasingRequestContext } from '../../server/session.ts';
 import * as S from '../../server/service.ts';
 import { Empty, Section, StatusBadge } from '../../components/ui';
-import { isOverdue } from '../../domain/dashboard.mjs';
-import { formatQty } from '../../domain/numbers.mjs';
+import { isOverdue } from '../../purchasing/domain/dashboard.mjs';
+import { formatQty } from '../../purchasing/domain/numbers.mjs';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +17,7 @@ export default async function QueuePage() {
 
   let queue: any[] = [];
   try {
-    queue = S.approvalQueue(S.context(getDb()), actor);
+    queue = S.approvalQueue(purchasingRequestContext(), actor);
   } catch {
     return (
       <Section title="Workshop queue">

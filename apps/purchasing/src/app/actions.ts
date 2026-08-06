@@ -16,9 +16,11 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
-import { getDb } from '../server/db.ts';
 import * as S from '../server/service.ts';
-import { currentActor, signIn as setSession, signOut as clearSession } from '../server/session.ts';
+import { saveReviewAndDecide } from '../purchasing/application/decisions.ts';
+import {
+  currentActor, purchasingRequestContext, signIn as setSession, signOut as clearSession,
+} from '../server/session.ts';
 
 type Result = { ok: true; data?: any } | { ok: false; error: string; reason?: string; details?: any };
 
@@ -26,7 +28,7 @@ async function run<T>(fn: (ctx: any, actor: S.Actor) => T): Promise<Result> {
   const actor = await currentActor();
   if (!actor) return { ok: false, error: 'You are signed out. Sign in again.', reason: 'no_session' };
   try {
-    const data = fn(S.context(getDb()), actor);
+    const data = fn(purchasingRequestContext(), actor);
     return { ok: true, data };
   } catch (err: any) {
     return {
@@ -162,16 +164,31 @@ function parseReviewLines(formData: FormData) {
  * browser form.
  */
 export async function reviewAndDecideAction(_prev: unknown, formData: FormData): Promise<Result> {
-  const saved = await saveReviewAction(_prev, formData);
-  if (!saved.ok) return saved;
-
+  const requestId = String(formData.get('requestId'));
   const intent = String(formData.get('intent') ?? 'save');
-  if (intent === 'save') return saved;
 
-  formData.set('decision', intent);
-  const decided = await decideAction(_prev, formData);
-  if (!decided.ok) return decided;
-  redirect(`/requests/${String(formData.get('requestId'))}`);
+  // Save-then-decide is ONE use case (the decision must refer to saved
+  // numbers), so this action only unpacks the form and calls it.
+  const result = await run((ctx, actor) =>
+    saveReviewAndDecide(
+      ctx,
+      actor,
+      requestId,
+      { workshopNotes: String(formData.get('workshopNotes') ?? ''), lines: parseReviewLines(formData) },
+      intent === 'save' ? 'SAVE' : (intent as 'APPROVE' | 'REJECT' | 'CLARIFY'),
+      {
+        notes: String(formData.get('notes') ?? ''),
+        reason: String(formData.get('reason') ?? ''),
+        question: String(formData.get('question') ?? ''),
+      },
+    ),
+  );
+  if (!result.ok) return result;
+
+  revalidatePath(`/requests/${requestId}/review`);
+  revalidatePath('/queue');
+  if (intent === 'save') return result;
+  redirect(`/requests/${requestId}`);
 }
 
 export async function decideAction(_prev: unknown, formData: FormData): Promise<Result> {

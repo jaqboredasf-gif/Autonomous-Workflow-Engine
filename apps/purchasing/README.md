@@ -91,26 +91,76 @@ Try the refusals, too — they are the point:
 
 ## How it is built
 
+Purchasing is a **bounded context** inside AWE, in four layers. The dependency
+rule points inward: UI → application → domain, with infrastructure implementing
+interfaces the domain declares. Nothing in `domain/` imports React, a database,
+a clock or a network.
+
 ```
 apps/purchasing/src/
-  domain/          pure, dependency-free rules — no I/O, no clock, no React
-    status.mjs       the 14 statuses and the closed transition graph
-    roles.mjs        roles, permissions, and authorize()
-    numbers.mjs      money (integer cents) and quantity (integer thousandths) arithmetic
-    validation.mjs   intake rules + the requestor field firewall
-    email.mjs        six templates, draft statuses, and the send gate
-    po-number.mjs    PO number formatting (allocation belongs to the database)
-    activity.mjs     the audit vocabulary and notification events
-    dashboard.mjs    summary cards and filters
-  server/          the only code that touches data
-    db.ts            schema + transactions (node:sqlite)
-    service.ts       every write: authorize -> guard -> write -> audit -> notify
-    pdf.ts           the PO PDF, written by hand (no dependency, deterministic bytes)
-    seed.ts          the pilot's starting data
-    session.ts       the server-side session
-  app/             Next.js routes and server actions
-  components/      UI
+  purchasing/                        THE BOUNDED CONTEXT
+    domain/                          pure — no I/O, no clock, no framework
+      entities.mjs      entities + the LineQuantities value object (the six
+                        quantities, kept apart by construction)
+      status.mjs        the 14 statuses and the closed transition graph
+      roles.mjs         roles, permissions, authorize()
+      numbers.mjs       money (integer cents), quantity (integer thousandths)
+      validation.mjs    intake rules + the requestor field firewall
+      email.mjs         six templates, draft statuses, the send gate
+      po-number.mjs     PO number formatting (allocation is the database's)
+      activity.mjs      the audit + notification vocabularies
+      events.mjs        domain events, one builder per meaningful fact
+      dashboard.mjs     summary cards and filters
+      repositories.ts   repository INTERFACES (types only)
+    application/                     use cases — one transaction each
+      ports.ts          interfaces for the shared AWE capabilities consumed
+      context.ts        the context + the three checks (authorize, tenant, transition)
+      requests.ts       create · update · submit · respond · cancel · note · attach
+      review.ts         record workshop stock · select vendor and pricing
+      decisions.ts      approve · reject · return for clarification
+      fulfilment.ts     PO · vendor email draft · ordered · tracking · receive · complete
+      queries.ts        the read side (reads are authorization decisions too)
+      administration.ts approval authority · PO numbering
+    infrastructure/                  the only code that knows how things are stored
+      sqlite/database.ts     schema + transactions (node:sqlite)
+      sqlite/repositories.ts the only file with table names in it
+      adapters.ts            identity · audit · notifications · documents ·
+                             attachments · email drafting · PDF rendering
+      pdf-adapter.ts         the PO PDF, written by hand (deterministic bytes)
+      seed.ts                the pilot's starting data
+    composition.ts                   the composition root: which implementation
+                                     backs each port. Swap it for Supabase here.
+  app/, components/                  the UI (role-specific screens)
+  server/service.ts                  the public facade the UI and tests import
+  server/session.ts                  the server-side session
 ```
+
+### What Purchasing owns, and what it borrows
+
+It owns purchase requests and their lines, workshop reviews and stock
+observations, the six quantities, vendor selection *for a purchase*, estimated
+pricing, approval decisions, purchase orders and their lines, vendor email draft
+records, receiving records, the purchasing status model, and purchasing activity
+events.
+
+It owns none of these, and consumes each through a port in
+`application/ports.ts` — the pilot binds them to local implementations, and the
+named production capability replaces the binding without touching a use case:
+
+| Port | Production capability |
+| --- | --- |
+| `IdentityPort` | Supabase Auth + `users` (0001) + `purchasing_user_roles` (0016) |
+| `AuditPort` | the org audit trail / `integration_events` (0009) |
+| `NotificationPort` | the notification layer, same `emit_event` contract |
+| `DocumentPort` / `AttachmentPort` | Supabase Storage (the 0005 idiom) |
+| `DocumentRenderer` | PDF rendering |
+| `EmailDraftPort` | draft composition; **there is no `send` on the port** |
+| `Clock`, `UnitOfWork` | time and the transaction boundary |
+
+Tenant management, general role infrastructure, generic approval machinery,
+inventory management, accounting and job management stay outside the boundary.
+Purchasing records a *stock observation* and an *inventory adjustment* against a
+request; it does not try to be a warehouse.
 
 **Two persistence paths, one data model.** `supabase/migrations/0016_purchasing_control.sql`
 is the production path: the same tables, RLS policies, a transition trigger, security-definer
@@ -138,10 +188,23 @@ flag someone flips.
 ## Tests
 
 ```bash
-bash scripts/eval-purchasing.sh
+npm run test -w purchasing        # typecheck + unit + integration
+npm run test:unit -w purchasing   # domain invariants, milliseconds, no database
+npm run test:integration -w purchasing
 ```
 
-152 assertions, offline, no credentials, ~15 seconds. It drives the modules the app actually
+**Unit** (`scripts/eval-purchasing-domain.sh`) — 165 assertions over
+`src/purchasing/domain/**` alone: the six quantities stay distinct and the
+derived ones are derived, one job per request, the original frozen after
+submission, vendor/cost/stock as workshop-only decisions, the closed transition
+graph and its preconditions, every domain event naming a known action, the
+draft-only email gate, and exact money arithmetic.
+
+**Integration and end-to-end** (`scripts/eval-purchasing.sh`) — 152 assertions
+driving the real use cases against a throwaway SQLite database, including PO
+uniqueness under eight concurrent worker threads and the full §16 demo scenario.
+
+Both are offline, need no credentials, and finish in about fifteen seconds. It drives the modules the app actually
 ships (Node strips the TypeScript types on import) against a throwaway database, and covers the
 intake rules, the field firewall, every authorization rule, the quantity algebra, the state
 machine, PO-number uniqueness **under eight concurrent worker threads**, the draft-only email

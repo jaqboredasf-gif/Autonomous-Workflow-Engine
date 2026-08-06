@@ -1,8 +1,8 @@
 // Shared presentational pieces. Server components — no state, no effects.
 import Link from 'next/link';
 
-import { statusLabel, statusTone } from '../domain/status.mjs';
-import { formatMoney, formatQty } from '../domain/numbers.mjs';
+import { statusLabel, statusTone } from '../purchasing/domain/status.mjs';
+import { formatMoney, formatQty } from '../purchasing/domain/numbers.mjs';
 
 const TONE: Record<string, string> = {
   good: 'bg-emerald-100 text-emerald-900 ring-emerald-300',

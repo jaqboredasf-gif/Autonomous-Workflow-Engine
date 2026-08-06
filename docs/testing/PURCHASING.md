@@ -1,5 +1,38 @@
 # Purchasing Control Center — test contract
 
+Two gates, both offline:
+
+| Gate | Runner | Scope |
+| --- | --- | --- |
+| **Unit** | `bash scripts/eval-purchasing-domain.sh` | `src/purchasing/domain/**` only — no database, no clock, no app. 165 assertions, milliseconds. |
+| **Integration + end-to-end** | `bash scripts/eval-purchasing.sh` | the real use cases, repositories and adapters against a throwaway SQLite database, plus the §16 demo scenario. 152 assertions. |
+
+`npm run test -w purchasing` runs typecheck, then both.
+
+## The unit gate (domain invariants)
+
+It asserts the rules that must hold however anything is stored or displayed:
+
+- **the six quantities stay distinct** — requested, observed stock, approved,
+  suggested, final order, received — and only the definitionally-derived ones
+  (suggested, stock applied, replenishment, outstanding) are computed
+- **one request belongs to one job** — a line carrying a second job number is
+  refused at construction, not at the database
+- **the original is frozen after submission** — `assertOriginalMutable` allows
+  DRAFT and CLARIFICATION_REQUESTED and refuses every later status
+- **vendor, cost and stock are workshop decisions** — every forbidden field is
+  refused on a request, and a requestor holds none of those permissions
+- **an ordered line needs a vendor and a cost**, and an override records a reason
+- **the transition graph is closed** — the guard is checked against every one of
+  the 14 × 14 status pairs, in both directions, plus each content precondition
+- **authorization denies for the right reason and in the right order** — tenant
+  before role, self-approval refused, ownership on clarification answers
+- **every domain event names a known action** and a known notification event
+- **the email draft cannot reach `SENT`** without a recorded review and a human
+- **money and quantity arithmetic is exact** — no float, no silent rounding
+
+## The integration gate
+
 Runner: `bash scripts/eval-purchasing.sh` (harness: `scripts/eval-purchasing.mjs`).
 
 **Offline by construction.** No API keys, no model calls, no Supabase, no network, no Microsoft

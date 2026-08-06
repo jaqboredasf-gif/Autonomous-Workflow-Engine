@@ -1,19 +1,18 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 
-import { currentActor } from '../../server/session.ts';
-import { getDb } from '../../server/db.ts';
+import { currentActor, purchasingRequestContext } from '../../server/session.ts';
 import * as S from '../../server/service.ts';
 import RequestTable from '../../components/RequestTable';
 import { Section } from '../../components/ui';
-import { hasPermission } from '../../domain/roles.mjs';
+import { hasPermission } from '../../purchasing/domain/roles.mjs';
 
 export const dynamic = 'force-dynamic';
 
 export default async function RequestsPage() {
   const actor = await currentActor();
   if (!actor) redirect('/signin');
-  const requests = S.listRequests(S.context(getDb()), actor);
+  const requests = S.listRequests(purchasingRequestContext(), actor);
 
   return (
     <div className="space-y-4">

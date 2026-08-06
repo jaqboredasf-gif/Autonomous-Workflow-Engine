@@ -44,19 +44,19 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const APP = join(ROOT, 'apps', 'purchasing', 'src');
 
-const { openDatabase, inTransaction } = await import(join(APP, 'server', 'db.ts'));
-const { seed, DEMO_ORG_ID } = await import(join(APP, 'server', 'seed.ts'));
+const { openDatabase, inTransaction } = await import(join(APP, 'purchasing', 'infrastructure', 'sqlite', 'database.ts'));
+const { seed, DEMO_ORG_ID } = await import(join(APP, 'purchasing', 'infrastructure', 'seed.ts'));
 const S = await import(join(APP, 'server', 'service.ts'));
 const { suggestedOrderQty, parseQty, formatQty, formatMoney, lineTotalCents, receiptGuard } =
-  await import(join(APP, 'domain', 'numbers.mjs'));
+  await import(join(APP, 'purchasing', 'domain', 'numbers.mjs'));
 const { REQUEST_STATUSES, TRANSITIONS, GUARD_REASONS, transitionGuard } =
-  await import(join(APP, 'domain', 'status.mjs'));
-const { PERMISSIONS, ROLES, authorize, permissionsFor } = await import(join(APP, 'domain', 'roles.mjs'));
-const { validateRequestDraft } = await import(join(APP, 'domain', 'validation.mjs'));
+  await import(join(APP, 'purchasing', 'domain', 'status.mjs'));
+const { PERMISSIONS, ROLES, authorize, permissionsFor } = await import(join(APP, 'purchasing', 'domain', 'roles.mjs'));
+const { validateRequestDraft } = await import(join(APP, 'purchasing', 'domain', 'validation.mjs'));
 const { EXTERNAL_SEND_ENABLED, EMAIL_TEMPLATE_TYPES, EMAIL_DRAFT_STATUSES } =
-  await import(join(APP, 'domain', 'email.mjs'));
-const { ACTIVITY_ACTIONS, NOTIFICATION_EVENTS, buildTimeline } = await import(join(APP, 'domain', 'activity.mjs'));
-const { summarize, isOverdue } = await import(join(APP, 'domain', 'dashboard.mjs'));
+  await import(join(APP, 'purchasing', 'domain', 'email.mjs'));
+const { ACTIVITY_ACTIONS, NOTIFICATION_EVENTS, buildTimeline } = await import(join(APP, 'purchasing', 'domain', 'activity.mjs'));
+const { summarize, isOverdue } = await import(join(APP, 'purchasing', 'domain', 'dashboard.mjs'));
 
 // --- harness plumbing -------------------------------------------------------
 
@@ -644,7 +644,7 @@ const results = await Promise.all(
           dbPath,
           orgId: DEMO_ORG_ID,
           iterations: 5,
-          dbModule: join(APP, 'server', 'db.ts'),
+          dbModule: join(APP, 'purchasing', 'infrastructure', 'sqlite', 'database.ts'),
           serviceModule: join(APP, 'server', 'service.ts'),
         },
         execArgv: ['--disable-warning=ExperimentalWarning', '--disable-warning=MODULE_TYPELESS_PACKAGE_JSON'],

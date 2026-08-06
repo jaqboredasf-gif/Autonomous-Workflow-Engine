@@ -5,8 +5,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
-import { currentActor } from '../../../../server/session.ts';
-import { getDb } from '../../../../server/db.ts';
+import { currentActor, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import { Empty, Section, buttonClass, inputClass, secondaryButtonClass } from '../../../../components/ui';
 import { advanceEmailDraftAction, updateEmailDraftAction } from '../../../actions.ts';
@@ -20,7 +19,7 @@ export default async function EmailDraftPage({ params }: { params: Promise<{ id:
 
   let detail: any;
   try {
-    detail = S.getRequestDetail(S.context(getDb()), actor, id);
+    detail = S.getRequestDetail(purchasingRequestContext(), actor, id);
   } catch {
     notFound();
   }

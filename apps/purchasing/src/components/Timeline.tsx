@@ -2,7 +2,7 @@
 // The activity timeline. Reads the recorded rows — it never reconstructs a
 // history from current state, because the point of an audit trail is that it
 // says what happened even when the current state disagrees.
-import { buildTimeline } from '../domain/activity.mjs';
+import { buildTimeline } from '../purchasing/domain/activity.mjs';
 
 export default function Timeline({ entries }: { entries: any[] }) {
   const rows = buildTimeline(entries);

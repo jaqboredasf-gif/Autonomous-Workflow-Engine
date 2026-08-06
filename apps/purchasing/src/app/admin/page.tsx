@@ -6,12 +6,12 @@
 // permissions for it already exist, so it is screens, not architecture.
 import { redirect } from 'next/navigation';
 
-import { currentActor } from '../../server/session.ts';
-import { getDb } from '../../server/db.ts';
+import { currentActor, purchasingRequestContext } from '../../server/session.ts';
 import * as S from '../../server/service.ts';
+import { listEmailTemplates } from '../../purchasing/application/queries.ts';
 import { Empty, ReadOnly, Section, buttonClass, inputClass, secondaryButtonClass } from '../../components/ui';
-import { describeActivity } from '../../domain/activity.mjs';
-import { isAdmin } from '../../domain/roles.mjs';
+import { describeActivity } from '../../purchasing/domain/activity.mjs';
+import { isAdmin } from '../../purchasing/domain/roles.mjs';
 import { setApprovalAuthorityAction, updatePoConfigAction } from '../actions.ts';
 
 export const dynamic = 'force-dynamic';
@@ -27,13 +27,12 @@ export default async function AdminPage() {
     );
   }
 
-  const ctx = S.context(getDb());
-  const db = getDb();
+  const ctx = purchasingRequestContext();
   const users = S.listUsers(ctx, actor);
   const vendors = S.listVendors(ctx, actor);
   const locations = S.listDeliveryLocations(ctx, actor);
-  const templates = db.prepare('select * from email_templates where org_id = ? order by template_key').all(actor.orgId) as any[];
-  const settings = S.loadSettings(db, actor.orgId);
+  const templates = listEmailTemplates(ctx, actor);
+  const settings = ctx.reference.settings(actor.orgId);
   const po = S.poConfig(ctx, actor);
   const log = S.auditLog(ctx, actor, 100);
 

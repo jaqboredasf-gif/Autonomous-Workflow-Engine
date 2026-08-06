@@ -7,7 +7,7 @@
 import { useActionState } from 'react';
 
 import { recordReceiptAction } from '../app/actions.ts';
-import { formatQty } from '../domain/numbers.mjs';
+import { formatQty } from '../purchasing/domain/numbers.mjs';
 import { Field, Section, buttonClass, inputClass } from './ui';
 
 export default function ReceiveForm({

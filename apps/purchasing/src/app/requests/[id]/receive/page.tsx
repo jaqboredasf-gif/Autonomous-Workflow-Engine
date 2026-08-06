@@ -1,8 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { notFound, redirect } from 'next/navigation';
 
-import { currentActor } from '../../../../server/session.ts';
-import { getDb } from '../../../../server/db.ts';
+import { currentActor, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import ReceiveForm from '../../../../components/ReceiveForm';
 import { Empty, Section } from '../../../../components/ui';
@@ -16,7 +15,7 @@ export default async function ReceivePage({ params }: { params: Promise<{ id: st
 
   let detail: any;
   try {
-    detail = S.getRequestDetail(S.context(getDb()), actor, id);
+    detail = S.getRequestDetail(purchasingRequestContext(), actor, id);
   } catch {
     notFound();
   }

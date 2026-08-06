@@ -19,11 +19,23 @@
 
 import { cookies } from 'next/headers';
 
-import { getDb } from './db.ts';
+import { getDb } from '../purchasing/infrastructure/sqlite/database.ts';
 import { loadActor, type Actor } from './service.ts';
-import { seed } from './seed.ts';
+import { seed } from '../purchasing/infrastructure/seed.ts';
+import { purchasingContext } from '../purchasing/composition.ts';
 
 const COOKIE = 'purchasing_uid';
+
+/**
+ * The composed purchasing context for one request. The UI calls this and never
+ * touches a database handle: `getDb()` appears in exactly two places now — here
+ * and the composition root.
+ */
+export function purchasingRequestContext() {
+  const db = getDb();
+  seed(db);
+  return purchasingContext(db);
+}
 
 export async function currentActor(): Promise<Actor | null> {
   const db = getDb();

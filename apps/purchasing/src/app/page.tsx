@@ -4,12 +4,11 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
-import { currentActor } from '../server/session.ts';
-import { getDb } from '../server/db.ts';
+import { currentActor, purchasingRequestContext } from '../server/session.ts';
 import * as S from '../server/service.ts';
-import { hasPermission } from '../domain/roles.mjs';
-import { summarize, isOverdue } from '../domain/dashboard.mjs';
-import { formatMoney } from '../domain/numbers.mjs';
+import { hasPermission } from '../purchasing/domain/roles.mjs';
+import { summarize, isOverdue } from '../purchasing/domain/dashboard.mjs';
+import { formatMoney } from '../purchasing/domain/numbers.mjs';
 import { Card, Empty, Section, StatusBadge } from '../components/ui';
 import RequestTable from '../components/RequestTable';
 
@@ -19,7 +18,7 @@ export default async function HomePage() {
   const actor = await currentActor();
   if (!actor) redirect('/signin');
 
-  const ctx = S.context(getDb());
+  const ctx = purchasingRequestContext();
   const requests = S.listRequests(ctx, actor);
   const now = new Date().toISOString();
 

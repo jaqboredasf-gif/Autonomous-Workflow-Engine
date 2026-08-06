@@ -7,7 +7,7 @@
 import { useActionState, useState } from 'react';
 
 import { reviewAndDecideAction } from '../app/actions.ts';
-import { formatMoney, formatQty, lineTotalCents, parseMoney, parseQty, suggestedOrderQty } from '../domain/numbers.mjs';
+import { formatMoney, formatQty, lineTotalCents, parseMoney, parseQty, suggestedOrderQty } from '../purchasing/domain/numbers.mjs';
 import { Field, ReadOnly, Section, buttonClass, inputClass, secondaryButtonClass } from './ui';
 
 type LineState = {
