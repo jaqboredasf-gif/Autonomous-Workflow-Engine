@@ -26,6 +26,16 @@ import { authAdapter } from './infrastructure/auth/index.ts';
 import { loadConfig } from './infrastructure/env.ts';
 
 /**
+ * Which repositories are bound. The Supabase context is request-scoped — it
+ * needs the caller's access token and organization — so it is constructed by
+ * the request layer (Checkpoint 1E) rather than here, and this function names
+ * the decision so there is one place to look.
+ */
+export function selectedProvider(config = loadConfig()): 'local' | 'supabase' {
+  return config.persistenceProvider;
+}
+
+/**
  * Build the purchasing context over a SQLite handle.
  *
  * `now` is injectable so the harness can drive a deterministic clock; the app

@@ -11,9 +11,12 @@
 // ---------------------------------------------------------------------------
 
 export type AuthProvider = 'local' | 'supabase';
+export type PersistenceProvider = 'local' | 'supabase';
 
 export type AppConfig = {
   authProvider: AuthProvider;
+  /** Which purchasing repositories are bound. See composition.ts. */
+  persistenceProvider: PersistenceProvider;
   appBaseUrl: string;
   sessionSecret: string;
   sessionTtlSeconds: number;
@@ -49,8 +52,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const declared = env.AUTH_PROVIDER as AuthProvider | undefined;
   const authProvider: AuthProvider = declared ?? (supabaseUrl && supabaseAnon ? 'supabase' : 'local');
 
+  // Persistence does NOT infer itself from the presence of Supabase keys the
+  // way auth does: switching where the company's purchasing records live is a
+  // deliberate act, and a stray environment variable must not perform it.
+  const persistenceProvider: PersistenceProvider =
+    (env.PURCHASING_PERSISTENCE as PersistenceProvider) ?? 'local';
+
   return {
     authProvider,
+    persistenceProvider,
     appBaseUrl: env.APP_BASE_URL ?? 'http://localhost:3000',
     sessionSecret: env.SESSION_SECRET ?? DEV_SESSION_SECRET,
     sessionTtlSeconds: Number(env.SESSION_TTL_SECONDS ?? 60 * 60 * 12),
@@ -106,6 +116,18 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): {
     }
     if (!config.supabase.redirectUrl) {
       warn('AUTH_REDIRECT_URL', 'password-reset emails need a redirect URL Supabase is allowed to send to');
+    }
+  }
+  if (config.persistenceProvider === 'supabase') {
+    if (!config.supabase.url) error('NEXT_PUBLIC_SUPABASE_URL', 'required when PURCHASING_PERSISTENCE=supabase');
+    if (!config.supabase.anonKey) error('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'required when PURCHASING_PERSISTENCE=supabase');
+    // The Supabase context is request-scoped and needs the caller's verified
+    // access token to make RLS apply to the caller. That plumbing is
+    // Checkpoint 1E; until it exists, selecting this provider would run every
+    // query anonymously and RLS would refuse all of them. Fail loudly here
+    // rather than mysteriously on the first page load.
+    if (config.authProvider !== 'supabase') {
+      error('PURCHASING_PERSISTENCE', 'Supabase persistence requires AUTH_PROVIDER=supabase (the caller\'s token scopes every query)');
     }
   }
   if (config.authProvider === 'local' && config.isProduction) {

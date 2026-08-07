@@ -104,7 +104,21 @@ const tick = () => new Date((clock += 60_000)).toISOString();
 const db = openDatabase(dbPath);
 seed(db, new Date(clock).toISOString());
 
-const ctx = () => S.context(db, tick());
+// PROVIDER UNDER TEST. `local` resolves in the same tick; `deferred` wraps the
+// same repositories so every call settles on a later macrotask, which is what
+// a remote provider does and what catches a missing `await`.
+const PROVIDER = process.env.PURCHASING_TEST_PROVIDER ?? 'local';
+const { deferContext } = await import(join(ROOT, 'scripts', 'lib', 'deferred-provider.mjs'));
+
+let deferredCalls = () => 0;
+const ctx = () => {
+  const base = S.context(db, tick());
+  if (PROVIDER !== 'deferred') return base;
+  const wrapped = deferContext(base);
+  deferredCalls = wrapped.calls;
+  return wrapped.context;
+};
+console.log(`provider under test: ${PROVIDER}`);
 
 const users = Object.fromEntries(
   await Promise.all(
@@ -722,8 +736,12 @@ check(parityProblems.length === 0, 'the SQL migration and the app agree on statu
 db.close();
 rmSync(TMP, { recursive: true, force: true });
 
+if (PROVIDER === 'deferred') {
+  check(deferredCalls() > 0, 'the deferred provider actually served this run');
+}
+
 console.log('');
-console.log(`checks: ${pass} passed, ${fail} failed`);
+console.log(`checks: ${pass} passed, ${fail} failed  (provider: ${PROVIDER})`);
 if (fail > 0) {
   console.log('');
   for (const f of failures) console.log(`  - ${f}`);
