@@ -403,6 +403,83 @@ eq(N.receiptGuard({ orderedQty: 18 * K, alreadyReceivedQty: 0, incomingQty: 100 
 eq(N.receiptGuard({ orderedQty: 18 * K, alreadyReceivedQty: 0, incomingQty: 0 }).reason, 'non_positive',
    'a zero receipt is not a receipt');
 
+console.log('--- catalog normalization (history substrate) ------------------');
+
+const C = await import(join(DOMAIN, 'catalog.mjs'));
+
+// The point of normalization: the same item, typed by four people on four days,
+// collapses to one key — so a catalog, autocomplete and ranking are possible
+// later without reprocessing history that was never captured.
+const SAME = ['2x4 LED Troffer 4000K', '2X4 led troffer, 4000k', '2 x 4  LED   Troffer (4000K)', '2x4 LED troffer 4000K!'];
+const key = C.normalizeDescription(SAME[0]);
+for (const variant of SAME) {
+  eq(C.normalizeDescription(variant), key, `"${variant}" normalizes to the same key`);
+}
+
+// ...and things that are genuinely different stay different. A normalizer that
+// over-collapses is worse than none: it merges 3500K into 4000K silently.
+check(!C.isSameItem('2x4 LED troffer 4000K', '2x4 LED troffer 3500K'), 'a different colour temperature is a different item');
+check(!C.isSameItem('1/2 in EMT conduit', '3/4 in EMT conduit'), 'a different size is a different item');
+
+// DECISION: word order is NOT normalized away. Sorting the tokens would make
+// "1/2 to 3/4 reducer" and "3/4 to 1/2 reducer" the same entry, and those are
+// two different fittings. A reordered description therefore produces a second
+// catalog entry — which a human can merge later with the evidence in front of
+// them. Over-collapsing is the more expensive mistake: it is silent.
+check(!C.isSameItem('1/2 to 3/4 reducer', '3/4 to 1/2 reducer'),
+      'word order is preserved — a reducer is directional');
+check(!C.isSameItem('LED troffer 2x4', '2x4 LED troffer'),
+      'a reordered description is a separate entry rather than a silent merge');
+check(C.isSameItem('1/2 in EMT conduit', '1/2 IN emt Conduit'), 'case and spacing do not make a different item');
+check(C.isSameItem('Válvula de bola', 'Valvula de bola'), 'accents fold — the interface will be Spanish as well as English');
+eq(C.normalizeDescription('   '), '', 'an empty description has no key rather than a blank one');
+eq(C.normalizeDescription(null), '', 'a missing description does not throw');
+
+// Fractions and decimals carry meaning in a materials description and survive.
+check(C.normalizeDescription('1/2 in EMT').includes('1/2'), 'a fraction survives normalization');
+check(C.normalizeDescription('#12 THHN 500 ft').includes('500'), 'a quantity in the text survives');
+
+const entry = C.catalogKeyFor({ orgId: 'org-a', description: '  2x4 LED Troffer 4000K ', unit: 'ea', vendorId: 'v1' });
+eq(entry.orgId, 'org-a', 'a catalog entry belongs to an organization');
+eq(entry.canonicalDescription, '2x4 LED Troffer 4000K', 'the canonical form keeps what the person actually typed');
+eq(entry.normalizedDescription, key, 'the entry is keyed on the normalized form');
+eq(entry.normalizerVersion, C.NORMALIZER_VERSION, 'the entry records which rules produced it');
+eq(C.catalogKeyFor({ orgId: 'o', description: '' }), null, 'nothing to match on is not a catalog entry');
+
+// Cross-tenant: the same item in two organizations is two entries, and the
+// organization is part of the key rather than a filter applied afterwards.
+const a = C.catalogKeyFor({ orgId: 'org-a', description: '2x4 LED troffer' });
+const b = C.catalogKeyFor({ orgId: 'org-b', description: '2x4 LED troffer' });
+eq(a.normalizedDescription, b.normalizedDescription, 'two organizations can buy the same thing');
+check(a.orgId !== b.orgId, 'and their catalog entries are still separate rows');
+
+// The fields history must preserve for the future features to be possible.
+for (const field of ['orgId', 'normalizedDescription', 'description', 'quantity', 'unit',
+                     'vendorId', 'jobNumber', 'estimatedUnitCostCents', 'actualUnitCostCents',
+                     'receivedQty', 'orderedAt']) {
+  check(C.HISTORY_FIELDS.includes(field), `history preserves ${field}`);
+}
+
+console.log('--- internationalization seam ----------------------------------');
+
+// The product will ship English and Spanish. Identifiers are never translated;
+// display text is a key the presentation layer resolves. The domain must not
+// be the place English lives.
+const { statusMessageKey } = await import(join(DOMAIN, 'status.mjs'));
+const { activityMessage } = await import(join(DOMAIN, 'activity.mjs'));
+
+eq(statusMessageKey('PENDING_WORKSHOP_REVIEW'), 'purchasing.status.PENDING_WORKSHOP_REVIEW',
+   'a status resolves to a translation key, not a sentence');
+check(REQUEST_STATUSES.every((s) => statusMessageKey(s).startsWith('purchasing.status.')),
+      'every status has a translation key');
+
+const message = activityMessage({ action: 'po.generated', actorName: 'Mike', details: { poNumber: 'LE-52901' } });
+eq(message.key, 'purchasing.activity.po.generated', 'a timeline entry resolves to a key');
+eq(message.params.poNumber, 'LE-52901', 'with the values to interpolate, rather than a built sentence');
+eq(message.params.actor, 'Mike', 'including who did it');
+check(ACTIVITY_ACTIONS.every((a) => activityMessage({ action: a }).key.startsWith('purchasing.activity.')),
+      'every recorded action has a translation key');
+
 console.log('--- intake validation + dashboard ------------------------------');
 
 const draftInput = {

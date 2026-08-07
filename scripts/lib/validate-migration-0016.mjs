@@ -33,6 +33,9 @@ const MIGRATION = join(ROOT, 'supabase', 'migrations', '0016_purchasing_control.
 // 0017 adds the auth link and job assignments; parity is checked over both,
 // because the app does not care which file a table arrived in.
 const MIGRATION_0017 = join(ROOT, 'supabase', 'migrations', '0017_purchasing_auth_and_assignments.sql');
+// 0018 adds tenant ownership on line items, the item catalog and the job
+// directory. Parity is checked over the whole set.
+const MIGRATION_0018 = join(ROOT, 'supabase', 'migrations', '0018_purchasing_history_and_jobs.sql');
 const APP = join(ROOT, 'apps', 'purchasing', 'src');
 
 /**
@@ -73,10 +76,12 @@ export const TABLE_MAP = {
   // Supabase Auth owns them in auth.users and 0017 stores only the reference.
   auth_identities: null,
   user_job_assignments: 'purchasing_job_assignments',
+  purchase_item_catalog: 'purchase_item_catalog',
+  purchase_jobs: 'purchase_jobs',
 };
 
 export async function validate() {
-  const sql = `${readFileSync(MIGRATION, 'utf8')}\n${readFileSync(MIGRATION_0017, 'utf8')}`;
+  const sql = [MIGRATION, MIGRATION_0017, MIGRATION_0018].map((f) => readFileSync(f, 'utf8')).join('\n');
   const problems = [];
   const bad = (m) => problems.push(m);
 

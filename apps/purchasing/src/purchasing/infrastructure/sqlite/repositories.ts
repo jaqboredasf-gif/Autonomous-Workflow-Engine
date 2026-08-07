@@ -32,8 +32,29 @@ import type {
 } from '../../domain/repositories.ts';
 import { formatPoNumber } from '../../domain/po-number.mjs';
 import { lineOutstandingQty } from '../../domain/numbers.mjs';
+import { normalizeDescription } from '../../domain/catalog.mjs';
 
 const uuid = () => randomUUID();
+
+/**
+ * The organization a line item belongs to, read from its parent. Postgres does
+ * this in a trigger (migration 0018); the local store has no trigger, so the
+ * repository is the one place that sets it — and it always sets it from the
+ * parent, never from an argument, so it cannot be spoofed.
+ */
+function orgOfReview(db: DatabaseSync, reviewId: string): string {
+  const row = db.prepare(
+    `select r.org_id from purchase_reviews rv
+       join purchase_requests r on r.id = rv.request_id
+      where rv.id = ?`,
+  ).get(reviewId) as any;
+  return row?.org_id;
+}
+
+function orgOfReceipt(db: DatabaseSync, receiptId: string): string {
+  const row = db.prepare('select org_id from purchase_receipts where id = ?').get(receiptId) as any;
+  return row?.org_id;
+}
 
 // --- mappers ----------------------------------------------------------------
 
@@ -145,9 +166,14 @@ export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestReposi
       record.items.forEach((item: any, idx: number) => {
         db.prepare(
           `insert into purchase_request_items
-             (id, request_id, line_no, description, requested_qty, unit, stock_number, notes, created_at, updated_at, created_by)
-           values (?,?,?,?,?,?,?,?,?,?,?)`,
-        ).run(uuid(), id, idx + 1, item.description, item.requestedQty, item.unit,
+             (id, request_id, org_id, line_no, description, normalized_description,
+              requested_qty, unit, stock_number, notes, created_at, updated_at, created_by)
+           values (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ).run(uuid(), id, record.orgId, idx + 1, item.description,
+              // What the person typed is kept as typed; this is what it matched
+              // on, recorded now so a later rule change cannot re-cluster history.
+              normalizeDescription(item.description),
+              item.requestedQty, item.unit,
               item.stockNumber ?? null, item.notes ?? null, record.now, record.now, record.createdBy);
       });
       return (await this.findById(id))!;
@@ -208,11 +234,14 @@ export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestReposi
     async replaceItems(requestId, items, actorId, now) {
       db.prepare('delete from purchase_request_items where request_id = ?').run(requestId);
       items.forEach((item: any, idx: number) => {
+        const parent = db.prepare('select org_id from purchase_requests where id = ?').get(requestId) as any;
         db.prepare(
           `insert into purchase_request_items
-             (id, request_id, line_no, description, requested_qty, unit, stock_number, notes, created_at, updated_at, created_by)
-           values (?,?,?,?,?,?,?,?,?,?,?)`,
-        ).run(uuid(), requestId, idx + 1, item.description, item.requestedQty, item.unit,
+             (id, request_id, org_id, line_no, description, normalized_description,
+              requested_qty, unit, stock_number, notes, created_at, updated_at, created_by)
+           values (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ).run(uuid(), requestId, parent?.org_id, idx + 1, item.description,
+              normalizeDescription(item.description), item.requestedQty, item.unit,
               item.stockNumber ?? null, item.notes ?? null, now, now, actorId);
       });
     },
@@ -264,13 +293,13 @@ export function sqliteReviewRepository(db: DatabaseSync): WorkshopReviewReposito
       } else {
         db.prepare(
           `insert into purchase_review_items
-             (id, review_id, request_item_id, usable_stock_qty, approved_qty, suggested_order_qty,
+             (id, review_id, org_id, request_item_id, usable_stock_qty, approved_qty, suggested_order_qty,
               final_order_qty, stock_applied_qty, replenishment_qty, vendor_id, estimated_unit_cost_cents,
               estimated_line_total_cents, substitute_description, expected_arrival_date, line_notes,
               override_reason, created_at, updated_at, updated_by)
-           values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         ).run(
-          uuid(), reviewId, requestItemId, v.usableStockQty, v.approvedQty, v.suggestedOrderQty,
+          uuid(), reviewId, orgOfReview(db, reviewId), requestItemId, v.usableStockQty, v.approvedQty, v.suggestedOrderQty,
           v.finalOrderQty, v.stockAppliedQty, v.replenishmentQty, v.vendorId, v.estimatedUnitCostCents,
           v.estimatedLineTotalCents, v.substituteDescription, v.expectedArrivalDate, v.lineNotes,
           v.overrideReason, now, now, actorId,
@@ -410,11 +439,17 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
       order.items.forEach((line: any) => {
         db.prepare(
           `insert into purchase_order_items
-             (id, purchase_order_id, line_no, request_item_id, description, substitute_description,
-              order_qty, unit, unit_cost_cents, line_total_cents, expected_arrival_date, created_at)
-           values (?,?,?,?,?,?,?,?,?,?,?,?)`,
-        ).run(uuid(), id, line.lineNo, line.requestItemId, line.description, line.substituteDescription,
-              line.orderQty, line.unit, line.unitCostCents, line.lineTotalCents, line.expectedArrivalDate, now);
+             (id, purchase_order_id, org_id, line_no, request_item_id, description,
+              normalized_description, substitute_description, order_qty, unit,
+              unit_cost_cents, line_total_cents, expected_arrival_date, created_at)
+           values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ).run(uuid(), id, order.orgId, line.lineNo, line.requestItemId, line.description,
+              // The ORDERED description is normalized too: a substitute is a
+              // different item, and history should be able to see that.
+              normalizeDescription(line.substituteDescription || line.description),
+              line.substituteDescription,
+              line.orderQty, line.unit, line.unitCostCents, line.lineTotalCents,
+              line.expectedArrivalDate, now);
       });
       return { id, poNumber: order.poNumber };
     },
@@ -625,10 +660,10 @@ export function sqliteReceiptRepository(db: DatabaseSync): ReceiptRepository {
     async insertLine(receiptId, line, now) {
       db.prepare(
         `insert into purchase_receipt_items
-           (id, receipt_id, purchase_order_item_id, received_qty, damaged_qty, backordered_qty,
+           (id, receipt_id, org_id, purchase_order_item_id, received_qty, damaged_qty, backordered_qty,
             written_off_qty, over_receipt_override, override_reason, notes, created_at)
-         values (?,?,?,?,?,?,?,?,?,?,?)`,
-      ).run(uuid(), receiptId, line.purchaseOrderItemId, line.receivedQty, line.damagedQty,
+         values (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(uuid(), receiptId, orgOfReceipt(db, receiptId), line.purchaseOrderItemId, line.receivedQty, line.damagedQty,
             line.backorderedQty, line.writtenOffQty, line.overrideReason ? 1 : 0,
             line.overrideReason ?? null, line.notes ?? null, now);
     },

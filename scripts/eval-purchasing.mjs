@@ -724,6 +724,59 @@ await refuses(
   'a vendor email cannot be drafted without a purchase order',
 );
 
+console.log('--- purchasing history is preserved and tenant-scoped ----------');
+
+// The forward-compatibility requirement: an organization's line-item history
+// must stay identifiable, complete and separate, so later features (catalog,
+// autocomplete, ranking, reorder, analytics) have something to learn from.
+const histRows = db.prepare(
+  `select i.org_id, i.description, i.normalized_description, i.requested_qty, i.unit, r.job_number
+     from purchase_request_items i join purchase_requests r on r.id = i.request_id`,
+).all();
+check(histRows.length > 0, 'there is line-item history to preserve');
+check(histRows.every((r) => r.org_id), 'EVERY historical line carries its organization on the row');
+check(histRows.every((r) => r.org_id === DEMO_ORG_ID), 'and it is the organization of its parent request');
+check(histRows.every((r) => r.description && r.description.trim().length > 0),
+      'the original user-entered description is preserved verbatim');
+check(histRows.every((r) => r.normalized_description), 'the normalized form is stored beside it, not derived on read');
+check(histRows.every((r) => r.requested_qty > 0 && r.unit), 'quantity and unit are preserved');
+check(histRows.every((r) => r.job_number), 'job context is preserved');
+
+const orderedRows = db.prepare(
+  `select oi.org_id, oi.description, oi.normalized_description, oi.order_qty, oi.unit,
+          oi.unit_cost_cents, oi.actual_unit_cost_cents, po.vendor_id, po.po_number, po.job_number
+     from purchase_order_items oi join purchase_orders po on po.id = oi.purchase_order_id`,
+).all();
+check(orderedRows.length > 0, 'there is ordered-line history');
+check(orderedRows.every((r) => r.org_id === DEMO_ORG_ID), 'ordered lines carry their organization');
+check(orderedRows.every((r) => r.vendor_id), 'the vendor relationship is preserved on ordered history');
+check(orderedRows.every((r) => r.po_number && r.job_number), 'PO and job context are preserved');
+check(orderedRows.every((r) => r.normalized_description), 'ordered lines carry a normalized form for matching');
+// Estimated and actual are DIFFERENT facts and either may be unknown.
+check(orderedRows.every((r) => r.unit_cost_cents !== null), 'estimated cost is recorded where it was known');
+check(orderedRows.every((r) => r.actual_unit_cost_cents === null),
+      'actual cost is null until reconciled — unknown is not zero');
+
+// Cross-tenant: the second organization created earlier must own no history,
+// and a history query scoped to it must return nothing belonging to Lippolis.
+const strangerHistory = db.prepare('select count(*) c from purchase_request_items where org_id = ?').get(otherOrg);
+eq(strangerHistory.c, 0, 'another organization has no line-item history of its own');
+const mixed = db.prepare(
+  `select count(*) c from purchase_request_items i
+     join purchase_requests r on r.id = i.request_id
+    where i.org_id <> r.org_id`,
+).get();
+eq(mixed.c, 0, 'NO line item belongs to a different organization than its parent — history cannot be mixed');
+
+const catalogTable = db.prepare(
+  "select count(*) c from sqlite_master where type='table' and name='purchase_item_catalog'",
+).get();
+eq(catalogTable.c, 1, 'the organization catalog table exists for later curation');
+const jobsTable = db.prepare(
+  "select count(*) c from sqlite_master where type='table' and name='purchase_jobs'",
+).get();
+eq(jobsTable.c, 1, 'the job directory table exists');
+
 console.log('--- migration parity (0016) ------------------------------------');
 
 const { validate } = await import(join(ROOT, 'scripts', 'lib', 'validate-migration-0016.mjs'));

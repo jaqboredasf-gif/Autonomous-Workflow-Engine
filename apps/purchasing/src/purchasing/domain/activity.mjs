@@ -91,8 +91,37 @@ export function isNotificationEvent(e) {
 }
 
 /**
- * Human sentence for a timeline row. Falls back to the raw action rather than
- * throwing: an unlabelled but recorded action is still evidence.
+ * The translation key and parameters for a timeline row.
+ *
+ * A timeline is the most language-sensitive surface in the application — it is
+ * prose. So the domain emits a KEY and the values to interpolate, never a
+ * sentence, and a message catalogue turns that into English or Spanish.
+ *
+ * `describeActivity()` below remains as the English fallback, and is what the
+ * current UI still calls. Replacing those call sites is the i18n checkpoint;
+ * this exists so that work does not require changing the domain again.
+ */
+export function activityMessage(entry) {
+  const d = entry?.details ?? entry?.newValues ?? {};
+  return {
+    key: `purchasing.activity.${entry?.action ?? 'unknown'}`,
+    params: {
+      actor: entry?.actorName ?? null,
+      vendorName: d.vendorName ?? null,
+      poNumber: d.poNumber ?? null,
+      filename: d.filename ?? null,
+      type: d.type ?? null,
+      permission: d.permission ?? null,
+      reason: d.reason ?? null,
+      fields: d.fields ?? null,
+    },
+  };
+}
+
+/**
+ * English sentence for a timeline row. FALLBACK ONLY — see activityMessage().
+ * Falls back to the raw action rather than throwing: an unlabelled but recorded
+ * action is still evidence.
  */
 export function describeActivity(entry) {
   const who = entry.actorName ?? 'Someone';

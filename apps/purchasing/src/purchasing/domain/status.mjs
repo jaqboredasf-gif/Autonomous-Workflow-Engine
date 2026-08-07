@@ -146,7 +146,24 @@ export const GUARD_REASONS = [
   'lines_outstanding',
 ];
 
-/** Human label for a status, for badges and timelines. */
+/**
+ * The translation key for a status. THIS is what a localized interface reads;
+ * the status value itself is a stable identifier and is never translated.
+ *
+ * The product will ship English and Spanish. Nothing in the domain, the
+ * database or the API should carry a display string, so this returns a key and
+ * the presentation layer resolves it. `statusLabel()` below stays as the
+ * English fallback for surfaces that have no message catalogue yet.
+ */
+export function statusMessageKey(status) {
+  return `purchasing.status.${status}`;
+}
+
+/**
+ * English label for a status. FALLBACK ONLY — derived from the identifier, so
+ * it is correct English by construction and wrong in every other language.
+ * A localized UI must use statusMessageKey() instead.
+ */
 export function statusLabel(s) {
   return String(s)
     .toLowerCase()

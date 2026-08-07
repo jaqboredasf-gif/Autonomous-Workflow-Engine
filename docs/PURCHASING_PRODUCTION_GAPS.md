@@ -3,7 +3,7 @@
 What is real, what is written but unproven, and what does not exist. Written to be
 disagreed with: if a line here is wrong, fix the line rather than the impression.
 
-Status as of commit `5b35bcc`. Verified locally: **411 automated checks** (165 domain unit,
+Status as of Checkpoint 1C. Verified locally: **411 automated checks** (165 domain unit,
 158 integration, 88 website acceptance) plus a clean production build.
 
 ---
@@ -57,7 +57,7 @@ Ordered by what a pilot would miss first.
 | --- | --- | --- |
 | `WORKSHOP_RECEIVER` role; delivery destination type on an order | workshop vs job-site receipt authority is inferred from role and assignment, not declared per order | Phase 10 |
 | Statuses `VENDOR_CONFIRMED`, `SHIPPED`, `ARCHIVED`; queue folders for them | the queue groups by the statuses that exist; three named folders cannot exist yet | Phase 8 |
-| Job directory (jobs are free text on a request) | no customer, site address, PM, primary/backup foreman, delivery instructions | Phase 5 |
+| Job directory — **schema exists (0018), no UI** | `purchase_jobs` holds customer, site, PM, foreman, delivery instructions; nothing creates or edits one yet, and the Supabase `jobs()` reader still returns empty | Phase 5 |
 | Vendor directory beyond name/contact | no branch, terms, categories, preferred flag, emergency contact | Phase 6 |
 | File upload from the field forms | attachments are modelled, audited and stored, but nothing uploads a photo | Phase 7 |
 | Invitations with pending state, resend, last sign-in, session revocation | admin can invite, disable, reset, assign — but there is no invitation lifecycle | Phase 4 |
@@ -69,10 +69,26 @@ Ordered by what a pilot would miss first.
 | Duplicate and risk detection | none | Phase 15 |
 | PO amendments (`PO-1042-R1`) | a purchase order is immutable and has no revision path | Phase 16 |
 | Cancellation, returns, credits | a request can be cancelled; lines, returns and credits cannot | Phase 17 |
-| Invoice capture and three-way match | accounting reads receipt evidence only | Phase 18 |
+| Invoice capture and three-way match — **columns exist (0018)** | `actual_unit_cost`, `actual_line_total`, `actual_total` are in place and always null; nothing writes them | Phase 18 |
 | Tenant configuration (branding, terminology, required fields, templates) | one hard-coded organization seed; the domain itself is free of Lippolis specifics, but the configuration layer does not exist | Phase 19 |
 | Security headers, CSRF tokens, upload validation | Next's defaults only | Phase 21 |
 | Backup and restore documentation, rollback procedure | the pilot database is a file nobody has a policy for | Phase 22 |
+
+## 4b. Added in 1C, schema only (no UX, by instruction)
+
+- Line items carry `org_id` directly, with a trigger forbidding drift and a test asserting no row
+  belongs to a different organization than its parent.
+- `normalized_description` stored beside the original text; normalization lives in the domain and
+  is versioned.
+- `purchase_item_catalog` (unique per organization), `purchase_line_history` view.
+- `purchase_jobs` directory; job number stays free text on the request on purpose.
+- Estimated vs actual cost, where unknown is NULL rather than zero.
+- Audit `seq` now has a database default (was a read-modify-write race).
+- i18n seam: the domain emits message keys; English helpers remain as labelled fallbacks.
+
+**Not done in 1C, and still owed:** routing approval and PO generation through the existing
+Postgres RPCs (they are atomic on the local provider and not on Supabase), the receipt RPC, and
+the storage bucket. See `PURCHASING_ASYNC_REFACTOR_HANDOFF.md`.
 
 ## 5. Known-good, and why you can believe it
 

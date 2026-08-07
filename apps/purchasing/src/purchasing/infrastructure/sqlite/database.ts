@@ -594,6 +594,64 @@ create table if not exists user_job_assignments (
 
 create index if not exists user_job_assignments_job_idx on user_job_assignments(job_number);
 
+-- --- history, catalog and the job directory (mirrors migration 0018) -------
+--
+-- Line items carry org_id directly so an organization's purchasing history is
+-- queryable — and isolated — without joining up to the parent every time. The
+-- future features (autocomplete, ranking, reorder, analytics) all read across
+-- history; the tenant boundary has to be on the row.
+
+create table if not exists purchase_item_catalog (
+  id                     text primary key,
+  org_id                 text not null references orgs(id),
+  -- Computed by domain/catalog.mjs so both providers agree byte for byte.
+  normalized_description text not null,
+  canonical_description  text not null,
+  default_unit           text,
+  default_vendor_id      text references vendors(id),
+  catalog_number         text,
+  notes                  text,
+  is_active              integer not null default 1 check (is_active in (0,1)),
+  normalizer_version     integer not null default 1,
+  first_seen_at          text not null,
+  last_seen_at           text not null,
+  created_at             text not null,
+  updated_at             text not null,
+  created_by             text references users(id),
+  -- Two organizations that buy the same item have two entries, and neither can
+  -- see the other's. The org in the key is what keeps vocabularies apart.
+  unique (org_id, normalized_description)
+);
+
+create index if not exists purchase_item_catalog_org_idx
+  on purchase_item_catalog(org_id, last_seen_at desc);
+
+create table if not exists purchase_jobs (
+  id                    text primary key,
+  org_id                text not null references orgs(id),
+  job_number            text not null,
+  name                  text not null,
+  customer              text,
+  site_address          text,
+  status                text not null default 'ACTIVE'
+    check (status in ('ACTIVE','ON_HOLD','COMPLETED','CANCELLED')),
+  project_manager_id    text references users(id),
+  primary_foreman_id    text references users(id),
+  delivery_instructions text,
+  default_location_id   text references delivery_locations(id),
+  cost_code             text,
+  project_phase         text,
+  starts_on             text,
+  ends_on               text,
+  created_at            text not null,
+  updated_at            text not null,
+  created_by            text references users(id),
+  updated_by            text references users(id),
+  unique (org_id, job_number)
+);
+
+create index if not exists purchase_jobs_org_status_idx on purchase_jobs(org_id, status);
+
 create table if not exists schema_meta (
   key   text primary key,
   value text not null
@@ -606,6 +664,26 @@ create table if not exists schema_meta (
  * outcome on an already-migrated database.
  */
 const ADDED_COLUMNS = [
+  // 0018: tenant ownership directly on historical line items, so an
+  // organization's history is one indexed read and cannot be joined across.
+  'alter table purchase_request_items add column org_id text references orgs(id)',
+  'alter table purchase_order_items add column org_id text references orgs(id)',
+  'alter table purchase_receipt_items add column org_id text references orgs(id)',
+  'alter table purchase_review_items add column org_id text references orgs(id)',
+  // 0018: what it matched on, kept beside what the person typed. Both are
+  // preserved; neither is derived from the other at read time.
+  'alter table purchase_request_items add column normalized_description text',
+  'alter table purchase_request_items add column catalog_item_id text references purchase_item_catalog(id)',
+  'alter table purchase_order_items add column normalized_description text',
+  'alter table purchase_order_items add column catalog_item_id text references purchase_item_catalog(id)',
+  // 0018: actual cost beside estimated. NULL means unknown, not zero — a
+  // purchaser may order without knowing the price.
+  'alter table purchase_order_items add column actual_unit_cost_cents integer',
+  'alter table purchase_order_items add column actual_line_total_cents integer',
+  'alter table purchase_orders add column actual_total_cents integer',
+  'alter table purchase_orders add column actual_cost_source text',
+  // 0018: a job assignment says what kind of relationship it is.
+  "alter table user_job_assignments add column assignment_kind text not null default 'FOREMAN'",
   // Set once Supabase Auth has authenticated this person: the link between the
   // credential provider's user and ours.
   "alter table users add column auth_user_id text",
@@ -626,12 +704,44 @@ function migrate(db: DatabaseSync) {
       if (!/duplicate column name/i.test(String((err as Error).message))) throw err;
     }
   }
+  backfillLineItemOrgs(db);
+
   const row = db.prepare('select value from schema_meta where key = ?').get('version') as
     | { value: string }
     | undefined;
   if (!row) {
     db.prepare('insert into schema_meta (key, value) values (?, ?)').run('version', SCHEMA_VERSION);
   }
+}
+
+/**
+ * Give existing line items their organization. Idempotent: only rows without
+ * one are touched, so this is a no-op on every run after the first.
+ *
+ * The local store cannot express the Postgres trigger that forbids drift, so
+ * the repositories set org_id from the parent on every insert and this fills in
+ * the rows written before the column existed.
+ */
+function backfillLineItemOrgs(db: DatabaseSync) {
+  db.exec(`
+    update purchase_request_items set org_id = (
+      select r.org_id from purchase_requests r where r.id = purchase_request_items.request_id
+    ) where org_id is null;
+
+    update purchase_order_items set org_id = (
+      select po.org_id from purchase_orders po where po.id = purchase_order_items.purchase_order_id
+    ) where org_id is null;
+
+    update purchase_receipt_items set org_id = (
+      select rc.org_id from purchase_receipts rc where rc.id = purchase_receipt_items.receipt_id
+    ) where org_id is null;
+
+    update purchase_review_items set org_id = (
+      select r.org_id from purchase_reviews rv
+        join purchase_requests r on r.id = rv.request_id
+       where rv.id = purchase_review_items.review_id
+    ) where org_id is null;
+  `);
 }
 
 /** Table names the parity validator compares against the SQL migration. */
@@ -667,4 +777,6 @@ export const TABLES = [
   'system_settings',
   'auth_identities',
   'user_job_assignments',
+  'purchase_item_catalog',
+  'purchase_jobs',
 ];

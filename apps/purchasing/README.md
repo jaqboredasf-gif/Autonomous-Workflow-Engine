@@ -198,6 +198,7 @@ Contract: `docs/testing/PURCHASING.md`.
 | [`docs/PURCHASING_PILOT_CHECKLIST.md`](../../docs/PURCHASING_PILOT_CHECKLIST.md) | running the Lippolis pilot |
 | [`docs/PURCHASING_PRODUCTION_GAPS.md`](../../docs/PURCHASING_PRODUCTION_GAPS.md) | **what is unproven, and what does not exist** |
 | [`docs/PURCHASING_ASYNC_REFACTOR_HANDOFF.md`](../../docs/PURCHASING_ASYNC_REFACTOR_HANDOFF.md) | the async boundary, the transaction contract, and the next step for Supabase |
+| [`docs/PURCHASING_HISTORY_AND_CATALOG.md`](../../docs/PURCHASING_HISTORY_AND_CATALOG.md) | tenant-scoped purchasing history, the item catalog, estimated vs actual cost, and the internationalization requirement |
 | [`docs/testing/PURCHASING.md`](../../docs/testing/PURCHASING.md) | the test contract |
 
 ---
