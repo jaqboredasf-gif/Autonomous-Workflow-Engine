@@ -109,8 +109,12 @@ const WORKSHOP_APPROVER_PERMISSIONS = [
  * A foreman is a requestor who also signs for deliveries — but only on the job
  * sites they are assigned to. The permission opens the workspace; the
  * assignment decides which requests inside it (see authorize() below).
+ *
+ * No `order.track`: a foreman reads a shipment's tracking on the request page
+ * like everyone else, but entering a carrier and tracking number is the
+ * purchaser's clerical act, not the field's.
  */
-const FOREMAN_PERMISSIONS = [...REQUESTOR_PERMISSIONS, 'deliveries.confirm', 'receiving.record', 'order.track'];
+const FOREMAN_PERMISSIONS = [...REQUESTOR_PERMISSIONS, 'deliveries.confirm', 'receiving.record'];
 
 /**
  * Accounting reads: it needs the evidence behind a receipt to pay an invoice,
@@ -121,12 +125,121 @@ const ACCOUNTING_PERMISSIONS = [
   'request.read.own',
   'request.read.all',
   'request.note',
-  'order.track',
+  // `order.track` is deliberately ABSENT. It reads like a view permission and
+  // is not one: the only thing that checks it is updateTracking(), which WRITES
+  // a carrier and tracking number. Accounting sees tracking through the ordinary
+  // read paths, which are scoped by organization, and must not be able to alter
+  // a shipment record it is supposed to be auditing.
   'accounting.read',
   'accounting.packet',
 ];
 
 const ADMIN_PERMISSIONS = [...PERMISSIONS];
+
+// ---------------------------------------------------------------------------
+// THE CAPABILITY VOCABULARY — the names an operator, a contract, or another
+// system uses, mapped onto the permissions this code enforces.
+//
+// Why both exist: the internal names are fine-grained because enforcement needs
+// to be (there is a real difference between reading your own request and
+// reading everyone's). The capability names are coarse because a person
+// configuring roles thinks in jobs-to-be-done, not in predicates.
+//
+// This is a MAP, not a second system. Every capability resolves to permissions
+// that authorize() already checks. Nothing is enforced against a capability
+// name directly, so the two cannot drift into disagreeing.
+// ---------------------------------------------------------------------------
+
+export const CAPABILITIES = {
+  'purchase.request.create': ['request.create', 'request.submit'],
+  'purchase.request.view': ['request.read.own'],
+  'purchase.request.view.all': ['request.read.all'],
+  'purchase.request.edit': ['request.update.own'],
+  'purchase.request.approve': ['review.decide'],
+  'purchase.order.create': ['po.generate'],
+  'purchase.order.manage': ['order.track', 'email.draft', 'email.review'],
+  'purchase.order.mark_ordered': ['order.mark_ordered'],
+  'receiving.confirm': ['receiving.record'],
+  'vendor.manage': ['admin.vendors'],
+  'job.manage': ['admin.assignments'],
+  'user.manage': ['admin.users', 'admin.invite'],
+  'accounting.view': ['accounting.read'],
+  'audit.view': ['admin.audit'],
+};
+
+/** Does this user hold a capability? True only if they hold ALL of its permissions. */
+export function hasCapability(user, capability) {
+  const required = CAPABILITIES[capability];
+  if (!required) return false;
+  const held = new Set(permissionsFor(user));
+  return required.every((p) => held.has(p));
+}
+
+/** Every capability a user holds. What an admin screen should display. */
+export function capabilitiesFor(user) {
+  return Object.keys(CAPABILITIES).filter((c) => hasCapability(user, c));
+}
+
+// ---------------------------------------------------------------------------
+// ROLE PRESETS — the names on the admin screen.
+//
+// A preset is a starting point an administrator picks, not a new authorization
+// primitive: it expands to roles and grants that already exist. An
+// administrator can still set roles individually afterwards, and the system
+// neither remembers nor cares which preset was used.
+//
+// NO INDIVIDUAL IS NAMED HERE. Assigning a person to a preset is data an
+// administrator enters, and stays that way.
+// ---------------------------------------------------------------------------
+
+export const ROLE_PRESETS = [
+  {
+    key: 'ORGANIZATION_ADMIN',
+    labelKey: 'purchasing.preset.organization_admin',
+    roles: ['ADMIN'],
+    canApprove: true,
+    description: 'Everything, including users, vendors, jobs and configuration.',
+  },
+  {
+    key: 'PURCHASING_MANAGER',
+    labelKey: 'purchasing.preset.purchasing_manager',
+    roles: ['WORKSHOP_APPROVER'],
+    canApprove: true,
+    description: 'Reviews and decides requests, generates POs and vendor emails, marks orders placed.',
+  },
+  {
+    key: 'APPROVER',
+    labelKey: 'purchasing.preset.approver',
+    roles: ['OFFICE'],
+    canApprove: true,
+    description: 'Office staff given approval authority, without the full purchasing role.',
+  },
+  {
+    key: 'REQUESTER',
+    labelKey: 'purchasing.preset.requester',
+    roles: ['REQUESTOR'],
+    canApprove: false,
+    description: 'Raises and submits requests. Sees their own.',
+  },
+  {
+    key: 'FIELD_FOREMAN',
+    labelKey: 'purchasing.preset.field_foreman',
+    roles: ['FOREMAN'],
+    canApprove: false,
+    description: 'Raises requests and signs for deliveries — on assigned jobs only.',
+  },
+  {
+    key: 'ACCOUNTING_READ_ONLY',
+    labelKey: 'purchasing.preset.accounting',
+    roles: ['ACCOUNTING'],
+    canApprove: false,
+    description: 'Inspects completed purchasing records. Holds no write permission at all.',
+  },
+];
+
+export function presetByKey(key) {
+  return ROLE_PRESETS.find((p) => p.key === key) ?? null;
+}
 
 export const ROLE_PERMISSIONS = {
   REQUESTOR: REQUESTOR_PERMISSIONS,

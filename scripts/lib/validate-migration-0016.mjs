@@ -23,13 +23,14 @@
 // Used by scripts/eval-purchasing.mjs; exits non-zero on its own if run directly.
 // ---------------------------------------------------------------------------
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
-const MIGRATION = join(ROOT, 'supabase', 'migrations', '0016_purchasing_control.sql');
+const MIGRATIONS_DIR = join(ROOT, 'supabase', 'migrations');
+const MIGRATION = join(MIGRATIONS_DIR, '0016_purchasing_control.sql');
 // 0017 adds the auth link and job assignments; parity is checked over both,
 // because the app does not care which file a table arrived in.
 const MIGRATION_0017 = join(ROOT, 'supabase', 'migrations', '0017_purchasing_auth_and_assignments.sql');
@@ -133,6 +134,27 @@ export async function validate() {
   // narrow what this lint looks at.
   const rolePermPattern = new RegExp(`\\('(${ROLES.join('|')})',\\s*'([\\w.]+)'\\)`, 'g');
   const rolePermRows = new Set([...sql.matchAll(rolePermPattern)].map((m) => `${m[1]}:${m[2]}`));
+
+  // Migrations are append-only, so a grant seeded by one migration can be
+  // WITHDRAWN by a later one. Reading only the INSERTs would report a
+  // divergence that the database does not actually have. Every migration is
+  // scanned for deletes and they are applied to the seeded set, in the same
+  // order Postgres would apply them.
+  const allMigrations = readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .map((f) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
+    .join('\n');
+  for (const m of allMigrations.matchAll(
+    /delete\s+from\s+purchasing_role_permissions\s+where([\s\S]*?);/gi,
+  )) {
+    const clause = m[1];
+    const deletedRoles = [...clause.matchAll(/'([A-Z_]+)'/g)].map((x) => x[1]).filter((r) => ROLES.includes(r));
+    const deletedPerms = [...clause.matchAll(/permission\s*=\s*'([\w.]+)'/g)].map((x) => x[1]);
+    for (const role of deletedRoles) {
+      for (const permission of deletedPerms) rolePermRows.delete(`${role}:${permission}`);
+    }
+  }
   for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
     if (role === 'ADMIN') continue; // seeded by the union query, checked below
     for (const p of permissions) {
