@@ -212,6 +212,32 @@ create index if not exists purchase_request_items_catalog_idx
 create index if not exists purchase_order_items_catalog_idx
   on purchase_order_items(org_id, catalog_item_id);
 
+-- ---------------------------------------------------------------------------
+-- Actual vs estimated cost.
+--
+-- A purchaser may order without knowing the price — that is normal, not a gap
+-- in the data. Estimated cost is what the workshop thought; actual cost is what
+-- the invoice said. Either may be unknown, and unknown is NULL. Zero means
+-- someone recorded a price of zero, which is a different fact.
+-- ---------------------------------------------------------------------------
+
+alter table purchase_order_items
+  add column if not exists actual_unit_cost  numeric(12,2),
+  add column if not exists actual_line_total numeric(12,2),
+  add constraint purchase_order_items_actual_unit_cost_positive
+    check (actual_unit_cost is null or actual_unit_cost >= 0),
+  add constraint purchase_order_items_actual_line_total_positive
+    check (actual_line_total is null or actual_line_total >= 0);
+
+alter table purchase_orders
+  add column if not exists actual_total numeric(12,2),
+  add column if not exists actual_cost_source text,
+  add constraint purchase_orders_actual_total_positive
+    check (actual_total is null or actual_total >= 0);
+
+comment on column purchase_orders.actual_total is
+  'What was actually paid, when known. NULL means not yet reconciled — it does not mean zero.';
+
 -- The history view the future features read. A view rather than a table: it
 -- cannot drift, and it makes the tenant boundary explicit in one place.
 create or replace view purchase_line_history as
@@ -248,32 +274,6 @@ comment on view purchase_line_history is
   'material autocomplete, catalog curation, frequently-purchased ranking, recent-item '
   'suggestions, preferred-vendor association and reorder analytics. Read it with '
   'org_id = current_org_id(); never across organizations.';
-
--- ---------------------------------------------------------------------------
--- Actual vs estimated cost.
---
--- A purchaser may order without knowing the price — that is normal, not a gap
--- in the data. Estimated cost is what the workshop thought; actual cost is what
--- the invoice said. Either may be unknown, and unknown is NULL. Zero means
--- someone recorded a price of zero, which is a different fact.
--- ---------------------------------------------------------------------------
-
-alter table purchase_order_items
-  add column if not exists actual_unit_cost  numeric(12,2),
-  add column if not exists actual_line_total numeric(12,2),
-  add constraint purchase_order_items_actual_unit_cost_positive
-    check (actual_unit_cost is null or actual_unit_cost >= 0),
-  add constraint purchase_order_items_actual_line_total_positive
-    check (actual_line_total is null or actual_line_total >= 0);
-
-alter table purchase_orders
-  add column if not exists actual_total numeric(12,2),
-  add column if not exists actual_cost_source text,
-  add constraint purchase_orders_actual_total_positive
-    check (actual_total is null or actual_total >= 0);
-
-comment on column purchase_orders.actual_total is
-  'What was actually paid, when known. NULL means not yet reconciled — it does not mean zero.';
 
 -- ---------------------------------------------------------------------------
 -- C. The job directory
