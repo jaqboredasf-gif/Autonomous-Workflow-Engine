@@ -50,6 +50,11 @@ export const ACTIVITY_ACTIONS = [
   'validation.rejected_fields',
   'admin.po_config_changed',
   'admin.approval_authority_changed',
+  'accounting.actual_cost_recorded',
+  'admin.vendor_created',
+  'admin.vendor_updated',
+  'admin.job_created',
+  'admin.job_updated',
 ];
 
 /** Events the notification layer fans out on. */

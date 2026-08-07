@@ -224,3 +224,190 @@ export async function setApprovalAuthority(ctx: PurchasingContext, actor: Actor,
   ]);
   return { ok: true };
 }
+
+// ===========================================================================
+// THE DIRECTORIES — vendors and jobs.
+//
+// These are the two things a new organization must be able to configure before
+// it can place a single order, and the two things that previously required a
+// developer to insert rows. That is the whole difference between a product and
+// a bespoke install, so they are use cases like any other: authorized,
+// validated, audited.
+//
+// Neither is ever hard-deleted. A vendor that has appeared on a purchase order
+// and a job that has appeared on a request are part of the historical record;
+// they are DEACTIVATED so they stop being offered while what they explain stays
+// intact.
+// ===========================================================================
+
+export type VendorInput = {
+  name?: string; accountNumber?: string; phone?: string; address?: string; notes?: string;
+  contactName?: string; contactEmail?: string; contactPhone?: string;
+};
+
+function cleanVendor(input: VendorInput) {
+  const name = (input.name ?? '').trim();
+  if (!name) throw new PurchasingError('validation_failed', 'a vendor needs a name');
+  if (name.length > 200) throw new PurchasingError('validation_failed', 'that vendor name is too long');
+
+  // An address that a purchase order is mailed to, and an email a draft is
+  // addressed to, are worth one sanity check each. Both stay optional: a
+  // counter account at a local supply house may have neither.
+  const contactEmail = (input.contactEmail ?? '').trim();
+  if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+    throw new PurchasingError('validation_failed', 'that contact email address is not a valid address');
+  }
+  return {
+    name,
+    accountNumber: (input.accountNumber ?? '').trim() || null,
+    phone: (input.phone ?? '').trim() || null,
+    address: (input.address ?? '').trim() || null,
+    notes: (input.notes ?? '').trim() || null,
+    contactName: (input.contactName ?? '').trim() || null,
+    contactEmail: contactEmail || null,
+    contactPhone: (input.contactPhone ?? '').trim() || null,
+  };
+}
+
+export async function createVendor(ctx: PurchasingContext, actor: Actor, input: VendorInput) {
+  await must(ctx, actor, 'admin.vendors');
+  const v = cleanVendor(input);
+
+  // Checked before writing so the operator gets "you already have one of those"
+  // rather than a constraint violation from three layers down.
+  const existing = await ctx.reference.vendorByName(actor.orgId, v.name);
+  if (existing) {
+    throw new PurchasingError('duplicate', `this organization already has a vendor called ${v.name}`);
+  }
+
+  const now = ctx.clock.now();
+  const vendorId = await ctx.uow.run(async () => {
+    const id = await ctx.reference.createVendor(actor.orgId, v, actor.id, now);
+    if (v.contactName || v.contactEmail || v.contactPhone) {
+      await ctx.reference.setVendorPrimaryContact(actor.orgId, id, {
+        name: v.contactName, email: v.contactEmail, phone: v.contactPhone,
+      }, now);
+    }
+    return id;
+  });
+
+  await emit(ctx, actor, actor.orgId, [
+    events.vendorCreated(vendorId, v, `added vendor ${v.name}`),
+  ]);
+  return { ok: true, vendorId };
+}
+
+export async function updateVendor(
+  ctx: PurchasingContext, actor: Actor, vendorId: string, input: VendorInput,
+) {
+  await must(ctx, actor, 'admin.vendors');
+  const before = (await ctx.reference.vendors(actor.orgId)).find((v: any) => v.id === vendorId);
+  if (!before) throw new PurchasingError('not_found', 'vendor not found');
+  const v = cleanVendor({ ...before, ...input, name: input.name ?? before.name });
+
+  if (v.name !== before.name) {
+    const clash = await ctx.reference.vendorByName(actor.orgId, v.name);
+    if (clash && clash.id !== vendorId) {
+      throw new PurchasingError('duplicate', `this organization already has a vendor called ${v.name}`);
+    }
+  }
+
+  const now = ctx.clock.now();
+  await ctx.uow.run(async () => {
+    await ctx.reference.updateVendor(actor.orgId, vendorId, v, actor.id, now);
+    if (input.contactName !== undefined || input.contactEmail !== undefined || input.contactPhone !== undefined) {
+      await ctx.reference.setVendorPrimaryContact(actor.orgId, vendorId, {
+        name: v.contactName, email: v.contactEmail, phone: v.contactPhone,
+      }, now);
+    }
+  });
+
+  await emit(ctx, actor, actor.orgId, [
+    events.vendorUpdated(vendorId, { name: before.name }, v, `updated vendor ${v.name}`),
+  ]);
+  return { ok: true };
+}
+
+/**
+ * Retire or restore a vendor. Never a delete: a vendor named on a past purchase
+ * order has to stay resolvable, or the order stops explaining itself.
+ */
+export async function setVendorActive(
+  ctx: PurchasingContext, actor: Actor, vendorId: string, isActive: boolean,
+) {
+  await must(ctx, actor, 'admin.vendors');
+  const now = ctx.clock.now();
+  await ctx.reference.updateVendor(actor.orgId, vendorId, { isActive }, actor.id, now);
+  await emit(ctx, actor, actor.orgId, [
+    events.vendorUpdated(vendorId, { isActive: !isActive }, { isActive },
+      `${isActive ? 'restored' : 'retired'} a vendor`),
+  ]);
+  return { ok: true };
+}
+
+export type JobInput = {
+  jobNumber?: string; name?: string; customer?: string; siteAddress?: string;
+  deliveryInstructions?: string; status?: string; costCode?: string;
+};
+
+const JOB_STATUSES = ['ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED'];
+
+function cleanJob(input: JobInput) {
+  const jobNumber = (input.jobNumber ?? '').trim();
+  const name = (input.name ?? '').trim();
+  if (!jobNumber) throw new PurchasingError('validation_failed', 'a job needs a job number');
+  if (!name) throw new PurchasingError('validation_failed', 'a job needs a name');
+  const status = (input.status ?? 'ACTIVE').trim().toUpperCase();
+  if (!JOB_STATUSES.includes(status)) {
+    throw new PurchasingError('validation_failed', `${status} is not a job status`);
+  }
+  return {
+    jobNumber, name, status,
+    customer: (input.customer ?? '').trim() || null,
+    siteAddress: (input.siteAddress ?? '').trim() || null,
+    deliveryInstructions: (input.deliveryInstructions ?? '').trim() || null,
+    costCode: (input.costCode ?? '').trim() || null,
+  };
+}
+
+export async function createJob(ctx: PurchasingContext, actor: Actor, input: JobInput) {
+  await must(ctx, actor, 'admin.assignments');
+  const j = cleanJob(input);
+
+  const existing = await ctx.reference.jobByNumber(actor.orgId, j.jobNumber);
+  if (existing) {
+    throw new PurchasingError('duplicate', `job ${j.jobNumber} already exists`);
+  }
+
+  const now = ctx.clock.now();
+  const jobId = await ctx.reference.createJob(actor.orgId, j, actor.id, now);
+  await emit(ctx, actor, actor.orgId, [
+    events.jobCreated(jobId, j, `added job ${j.jobNumber} — ${j.name}`),
+  ]);
+  return { ok: true, jobId };
+}
+
+export async function updateJob(
+  ctx: PurchasingContext, actor: Actor, jobId: string, input: JobInput,
+) {
+  await must(ctx, actor, 'admin.assignments');
+  const before = (await ctx.reference.jobs(actor.orgId)).find((j: any) => String(j.id) === String(jobId));
+  if (!before) throw new PurchasingError('not_found', 'job not found');
+
+  // The job NUMBER is deliberately not editable here. It is written onto every
+  // request and purchase order as text; changing it would orphan them from the
+  // job they belong to. Retire the job and create the replacement instead.
+  const j = cleanJob({
+    ...before,
+    ...input,
+    jobNumber: before.job_number ?? before.jobNumber,
+    siteAddress: input.siteAddress ?? before.address ?? before.site_address,
+  });
+
+  const now = ctx.clock.now();
+  await ctx.reference.updateJob(actor.orgId, jobId, j, actor.id, now);
+  await emit(ctx, actor, actor.orgId, [
+    events.jobUpdated(jobId, { name: before.name, status: before.status }, j, `updated job ${j.jobNumber}`),
+  ]);
+  return { ok: true };
+}

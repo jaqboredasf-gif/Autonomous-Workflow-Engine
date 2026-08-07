@@ -25,10 +25,14 @@
 // ---------------------------------------------------------------------------
 
 import type {
-  ApprovalRepository, EmailDraftRepository, InventoryRepository, LineProgressRecord,
-  PoNumberAllocator, PurchaseOrderRepository, PurchaseRequestRepository, ReceiptRepository,
-  ReferenceRepository, WorkshopReviewRepository,
+  ApprovalRepository, CatalogEntry, EmailDraftRepository, InventoryRepository,
+  ItemCatalogRepository, LineProgressRecord, PoNumberAllocator, PurchaseOrderRepository,
+  PurchaseRequestRepository, ReceiptRepository, ReferenceRepository, WorkshopReviewRepository,
 } from '../../domain/repositories.ts';
+// Matching and ranking are the DOMAIN's, shared with the local provider on
+// purpose: two catalogues that ordered their suggestions differently would be
+// two products. Only the read differs between providers.
+import { byCatalogUsefulness, matchCatalog, normalizeDescription } from '../../domain/catalog.mjs';
 import { lineOutstandingQty } from '../../domain/numbers.mjs';
 import type { SupabaseHandles } from './client.ts';
 import { unwrap } from './client.ts';
@@ -81,8 +85,18 @@ export function supabaseRequestRepository(h: SupabaseHandles): PurchaseRequestRe
           await h.db.from(TABLES.requestItems).insert(
             record.items.map((item: any, idx: number) => ({
               request_id: inserted.id,
+              // Tenant ownership on the row itself (0018). The guard trigger
+              // rejects a line whose organization disagrees with its parent,
+              // and a NULL here would be a line nothing can scope.
+              org_id: record.orgId,
               line_no: idx + 1,
               description: item.description,
+              // What the person typed is kept as typed; this is what it
+              // matched on, recorded now so a later rule change cannot
+              // re-cluster history. The local provider writes it too — if only
+              // one provider did, the item catalogue would exist on one and be
+              // empty on the other.
+              normalized_description: normalizeDescription(item.description),
               requested_qty: qty.write(item.requestedQty),
               unit: item.unit,
               stock_number: item.stockNumber ?? null,
@@ -206,8 +220,10 @@ async function withAggregates(h: SupabaseHandles, rows: any[]): Promise<any[]> {
   ]);
 
   const requested = new Map<string, number>();
+  const lineCount = new Map<string, number>();
   for (const row of (items.data ?? []) as any[]) {
     requested.set(row.request_id, (requested.get(row.request_id) ?? 0) + qty.read(row.requested_qty));
+    lineCount.set(row.request_id, (lineCount.get(row.request_id) ?? 0) + 1);
   }
   const stock = new Map<string, number>();
   const ordering = new Map<string, number>();
@@ -221,6 +237,7 @@ async function withAggregates(h: SupabaseHandles, rows: any[]): Promise<any[]> {
   return mapped.map((r) => ({
     ...r,
     requestedQty: requested.get(r.id) ?? 0,
+    itemCount: lineCount.get(r.id) ?? 0,
     workshopStockQty: stock.get(r.id) ?? 0,
     finalOrderQty: ordering.get(r.id) ?? 0,
   }));
@@ -417,7 +434,11 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
         await h.db.from(TABLES.orderItems).insert(
           order.items.map((line: any) => ({
             purchase_order_id: row.id, line_no: line.lineNo, request_item_id: line.requestItemId,
+            org_id: order.orgId ?? h.orgId,
             description: line.description, substitute_description: line.substituteDescription,
+            // Same rule as the request line: the matching key is written when
+            // the row is written, never derived on read.
+            normalized_description: normalizeDescription(line.substituteDescription || line.description),
             order_qty: qty.write(line.orderQty), unit: line.unit,
             unit_cost: money.write(line.unitCostCents), line_total: money.write(line.lineTotalCents),
             expected_arrival_date: line.expectedArrivalDate,
@@ -474,11 +495,31 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
       });
     },
 
+    async recordActualCost(orgId, purchaseOrderId, input: any, actorId, now) {
+      unwrap(
+        await h.db.from(TABLES.orders).update({
+          // nullableMoney, NOT money: null here means "not reconciled yet",
+          // and money.write() would turn a cleared figure into 0.00 — which
+          // reads as "this purchase cost nothing" to whoever sees it next.
+          actual_total: nullableMoney.write(input.actualTotalCents),
+          actual_cost_source: input.reference ?? input.source ?? null,
+          updated_at: now, updated_by: actorId,
+        }).eq('id', purchaseOrderId).eq('org_id', orgId).select('id'),
+        'record actual cost',
+      );
+    },
+
+    // NOTE ON THE ORG SELECT BELOW: `orgs` carries id, name and created_at and
+    // nothing else. This used to ask for phone and address too, and every PO
+    // sheet failed to render with "column orgs_1.phone does not exist" — a
+    // column this schema has never had. Letterhead contact details belong to
+    // the PO template, not to the tenant row. The local provider selects * and
+    // so never noticed the difference.
     async view(purchaseOrderId) {
       const order = unwrap(
         await h.db.from(TABLES.orders).select(`
           *,
-          org:orgs(id,name,phone,address),
+          org:orgs(id,name),
           vendor:purchase_vendors(id,name,account_number,phone,address),
           contact:purchase_vendor_contacts(name,email,phone),
           location:purchase_delivery_locations(name,address),
@@ -719,13 +760,108 @@ export function supabaseReferenceRepository(h: SupabaseHandles): ReferenceReposi
       ) as any[];
     },
 
-    async jobs(_orgId) {
-      // TODO(1C): production has no job directory yet — migration 0016/0017
-      // deliberately store the job number as text on the request. Returning an
-      // empty list means the intake form offers no autocomplete against
-      // Supabase; it does NOT block a request, because the field is free text.
-      // The job directory is Checkpoint 1C.
-      return [];
+    async jobs(orgId) {
+      // The job directory, added by migration 0018. It used to return an empty
+      // list with a TODO; that meant the intake form offered no job list at all
+      // against Supabase, and a request's job was whatever someone typed.
+      const rows = unwrap(
+        await h.db.from(TABLES.jobs)
+          .select('id, org_id, job_number, name, customer, site_address, status, delivery_instructions, cost_code, default_location_id, created_at')
+          .eq('org_id', orgId)
+          .in('status', ['ACTIVE', 'ON_HOLD'])
+          .order('job_number'),
+        'list jobs',
+      ) as any[];
+      // `address` and `is_active` are what the UI and the local provider use.
+      // Mapped here so neither can tell which provider answered.
+      return rows.map((j) => ({
+        ...j, address: j.site_address, is_active: j.status === 'ACTIVE',
+      }));
+    },
+
+    // --- directory writes ---------------------------------------------------
+    async vendorByName(orgId, name) {
+      const { data } = await h.db.from(TABLES.vendors)
+        .select('*').eq('org_id', orgId).ilike('name', name).maybeSingle();
+      return data ?? null;
+    },
+    async createVendor(orgId, input: any, actorId, now) {
+      const row = unwrap(
+        await h.db.from(TABLES.vendors).insert({
+          org_id: orgId, name: input.name, account_number: input.accountNumber ?? null,
+          phone: input.phone ?? null, address: input.address ?? null, notes: input.notes ?? null,
+          is_active: true, created_at: now, updated_at: now,
+          created_by: actorId, updated_by: actorId,
+        }).select('id').single(),
+        'create vendor',
+      ) as any;
+      return String(row.id);
+    },
+    async updateVendor(orgId, vendorId, patch: any, actorId, now) {
+      const columns: Record<string, unknown> = { updated_at: now, updated_by: actorId };
+      if (patch.name !== undefined) columns.name = patch.name;
+      if (patch.accountNumber !== undefined) columns.account_number = patch.accountNumber;
+      if (patch.phone !== undefined) columns.phone = patch.phone;
+      if (patch.address !== undefined) columns.address = patch.address;
+      if (patch.notes !== undefined) columns.notes = patch.notes;
+      if (patch.isActive !== undefined) columns.is_active = patch.isActive;
+      unwrap(
+        await h.db.from(TABLES.vendors).update(columns).eq('id', vendorId).eq('org_id', orgId).select('id'),
+        'update vendor',
+      );
+    },
+    async setVendorPrimaryContact(orgId, vendorId, contact: any, now) {
+      // The vendor is re-read scoped by org before its child rows are touched:
+      // vendor_contacts has no org_id of its own, so this is where the tenant
+      // boundary is enforced for them.
+      const { data: owned } = await h.db.from(TABLES.vendors)
+        .select('id').eq('id', vendorId).eq('org_id', orgId).maybeSingle();
+      if (!owned) return;
+      const { data: existing } = await h.db.from(TABLES.vendorContacts)
+        .select('id').eq('vendor_id', vendorId).eq('is_primary', true).maybeSingle();
+      const values = {
+        name: contact.name ?? 'Orders', email: contact.email ?? '',
+        phone: contact.phone ?? null, updated_at: now,
+      };
+      if (existing) {
+        unwrap(await h.db.from(TABLES.vendorContacts).update(values).eq('id', (existing as any).id).select('id'),
+          'update vendor contact');
+      } else {
+        unwrap(await h.db.from(TABLES.vendorContacts)
+          .insert({ ...values, vendor_id: vendorId, is_primary: true, created_at: now }).select('id'),
+          'create vendor contact');
+      }
+    },
+    async jobByNumber(orgId, jobNumber) {
+      const { data } = await h.db.from(TABLES.jobs)
+        .select('*').eq('org_id', orgId).eq('job_number', jobNumber).maybeSingle();
+      return data ?? null;
+    },
+    async createJob(orgId, input: any, actorId, now) {
+      const row = unwrap(
+        await h.db.from(TABLES.jobs).insert({
+          org_id: orgId, job_number: input.jobNumber, name: input.name,
+          customer: input.customer ?? null, site_address: input.siteAddress ?? null,
+          status: input.status ?? 'ACTIVE', delivery_instructions: input.deliveryInstructions ?? null,
+          cost_code: input.costCode ?? null, created_at: now, updated_at: now,
+          created_by: actorId, updated_by: actorId,
+        }).select('id').single(),
+        'create job',
+      ) as any;
+      return String(row.id);
+    },
+    async updateJob(orgId, jobId, patch: any, actorId, now) {
+      const columns: Record<string, unknown> = { updated_at: now, updated_by: actorId };
+      if (patch.name !== undefined) columns.name = patch.name;
+      if (patch.customer !== undefined) columns.customer = patch.customer;
+      if (patch.siteAddress !== undefined) columns.site_address = patch.siteAddress;
+      if (patch.status !== undefined) columns.status = patch.status;
+      if (patch.deliveryInstructions !== undefined) columns.delivery_instructions = patch.deliveryInstructions;
+      if (patch.costCode !== undefined) columns.cost_code = patch.costCode;
+      unwrap(
+        await h.db.from(TABLES.jobs).update(columns).eq('id', jobId).eq('org_id', orgId).select('id'),
+        'update job',
+      );
     },
 
     async users(orgId) {
@@ -800,5 +936,192 @@ export function supabaseReferenceRepository(h: SupabaseHandles): ReferenceReposi
         'set approval authority',
       );
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The item catalogue.
+//
+// Same contract as the local provider, built the same way: from the line items
+// themselves, folding the curated `purchase_item_catalog` row over the top.
+//
+// The aggregation happens HERE rather than in Postgres because supabase-js has
+// no GROUP BY and a view would need its own RLS story. The read is bounded
+// (HISTORY_LIMIT) and org-scoped both by the explicit filter and by RLS. If a
+// pilot outgrows that bound, the honest fix is a security-invoker view or an
+// RPC in a migration — not a bigger limit — and the cap is logged in the
+// catalogue's `truncated` behaviour rather than silently pretended away.
+// ---------------------------------------------------------------------------
+
+const HISTORY_LIMIT = 5000;
+
+export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRepository {
+  const loadEntries = async (): Promise<CatalogEntry[]> => {
+    const [items, curatedRows, orderRows] = await Promise.all([
+      unwrap(
+        await h.db
+          .from(TABLES.requestItems)
+          .select('normalized_description, description, requested_qty, unit, stock_number, created_at')
+          .eq('org_id', h.orgId)
+          .not('normalized_description', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(HISTORY_LIMIT),
+        'read item history',
+      ) as any[],
+      unwrap(
+        await h.db.from(TABLES.itemCatalog).select('*').eq('org_id', h.orgId),
+        'read item catalog',
+      ) as any[],
+      unwrap(
+        await h.db
+          .from(TABLES.orderItems)
+          .select(
+            'normalized_description, unit_cost, order_qty, purchase_order:purchase_orders(generated_at, vendor:purchase_vendors(id,name))',
+          )
+          .eq('org_id', h.orgId)
+          .not('normalized_description', 'is', null)
+          .limit(HISTORY_LIMIT),
+        'read purchase history',
+      ) as any[],
+    ]);
+
+    const curated = new Map(curatedRows.map((row) => [String(row.normalized_description), row]));
+
+    // Latest purchase per item.
+    const purchases = new Map<string, any>();
+    for (const row of orderRows) {
+      const key = String(row.normalized_description);
+      const at = row.purchase_order?.generated_at ?? '';
+      const seen = purchases.get(key);
+      if (!seen || String(seen.at) < String(at)) {
+        purchases.set(key, {
+          at,
+          vendorId: row.purchase_order?.vendor?.id ?? null,
+          vendorName: row.purchase_order?.vendor?.name ?? null,
+          unitCostCents: row.unit_cost === null || row.unit_cost === undefined ? null : money.read(row.unit_cost),
+        });
+      }
+    }
+
+    // Aggregate the request history.
+    const grouped = new Map<string, any>();
+    for (const row of items) {
+      const key = String(row.normalized_description);
+      if (!key) continue;
+      const acc = grouped.get(key) ?? {
+        descriptions: new Set<string>(),
+        timesRequested: 0,
+        totalQty: 0,
+        lastRequestedAt: null as string | null,
+        unit: null as string | null,
+        catalogNumber: null as string | null,
+      };
+      acc.descriptions.add(String(row.description));
+      acc.timesRequested += 1;
+      acc.totalQty += qty.read(row.requested_qty);
+      if (!acc.lastRequestedAt || String(row.created_at) > acc.lastRequestedAt) {
+        acc.lastRequestedAt = String(row.created_at);
+      }
+      acc.unit = acc.unit ?? row.unit ?? null;
+      acc.catalogNumber = acc.catalogNumber ?? row.stock_number ?? null;
+      grouped.set(key, acc);
+    }
+
+    const entries: CatalogEntry[] = [];
+    for (const [key, acc] of grouped) {
+      entries.push(buildEntry(key, acc, curated.get(key), purchases.get(key)));
+    }
+    // A curated entry nobody has ordered yet still belongs in the catalogue.
+    for (const [key, row] of curated) {
+      if (grouped.has(key)) continue;
+      entries.push(buildEntry(key, null, row, purchases.get(key)));
+    }
+    return entries;
+  };
+
+  return {
+    async list(orgId, options = {}) {
+      const { search = '', limit = 200, activeOnly = false } = options;
+      let entries = await loadEntries();
+      if (activeOnly) entries = entries.filter((e) => e.isActive);
+      entries = matchCatalog(entries, search);
+      entries.sort((a, b) => a.canonicalDescription.localeCompare(b.canonicalDescription));
+      return entries.slice(0, limit);
+    },
+
+    async suggest(orgId, query, limit = 8) {
+      const entries = matchCatalog((await loadEntries()).filter((e) => e.isActive), query);
+      return entries.sort(byCatalogUsefulness).slice(0, limit);
+    },
+
+    async findByNormalized(orgId, normalizedDescription) {
+      return (await loadEntries()).find((e) => e.normalizedDescription === normalizedDescription) ?? null;
+    },
+
+    async forVendor(vendorId, limit = 25) {
+      const rows = unwrap(
+        await h.db
+          .from(TABLES.orderItems)
+          .select(
+            'normalized_description, description, unit, unit_cost, order_qty, purchase_order:purchase_orders!inner(generated_at, vendor_id)',
+          )
+          .eq('org_id', h.orgId)
+          .eq('purchase_order.vendor_id', vendorId)
+          .not('normalized_description', 'is', null)
+          .limit(HISTORY_LIMIT),
+        'read vendor materials',
+      ) as any[];
+
+      const grouped = new Map<string, CatalogEntry>();
+      for (const row of rows) {
+        const key = String(row.normalized_description);
+        const entry = grouped.get(key) ?? {
+          catalogItemId: null,
+          normalizedDescription: key,
+          canonicalDescription: String(row.description),
+          aliases: [],
+          defaultUnit: row.unit ?? null,
+          catalogNumber: null,
+          timesRequested: 0,
+          totalQtyRequested: 0,
+          lastRequestedAt: null,
+          lastVendorId: vendorId,
+          lastVendorName: null,
+          lastUnitCostCents: null,
+          lastOrderedAt: null,
+          isActive: true,
+        };
+        entry.timesRequested += 1;
+        entry.totalQtyRequested += qty.read(row.order_qty);
+        const at = row.purchase_order?.generated_at ?? null;
+        if (at && (!entry.lastOrderedAt || String(at) > entry.lastOrderedAt)) {
+          entry.lastOrderedAt = String(at);
+          entry.lastUnitCostCents =
+            row.unit_cost === null || row.unit_cost === undefined ? null : money.read(row.unit_cost);
+        }
+        grouped.set(key, entry);
+      }
+      return [...grouped.values()].sort((a, b) => b.timesRequested - a.timesRequested).slice(0, limit);
+    },
+  };
+}
+
+function buildEntry(key: string, history: any, curated: any, purchase: any): CatalogEntry {
+  const aliases: string[] = history ? [...history.descriptions] : [];
+  return {
+    catalogItemId: curated ? String(curated.id) : null,
+    normalizedDescription: key,
+    canonicalDescription: String(curated?.canonical_description ?? aliases[0] ?? key),
+    aliases,
+    defaultUnit: curated?.default_unit ?? history?.unit ?? null,
+    catalogNumber: curated?.catalog_number ?? history?.catalogNumber ?? null,
+    timesRequested: Number(history?.timesRequested ?? 0),
+    totalQtyRequested: Number(history?.totalQty ?? 0),
+    lastRequestedAt: history?.lastRequestedAt ?? null,
+    lastVendorId: purchase?.vendorId ?? curated?.default_vendor_id ?? null,
+    lastVendorName: purchase?.vendorName ?? null,
+    lastUnitCostCents: purchase?.unitCostCents ?? null,
+    lastOrderedAt: purchase?.at ?? null,
+    isActive: curated ? curated.is_active !== false : true,
   };
 }

@@ -19,7 +19,8 @@ import {
 import {
   sqliteApprovalRepository, sqliteEmailDraftRepository, sqliteInventoryRepository,
   sqliteOrderRepository, sqlitePoNumberAllocator, sqliteReceiptRepository,
-  sqliteReferenceRepository, sqliteRequestRepository, sqliteReviewRepository,
+  sqliteItemCatalogRepository, sqliteReferenceRepository, sqliteRequestRepository,
+  sqliteReviewRepository,
 } from './infrastructure/sqlite/repositories.ts';
 import { getDb } from './infrastructure/sqlite/database.ts';
 import { authAdapter } from './infrastructure/auth/index.ts';
@@ -56,6 +57,7 @@ export function purchasingContext(db: DatabaseSync = getDb(), now?: string): Pur
     receipts: sqliteReceiptRepository(db),
     inventory: sqliteInventoryRepository(db),
     reference: sqliteReferenceRepository(db),
+    catalog: sqliteItemCatalogRepository(db),
     poNumbers: sqlitePoNumberAllocator(db),
     identity: identityAdapter(db),
     // Credentials: Supabase Auth in production, the local scrypt store for the

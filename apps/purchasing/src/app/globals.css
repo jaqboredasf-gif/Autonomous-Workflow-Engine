@@ -1,25 +1,105 @@
 @import "tailwindcss";
 
 /*
+ * PCC design tokens (PCC_UI_HANDOFF/02_DESIGN_SYSTEM.md).
+ *
  * Light-only on purpose: this gets demoed on a projector and printed, so the
  * palette must not change with the viewer's OS theme.
+ *
+ * The neutral ramp is Tailwind's slate by value, which is what the existing
+ * screens already use — so naming it here reconciles the two vocabularies
+ * instead of forcing a repo-wide rewrite. `bg-canvas`, `text-ink`,
+ * `border-line` and friends are the names new code should reach for.
  */
 :root {
   color-scheme: light;
-  --background: #f4f5f7;
-  --foreground: #14181f;
+
+  /* Neutral ramp */
+  --pcc-white: #ffffff;
+  --pcc-canvas: #f8fafc;
+  --pcc-subtle: #f1f5f9;
+  --pcc-line: #e2e8f0;
+  --pcc-line-strong: #cbd5e1;
+  --pcc-muted: #64748b;
+  --pcc-ink-soft: #334155;
+  --pcc-ink-strong: #1e293b;
+  --pcc-ink: #0f172a;
+
+  /* Action */
+  --pcc-action-soft: #eff6ff;
+  --pcc-action: #2563eb;
+  --pcc-action-hover: #1d4ed8;
+
+  /* Semantic */
+  --pcc-success-bg: #f0fdf4;
+  --pcc-success-fg: #16a34a;
+  --pcc-warning-bg: #fffbeb;
+  --pcc-warning-fg: #d97706;
+  --pcc-danger-bg: #fef2f2;
+  --pcc-danger-fg: #dc2626;
+  --pcc-info-bg: #f0f9ff;
+  --pcc-info-fg: #0284c7;
+
+  /* Elevation — used sparingly. */
+  --pcc-shadow-card: 0 2px 8px rgba(15, 23, 42, 0.08);
+  --pcc-shadow-pop: 0 8px 24px rgba(15, 23, 42, 0.12);
+
+  /* Shell geometry, shared by the sidebar and the sticky topbar. */
+  --pcc-sidebar-width: 15rem;
+  --pcc-topbar-height: 3.5rem;
+
+  --background: var(--pcc-canvas);
+  --foreground: var(--pcc-ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  --color-canvas: var(--pcc-canvas);
+  --color-surface: var(--pcc-white);
+  --color-subtle: var(--pcc-subtle);
+  --color-line: var(--pcc-line);
+  --color-line-strong: var(--pcc-line-strong);
+  --color-muted: var(--pcc-muted);
+  --color-ink-soft: var(--pcc-ink-soft);
+  --color-ink-strong: var(--pcc-ink-strong);
+  --color-ink: var(--pcc-ink);
+
+  --color-action: var(--pcc-action);
+  --color-action-hover: var(--pcc-action-hover);
+  --color-action-soft: var(--pcc-action-soft);
+
+  --color-success: var(--pcc-success-fg);
+  --color-success-bg: var(--pcc-success-bg);
+  --color-warning: var(--pcc-warning-fg);
+  --color-warning-bg: var(--pcc-warning-bg);
+  --color-danger: var(--pcc-danger-fg);
+  --color-danger-bg: var(--pcc-danger-bg);
+  --color-info: var(--pcc-info-fg);
+  --color-info-bg: var(--pcc-info-bg);
+
+  --shadow-card: var(--pcc-shadow-card);
+  --shadow-pop: var(--pcc-shadow-pop);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+/*
+ * Focus. One visible ring everywhere, in the action colour, so keyboard users
+ * can always see where they are — including on the dense operational tables
+ * where a subtle border change would be invisible.
+ */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--pcc-action);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 /* --- Print rules ------------------------------------------------------ */

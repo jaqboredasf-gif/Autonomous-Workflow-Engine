@@ -35,7 +35,8 @@ declare t text;
 begin
   foreach t in array array[
     'orgs', 'purchasing_org_memberships', 'purchasing_invitations',
-    'users', 'purchasing_user_roles', 'purchase_vendors', 'purchase_jobs',
+    'users', 'purchasing_user_roles', 'purchasing_job_assignments',
+    'purchase_vendors', 'purchase_vendor_contacts', 'purchase_jobs',
     'purchase_delivery_locations', 'purchasing_settings'
   ] loop
     execute format('grant select, insert, update on public.%I to service_role', t);

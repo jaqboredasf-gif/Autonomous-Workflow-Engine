@@ -27,7 +27,22 @@ export async function approvalQueue(ctx: PurchasingContext, actor: Actor) {
 
 export async function getRequestDetail(ctx: PurchasingContext, actor: Actor, requestId: string) {
   const request = await loadRequest(ctx, actor, requestId);
-  if (!await allowed(ctx, actor, 'request.read.all', request)) await must(ctx, actor, 'request.read.own', request);
+  // Three ways to be allowed to read one request, in order of breadth:
+  //   1. you may read everything in the organization
+  //   2. it is yours
+  //   3. you may be asked to SIGN for it — a foreman on the destination job
+  //
+  // The third is not a courtesy. A foreman holds neither `request.read.all`
+  // nor ownership of a request the shop raised, so without it the person the
+  // receiving workflow exists for cannot open the order they are receiving.
+  // `authorize()` scopes it to their assigned jobs, and migration 0027 states
+  // the same rule as an RLS policy so the database agrees.
+  if (
+    !(await allowed(ctx, actor, 'request.read.all', request)) &&
+    !(await allowed(ctx, actor, 'receiving.record', request))
+  ) {
+    await must(ctx, actor, 'request.read.own', request);
+  }
 
   const settings = await ctx.reference.settings(actor.orgId);
   const order = await ctx.orders.findByRequest(requestId);
@@ -46,6 +61,11 @@ export async function getRequestDetail(ctx: PurchasingContext, actor: Actor, req
           items: await ctx.orders.itemsFor(order.id),
         }
       : null,
+    // The vendor's contact, resolved here rather than on the screen. BR-010
+    // requires vendor email to be reachable from the purchase order workflow
+    // without navigating back to the request that started it, and a mailto
+    // with no address is not reachable.
+    vendorContact: order?.vendorId ? await ctx.reference.primaryContact(order.vendorId) : null,
     emailDrafts: await ctx.drafts.listForRequest(requestId),
     receipts: await ctx.receipts.listForRequest(requestId),
     progress: await ctx.orders.progressFor(requestId),
@@ -80,6 +100,97 @@ export async function listJobs(ctx: PurchasingContext, actor: Actor) {
   return await ctx.reference.jobs(actor.orgId);
 }
 
+// ---------------------------------------------------------------------------
+// The materials catalogue.
+//
+// Two different reads with two different audiences, so two different
+// permissions. Suggestions are part of RAISING a request, and every requester
+// holds `request.create`; browsing the whole catalogue is a management view of
+// what the organization buys, and that is `request.read.all`.
+// ---------------------------------------------------------------------------
+
+export async function suggestMaterials(ctx: PurchasingContext, actor: Actor, query: string, limit = 8) {
+  await must(ctx, actor, 'request.create');
+  return await ctx.catalog.suggest(actor.orgId, query, limit);
+}
+
+export async function materialCatalog(
+  ctx: PurchasingContext,
+  actor: Actor,
+  options: { search?: string; limit?: number; activeOnly?: boolean } = {},
+) {
+  await must(ctx, actor, 'request.read.all');
+  return await ctx.catalog.list(actor.orgId, options);
+}
+
+/** What a vendor is actually bought for. The vendor profile's materials list. */
+export async function vendorMaterials(ctx: PurchasingContext, actor: Actor, vendorId: string, limit = 25) {
+  await must(ctx, actor, 'request.read.all');
+  return await ctx.catalog.forVendor(vendorId, limit);
+}
+
+/**
+ * Screen 08 — one vendor, and what this organization's own history says about
+ * them.
+ *
+ * Every number below is COUNTED from purchase records. Nothing is scored,
+ * rated or predicted: the handoff is explicit that reliability metrics must
+ * not be fabricated, and a lead time computed from two deliveries would be a
+ * fabrication with a decimal point on it. Where there is not enough history to
+ * say something true, this returns null and the screen says so.
+ */
+export async function vendorProfile(ctx: PurchasingContext, actor: Actor, vendorId: string) {
+  await must(ctx, actor, 'request.read.all');
+
+  const vendors = await ctx.reference.vendors(actor.orgId);
+  const vendor = vendors.find((v: any) => String(v.id) === String(vendorId)) ?? null;
+  if (!vendor) return null;
+
+  const contact = await ctx.reference.primaryContact(vendorId);
+  const requests = (await ctx.requests.listForOrg(actor.orgId)).filter(
+    (r: any) => String(r.vendorId ?? '') === String(vendorId),
+  );
+
+  const ordered = requests.filter((r: any) => r.orderedAt);
+  const received = requests.filter((r: any) => r.receivedAt && r.orderedAt);
+
+  // Lead time: ordered-to-received, in whole days, over completed deliveries.
+  // MEDIAN rather than mean — one vendor holiday should not move the number a
+  // purchaser plans around.
+  const leadTimes = received
+    .map((r: any) => (Date.parse(r.receivedAt) - Date.parse(r.orderedAt)) / 86_400_000)
+    .filter((d: number) => Number.isFinite(d) && d >= 0)
+    .sort((a: number, b: number) => a - b);
+  const typicalLeadTimeDays = leadTimes.length >= 3 ? Math.round(leadTimes[Math.floor(leadTimes.length / 2)]) : null;
+
+  // "On time" is against the need-by the job actually had, not against a
+  // promise the vendor never made.
+  const onTime = received.filter((r: any) => String(r.receivedAt).slice(0, 10) <= String(r.needByDate ?? '')).length;
+
+  return {
+    vendor,
+    contact,
+    materials: await ctx.catalog.forVendor(vendorId, 20),
+    history: requests
+      .slice()
+      .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)))
+      .slice(0, 25),
+    stats: {
+      totalOrders: ordered.length,
+      openOrders: requests.filter((r: any) => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(r.status)).length,
+      committedCents: requests
+        .filter((r: any) => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(r.status))
+        .reduce((t: number, r: any) => t + Number(r.estimatedTotalCents ?? 0), 0),
+      lastOrderedAt: ordered.map((r: any) => r.orderedAt).sort().pop() ?? null,
+      typicalLeadTimeDays,
+      // Both halves are returned so the screen can say "3 of 4" rather than
+      // "75%", which reads like a measurement when it is four data points.
+      deliveriesMeasured: received.length,
+      deliveriesOnTime: onTime,
+    },
+  };
+}
+
 export async function listUsers(ctx: PurchasingContext, actor: Actor) {
   return await ctx.identity.listUsers(actor.orgId);
 }
@@ -90,7 +201,81 @@ export async function listNotifications(ctx: PurchasingContext, actor: Actor) {
 
 export async function auditLog(ctx: PurchasingContext, actor: Actor, limit = 200) {
   await must(ctx, actor, 'admin.audit');
-  return await ctx.audit.orgLog(actor.orgId, limit);
+  return (await ctx.audit.orgLog(actor.orgId, limit)).map(normalizeActivityRow);
+}
+
+/**
+ * Actions that belong to the purchasing story of a record, as opposed to the
+ * administration of the system. The dashboard's activity feed shows only
+ * these: a purchasing manager should see that an order was placed, and should
+ * NOT see who changed somebody's roles or who was refused a permission. Those
+ * are the administrator's audit log (`auditLog`, gated on `admin.audit`).
+ */
+const OPERATIONAL_ACTIONS = new Set([
+  'request.created', 'request.updated', 'request.submitted', 'request.item_added',
+  'request.item_updated', 'request.item_removed', 'request.attachment_added',
+  'request.note_added', 'request.cancelled', 'clarification.requested',
+  'clarification.answered', 'review.stock_recorded', 'review.quantity_changed',
+  'review.vendor_selected', 'review.cost_changed', 'review.substitute_set',
+  'review.saved', 'decision.approved', 'decision.rejected', 'po.generated',
+  'po.document_generated', 'email.draft_generated', 'email.draft_reviewed',
+  'email.draft_approved_to_send', 'email.marked_sent', 'order.placed',
+  'order.tracking_updated', 'receipt.recorded', 'receipt.partial',
+  'receipt.completed', 'inventory.observed', 'inventory.adjusted',
+  'request.completed', 'accounting.actual_cost_recorded',
+]);
+
+/**
+ * The dashboard's "recent activity".
+ *
+ * Gated on `request.read.all`, not on `admin.audit`: these rows describe the
+ * same organization-wide purchase requests that permission already grants
+ * sight of, so requiring the administrator's permission would be theatre. The
+ * administrative half of the log is filtered out above rather than being
+ * relied on to be uninteresting.
+ */
+export async function recentPurchasingActivity(ctx: PurchasingContext, actor: Actor, limit = 12) {
+  await must(ctx, actor, 'request.read.all');
+  // Over-read then filter: the log interleaves administrative rows, so asking
+  // for exactly `limit` would return fewer than `limit` operational ones.
+  const rows = await ctx.audit.orgLog(actor.orgId, limit * 4);
+  return rows
+    .map(normalizeActivityRow)
+    .filter((row) => OPERATIONAL_ACTIONS.has(row.action))
+    .slice(0, limit);
+}
+
+/**
+ * The two audit adapters return their rows exactly as the table holds them,
+ * while `timelineFor()` returns a camel-cased view. Normalizing here means the
+ * activity feed and the request timeline read the same shape, and neither
+ * provider's column naming leaks into a component.
+ */
+function normalizeActivityRow(row: any) {
+  return {
+    id: row.id,
+    at: row.at,
+    seq: row.seq,
+    requestId: row.request_id ?? row.requestId ?? null,
+    actorId: row.actor_id ?? row.actorId ?? null,
+    actorName: row.actor_name ?? row.actorName ?? null,
+    action: row.action,
+    entityType: row.entity_type ?? row.entityType ?? null,
+    entityId: row.entity_id ?? row.entityId ?? null,
+    previousValues: parseJson(row.previous_values ?? row.previousValues),
+    newValues: parseJson(row.new_values ?? row.newValues),
+    notes: row.notes ?? null,
+  };
+}
+
+function parseJson(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -100,6 +285,25 @@ export async function auditLog(ctx: PurchasingContext, actor: Actor, limit = 200
  */
 export async function deliveriesForActor(ctx: PurchasingContext, actor: Actor) {
   await must(ctx, actor, 'deliveries.confirm');
+  const fieldOnly = !actor.roles.some((r) => ['OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'].includes(r));
+  const all = await ctx.requests.listForOrg(actor.orgId);
+  return all
+    .filter((r) => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(r.status))
+    .filter((r) => !fieldOnly || actor.assignedJobNumbers.includes(r.jobNumber));
+}
+
+/**
+ * Open orders this person may RECORD a receipt against — screen 06's index.
+ *
+ * Distinct from deliveriesForActor() by one permission. `deliveries.confirm`
+ * is the field grant: a foreman signing for what lands on his site.
+ * `receiving.record` is the clerical act of writing down what arrived, which
+ * purchasing and office staff do at the shop counter without ever holding the
+ * field grant. Both are scoped the same way — a field-only user sees only the
+ * jobs they are assigned to, and authorize() refuses the rest per record.
+ */
+export async function receivableForActor(ctx: PurchasingContext, actor: Actor) {
+  await must(ctx, actor, 'receiving.record');
   const fieldOnly = !actor.roles.some((r) => ['OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'].includes(r));
   const all = await ctx.requests.listForOrg(actor.orgId);
   return all
@@ -174,8 +378,12 @@ export async function getDocumentForDownload(ctx: PurchasingContext, actor: Acto
   if (!document) return null;
   const order = await ctx.orders.findById(document.purchase_order_id);
   if (!order || order.orgId !== actor.orgId) return null;
-  // Throws not_found for a request this viewer may not see.
-  getRequestDetail(ctx, actor, order.requestId);
+  // Throws for a request this viewer may not see. AWAITED — without the await
+  // this line was decoration: the rejection floated free, the function
+  // returned the bytes anyway, and the record-level check the comment promises
+  // never happened. The organization check above is not a substitute; a
+  // requester may read their OWN requests, not a colleague's.
+  await getRequestDetail(ctx, actor, order.requestId);
   return {
     filename: document.filename,
     contentType: document.content_type,
@@ -191,5 +399,12 @@ function authzView(request: any) {
     requestorId: request.requestorId,
     createdBy: request.createdBy,
     status: request.status,
+    // REQUIRED. authorize() scopes `receiving.record` and `deliveries.confirm`
+    // to the caller's assigned jobs, and it reads the job from HERE. Dropping
+    // it made the assignment check compare against undefined, which is never
+    // in anybody's assignment list — so a foreman was refused receiving on his
+    // own job site, every time. It failed closed, which is the safe direction
+    // and the reason it was survivable, but the feature could not work.
+    jobNumber: request.jobNumber,
   };
 }

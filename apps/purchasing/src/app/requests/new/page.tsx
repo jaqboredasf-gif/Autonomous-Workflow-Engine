@@ -1,18 +1,32 @@
-import { redirect } from 'next/navigation';
-
 import { requireAccess, purchasingRequestContext } from '../../../server/session.ts';
 import * as S from '../../../server/service.ts';
 import NewRequestForm from '../../../components/NewRequestForm';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'New request — Lippolis Purchasing' };
 
 export default async function NewRequestPage() {
   const actor = await requireAccess('/requests/new');
   const ctx = await purchasingRequestContext();
 
+  // The vendor list is offered as a SUGGESTION source only. A requester
+  // naming a supplier does not select one — see withVendorSuggestion() in
+  // actions.ts and REQUESTOR_FORBIDDEN_FIELDS in domain/roles.mjs.
+  let vendors: Array<{ id: string; name: string }> = [];
+  try {
+    vendors = (await S.listVendors(ctx, actor)).map((v: Record<string, unknown>) => ({
+      id: String(v.id),
+      name: String(v.name),
+    }));
+  } catch {
+    vendors = [];
+  }
+
   return (
     <NewRequestForm
       actorName={actor.name}
+      now={new Date().toISOString()}
+      vendors={vendors}
       locations={(await S.listDeliveryLocations(ctx, actor)).map((l: Record<string, unknown>) => ({
         id: String(l.id),
         name: String(l.name),

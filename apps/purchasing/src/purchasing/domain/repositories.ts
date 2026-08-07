@@ -143,6 +143,20 @@ export interface PurchaseOrderRepository {
   progressFor(requestId: Id): Promise<LineProgressRecord[]>;
   /** Everything the PO template and the vendor email need, in one shape. */
   view(purchaseOrderId: Id): Promise<any>;
+
+  /**
+   * What was actually paid, once an invoice says so.
+   *
+   * Separate from everything else on purpose: an actual cost arrives days or
+   * weeks after the material did, from a different person, and must never be a
+   * precondition for ordering or receiving. NULL means "not reconciled yet",
+   * which is not the same as zero.
+   */
+  recordActualCost(
+    orgId: Id, purchaseOrderId: Id,
+    input: { actualTotalCents: number | null; source: string | null; reference: string | null },
+    actorId: Id, now: string,
+  ): Promise<void>;
 }
 
 export interface EmailDraftRepository {
@@ -172,6 +186,23 @@ export interface InventoryRepository {
 export interface ReferenceRepository {
   vendors(orgId: Id): Promise<any[]>;
   primaryContact(vendorId: Id): Promise<any | null>;
+
+  // --- vendor and job DIRECTORY writes ------------------------------------
+  // An organization configures its own suppliers and job sites. Without these
+  // a new customer needs a developer to insert rows, which is the difference
+  // between a product and a bespoke install.
+  //
+  // `vendorByName` and `jobByNumber` exist because both directories have a
+  // natural key the user actually types. Looking it up first turns "unique
+  // constraint violated" into "you already have a vendor called that".
+  vendorByName(orgId: Id, name: string): Promise<any | null>;
+  createVendor(orgId: Id, input: Record<string, unknown>, actorId: Id, now: string): Promise<Id>;
+  updateVendor(orgId: Id, vendorId: Id, patch: Record<string, unknown>, actorId: Id, now: string): Promise<void>;
+  setVendorPrimaryContact(orgId: Id, vendorId: Id, contact: Record<string, unknown>, now: string): Promise<void>;
+
+  jobByNumber(orgId: Id, jobNumber: string): Promise<any | null>;
+  createJob(orgId: Id, input: Record<string, unknown>, actorId: Id, now: string): Promise<Id>;
+  updateJob(orgId: Id, jobId: Id, patch: Record<string, unknown>, actorId: Id, now: string): Promise<void>;
   deliveryLocations(orgId: Id): Promise<any[]>;
   jobs(orgId: Id): Promise<any[]>;
   users(orgId: Id): Promise<any[]>;
@@ -181,6 +212,58 @@ export interface ReferenceRepository {
   poConfig(orgId: Id): Promise<any>;
   updatePoConfig(orgId: Id, patch: Record<string, unknown>, actorId: Id, now: string): Promise<void>;
   setApprovalAuthority(userId: Id, canApprove: boolean, actorId: Id, now: string): Promise<void>;
+}
+
+/**
+ * One thing an organization buys, as its purchasing history describes it.
+ *
+ * READ ONLY, on purpose. `purchase_item_catalog` exists in both schemas for
+ * curated entries, but nothing in the workflow writes it yet, and migration
+ * 0018 is explicit that ranking is a QUERY rather than a stored counter — a
+ * `times_ordered` column drifts the moment anything writes a line item without
+ * updating it. So this reads the line items themselves, which already carry
+ * the `normalized_description` that domain/catalog.mjs computed when they were
+ * written, and folds the curated catalog row over the top where one exists.
+ *
+ * That means the catalog is correct on day one of this screen existing,
+ * without a backfill and without a second write path to keep in step.
+ */
+export type CatalogEntry = {
+  /** The curated row's id, when this item has been curated. Otherwise null. */
+  catalogItemId: Id | null;
+  /** The matching key — what "the same thing, typed differently" collapses to. */
+  normalizedDescription: string;
+  /** What the organization sees offered. Curated name if there is one. */
+  canonicalDescription: string;
+  /** Every distinct spelling seen in history. The alias list. */
+  aliases: string[];
+  defaultUnit: string | null;
+  catalogNumber: string | null;
+  /** How many request lines have asked for it. */
+  timesRequested: number;
+  totalQtyRequested: number;
+  lastRequestedAt: string | null;
+  /** The vendor it was last actually bought from, when it has been. */
+  lastVendorId: Id | null;
+  lastVendorName: string | null;
+  lastUnitCostCents: number | null;
+  lastOrderedAt: string | null;
+  isActive: boolean;
+};
+
+export interface ItemCatalogRepository {
+  /**
+   * The organization's catalogue. `search` matches the canonical form, any
+   * alias, or a part number — matching on the NORMALIZED text, so "2 x 4" and
+   * "2x4" find each other the way the domain says they should.
+   */
+  list(orgId: Id, options?: { search?: string; limit?: number; activeOnly?: boolean }): Promise<CatalogEntry[]>;
+  /** Ranked for autocomplete: what this organization asks for most, and most recently. */
+  suggest(orgId: Id, query: string, limit?: number): Promise<CatalogEntry[]>;
+  /** One entry by its matching key. */
+  findByNormalized(orgId: Id, normalizedDescription: string): Promise<CatalogEntry | null>;
+  /** What a vendor is actually bought for — the vendor profile's materials list. */
+  forVendor(vendorId: Id, limit?: number): Promise<CatalogEntry[]>;
 }
 
 /**

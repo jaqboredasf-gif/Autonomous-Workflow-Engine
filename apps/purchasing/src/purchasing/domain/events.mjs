@@ -216,4 +216,19 @@ export const events = {
 
   approvalAuthorityChanged: (userId, before, after, notes) =>
     domainEvent({ action: 'admin.approval_authority_changed', entityType: 'user', entityId: userId, before, after, notes }),
+
+  // Directory changes. A vendor's address and a job's site are what a purchase
+  // order is addressed to, so who changed them, and to what, is part of the
+  // purchase record rather than incidental configuration.
+  actualCostRecorded: (orderId, before, after, notes) =>
+    domainEvent({ action: 'accounting.actual_cost_recorded', entityType: 'purchase_order', entityId: orderId, before, after, notes }),
+
+  vendorCreated: (vendorId, after, notes) =>
+    domainEvent({ action: 'admin.vendor_created', entityType: 'vendor', entityId: vendorId, after, notes }),
+  vendorUpdated: (vendorId, before, after, notes) =>
+    domainEvent({ action: 'admin.vendor_updated', entityType: 'vendor', entityId: vendorId, before, after, notes }),
+  jobCreated: (jobId, after, notes) =>
+    domainEvent({ action: 'admin.job_created', entityType: 'job', entityId: jobId, after, notes }),
+  jobUpdated: (jobId, before, after, notes) =>
+    domainEvent({ action: 'admin.job_updated', entityType: 'job', entityId: jobId, before, after, notes }),
 };

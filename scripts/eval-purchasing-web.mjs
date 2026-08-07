@@ -300,7 +300,12 @@ try {
   const shell = await (await fetch(`${BASE}/workshop`, { headers: { Cookie: sessions.mike } })).text();
   check(shell.includes('Mike (workshop)'), 'the shell names the signed-in user');
   check(shell.includes('Sign out'), 'the shell offers sign-out');
-  check(shell.includes('Workshop queue'), 'the shell shows the current workspace');
+  // The destination is named "Purchasing" in the sidebar now (the handoff's
+  // vocabulary), and the page heading is "Purchasing queue". What this check
+  // is FOR is that the shell tells you where you are, so it asserts the
+  // active-destination marker rather than one particular label.
+  check(shell.includes('aria-current="page"'), 'the shell marks the current destination');
+  check(shell.includes('Purchasing queue'), 'the shell shows the current workspace');
   check(!shell.includes('Administration'), 'the shell hides a workspace this user cannot open');
   const adminShell = await (await fetch(`${BASE}/admin`, { headers: { Cookie: sessions.admin } })).text();
   check(adminShell.includes('Administration'), 'an admin sees the administration workspace in the shell');

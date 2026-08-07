@@ -19,7 +19,7 @@ import { emit, loadRequest, must, PurchasingError, transitionTo, type Purchasing
 import type { Actor } from './ports.ts';
 import { events } from '../domain/events.mjs';
 import { draftGuard } from '../domain/email.mjs';
-import { parseQty, receiptGuard } from '../domain/numbers.mjs';
+import { parseMoney, parseQty, receiptGuard } from '../domain/numbers.mjs';
 import { assertSingleVendor, purchaseOrderFromReview } from '../domain/entities.mjs';
 
 // --- purchase order ---------------------------------------------------------
@@ -389,6 +389,55 @@ export async function completePurchaseRequest(ctx: PurchasingContext, actor: Act
     await emit(ctx, actor, actor.orgId, [events.requestCompleted(request, notes ?? null)]);
     return { status: 'COMPLETED' };
   });
+}
+
+/**
+ * Record what was actually paid.
+ *
+ * THE RULE THIS ENCODES: estimated cost and actual cost are different facts
+ * that arrive at different times from different people, and neither is ever
+ * required to move a purchase forward. A purchaser orders material before
+ * knowing the invoice price; accounting learns the price weeks later. So this
+ * is its own act, gated on accounting's permission rather than purchasing's,
+ * and it does not transition the request.
+ *
+ * Passing an empty value CLEARS the figure back to unknown. That is deliberate:
+ * a wrong number that cannot be withdrawn is worse than no number.
+ */
+export async function recordActualCost(
+  ctx: PurchasingContext, actor: Actor, requestId: string,
+  input: { actualTotal?: string | number | null; source?: string; reference?: string } = {},
+) {
+  const request = await loadRequest(ctx, actor, requestId);
+  await must(ctx, actor, 'accounting.read', request);
+
+  const order = await ctx.orders.findByRequest(requestId);
+  if (!order) throw new PurchasingError('not_found', 'this request has no purchase order to cost');
+
+  const raw = input.actualTotal;
+  let cents: number | null = null;
+  if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
+    const parsed = parseMoney(raw);
+    if (!parsed.ok) throw new PurchasingError('validation_failed', parsed.error as string);
+    cents = parsed.value;
+  }
+
+  const now = ctx.clock.now();
+  await ctx.orders.recordActualCost(actor.orgId, order.id, {
+    actualTotalCents: cents,
+    source: (input.source ?? '').trim() || null,
+    reference: (input.reference ?? '').trim() || null,
+  }, actor.id, now);
+
+  await emit(ctx, actor, actor.orgId, [
+    events.actualCostRecorded(
+      order.id,
+      { actualTotalCents: order.actual_total_cents ?? null },
+      { actualTotalCents: cents, reference: (input.reference ?? '').trim() || null },
+      cents === null ? 'cleared the recorded actual cost' : 'recorded the actual cost',
+    ),
+  ]);
+  return { ok: true, actualTotalCents: cents };
 }
 
 function optional(value: string | number | undefined | null): number {

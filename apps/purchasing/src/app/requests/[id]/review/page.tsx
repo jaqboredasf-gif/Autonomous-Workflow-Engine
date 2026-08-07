@@ -21,13 +21,11 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     notFound();
   }
 
-  if (!hasPermission(actor, 'review.decide')) {
-    return (
-      <Section title="Workshop review">
-        <Empty>Only the workshop approvers decide purchasing. You can follow this request from its detail page.</Empty>
-      </Section>
-    );
-  }
+  // A refusal, not a message. Every other unauthorized area of the
+  // application redirects to /unauthorized, which tells the person what they
+  // CAN open; rendering a 200 here made "you may not do this" look like a
+  // page that had merely failed to load its contents.
+  if (!hasPermission(actor, 'review.decide')) redirect('/unauthorized');
   if (!['PENDING_WORKSHOP_REVIEW', 'RESUBMITTED'].includes(detail.request.status)) {
     return (
       <Section title="Workshop review">

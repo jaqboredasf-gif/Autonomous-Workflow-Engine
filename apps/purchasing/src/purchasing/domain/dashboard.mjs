@@ -141,3 +141,105 @@ export function toTableRow(request, lines = []) {
     outstandingLines: countOutstandingLines(lines),
   };
 }
+
+// ---------------------------------------------------------------------------
+// THE LIFECYCLE BOARD — "what do I need to do next?"
+//
+// The status filter answers "show me X". This answers the question a purchasing
+// manager actually opens the screen with, which is not a filter but a triage:
+// which pile is mine, right now, and how big is it.
+//
+// Every status belongs to exactly one stage, and every stage is always shown
+// even when empty. A request that advances MOVES between piles; it never
+// vanishes, which is the failure mode this replaces — a queue that only showed
+// what needed review, so an approved-but-unordered request became invisible at
+// the exact moment someone should have been ordering it.
+//
+// `actionable` marks the stages where a human is the blocker rather than a
+// supplier. That is what the workspace leads with.
+// ---------------------------------------------------------------------------
+
+export const LIFECYCLE_STAGES = [
+  {
+    key: 'NEEDS_REVIEW',
+    labelKey: 'purchasing.stage.needs_review',
+    statuses: ['SUBMITTED', 'PENDING_WORKSHOP_REVIEW', 'RESUBMITTED'],
+    actionable: true,
+    tone: 'attention',
+  },
+  {
+    key: 'WAITING_ON_REQUESTOR',
+    labelKey: 'purchasing.stage.waiting_on_requestor',
+    statuses: ['CLARIFICATION_REQUESTED'],
+    actionable: false,
+    tone: 'warn',
+  },
+  {
+    key: 'READY_TO_ORDER',
+    labelKey: 'purchasing.stage.ready_to_order',
+    statuses: ['APPROVED', 'PO_GENERATED', 'EMAIL_DRAFTED'],
+    actionable: true,
+    tone: 'attention',
+  },
+  {
+    key: 'AWAITING_DELIVERY',
+    labelKey: 'purchasing.stage.awaiting_delivery',
+    statuses: ['ORDERED'],
+    actionable: false,
+    tone: 'neutral',
+  },
+  {
+    key: 'PARTIALLY_RECEIVED',
+    labelKey: 'purchasing.stage.partially_received',
+    statuses: ['PARTIALLY_RECEIVED'],
+    actionable: true,
+    tone: 'warn',
+  },
+  {
+    key: 'RECEIVED',
+    labelKey: 'purchasing.stage.received',
+    statuses: ['RECEIVED'],
+    actionable: true,
+    tone: 'good',
+  },
+  {
+    key: 'DRAFTS',
+    labelKey: 'purchasing.stage.drafts',
+    statuses: ['DRAFT'],
+    actionable: false,
+    tone: 'neutral',
+  },
+  {
+    key: 'CLOSED',
+    labelKey: 'purchasing.stage.closed',
+    statuses: ['COMPLETED', 'REJECTED', 'CANCELLED'],
+    actionable: false,
+    tone: 'neutral',
+  },
+];
+
+/** The stage a status belongs to, or null if the vocabulary has drifted. */
+export function stageForStatus(status) {
+  return LIFECYCLE_STAGES.find((s) => s.statuses.includes(status))?.key ?? null;
+}
+
+/**
+ * Every stage with its count, in board order. Stages with nothing in them are
+ * still returned: "nothing is waiting to be ordered" is information, and a tab
+ * that disappears when empty teaches people the pile does not exist.
+ */
+export function lifecycleBoard(requests = []) {
+  return LIFECYCLE_STAGES.map((stage) => ({
+    ...stage,
+    count: requests.filter((r) => stage.statuses.includes(r.status)).length,
+  }));
+}
+
+/**
+ * How many things are waiting on a HUMAN here, across every actionable stage.
+ * The single number a workspace header leads with.
+ */
+export function needsAttentionCount(requests = []) {
+  const actionable = LIFECYCLE_STAGES.filter((s) => s.actionable).flatMap((s) => s.statuses);
+  return requests.filter((r) => actionable.includes(r.status)).length;
+}

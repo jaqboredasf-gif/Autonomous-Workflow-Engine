@@ -1,17 +1,27 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// The workshop workspace — Mike's and Rick's front door.
+// Screen 04 — the purchasing queue. Mike's and Rick's front door.
+//
+// The route keeps its path: sign-in lands approvers here and the website
+// acceptance tests pin that. What changed is the surface — the queue is now
+// URL-driven, so a filtered view is a link somebody can send.
 import { requireAccess, purchasingRequestContext } from '../../server/session.ts';
 import * as S from '../../server/service.ts';
-import WorkshopQueue from '../../components/WorkshopQueue';
-import { Card } from '../../components/ui';
+import { hasPermission } from '../../purchasing/domain/roles.mjs';
 import { summarize } from '../../purchasing/domain/dashboard.mjs';
 import { formatMoney } from '../../purchasing/domain/numbers.mjs';
+import { ButtonLink, ButtonRow, KpiCard, PageHeader } from '../../components/pcc';
+import { PurchasingQueue, type QueueSearchParams } from '../../components/pcc/PurchasingQueue';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Workshop queue — Lippolis Purchasing' };
+export const metadata = { title: 'Purchasing queue — Lippolis Purchasing' };
 
-export default async function WorkshopPage() {
+export default async function WorkshopPage({
+  searchParams,
+}: {
+  searchParams: Promise<QueueSearchParams>;
+}) {
   const actor = await requireAccess('/workshop');
+  const params = await searchParams;
   const ctx = await purchasingRequestContext();
   const requests = await S.listRequests(ctx, actor);
   const now = new Date().toISOString();
@@ -19,27 +29,56 @@ export default async function WorkshopPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Workshop queue</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          {actor.isPrimaryApprover
+      <PageHeader
+        title="Purchasing queue"
+        description={
+          actor.isPrimaryApprover
             ? 'You are the primary approver.'
             : actor.isBackupApprover
               ? 'You are the authorized backup approver.'
-              : 'You hold approval authority by grant.'}
-        </p>
-      </div>
+              : 'You hold approval authority by grant.'
+        }
+        actions={
+          <ButtonRow>
+            <ButtonLink href="/dashboard" variant="secondary">
+              Dashboard
+            </ButtonLink>
+            <ButtonLink href="/requests/new">New request</ButtonLink>
+          </ButtonRow>
+        }
+      />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Card title="To review" value={cards.pending_workshop_review} tone="attention" />
-        <Card title="Clarification" value={cards.clarification_requested} tone="warn" />
-        <Card title="Needs a PO" value={cards.approved_no_po} />
-        <Card title="Open orders" value={cards.open_orders} />
-        <Card title="Overdue" value={cards.overdue_orders} tone="bad" />
-        <Card title="Open value" value={formatMoney(cards.open_order_value_cents)} />
+        <KpiCard
+          label="To review"
+          value={cards.pending_workshop_review}
+          tone={cards.pending_workshop_review ? 'attention' : 'neutral'}
+          href="/workshop?stage=NEEDS_REVIEW"
+        />
+        <KpiCard
+          label="Clarification"
+          value={cards.clarification_requested}
+          tone={cards.clarification_requested ? 'warn' : 'neutral'}
+          href="/workshop?stage=WAITING_ON_REQUESTOR"
+        />
+        <KpiCard label="Ready to order" value={cards.approved_no_po + cards.po_not_ordered} href="/workshop?stage=READY_TO_ORDER" />
+        <KpiCard label="Open orders" value={cards.open_orders} tone="info" href="/workshop?stage=AWAITING_DELIVERY" />
+        <KpiCard
+          label="Overdue"
+          value={cards.overdue_orders}
+          tone={cards.overdue_orders ? 'bad' : 'neutral'}
+          href="/workshop?overdue=1"
+        />
+        <KpiCard label="Open value" value={formatMoney(cards.open_order_value_cents)} />
       </div>
 
-      <WorkshopQueue requests={requests} now={now} />
+      <PurchasingQueue
+        requests={requests}
+        now={now}
+        params={params}
+        basePath="/workshop"
+        canReceive={hasPermission(actor, 'receiving.record')}
+      />
     </div>
   );
 }

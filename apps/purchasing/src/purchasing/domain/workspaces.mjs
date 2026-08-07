@@ -109,6 +109,20 @@ export const ROUTE_GUARDS = [
   { prefix: '/accounting', permission: 'accounting.read' },
   { prefix: '/office', permission: 'request.read.all' },
   { prefix: '/deliveries', permission: 'deliveries.confirm' },
+  // The management surfaces. `request.read.all` is the honest requirement for
+  // all four: each one aggregates across the whole organization's purchasing,
+  // so a user who may only see their own requests must not open them.
+  { prefix: '/dashboard', permission: 'request.read.all' },
+  { prefix: '/vendors', permission: 'request.read.all' },
+  { prefix: '/materials', permission: 'request.read.all' },
+  { prefix: '/reports', permission: 'request.read.all' },
+  // Receiving is the workspace behind screen 06. It is guarded by the
+  // permission that RECORDS a receipt rather than by `deliveries.confirm`,
+  // which is the field-only grant: purchasing staff receive at the shop
+  // counter and hold `receiving.record` without holding the other. Which
+  // requests each of them may actually touch is still decided per record by
+  // authorize(), where the job assignment is known.
+  { prefix: '/receiving', permission: 'receiving.record' },
   { prefix: '/my-requests', permission: 'request.read.own' },
   { prefix: '/notifications', permission: 'request.read.own' },
   // Entity routes: reachable by anyone who may read a request; the record-level
@@ -119,6 +133,9 @@ export const ROUTE_GUARDS = [
   { prefix: '/email-drafts', permission: 'email.draft' },
   { prefix: '/receipts', permission: 'request.read.own' },
   { prefix: '/api/documents', permission: 'request.read.own' },
+  // Material autocomplete. Everyone who may RAISE a request may ask what the
+  // organization already buys — that is the point of the suggestion.
+  { prefix: '/api/materials', permission: 'request.create' },
   { prefix: '/api/auth', permission: null },
   { prefix: '/', permission: null }, // the root only redirects; it shows nothing
 ];

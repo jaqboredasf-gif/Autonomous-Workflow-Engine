@@ -19,6 +19,8 @@ import { redirect } from 'next/navigation';
 import * as S from '../server/service.ts';
 import { saveReviewAndDecide } from '../purchasing/application/decisions.ts';
 import * as admin from '../purchasing/application/administration.ts';
+import * as fulfilment from '../purchasing/application/fulfilment.ts';
+import * as requests from '../purchasing/application/requests.ts';
 import { currentActor, purchasingRequestContext } from '../server/session.ts';
 
 type Result = { ok: true; data?: any } | { ok: false; error: string; reason?: string; details?: any };
@@ -56,11 +58,20 @@ export async function createRequestAction(_prev: unknown, formData: FormData): P
       deliveryLocationId: String(formData.get('deliveryLocationId') ?? ''),
       deliveryMethod: String(formData.get('deliveryMethod') ?? 'DELIVERY'),
       reason: String(formData.get('reason') ?? ''),
-      notes: String(formData.get('notes') ?? ''),
+      notes: withVendorSuggestion(formData),
       items,
     }),
   );
   if (!result.ok) return result;
+
+  // Attachments need the request to exist first, so they follow the create.
+  // A file that fails to store must NOT lose the request the person just
+  // typed: the failure is reported on the request they now have, not by
+  // throwing away their work.
+  const files = await readFiles(formData, 'attachments');
+  for (const file of files) {
+    await run(async (ctx, actor) => await requests.attachFile(ctx, actor, result.data.id, file));
+  }
 
   const submit = String(formData.get('submit') ?? '') === 'now';
   if (submit) {
@@ -69,6 +80,51 @@ export async function createRequestAction(_prev: unknown, formData: FormData): P
   }
   revalidatePath('/');
   redirect(`/requests/${result.data.id}`);
+}
+
+/**
+ * The requester's vendor SUGGESTION, folded into the request's notes and
+ * attributed as a suggestion.
+ *
+ * It does not go anywhere near `vendor_id`. That column is in
+ * REQUESTOR_FORBIDDEN_FIELDS (domain/roles.mjs) because choosing the supplier
+ * is a purchasing decision, and validation would reject it — correctly. What
+ * the field is FOR is the knowledge the field has and the office does not
+ * ("we always get this from Graybar on Route 9"), and prose is the honest
+ * place for that.
+ */
+function withVendorSuggestion(formData: FormData): string {
+  const notes = String(formData.get('notes') ?? '').trim();
+  const vendor = String(formData.get('preferredVendor') ?? '').trim();
+  if (!vendor) return notes;
+  const line = `Requester suggests vendor: ${vendor}`;
+  return notes ? `${notes}\n\n${line}` : line;
+}
+
+/**
+ * Files out of a multipart form, as the attachment port wants them.
+ *
+ * Bounded on both axes: inline storage puts the bytes in the database, so an
+ * unbounded upload is an unbounded row. Anything over the limit is dropped
+ * rather than truncated — half a photograph is not evidence.
+ */
+const MAX_FILES = 6;
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+async function readFiles(formData: FormData, field: string) {
+  const entries = formData.getAll(field).filter((f): f is File => f instanceof File && f.size > 0);
+  const out: Array<{ filename: string; contentType: string; dataBase64: string; byteSize: number }> = [];
+  for (const file of entries.slice(0, MAX_FILES)) {
+    if (file.size > MAX_FILE_BYTES) continue;
+    const bytes = Buffer.from(await file.arrayBuffer());
+    out.push({
+      filename: file.name,
+      contentType: file.type || 'application/octet-stream',
+      dataBase64: bytes.toString('base64'),
+      byteSize: bytes.byteLength,
+    });
+  }
+  return out;
 }
 
 function parseItems(formData: FormData) {
@@ -265,11 +321,20 @@ export async function recordReceiptAction(_prev: unknown, formData: FormData): P
   const overrides = formData.getAll('receiptOverrideReason').map(String);
   const notes = formData.getAll('receiptLineNotes').map(String);
 
+  // Evidence travels WITH the receipt, in the same call, so a photograph
+  // cannot end up attached to a receipt that was refused — or a receipt end up
+  // recorded without the photograph somebody took to justify it.
+  const evidence = [
+    ...(await readFiles(formData, 'receiptPhotos')),
+    ...(await readFiles(formData, 'receiptDocuments')),
+  ];
+
   const result = await run(async (ctx, actor) =>
     await S.recordReceipt(ctx, actor, id, {
       receivedDate: String(formData.get('receivedDate') ?? ''),
       packingSlipNumber: String(formData.get('packingSlipNumber') ?? ''),
       notes: String(formData.get('receiptNotes') ?? ''),
+      attachments: evidence,
       lines: poItemIds.map((purchaseOrderItemId, i) => ({
         purchaseOrderItemId,
         receivedQty: received[i] ?? '',
@@ -369,4 +434,99 @@ export async function completeRequestAction(formData: FormData) {
   const id = String(formData.get('requestId'));
   await run(async (ctx, actor) => await S.completeRequest(ctx, actor, id, String(formData.get('notes') ?? '')));
   revalidatePath(`/requests/${id}`);
+}
+
+// --- directories: vendors and jobs -------------------------------------------
+// The two things an organization must be able to configure before it can place
+// an order. Previously read-only lists, which meant a new customer needed a
+// developer to insert rows.
+
+export async function createVendorAction(_prev: unknown, formData: FormData): Promise<Result> {
+  const result = await runAsync(async (ctx, actor) =>
+    await admin.createVendor(ctx, actor, {
+      name: String(formData.get('name') ?? ''),
+      accountNumber: String(formData.get('accountNumber') ?? ''),
+      phone: String(formData.get('phone') ?? ''),
+      address: String(formData.get('address') ?? ''),
+      notes: String(formData.get('notes') ?? ''),
+      contactName: String(formData.get('contactName') ?? ''),
+      contactEmail: String(formData.get('contactEmail') ?? ''),
+      contactPhone: String(formData.get('contactPhone') ?? ''),
+    }),
+  );
+  if (result.ok) revalidatePath('/admin');
+  return result;
+}
+
+export async function updateVendorAction(_prev: unknown, formData: FormData): Promise<Result> {
+  const result = await runAsync(async (ctx, actor) =>
+    await admin.updateVendor(ctx, actor, String(formData.get('vendorId')), {
+      name: String(formData.get('name') ?? ''),
+      accountNumber: String(formData.get('accountNumber') ?? ''),
+      phone: String(formData.get('phone') ?? ''),
+      address: String(formData.get('address') ?? ''),
+      contactName: String(formData.get('contactName') ?? ''),
+      contactEmail: String(formData.get('contactEmail') ?? ''),
+      contactPhone: String(formData.get('contactPhone') ?? ''),
+    }),
+  );
+  if (result.ok) revalidatePath('/admin');
+  return result;
+}
+
+export async function setVendorActiveAction(formData: FormData) {
+  await runAsync(async (ctx, actor) =>
+    await admin.setVendorActive(ctx, actor, String(formData.get('vendorId')),
+      String(formData.get('isActive')) === 'true'),
+  );
+  revalidatePath('/admin');
+}
+
+export async function createJobAction(_prev: unknown, formData: FormData): Promise<Result> {
+  const result = await runAsync(async (ctx, actor) =>
+    await admin.createJob(ctx, actor, {
+      jobNumber: String(formData.get('jobNumber') ?? ''),
+      name: String(formData.get('name') ?? ''),
+      customer: String(formData.get('customer') ?? ''),
+      siteAddress: String(formData.get('siteAddress') ?? ''),
+      deliveryInstructions: String(formData.get('deliveryInstructions') ?? ''),
+      costCode: String(formData.get('costCode') ?? ''),
+    }),
+  );
+  if (result.ok) revalidatePath('/admin');
+  return result;
+}
+
+export async function updateJobAction(_prev: unknown, formData: FormData): Promise<Result> {
+  const result = await runAsync(async (ctx, actor) =>
+    await admin.updateJob(ctx, actor, String(formData.get('jobId')), {
+      name: String(formData.get('name') ?? ''),
+      customer: String(formData.get('customer') ?? ''),
+      siteAddress: String(formData.get('siteAddress') ?? ''),
+      deliveryInstructions: String(formData.get('deliveryInstructions') ?? ''),
+      status: String(formData.get('status') ?? 'ACTIVE'),
+    }),
+  );
+  if (result.ok) revalidatePath('/admin');
+  return result;
+}
+
+/**
+ * Record what was actually paid. Deliberately separate from every purchasing
+ * action: it arrives later, from accounting, and never blocks ordering or
+ * receiving. An empty value clears the figure back to unknown.
+ */
+export async function recordActualCostAction(_prev: unknown, formData: FormData): Promise<Result> {
+  const result = await runAsync(async (ctx, actor) =>
+    await fulfilment.recordActualCost(ctx, actor, String(formData.get('requestId')), {
+      actualTotal: String(formData.get('actualTotal') ?? ''),
+      reference: String(formData.get('reference') ?? ''),
+      source: String(formData.get('source') ?? ''),
+    }),
+  );
+  if (result.ok) {
+    revalidatePath('/accounting');
+    revalidatePath(`/requests/${String(formData.get('requestId'))}`);
+  }
+  return result;
 }

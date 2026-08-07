@@ -10,9 +10,9 @@
 // ---------------------------------------------------------------------------
 
 import type {
-  ApprovalRepository, EmailDraftRepository, InventoryRepository, PoNumberAllocator,
-  PurchaseOrderRepository, PurchaseRequestRepository, ReceiptRepository, ReferenceRepository,
-  WorkshopReviewRepository,
+  ApprovalRepository, EmailDraftRepository, InventoryRepository, ItemCatalogRepository,
+  PoNumberAllocator, PurchaseOrderRepository, PurchaseRequestRepository, ReceiptRepository,
+  ReferenceRepository, WorkshopReviewRepository,
 } from '../domain/repositories.ts';
 import type {
   Actor, AtomicOperations, AttachmentPort, AuditPort, AuthPort, Clock, DocumentPort,
@@ -34,6 +34,8 @@ export type PurchasingContext = {
   receipts: ReceiptRepository;
   inventory: InventoryRepository;
   reference: ReferenceRepository;
+  /** The organization's own materials vocabulary, read from its history. */
+  catalog: ItemCatalogRepository;
   poNumbers: PoNumberAllocator;
   identity: IdentityPort;
   auth: AuthPort;
@@ -111,6 +113,13 @@ function authzView(request: any) {
     requestorId: request.requestorId,
     createdBy: request.createdBy,
     status: request.status,
+    // REQUIRED. authorize() scopes `receiving.record` and `deliveries.confirm`
+    // to the caller's assigned jobs, and it reads the job from HERE. Dropping
+    // it made the assignment check compare against undefined, which is never
+    // in anybody's assignment list — so a foreman was refused receiving on his
+    // own job site, every time. It failed closed, which is the safe direction
+    // and the reason it was survivable, but the feature could not work.
+    jobNumber: request.jobNumber,
   };
 }
 

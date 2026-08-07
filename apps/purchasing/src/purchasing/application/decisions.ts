@@ -30,9 +30,21 @@ export async function saveReviewAndDecide(
   decision: Decision | 'SAVE',
   decisionInput: { notes?: string; reason?: string; question?: string } = {},
 ) {
-  const totals = saveWorkshopReview(ctx, actor, requestId, input);
+  // BOTH of these are awaited, and the order between them is the rule this
+  // function exists to enforce.
+  //
+  // They were previously called without `await`, which broke the rule in two
+  // ways at once: the decision raced the save rather than following it, so
+  // approve() read the review lines before they existed and threw
+  // `nothing_to_order` — into a floating promise nobody was holding. The
+  // caller got `{decided: true}` (spreading a pending promise contributes no
+  // properties), reported success, and the request stayed in the queue.
+  //
+  // Pressing Approve twice appeared to work, because the second attempt found
+  // the numbers the first attempt had saved.
+  const totals = await saveWorkshopReview(ctx, actor, requestId, input);
   if (decision === 'SAVE') return { decided: false, ...totals };
-  const result = decidePurchaseRequest(ctx, actor, requestId, decision, decisionInput);
+  const result = await decidePurchaseRequest(ctx, actor, requestId, decision, decisionInput);
   return { decided: true, ...totals, ...result };
 }
 

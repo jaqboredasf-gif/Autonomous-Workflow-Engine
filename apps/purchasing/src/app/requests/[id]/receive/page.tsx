@@ -1,12 +1,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { notFound, redirect } from 'next/navigation';
+// Screen 06 — receiving one order.
+//
+// The authority check is not cosmetic: `detail.actions` comes from
+// availableActions(), which for `receiving.record` is assignment-scoped — a
+// foreman may sign for his own job sites and nobody else's. The refusal below
+// is the courtesy; recordReceipt() refuses again on the server with the record
+// in hand, which is the control.
+import { notFound } from 'next/navigation';
 
 import { requireAccess, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import ReceiveForm from '../../../../components/ReceiveForm';
-import { Empty, Section } from '../../../../components/ui';
+import { Alert, ButtonLink, PageHeader } from '../../../../components/pcc';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Receiving — Lippolis Purchasing' };
 
 export default async function ReceivePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -21,18 +29,33 @@ export default async function ReceivePage({ params }: { params: Promise<{ id: st
 
   if (!detail.actions.includes('receive')) {
     return (
-      <Section title="Receiving">
-        <Empty>This request is not awaiting delivery, or you are not authorized to record receiving.</Empty>
-      </Section>
+      <div className="mx-auto max-w-2xl space-y-4">
+        <PageHeader title="Receiving" breadcrumb={[{ label: 'Receiving', href: '/receiving' }, { label: 'Not available' }]} />
+        <Alert tone="warning" title="You cannot record receiving on this order">
+          Either it is not awaiting delivery, or it is on a job you are not assigned to. If that is wrong, the office
+          can assign you to the job.
+        </Alert>
+        <ButtonLink href={`/requests/${id}`} variant="secondary">
+          Open the order instead
+        </ButtonLink>
+      </div>
     );
   }
 
+  const r = detail.request;
+
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">
-        Receiving · {detail.request.requestNumber} · PO {detail.purchaseOrder?.poNumber}
-      </h1>
-      <ReceiveForm requestId={id} progress={detail.progress} receipts={detail.receipts} />
-    </div>
+    <ReceiveForm
+      requestId={id}
+      progress={detail.progress}
+      receipts={detail.receipts}
+      header={{
+        poNumber: detail.purchaseOrder?.poNumber ?? null,
+        requestNumber: r.requestNumber,
+        jobNumber: r.jobNumber,
+        vendorName: r.vendorName ?? null,
+        status: r.status,
+      }}
+    />
   );
 }

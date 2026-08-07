@@ -21,6 +21,14 @@ if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(URL)) {
   console.error(`REFUSED: ${URL} is not the local stack.`);
   process.exit(1);
 }
+// Belt as well as braces. The URL check above already makes a production run
+// impossible, and this makes the INTENT impossible to misread: this script
+// creates accounts with known passwords, and it exists for a developer's
+// laptop only.
+if (process.env.NODE_ENV === 'production') {
+  console.error('REFUSED: fixture provisioning is a development tool and will not run with NODE_ENV=production.');
+  process.exit(1);
+}
 if (!SERVICE) {
   console.error('REFUSED: SUPABASE_SERVICE_ROLE_KEY is not set.');
   process.exit(1);
@@ -91,6 +99,122 @@ for (const t of out) {
     if (error) throw new Error(`could not seed a marker vendor for ${t.org}: ${error.message}`);
   }
   console.log(`  marker  ${marker}`);
+}
+
+// ---------------------------------------------------------------------------
+// ROLE-SEPARATED PEOPLE for the Lippolis tenant.
+//
+// The point of the end-to-end scenarios is that purchasing authority and
+// receiving authority are held by DIFFERENT people, so the fixture has to
+// contain different people. None of them is named after a real employee: they
+// are the roles an administrator assigns, which is exactly how the product is
+// meant to be configured.
+// ---------------------------------------------------------------------------
+
+const lippolis = out.find((t) => t.org === 'Lippolis Electric');
+
+const PEOPLE = [
+  { email: 'purchasing@lippolis.test', name: 'Purchasing Manager', roles: ['WORKSHOP_APPROVER'], canApprove: true, jobs: [] },
+  { email: 'foreman@lippolis.test',    name: 'Site Foreman',       roles: ['FOREMAN'],           canApprove: false, jobs: ['24-118'] },
+  { email: 'requester@lippolis.test',  name: 'Shop Requester',     roles: ['REQUESTOR'],         canApprove: false, jobs: [] },
+  { email: 'accounting@lippolis.test', name: 'Accounting Clerk',   roles: ['ACCOUNTING'],        canApprove: false, jobs: [] },
+  // ---------------------------------------------------------------------
+  // THE LOCAL INSPECTION ACCOUNT.
+  //
+  // One person holding every role, so a developer can walk all ten screens
+  // without juggling five sign-ins. It is an ordinary user in every respect:
+  // it signs in with a password like anybody else, RLS applies to it like
+  // anybody else, and it is scoped to the Lippolis tenant like anybody else.
+  // There is NO bypass anywhere in the application for this address.
+  //
+  // It exists only where this script can run — the local Supabase stack on
+  // 127.0.0.1 — so it cannot appear in a deployed environment. Its authority
+  // comes from ADMIN, which is a real role an administrator can assign, not
+  // from a special case in the code.
+  //
+  // It is assigned to job 24-118 so the assignment-scoped screens (deliveries,
+  // receiving) have something in them: ADMIN is not field-scoped and would see
+  // them anyway, but a screen you inspect with no rows teaches you nothing.
+  {
+    email: 'dev@lippolis.test',
+    name: 'Local Dev Inspector',
+    roles: ['ADMIN', 'WORKSHOP_APPROVER', 'OFFICE', 'FOREMAN', 'REQUESTOR', 'ACCOUNTING'],
+    canApprove: true,
+    jobs: ['24-118'],
+  },
+];
+
+for (const person of PEOPLE) {
+  const authId = await authUser(person.email);
+
+  const { data: existingUser } = await admin.from('users').select('id').eq('id', authId).maybeSingle();
+  if (!existingUser) {
+    const { error } = await admin.from('users').insert({
+      id: authId, org_id: lippolis.orgId, email: person.email, full_name: person.name,
+      is_active: true, purchasing_can_approve: person.canApprove,
+    });
+    if (error) throw new Error(`could not create ${person.email}: ${error.message}`);
+  } else {
+    await admin.from('users').update({ purchasing_can_approve: person.canApprove }).eq('id', authId);
+  }
+
+  const { data: membership } = await admin.from('purchasing_org_memberships')
+    .select('id').eq('user_id', authId).eq('org_id', lippolis.orgId).maybeSingle();
+  if (!membership) {
+    const { error } = await admin.from('purchasing_org_memberships').insert({
+      org_id: lippolis.orgId, user_id: authId, status: 'ACTIVE', is_primary: true,
+    });
+    if (error) throw new Error(`could not add ${person.email} to the organization: ${error.message}`);
+  }
+
+  for (const role of person.roles) {
+    const { data: held } = await admin.from('purchasing_user_roles')
+      .select('user_id').eq('user_id', authId).eq('role', role).maybeSingle();
+    if (!held) {
+      const { error } = await admin.from('purchasing_user_roles').insert({ user_id: authId, role });
+      if (error) throw new Error(`could not grant ${role} to ${person.email}: ${error.message}`);
+    }
+  }
+
+  for (const job of person.jobs) {
+    const { data: assigned } = await admin.from('purchasing_job_assignments')
+      .select('user_id').eq('user_id', authId).eq('job_number', job).maybeSingle();
+    if (!assigned) {
+      const { error } = await admin.from('purchasing_job_assignments')
+        // No org_id column: a job assignment is tenanted through its user.
+        .insert({ user_id: authId, job_number: job });
+      if (error) throw new Error(`could not assign ${person.email} to job ${job}: ${error.message}`);
+    }
+  }
+
+  console.log(`  ${person.email.padEnd(28)} ${person.roles.join(',')}${person.canApprove ? ' +approve' : ''}${person.jobs.length ? ` jobs:${person.jobs.join(',')}` : ''}`);
+}
+
+// A job and a delivery location for the scenarios to use.
+for (const [jobNumber, name] of [['24-118', 'Harrison Gym'], ['25-007', 'Riverside Plant']]) {
+  const { data: job } = await admin.from('purchase_jobs')
+    .select('id').eq('org_id', lippolis.orgId).eq('job_number', jobNumber).maybeSingle();
+  if (!job) {
+    const { error } = await admin.from('purchase_jobs').insert({
+      org_id: lippolis.orgId, job_number: jobNumber, name, status: 'ACTIVE',
+      site_address: `${name} site address`,
+    });
+    if (error) throw new Error(`could not create job ${jobNumber}: ${error.message}`);
+  }
+  console.log(`  job ${jobNumber} — ${name}`);
+}
+
+{
+  const { data: loc } = await admin.from('purchase_delivery_locations')
+    .select('id').eq('org_id', lippolis.orgId).eq('name', 'Harrison Gym site').maybeSingle();
+  if (!loc) {
+    const { error } = await admin.from('purchase_delivery_locations').insert({
+      org_id: lippolis.orgId, name: 'Harrison Gym site', kind: 'JOBSITE',
+      address: 'Harrison Gym site address', is_active: true,
+    });
+    if (error) throw new Error(`could not create a delivery location: ${error.message}`);
+  }
+  console.log('  delivery location Harrison Gym site');
 }
 
 console.log('\nFIXTURE READY');

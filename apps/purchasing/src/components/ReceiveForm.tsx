@@ -1,100 +1,111 @@
 'use client';
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Receiving. Nothing here assumes the whole order turned up at once: each line
-// records what actually arrived, what was damaged, what is backordered, and
-// what is being written off — and the request only reaches RECEIVED when every
-// line is accounted for.
+// ---------------------------------------------------------------------------
+// Screen 06 — Receiving. MOBILE-FIRST.
+//
+// This is operated on a phone, outdoors, possibly in gloves, by somebody
+// standing next to a pallet. One column, 48px controls, the PO and job pinned
+// to the top so they never have to scroll up to check what they are signing
+// for, and one large confirm at the bottom.
+//
+// PARTIAL RECEIVING IS THE NORMAL CASE, not an exception. Each line records
+// what actually arrived this time; the request only becomes RECEIVED when
+// every line is accounted for, and that decision is the SERVER's
+// (transitionGuard's `lines_outstanding`), not this form's. Nothing here can
+// close a PO early, whatever is typed.
+// ---------------------------------------------------------------------------
 import { useActionState } from 'react';
 
 import { recordReceiptAction } from '../app/actions.ts';
 import { formatQty } from '../purchasing/domain/numbers.mjs';
-import { Field, Section, buttonClass, inputClass } from './ui';
+import { Alert, Button, ButtonLink, Panel, PhotoUpload, ReceivingItem, StatusBadge, TextInput } from './pcc';
 
 export default function ReceiveForm({
   requestId,
   progress,
   receipts,
+  header,
 }: {
   requestId: string;
   progress: any[];
   receipts: any[];
+  header: { poNumber: string | null; requestNumber: string; jobNumber: string; vendorName: string | null; status: string };
 }) {
   const [state, formAction, pending] = useActionState(recordReceiptAction, null as any);
 
+  const outstandingLines = progress.filter((p: any) => Number(p.outstandingQty ?? 0) > 0).length;
+  const today = new Date().toISOString().slice(0, 10);
+
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="mx-auto max-w-2xl space-y-4 pb-28">
       <input type="hidden" name="requestId" value={requestId} />
 
-      {state && state.ok === false ? (
-        <div className="rounded-md border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">{state.error}</div>
-      ) : null}
+      {/* Identity, pinned. On a phone this is the thing a person checks twice. */}
+      <div className="sticky top-14 z-10 -mx-4 border-b border-line bg-surface px-4 py-3 shadow-sm sm:mx-0 sm:rounded-lg sm:border">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-lg font-semibold text-ink">{header.poNumber ?? header.requestNumber}</p>
+            <p className="text-sm text-muted">
+              Job {header.jobNumber}
+              {header.vendorName ? ` · ${header.vendorName}` : ''}
+            </p>
+          </div>
+          <StatusBadge status={header.status} />
+        </div>
+      </div>
+
+      {state && state.ok === false ? <Alert tone="danger" title={state.error} /> : null}
       {state && state.ok ? (
-        <div className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
-          Receipt recorded. {state.data?.outstandingLines ? `${state.data.outstandingLines} line(s) still outstanding.` : 'Everything is accounted for.'}
-        </div>
+        <Alert
+          tone={state.data?.outstandingLines ? 'warning' : 'success'}
+          title={state.data?.outstandingLines ? 'Partial receipt recorded' : 'Receipt recorded'}
+          actions={
+            <ButtonLink href={`/requests/${requestId}`} variant="secondary">
+              Back to the order
+            </ButtonLink>
+          }
+        >
+          {state.data?.outstandingLines
+            ? `${state.data.outstandingLines} line(s) are still outstanding. This order stays open until they are accounted for.`
+            : 'Everything is accounted for.'}
+        </Alert>
       ) : null}
 
-      <Section title="This delivery">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Date received" required>
-            <input type="date" name="receivedDate" className={inputClass} defaultValue={new Date().toISOString().slice(0, 10)} />
-          </Field>
-          <Field label="Packing slip number">
-            <input name="packingSlipNumber" className={inputClass} />
-          </Field>
-          <Field label="Receiving notes">
-            <input name="receiptNotes" className={inputClass} />
-          </Field>
-        </div>
-      </Section>
+      {outstandingLines === 0 ? (
+        <Alert tone="success" title="Nothing outstanding">
+          Every line on this order has been accounted for.
+        </Alert>
+      ) : null}
 
-      <Section title="Lines" subtitle="Enter only what arrived this time. Partial deliveries are expected.">
-        <div className="space-y-3">
-          {progress.map((p) => (
-            <div key={p.purchaseOrderItemId} className="rounded-md border border-slate-200 p-3">
-              <input type="hidden" name="receiptPoItemId" value={p.purchaseOrderItemId} />
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-sm font-medium text-slate-900">{p.description}</span>
-                <span className="text-xs text-slate-600">
-                  ordered {formatQty(p.finalOrderQty)} {p.unit} · received {formatQty(p.receivedQty)} · outstanding{' '}
-                  <strong className={p.outstandingQty > 0 ? 'text-amber-700' : 'text-emerald-700'}>
-                    {formatQty(p.outstandingQty)}
-                  </strong>
-                </span>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-5">
-                <Field label="Received now">
-                  <input name="receiptReceivedQty" className={inputClass} inputMode="decimal" defaultValue="" />
-                </Field>
-                <Field label="Damaged">
-                  <input name="receiptDamagedQty" className={inputClass} inputMode="decimal" defaultValue="" />
-                </Field>
-                <Field label="Backordered">
-                  <input name="receiptBackorderedQty" className={inputClass} inputMode="decimal" defaultValue="" />
-                </Field>
-                <Field label="Written off" hint="Short-shipped and not coming.">
-                  <input name="receiptWrittenOffQty" className={inputClass} inputMode="decimal" defaultValue="" />
-                </Field>
-                <Field label="Over-receipt reason" hint="Required to accept more than ordered.">
-                  <input name="receiptOverrideReason" className={inputClass} />
-                </Field>
-              </div>
-              <div className="mt-2">
-                <Field label="Line notes">
-                  <input name="receiptLineNotes" className={inputClass} />
-                </Field>
-              </div>
-            </div>
+      <Panel title="This delivery" bodyClassName="space-y-3 p-4">
+        <TextInput label="Date received" type="date" name="receivedDate" required defaultValue={today} controlSize="l" />
+        <TextInput label="Packing slip number" name="packingSlipNumber" controlSize="l" inputMode="text" />
+        <TextInput label="Notes about this delivery" name="receiptNotes" controlSize="l" />
+      </Panel>
+
+      <div>
+        <h2 className="mb-2 text-base font-semibold text-ink">
+          What arrived <span className="font-normal text-muted">({progress.length} lines)</span>
+        </h2>
+        <ul className="space-y-3">
+          {progress.map((line: any, index: number) => (
+            <ReceivingItem key={line.purchaseOrderItemId} line={line} index={index} />
           ))}
+        </ul>
+      </div>
+
+      <Panel title="Evidence" subtitle="A photo now is worth an argument later." bodyClassName="space-y-3 p-4">
+        <PhotoUpload name="receiptPhotos" label="Take a photo" size="l" hint="The pallet, the damage, the slip." />
+        <div className="pt-1">
+          <span className="mb-1 block text-xs font-semibold text-ink-soft">Delivery slip or document</span>
+          {/* A separate control so the camera one stays a single tap. */}
+          <PhotoUpload name="receiptDocuments" label="Attach a file" size="l" hint="PDF or photo of the packing slip." />
         </div>
-        <button className={`${buttonClass} mt-4`} disabled={pending}>
-          {pending ? 'Recording…' : 'Record receipt'}
-        </button>
-      </Section>
+      </Panel>
 
       {receipts.length ? (
-        <Section title="Previous receipts">
-          <ul className="space-y-1 text-sm text-slate-700">
+        <Panel title="Earlier receipts" bodyClassName="p-4">
+          <ul className="space-y-1 text-sm text-ink-soft">
             {receipts.map((r: any) => (
               <li key={r.id}>
                 {r.receivedDate}
@@ -103,8 +114,29 @@ export default function ReceiveForm({
               </li>
             ))}
           </ul>
-        </Section>
+        </Panel>
       ) : null}
+
+      {/* The confirm bar. Fixed to the bottom of the viewport so it is always
+          within thumb reach, whatever the length of the order. */}
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface px-4 py-3 shadow-pop">
+        <div className="mx-auto flex max-w-2xl items-center gap-3">
+          <div className="min-w-0 flex-1 text-xs text-muted">
+            {outstandingLines > 0
+              ? `${outstandingLines} of ${progress.length} lines outstanding. A partial receipt keeps this order open.`
+              : 'All lines accounted for.'}
+          </div>
+          <Button type="submit" size="l" disabled={pending} className="min-w-40">
+            {pending ? 'Recording…' : 'Record receipt'}
+          </Button>
+        </div>
+      </div>
     </form>
   );
+}
+
+/** Total still owed on this order, for the page heading. */
+export function outstandingSummary(progress: any[]) {
+  const qty = progress.reduce((t, p) => t + Number(p.outstandingQty ?? 0), 0);
+  return formatQty(qty);
 }

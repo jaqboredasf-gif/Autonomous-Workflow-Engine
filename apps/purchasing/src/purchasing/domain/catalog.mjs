@@ -132,3 +132,54 @@ export const HISTORY_FIELDS = Object.freeze([
   'orderedAt',
   'createdAt',
 ]);
+
+// ---------------------------------------------------------------------------
+// SEARCHING AND RANKING THE CATALOGUE
+//
+// Both providers read the catalogue differently — one aggregates in SQL, the
+// other in JavaScript — but they must MATCH and RANK identically, or the same
+// organization would get different autocomplete depending on where its data
+// lives. So the rules live here, with the normalizer they depend on, and the
+// repositories only supply rows.
+// ---------------------------------------------------------------------------
+
+/**
+ * Filter catalogue entries by a user's search text.
+ *
+ * Prose is matched on the NORMALIZED form, so the catalogue finds items the
+ * same way the domain says two descriptions are the same item: "2 x 4" finds
+ * "2x4", and an accent does not hide a row. Part numbers are matched raw,
+ * because a part number is an identifier, not prose.
+ *
+ * The entry shape is the repositories' CatalogEntry; it is annotated loosely
+ * here because this module is plain JavaScript shared by both providers.
+ *
+ * @template T
+ * @param {T[]} entries
+ * @param {string} search
+ * @returns {T[]}
+ */
+export function matchCatalog(entries = [], search = '') {
+  const raw = String(search ?? '').trim();
+  if (!raw) return [...entries];
+  const needle = normalizeDescription(raw);
+  const rawLower = raw.toLowerCase();
+  return entries.filter((entry) => {
+    if (needle && String(entry.normalizedDescription ?? '').includes(needle)) return true;
+    if (String(entry.canonicalDescription ?? '').toLowerCase().includes(rawLower)) return true;
+    if (String(entry.catalogNumber ?? '').toLowerCase().includes(rawLower)) return true;
+    return (entry.aliases ?? []).some((alias) => String(alias).toLowerCase().includes(rawLower));
+  });
+}
+
+/**
+ * Autocomplete order: what this organization asks for OFTEN, then what it
+ * asked for RECENTLY. Both matter — the item bought every week and the item
+ * bought yesterday are the two a person is most likely to be typing.
+ */
+export function byCatalogUsefulness(a, b) {
+  const timesA = Number(a?.timesRequested ?? 0);
+  const timesB = Number(b?.timesRequested ?? 0);
+  if (timesB !== timesA) return timesB - timesA;
+  return String(b?.lastRequestedAt ?? '').localeCompare(String(a?.lastRequestedAt ?? ''));
+}

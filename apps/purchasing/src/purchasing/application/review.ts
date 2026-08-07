@@ -133,7 +133,12 @@ export async function saveWorkshopReview(
     }
 
     await ctx.reviews.markSaved(review.id, actor.id, input.workshopNotes ?? null, now);
-    const totals = recomputeTotals(ctx, requestId);
+    // AWAITED. Unawaited, `totals` was a pending promise: the reviewSaved
+    // event recorded an empty object where the numbers should be, the caller
+    // got a promise back instead of the totals, and the roll-up onto the
+    // request (estimated total, vendor, expected arrival) raced whatever read
+    // it next.
+    const totals = await recomputeTotals(ctx, requestId);
     emitted.push(events.reviewSaved(requestId, review.id, totals));
     await emit(ctx, actor, actor.orgId, emitted);
     return totals;

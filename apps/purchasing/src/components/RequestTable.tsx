@@ -6,16 +6,49 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 
-import { applyFilters, isOverdue } from '../purchasing/domain/dashboard.mjs';
+import { applyFilters, isOverdue, lifecycleBoard } from '../purchasing/domain/dashboard.mjs';
 import { REQUEST_STATUSES, statusLabel } from '../purchasing/domain/status.mjs';
 import { formatMoney, formatQty } from '../purchasing/domain/numbers.mjs';
 import { StatusBadge, inputClass } from './ui';
 
+// English labels for the lifecycle stages. The stage keys carry `labelKey` for
+// translation; these are the fallbacks, same pattern as statusLabel().
+const STAGE_LABELS: Record<string, string> = {
+  NEEDS_REVIEW: 'Needs review',
+  WAITING_ON_REQUESTOR: 'Waiting on requester',
+  READY_TO_ORDER: 'Ready to order',
+  AWAITING_DELIVERY: 'Awaiting delivery',
+  PARTIALLY_RECEIVED: 'Partly received',
+  RECEIVED: 'Received',
+  DRAFTS: 'Drafts',
+  CLOSED: 'Closed',
+};
+
+const STAGE_TONES: Record<string, string> = {
+  attention: 'border-amber-300 bg-amber-50 text-amber-900',
+  warn: 'border-orange-300 bg-orange-50 text-orange-900',
+  good: 'border-emerald-300 bg-emerald-50 text-emerald-900',
+  neutral: 'border-slate-300 bg-white text-slate-700',
+};
+
 export default function RequestTable({ requests, now }: { requests: any[]; now: string }) {
   const [filters, setFilters] = useState<Record<string, string | boolean>>({ status: 'ALL' });
+  const [stage, setStage] = useState<string>('ALL');
   const set = (key: string, value: string | boolean) => setFilters((f) => ({ ...f, [key]: value }));
 
-  const rows = useMemo(() => applyFilters(requests, filters, now), [requests, filters, now]);
+  const board = useMemo(() => lifecycleBoard(requests), [requests]);
+
+  // The stage tab narrows first, then the detailed filters apply to what is
+  // left. Picking a stage clears any conflicting single-status filter, so the
+  // two controls cannot silently produce an empty table together.
+  const rows = useMemo(() => {
+    const stageStatuses = stage === 'ALL'
+      ? null
+      : (board.find((b: any) => b.key === stage)?.statuses ?? []);
+    const scoped = stageStatuses ? requests.filter((r) => stageStatuses.includes(r.status)) : requests;
+    const effective = stageStatuses ? { ...filters, status: 'ALL' } : filters;
+    return applyFilters(scoped, effective, now);
+  }, [requests, filters, stage, board, now]);
 
   const requestors = uniqueBy(requests, 'requestorId', 'requestorName');
   const vendors = uniqueBy(requests, 'vendorId', 'vendorName');
@@ -23,6 +56,44 @@ export default function RequestTable({ requests, now }: { requests: any[]; now: 
 
   return (
     <div className="space-y-3">
+      {/* The lifecycle board. Every stage is shown even when empty: "nothing is
+          waiting to be ordered" is information, and a tab that disappears
+          teaches people the pile does not exist. */}
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Lifecycle stage">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={stage === 'ALL'}
+          onClick={() => setStage('ALL')}
+          className={`shrink-0 rounded-lg border px-3 py-2 text-left text-xs ${
+            stage === 'ALL' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-700'
+          }`}
+        >
+          <span className="block font-medium">Everything</span>
+          <span className="block text-base font-semibold tabular-nums">{requests.length}</span>
+        </button>
+        {board.map((b: any) => (
+          <button
+            key={b.key}
+            type="button"
+            role="tab"
+            aria-selected={stage === b.key}
+            onClick={() => setStage(b.key)}
+            className={`shrink-0 rounded-lg border px-3 py-2 text-left text-xs ${
+              stage === b.key ? 'border-slate-900 bg-slate-900 text-white' : STAGE_TONES[b.tone] ?? STAGE_TONES.neutral
+            }`}
+          >
+            <span className="block font-medium">
+              {STAGE_LABELS[b.key] ?? b.key}
+              {b.actionable && b.count > 0 && stage !== b.key && (
+                <span aria-label="needs attention" className="ml-1 text-rose-600">•</span>
+              )}
+            </span>
+            <span className="block text-base font-semibold tabular-nums">{b.count}</span>
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <input
           className={inputClass}
