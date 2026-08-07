@@ -10,7 +10,10 @@
 // ---------------------------------------------------------------------------
 
 import type { PurchasingContext } from '../../application/context.ts';
-import type { AuditPort, AttachmentPort, DocumentPort, IdentityPort, NotificationPort, UnitOfWork } from '../../application/ports.ts';
+import type {
+  AtomicOperations, AuditPort, AttachmentPort, DocumentPort, IdentityPort,
+  NotificationPort, UnitOfWork,
+} from '../../application/ports.ts';
 import type { AppConfig } from '../env.ts';
 import { emailDraftAdapter, pdfRenderer, systemClock } from '../adapters.ts';
 import { requestClient, privilegedClient, unwrap, type SupabaseHandles } from './client.ts';
@@ -36,15 +39,67 @@ import {
  *   record_purchase_decision()   approval + approval row + inventory movement
  *   generate_purchase_order()    number allocation + order + items + status
  *
- * The application does not route through them yet — it composes those steps
- * itself, which is correct on the local provider (real transaction) and only
- * eventually-consistent here. Closing that gap is Checkpoint 1C/2A work and is
- * recorded in PURCHASING_ASYNC_REFACTOR_HANDOFF.md rather than papered over.
+ * Two of the three are now routed through `atomic` below:
+ * record_purchase_decision and record_purchase_receipt (0019).
+ *
+ * generate_purchase_order is NOT, and deliberately so: the use case also
+ * renders and stores the PO document, which the database cannot do. Splitting
+ * that step out so the row write can move into the RPC is Checkpoint 2A. Until
+ * then PO generation is atomic on the local provider and a sequence of writes
+ * here — recorded rather than papered over.
  */
 function supabaseUnitOfWork(): UnitOfWork {
   return {
     async run<T>(fn: () => Promise<T> | T): Promise<T> {
       return fn();
+    },
+  };
+}
+
+/**
+ * The operations Postgres does in one transaction because PostgREST cannot.
+ *
+ * Each maps to a function migration 0016/0019 already defines. Nothing here
+ * re-implements a rule: the RPC is the transaction, and it re-checks the
+ * invariants the domain already checked so that a caller which is not this
+ * application still cannot write something incoherent.
+ */
+function atomicOperations(h: SupabaseHandles): AtomicOperations {
+  return {
+    async recordDecision(input) {
+      const status = unwrap(
+        await h.db.rpc('record_purchase_decision', {
+          p_request: input.requestId,
+          p_decision: input.decision,
+          p_notes: input.notes ?? null,
+          p_reason: input.reason ?? null,
+        }),
+        'record_purchase_decision',
+      ) as any;
+      return { status: String(Array.isArray(status) ? status[0] : status) };
+    },
+
+    async recordReceipt(input) {
+      const rows = unwrap(
+        await h.db.rpc('record_purchase_receipt', {
+          p_request: input.requestId,
+          p_received_date: input.receivedDate,
+          p_packing_slip: input.packingSlipNumber ?? null,
+          p_notes: input.notes ?? null,
+          p_lines: input.lines.map((line) => ({
+            purchase_order_item_id: line.purchaseOrderItemId,
+            received_qty: qty.write(line.receivedQty),
+            damaged_qty: qty.write(line.damagedQty),
+            backordered_qty: qty.write(line.backorderedQty),
+            written_off_qty: qty.write(line.writtenOffQty),
+            override_reason: line.overrideReason ?? null,
+            notes: line.notes ?? null,
+          })),
+        }),
+        'record_purchase_receipt',
+      ) as any;
+      const row = Array.isArray(rows) ? rows[0] : rows;
+      return { receiptId: String(row.receipt_id), outstandingLines: Number(row.outstanding_lines) };
     },
   };
 }
@@ -334,6 +389,7 @@ export function supabasePurchasingContext(
     renderer: pdfRenderer(),
     attachments: attachments(handles),
     email: emailDraftAdapter(),
+    atomic: atomicOperations(handles),
   };
 }
 

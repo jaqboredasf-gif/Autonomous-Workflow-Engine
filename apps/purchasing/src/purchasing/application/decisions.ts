@@ -48,6 +48,25 @@ export async function decidePurchaseRequest(
     throw new PurchasingError('not_in_review', `a ${request.status} request is not awaiting a decision`);
   }
 
+  // A provider that can decide atomically server-side does so; the local
+  // provider's unit of work already gives the same guarantee.
+  if (ctx.atomic) {
+    const changes = await changesFromOriginal(ctx, requestId);
+    const mapped = decision === 'APPROVE' ? 'APPROVED' : decision === 'REJECT' ? 'REJECTED' : 'CLARIFICATION_REQUESTED';
+    const result = await ctx.atomic.recordDecision({
+      requestId,
+      decision: mapped as 'APPROVED' | 'REJECTED' | 'CLARIFICATION_REQUESTED',
+      notes: input.notes ?? null,
+      reason: decision === 'CLARIFY' ? (input.question ?? '') : (input.reason ?? ''),
+    });
+    const emitted =
+      decision === 'APPROVE' ? [events.approved(request, changes, input.notes ?? null)]
+      : decision === 'REJECT' ? [events.rejected(request, input.reason ?? '')]
+      : [events.clarificationRequested(request, input.question ?? '')];
+    await emit(ctx, actor, actor.orgId, emitted);
+    return { status: result.status };
+  }
+
   return ctx.uow.run(async () => {
     const now = ctx.clock.now();
     const changes = await changesFromOriginal(ctx, requestId);

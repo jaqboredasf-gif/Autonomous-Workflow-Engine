@@ -744,6 +744,18 @@ export function sqliteReferenceRepository(db: DatabaseSync): ReferenceRepository
       return db.prepare('select * from delivery_locations where org_id = ? and is_active = 1 order by kind, name').all(orgId) as any[];
     },
     async jobs(orgId) {
+      // The job DIRECTORY (0018). `jobs` was the pilot's original table and is
+      // still read as a fallback so an existing database keeps working until
+      // its rows are migrated across.
+      const directory = db.prepare(
+        `select id, org_id, job_number, name, customer, site_address as address, status,
+                case when status = 'ACTIVE' then 1 else 0 end as is_active,
+                default_location_id, created_at
+           from purchase_jobs
+          where org_id = ? and status in ('ACTIVE','ON_HOLD')
+          order by job_number`,
+      ).all(orgId) as any[];
+      if (directory.length) return directory;
       return db.prepare('select * from jobs where org_id = ? and is_active = 1 order by job_number').all(orgId) as any[];
     },
     async users(orgId) {

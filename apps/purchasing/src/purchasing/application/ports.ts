@@ -142,6 +142,56 @@ export interface EmailDraftPort {
 }
 
 /**
+ * ATOMIC OPERATIONS a provider may implement server-side.
+ *
+ * Some invariants span several writes and must not be observable half-done: a
+ * receipt whose lines are missing, or a request whose status disagrees with the
+ * quantities recorded against it.
+ *
+ * The local provider does NOT implement this — its unit of work is a real
+ * transaction, so the composed use case is already atomic and reimplementing it
+ * would mean two places to fix. The Supabase provider DOES, because
+ * supabase-js has no client-side transaction and the only honest way to get
+ * atomicity is a Postgres function called through one RPC.
+ *
+ * Domain rules stay in TypeScript either way. What the RPC adds is the atomic
+ * write sequence plus a server-side re-check of the invariants, so a different
+ * client, a script or a future adapter cannot write what the domain would have
+ * refused. That duplication is deliberate: it is defence in depth, not a second
+ * implementation of the workflow.
+ *
+ * A use case asks `ctx.atomic?.x` and otherwise composes the steps itself.
+ */
+export interface AtomicOperations {
+  /**
+   * The decision, its approval record and the inventory movement the approval
+   * causes, in one transaction. `record_purchase_decision()` (migration 0016).
+   */
+  recordDecision(input: {
+    requestId: string;
+    decision: 'APPROVED' | 'REJECTED' | 'CLARIFICATION_REQUESTED';
+    notes?: string | null;
+    reason?: string | null;
+  }): Promise<{ status: string }>;
+
+  recordReceipt(input: {
+    requestId: string;
+    receivedDate: string;
+    packingSlipNumber?: string | null;
+    notes?: string | null;
+    lines: Array<{
+      purchaseOrderItemId: string;
+      receivedQty: number;
+      damagedQty: number;
+      backorderedQty: number;
+      writtenOffQty: number;
+      overrideReason?: string | null;
+      notes?: string | null;
+    }>;
+  }): Promise<{ receiptId: string; outstandingLines: number }>;
+}
+
+/**
  * Transaction boundary. A use case that writes more than one record uses it.
  *
  * The callback is async because the repositories are, and that makes

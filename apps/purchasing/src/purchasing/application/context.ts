@@ -15,8 +15,8 @@ import type {
   WorkshopReviewRepository,
 } from '../domain/repositories.ts';
 import type {
-  Actor, AttachmentPort, AuditPort, AuthPort, Clock, DocumentPort, DocumentRenderer,
-  EmailDraftPort, IdentityPort, NotificationPort, UnitOfWork,
+  Actor, AtomicOperations, AttachmentPort, AuditPort, AuthPort, Clock, DocumentPort,
+  DocumentRenderer, EmailDraftPort, IdentityPort, NotificationPort, UnitOfWork,
 } from './ports.ts';
 
 import { authorize } from '../domain/roles.mjs';
@@ -43,6 +43,12 @@ export type PurchasingContext = {
   renderer: DocumentRenderer;
   attachments: AttachmentPort;
   email: EmailDraftPort;
+  /**
+   * Present only when the provider can do a multi-write operation atomically
+   * server-side. Absent on the local provider, whose unit of work is already a
+   * real transaction.
+   */
+  atomic?: AtomicOperations;
 };
 
 /**

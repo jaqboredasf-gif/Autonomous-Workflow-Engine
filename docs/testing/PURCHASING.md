@@ -5,11 +5,12 @@ Three gates. The first two are offline; the third builds and drives the real web
 | Gate | Runner | Scope |
 | --- | --- | --- |
 | **Unit** | `bash scripts/eval-purchasing-domain.sh` | `src/purchasing/domain/**` only — no database, no clock, no app. 165 assertions, milliseconds. |
+| **Tenant isolation** | `bash scripts/eval-purchasing-isolation.sh` | static policy analysis over the migrations plus cross-tenant behaviour through the application. 123 assertions. **Does not prove RLS** — see `supabase/tests/tenant_isolation.sql`. |
 | **Provider conformance** | `bash scripts/eval-purchasing-providers.sh` | the Supabase adapter against the local one, without credentials: method shape and arity, async-ness, exact number conversion, table names, tenant scoping. 231 assertions. |
 | **Integration + end-to-end** | `bash scripts/eval-purchasing.sh` | the real use cases, repositories and adapters against a throwaway SQLite database, plus the full purchasing scenario. Runs TWICE — once on the local provider, once on a deferred provider that answers on a later macrotask. 158 + 159 assertions. |
 | **Website acceptance** | `bash scripts/eval-purchasing-web.sh` | a production build, started on a spare port, driven over real HTTP. 88 assertions. |
 
-`npm run test -w purchasing` runs typecheck, then all four.
+`npm run test -w purchasing` runs typecheck, then all five.
 
 **The deferred pass is the async gate.** The local store settles in the same
 tick, so a missing `await` is invisible against it — the value has already

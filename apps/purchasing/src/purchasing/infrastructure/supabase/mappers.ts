@@ -91,6 +91,8 @@ export const TABLES = {
   vendors: 'purchase_vendors',
   vendorContacts: 'purchase_vendor_contacts',
   deliveryLocations: 'purchase_delivery_locations',
+  jobs: 'purchase_jobs',
+  itemCatalog: 'purchase_item_catalog',
   requests: 'purchase_requests',
   requestItems: 'purchase_request_items',
   requestAttachments: 'purchase_request_attachments',

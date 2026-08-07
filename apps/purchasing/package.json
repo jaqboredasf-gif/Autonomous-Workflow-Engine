@@ -10,9 +10,10 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "bash ../../scripts/eval-purchasing-domain.sh",
     "test:integration": "bash ../../scripts/eval-purchasing.sh",
-    "test": "npm run typecheck && npm run test:unit && npm run test:providers && npm run test:integration && npm run test:web",
+    "test": "npm run typecheck && npm run test:unit && npm run test:providers && npm run test:isolation && npm run test:integration && npm run test:web",
     "test:web": "bash ../../scripts/eval-purchasing-web.sh",
-    "test:providers": "bash ../../scripts/eval-purchasing-providers.sh"
+    "test:providers": "bash ../../scripts/eval-purchasing-providers.sh",
+    "test:isolation": "bash ../../scripts/eval-purchasing-isolation.sh"
   },
   "dependencies": {
     "next": "16.2.10",

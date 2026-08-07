@@ -3,7 +3,7 @@
 What is real, what is written but unproven, and what does not exist. Written to be
 disagreed with: if a line here is wrong, fix the line rather than the impression.
 
-Status as of Checkpoint 1C. Verified locally: **411 automated checks** (165 domain unit,
+Status as of Checkpoint 1D. Verified locally: **411 automated checks** (165 domain unit,
 158 integration, 88 website acceptance) plus a clean production build.
 
 ---
@@ -73,6 +73,24 @@ Ordered by what a pilot would miss first.
 | Tenant configuration (branding, terminology, required fields, templates) | one hard-coded organization seed; the domain itself is free of Lippolis specifics, but the configuration layer does not exist | Phase 19 |
 | Security headers, CSRF tokens, upload validation | Next's defaults only | Phase 21 |
 | Backup and restore documentation, rollback procedure | the pilot database is a file nobody has a policy for | Phase 22 |
+
+## 4a. Fixed in 1D — a real cross-tenant defect
+
+`purchase_line_history` (added in 1C) was created **without `security_invoker`**. A Postgres view
+runs with its owner's privileges by default, so row level security on the underlying tables was
+never evaluated for the caller: any authenticated user could have read **every organization's**
+purchasing history through it. Fixed in migration 0019, and a test now asserts every view sets
+`security_invoker = on`.
+
+Second defect, same migration: plain foreign keys are validated with RLS bypassed, so one
+organization could create a row *pointing at* another's vendor, location or request. Sixteen
+references are now composite `(id, org_id)`, which makes a cross-tenant pointer unrepresentable
+rather than merely hidden.
+
+Third, found by the new isolation suite: **creating an organization does not provision it.**
+Migration 0016 seeds settings and number sequences for organizations that existed when it ran;
+nothing does so for a tenant added later, so a new tenant cannot raise its first request. This
+blocks the SaaS onboarding milestone and belongs in 1E/3A.
 
 ## 4b. Added in 1C, schema only (no UX, by instruction)
 

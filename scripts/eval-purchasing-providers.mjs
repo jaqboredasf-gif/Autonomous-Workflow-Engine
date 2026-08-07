@@ -117,7 +117,8 @@ check(threw, 'a non-decimal value is refused rather than silently becoming 0');
 
 console.log('--- table names exist in the migrations ------------------------');
 
-const migrations = ['0016_purchasing_control.sql', '0017_purchasing_auth_and_assignments.sql']
+const migrations = ['0016_purchasing_control.sql', '0017_purchasing_auth_and_assignments.sql',
+                    '0018_purchasing_history_and_jobs.sql', '0019_purchasing_tenant_isolation.sql']
   .map((f) => readFileSync(join(ROOT, 'supabase', 'migrations', f), 'utf8'))
   .join('\n');
 const core = readFileSync(join(ROOT, 'supabase', 'migrations', '0001_core.sql'), 'utf8');

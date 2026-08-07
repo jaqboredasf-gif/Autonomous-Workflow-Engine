@@ -260,6 +260,46 @@ export async function recordReceipt(
   }
   if (!input.receivedDate) throw new PurchasingError('validation_failed', 'a receipt needs the date it arrived');
 
+  // A provider that can do the whole receipt in one transaction server-side
+  // does so. The local provider has no `atomic` — its unit of work IS a
+  // transaction, so composing the steps below is already atomic there.
+  if (ctx.atomic) {
+    const parsed = input.lines.map((line) => ({
+      purchaseOrderItemId: line.purchaseOrderItemId,
+      receivedQty: optional(line.receivedQty),
+      damagedQty: optional(line.damagedQty),
+      backorderedQty: optional(line.backorderedQty),
+      writtenOffQty: optional(line.writtenOffQty),
+      overrideReason: line.overrideReason ?? null,
+      notes: line.notes ?? null,
+    }));
+    const result = await ctx.atomic.recordReceipt({
+      requestId,
+      receivedDate: input.receivedDate,
+      packingSlipNumber: input.packingSlipNumber ?? null,
+      notes: input.notes ?? null,
+      lines: parsed,
+    });
+
+    // The events are still emitted from here: the RPC owns the WRITE, the
+    // domain owns what the write means.
+    const emitted: any[] = [
+      events.receiptRecorded(requestId, result.receiptId, {
+        lines: input.lines.length, packingSlip: input.packingSlipNumber ?? null,
+      }),
+    ];
+    if (result.outstandingLines === 0) {
+      emitted.push(
+        events.receiptCompleted(requestId, result.receiptId, input.receivedDate),
+        events.materialReady(requestId),
+      );
+    } else {
+      emitted.push(events.receiptPartial(requestId, result.receiptId, result.outstandingLines));
+    }
+    await emit(ctx, actor, actor.orgId, emitted);
+    return result;
+  }
+
   return ctx.uow.run(async () => {
     const now = ctx.clock.now();
     const order = await ctx.orders.findByRequest(requestId);
