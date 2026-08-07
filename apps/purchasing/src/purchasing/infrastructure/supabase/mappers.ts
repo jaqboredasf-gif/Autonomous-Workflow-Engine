@@ -87,6 +87,8 @@ export const TABLES = {
   orgs: 'orgs',
   users: 'users',
   userRoles: 'purchasing_user_roles',
+  memberships: 'purchasing_org_memberships',
+  invitations: 'purchasing_invitations',
   jobAssignments: 'purchasing_job_assignments',
   vendors: 'purchase_vendors',
   vendorContacts: 'purchase_vendor_contacts',

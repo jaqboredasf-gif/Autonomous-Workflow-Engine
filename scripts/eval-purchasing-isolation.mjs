@@ -9,10 +9,17 @@
 // 2. BEHAVIOURALLY, through the application, against the local provider: a
 //    second organization's user is refused every read and every write.
 //
-// What neither of these is: a live RLS test. Policies are enforced by Postgres,
-// and Postgres is not running here. The SQL suite that must be executed against
-// a real project lives in supabase/tests/tenant_isolation.sql, and until it has
-// run, the policies in this repository are reviewed, not proven.
+// What neither of these is: a live RLS test. Postgres enforces policies, and
+// Postgres is not running in THIS process. The live suite is
+// supabase/tests/tenant_isolation.sql, run by scripts/verify-supabase-live.sh.
+//
+// Where that leaves the claim, precisely:
+//   * against LOCAL Postgres — PROVEN. The suite has been executed against the
+//     local Supabase stack, and its negative control (disable RLS, rerun) does
+//     report leaks, which is what makes the pass mean anything.
+//   * against a HOSTED project — NOT PROVEN. No hosted project has been
+//     touched. The migrations are identical, so the expectation is reasonable,
+//     but an expectation is not a result.
 // ---------------------------------------------------------------------------
 
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
@@ -262,9 +269,11 @@ db.close();
 rmSync(TMP, { recursive: true, force: true });
 
 console.log('');
-console.log('    NOTE: the policies above are reviewed, not proven. Postgres is');
-console.log('    what enforces them and it is not running here. See');
-console.log('    supabase/tests/tenant_isolation.sql for the live suite.');
+console.log('    NOTE: these checks are static and application-level. Postgres');
+console.log('    enforces the policies and is not running in this process.');
+console.log('    RLS against LOCAL Postgres:  PROVEN — supabase/tests/tenant_isolation.sql');
+console.log('                                 via scripts/verify-supabase-live.sh.');
+console.log('    RLS against a HOSTED project: NOT PROVEN — none has been touched.');
 console.log('');
 console.log(`isolation checks: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

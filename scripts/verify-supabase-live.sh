@@ -45,5 +45,16 @@ else
   echo "detected ${leaks} leak(s) with RLS off, as required"
 fi
 
+# The SQL suites prove the DATABASE refuses cross-tenant access. They say
+# nothing about the website: an application can be perfectly isolated at the
+# database and still resolve the wrong tenant, or hand out a privileged client.
+# That proof is scripts/eval-purchasing-supabase-web.sh, which needs a running
+# dev server and so is a separate step, named here so it is not forgotten.
+echo "--- website against Supabase persistence ---"
+echo "  Not run here: it needs a dev server on PURCHASING_PERSISTENCE=supabase."
+echo "  1. node scripts/provision-local-tenants.mjs"
+echo "  2. start the app with AUTH_PROVIDER=supabase PURCHASING_PERSISTENCE=supabase"
+echo "  3. bash scripts/eval-purchasing-supabase-web.sh"
+
 [ "$fail" = "0" ] && echo "Live Supabase verification: PASS" || echo "Live Supabase verification: FAIL"
 exit "$fail"

@@ -8,11 +8,11 @@
 // whose roles and org actually decide what happens next. No password, token or
 // refresh token is ever written to a purchasing table.
 //
-// STATUS: written and wired, NOT executed. This environment has no Supabase
-// project, no CLI and no credentials, so nothing here has run against a live
-// instance — see the README's remaining-gaps section. It activates when
-// AUTH_PROVIDER=supabase and the URL and keys are present; until then the local
-// provider serves and every acceptance test runs against that.
+// Identity is resolved from POSTGRES, not from the pilot's local store: when
+// Supabase owns persistence, the users and membership tables are there. The
+// resolution runs as the caller (see supabase/identity-resolution.ts), so the
+// same row level security that governs their data governs the answer to "which
+// organization are you in".
 //
 // Two clients, on purpose:
 //   * the ANON client verifies the password. It has no elevated rights, so a
@@ -27,7 +27,13 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import type { AuthPort, AuthResult } from '../../application/ports.ts';
 import type { AppConfig } from '../env.ts';
+import { resolveSupabaseActor } from '../supabase/identity-resolution.ts';
 
+/**
+ * @param db the local store. Used ONLY when persistence is still local (the
+ *   pilot running Supabase credentials against a file-backed database). When
+ *   PURCHASING_PERSISTENCE=supabase, identity comes from Postgres instead.
+ */
 export function supabaseAuthAdapter(db: DatabaseSync, config: AppConfig): AuthPort {
   const anon = (): SupabaseClient => {
     if (!config.supabase.url || !config.supabase.anonKey) {
@@ -69,6 +75,28 @@ export function supabaseAuthAdapter(db: DatabaseSync, config: AppConfig): AuthPo
       }
       if (response.error || !response.data?.user) return { ok: false, reason: 'invalid_credentials' };
 
+      const accessToken = response.data.session?.access_token ?? null;
+
+      if (config.persistenceProvider === 'supabase') {
+        // Postgres is the source of truth for who this is and which tenant they
+        // belong to. Resolving it here means a person with valid credentials
+        // but no active membership never receives a session at all.
+        const resolved = await resolveSupabaseActor(config, accessToken);
+        if (!resolved.ok) {
+          return {
+            ok: false,
+            reason: resolved.reason === 'account_disabled' ? 'account_disabled' : 'invalid_credentials',
+          };
+        }
+        return {
+          ok: true,
+          userId: resolved.actor.id,
+          accessToken: accessToken ?? undefined,
+          refreshToken: response.data.session?.refresh_token,
+          expiresAt: response.data.session?.expires_at,
+        };
+      }
+
       const user = applicationUserFor(response.data.user.id, email);
       if (!user) return { ok: false, reason: 'invalid_credentials' };
       if (!user.is_active) return { ok: false, reason: 'account_disabled' };
@@ -78,7 +106,15 @@ export function supabaseAuthAdapter(db: DatabaseSync, config: AppConfig): AuthPo
       db.prepare('update users set auth_user_id = ? where id = ? and auth_user_id is null')
         .run(response.data.user.id, user.id);
 
-      return { ok: true, userId: user.id };
+      return {
+        ok: true,
+        userId: user.id,
+        // Kept so the request-scoped client can act AS this person. Never sent
+        // to the browser in a readable form — it lives in an httpOnly cookie.
+        accessToken: response.data.session?.access_token,
+        refreshToken: response.data.session?.refresh_token,
+        expiresAt: response.data.session?.expires_at,
+      };
     },
 
     async requestPasswordReset(email: string) {

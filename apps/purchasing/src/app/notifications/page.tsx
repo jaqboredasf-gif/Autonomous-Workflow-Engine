@@ -9,7 +9,7 @@ export const metadata = { title: 'Notifications — Lippolis Purchasing' };
 
 export default async function NotificationsPage() {
   const actor = await requireAccess('/notifications');
-  const ctx = purchasingRequestContext();
+  const ctx = await purchasingRequestContext();
   const items = await ctx.notifications.inboxFor(actor.id);
 
   return (

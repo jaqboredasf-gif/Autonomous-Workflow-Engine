@@ -27,7 +27,7 @@ async function run<T>(fn: (ctx: any, actor: S.Actor) => Promise<T> | T): Promise
   const actor = await currentActor();
   if (!actor) return { ok: false, error: 'You are signed out. Sign in again.', reason: 'no_session' };
   try {
-    const data = await fn(purchasingRequestContext(), actor);
+    const data = await fn(await purchasingRequestContext(), actor);
     return { ok: true, data };
   } catch (err: any) {
     return {

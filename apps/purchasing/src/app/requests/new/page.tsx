@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function NewRequestPage() {
   const actor = await requireAccess('/requests/new');
-  const ctx = purchasingRequestContext();
+  const ctx = await purchasingRequestContext();
 
   return (
     <NewRequestForm

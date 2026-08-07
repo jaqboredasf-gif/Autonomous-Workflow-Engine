@@ -14,7 +14,7 @@ export const metadata = { title: 'Accounting — Lippolis Purchasing' };
 
 export default async function AccountingPage() {
   const actor = await requireAccess('/accounting');
-  const ctx = purchasingRequestContext();
+  const ctx = await purchasingRequestContext();
 
   // Anything with a purchase order and at least one receipt is payable-ish;
   // anything with a discrepancy is the reason this screen exists.

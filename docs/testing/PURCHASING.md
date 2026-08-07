@@ -1,16 +1,45 @@
 # Purchasing Control Center — test contract
 
-Three gates. The first two are offline; the third builds and drives the real website:
+Six gates. Five are offline and run anywhere; the sixth needs a live Supabase
+stack and a running server, and **skips loudly** rather than passing when it
+cannot reach one.
 
 | Gate | Runner | Scope |
 | --- | --- | --- |
-| **Unit** | `bash scripts/eval-purchasing-domain.sh` | `src/purchasing/domain/**` only — no database, no clock, no app. 165 assertions, milliseconds. |
-| **Tenant isolation** | `bash scripts/eval-purchasing-isolation.sh` | static policy analysis over the migrations plus cross-tenant behaviour through the application. 123 assertions. **Does not prove RLS** — see `supabase/tests/tenant_isolation.sql`. |
-| **Provider conformance** | `bash scripts/eval-purchasing-providers.sh` | the Supabase adapter against the local one, without credentials: method shape and arity, async-ness, exact number conversion, table names, tenant scoping. 231 assertions. |
-| **Integration + end-to-end** | `bash scripts/eval-purchasing.sh` | the real use cases, repositories and adapters against a throwaway SQLite database, plus the full purchasing scenario. Runs TWICE — once on the local provider, once on a deferred provider that answers on a later macrotask. 158 + 159 assertions. |
-| **Website acceptance** | `bash scripts/eval-purchasing-web.sh` | a production build, started on a spare port, driven over real HTTP. 88 assertions. |
+| **Unit** | `bash scripts/eval-purchasing-domain.sh` | `src/purchasing/domain/**` only — no database, no clock, no app. 203 assertions, milliseconds. |
+| **Tenant isolation** | `bash scripts/eval-purchasing-isolation.sh` | static policy analysis over the migrations plus cross-tenant behaviour through the application. 123 assertions. **This gate does not itself prove RLS** — Postgres does, in `supabase/tests/tenant_isolation.sql`, which passes against local Postgres and has not been run against a hosted project. |
+| **Provider conformance** | `bash scripts/eval-purchasing-providers.sh` | the Supabase adapter against the local one, without credentials: method shape and arity, async-ness, exact number conversion, table names, tenant scoping — plus live checks that `PURCHASING_PERSISTENCE=supabase` fails closed when a precondition for the caller's token is missing. 244 assertions. |
+| **Integration + end-to-end** | `bash scripts/eval-purchasing.sh` | the real use cases, repositories and adapters against a throwaway SQLite database, plus the full purchasing scenario. Runs TWICE — once on the local provider, once on a deferred provider that answers on a later macrotask. 177 assertions. |
+| **Website acceptance** | `bash scripts/eval-purchasing-web.sh` | a production build, started on a spare port, driven over real HTTP against the LOCAL provider. 88 assertions. |
+| **Website on Supabase** | `bash scripts/eval-purchasing-supabase-web.sh` | the same website on `PURCHASING_PERSISTENCE=supabase`, against a live local stack, signed in as two real users of two real organizations. 41 assertions. **Needs setup — see below.** |
 
-`npm run test -w purchasing` runs typecheck, then all five.
+`npm run test -w purchasing` runs typecheck, then the five offline gates.
+
+### The Supabase gate, and why it is separate
+
+It needs three live things, so it cannot run unattended:
+
+```bash
+npx supabase start                                  # local stack, all migrations
+node scripts/provision-local-tenants.mjs            # two organizations, two admins
+# then, with the stack's keys in the environment:
+AUTH_PROVIDER=supabase PURCHASING_PERSISTENCE=supabase \
+  SESSION_SECRET=<32+ chars> npx next dev -p 3100 -w purchasing
+bash scripts/eval-purchasing-supabase-web.sh
+```
+
+Without any of them it exits **2 (SKIPPED)**, never 0. A gate that reports
+success when it did not run is worse than no gate.
+
+What it is trying to disprove, over HTTP, with cookies: that one organization
+can see another's data; that an unauthenticated request reaches a workspace;
+that a suspended membership keeps working; that a client-supplied `org_id` — in
+a query string or a header — changes what comes back; that a forged, swapped or
+expired token is honoured; that the service role key reaches the browser.
+
+**Its negative control.** Make `resolveSupabaseActor` return the other
+organization and the suite fails 12 checks. That is what makes its pass mean
+something.
 
 **The deferred pass is the async gate.** The local store settles in the same
 tick, so a missing `await` is invisible against it — the value has already
@@ -69,12 +98,13 @@ It asserts the rules that must hold however anything is stored or displayed:
 
 Runner: `bash scripts/eval-purchasing.sh` (harness: `scripts/eval-purchasing.mjs`).
 
-**Offline by construction.** No API keys, no model calls, no Supabase, no network, no Microsoft
-Graph, no mailbox, no browser. The harness imports the modules the app ships — Node 24 strips
+**Offline by construction** — this gate, not all of them. No API keys, no model calls, no
+Supabase, no network, no Microsoft Graph, no mailbox, no browser. (The Supabase gate above is
+the deliberate exception, and announces itself as skipped when its stack is absent.) The harness imports the modules the app ships — Node 24 strips
 the TypeScript types on import, so it tests the same files, not a copy — and drives them against
 a throwaway SQLite database in a temp directory that it deletes on the way out.
 
-Exit 0 iff every gate passes. 152 assertions, roughly 15 seconds.
+Exit 0 iff every gate passes. 177 assertions, roughly 15 seconds.
 
 ---
 

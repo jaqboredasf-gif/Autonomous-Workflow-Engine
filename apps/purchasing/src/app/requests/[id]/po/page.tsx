@@ -17,7 +17,7 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
   const { id } = await params;
   const actor = await requireAccess('/requests');
 
-  const ctx = purchasingRequestContext();
+  const ctx = await purchasingRequestContext();
   let detail: any;
   try {
     detail = await S.getRequestDetail(ctx, actor, id);

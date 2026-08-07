@@ -121,13 +121,24 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): {
   if (config.persistenceProvider === 'supabase') {
     if (!config.supabase.url) error('NEXT_PUBLIC_SUPABASE_URL', 'required when PURCHASING_PERSISTENCE=supabase');
     if (!config.supabase.anonKey) error('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'required when PURCHASING_PERSISTENCE=supabase');
-    // The Supabase context is request-scoped and needs the caller's verified
-    // access token to make RLS apply to the caller. That plumbing is
-    // Checkpoint 1E; until it exists, selecting this provider would run every
-    // query anonymously and RLS would refuse all of them. Fail loudly here
-    // rather than mysteriously on the first page load.
+    // The Supabase context is request-scoped: it is built per request from the
+    // caller's verified access token, which is what makes row level security
+    // apply to THEM. Every condition below is a precondition for that token
+    // existing. Without one, the app would fall back to querying anonymously,
+    // RLS would refuse everything, and the failure would surface as an empty
+    // page rather than a misconfiguration. Fail here instead.
     if (config.authProvider !== 'supabase') {
       error('PURCHASING_PERSISTENCE', 'Supabase persistence requires AUTH_PROVIDER=supabase (the caller\'s token scopes every query)');
+    }
+    // The demo identity picker selects a user WITHOUT a password, so it mints
+    // no access token. Combined with Supabase persistence it would produce
+    // signed-in-looking sessions that can read nothing — or, worse, invite a
+    // later "fix" that hands them a privileged client.
+    if (config.demoMode) {
+      error('PURCHASING_DEMO_MODE', 'demo identity selection cannot be combined with Supabase persistence (it mints no access token)');
+    }
+    if (config.sessionSecret === DEV_SESSION_SECRET) {
+      error('SESSION_SECRET', 'Supabase persistence requires a real session secret: the session cookie carries the access token');
     }
   }
   if (config.authProvider === 'local' && config.isProduction) {

@@ -730,7 +730,15 @@ export function supabaseReferenceRepository(h: SupabaseHandles): ReferenceReposi
 
     async users(orgId) {
       const rows = unwrap(
-        await h.db.from(TABLES.users).select(`*, roles:${TABLES.userRoles}(role), jobs:${TABLES.jobAssignments}(job_number)`)
+        // The embeds name their foreign key explicitly. Both of these tables
+        // reference `users` twice — once for the person the row is ABOUT and
+        // once for the administrator who granted it — and an unqualified embed
+        // is ambiguous, which PostgREST reports as an error rather than
+        // picking one. Live Postgres caught this; no static check could.
+        await h.db.from(TABLES.users).select(
+          `*, roles:${TABLES.userRoles}!${TABLES.userRoles}_user_id_fkey(role),`
+          + ` jobs:${TABLES.jobAssignments}!${TABLES.jobAssignments}_user_id_fkey(job_number)`,
+        )
           .eq('org_id', orgId).order('full_name'),
         'list users',
       ) as any[];

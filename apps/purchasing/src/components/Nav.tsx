@@ -18,7 +18,7 @@ export default async function Nav() {
   if (!actor) return null;
 
   const workspaces = workspacesFor(actor);
-  const ctx = purchasingRequestContext();
+  const ctx = await purchasingRequestContext();
   const unread = (await ctx.notifications.inboxFor(actor.id)).filter((n: any) => !n.read_at).length;
 
   return (

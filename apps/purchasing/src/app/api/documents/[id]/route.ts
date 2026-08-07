@@ -17,7 +17,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   let document;
   try {
-    document = await getDocumentForDownload(purchasingRequestContext(), actor, id);
+    document = await getDocumentForDownload(await purchasingRequestContext(), actor, id);
   } catch {
     return new NextResponse('Not found.', { status: 404 });
   }

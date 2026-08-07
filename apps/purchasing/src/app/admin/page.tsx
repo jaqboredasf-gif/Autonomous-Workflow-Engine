@@ -20,7 +20,7 @@ export default async function AdminPage() {
   // renders a polite "not for you" with a 200 has not blocked anything.
   const actor = await requireAccess('/admin');
 
-  const ctx = purchasingRequestContext();
+  const ctx = await purchasingRequestContext();
   const users = await S.listUsers(ctx, actor);
   const vendors = await S.listVendors(ctx, actor);
   const locations = await S.listDeliveryLocations(ctx, actor);

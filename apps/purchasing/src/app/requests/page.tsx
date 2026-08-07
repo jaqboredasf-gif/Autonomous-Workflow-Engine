@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function RequestsPage() {
   const actor = await requireAccess('/requests');
-  const requests = await S.listRequests(purchasingRequestContext(), actor);
+  const requests = await S.listRequests(await purchasingRequestContext(), actor);
 
   return (
     <div className="space-y-4">

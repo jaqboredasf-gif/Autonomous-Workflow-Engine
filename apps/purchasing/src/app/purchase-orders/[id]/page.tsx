@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export default async function PurchaseOrderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const actor = await requireAccess('/purchase-orders');
-  const ctx = purchasingRequestContext();
+  const ctx = await purchasingRequestContext();
 
   const order = await ctx.orders.findById(id);
   if (!order || order.orgId !== actor.orgId) notFound();

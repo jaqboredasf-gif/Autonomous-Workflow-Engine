@@ -18,7 +18,7 @@ export default async function EmailDraftPage({ params }: { params: Promise<{ id:
 
   let detail: any;
   try {
-    detail = await S.getRequestDetail(purchasingRequestContext(), actor, id);
+    detail = await S.getRequestDetail(await purchasingRequestContext(), actor, id);
   } catch {
     notFound();
   }

@@ -14,7 +14,7 @@ export const metadata = { title: 'Deliveries — Lippolis Purchasing' };
 
 export default async function DeliveriesPage() {
   const actor = await requireAccess('/deliveries');
-  const ctx = purchasingRequestContext();
+  const ctx = await purchasingRequestContext();
   const deliveries = await deliveriesForActor(ctx, actor);
   // Resolve the per-order progress BEFORE rendering: a React tree cannot await
   // inside a map, and one round trip per row is the shape to avoid once the

@@ -17,6 +17,7 @@
 // sign-in path.
 // ---------------------------------------------------------------------------
 
+import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
@@ -29,6 +30,8 @@ import {
   SESSION_COOKIE, newSessionPayload, signSession, verifySession,
 } from '../purchasing/infrastructure/auth/session-token.ts';
 import { identityAdapter } from '../purchasing/infrastructure/adapters.ts';
+import { supabasePurchasingContext } from '../purchasing/infrastructure/supabase/context.ts';
+import { resolveSupabaseActor } from '../purchasing/infrastructure/supabase/identity-resolution.ts';
 import { routeDecision, defaultWorkspaceFor } from '../purchasing/domain/workspaces.mjs';
 import type { Actor } from '../purchasing/application/ports.ts';
 
@@ -40,9 +43,66 @@ function database() {
   return db;
 }
 
-/** The composed purchasing context for one request. */
-export function purchasingRequestContext() {
-  return purchasingContext(database());
+/**
+ * THE ACCESS TOKEN COOKIE.
+ *
+ * httpOnly, so script cannot read it; SameSite=Lax, so another site cannot make
+ * the browser send it on a navigation it caused; Secure in production. It holds
+ * the provider's access token, which is what makes row level security apply to
+ * the caller rather than to a service role.
+ *
+ * It is deliberately separate from the signed identity cookie: that one says
+ * WHO, this one carries the AUTHORITY, and the server re-checks both.
+ */
+const ACCESS_TOKEN_COOKIE = 'purchasing_at';
+const REFRESH_TOKEN_COOKIE = 'purchasing_rt';
+
+async function accessToken(): Promise<string | null> {
+  const store = await cookies();
+  return store.get(ACCESS_TOKEN_COOKIE)?.value ?? null;
+}
+
+/**
+ * Resolve the caller once per request.
+ *
+ * Both the route guard and the repository context need to know who this is, and
+ * both used to ask Postgres independently — two token validations and two
+ * membership reads for every page. `cache()` scopes the answer to the request,
+ * so a page renders on ONE resolution.
+ *
+ * It also removes a subtler problem than the round trips: with two independent
+ * resolutions, a membership changing between them would let a request pass the
+ * guard as one tenant and query as another. One resolution cannot disagree with
+ * itself.
+ */
+const resolveCallerOnce = cache(async (token: string | null) => {
+  return resolveSupabaseActor(loadConfig(), token);
+});
+
+/**
+ * The composed purchasing context for one request.
+ *
+ * Local persistence composes over the file-backed store. Supabase persistence
+ * composes over a client carrying THIS caller's token, and the organization
+ * comes from their ACTIVE membership — never from anything the browser sent.
+ */
+export async function purchasingRequestContext() {
+  const config = loadConfig();
+  if (config.persistenceProvider !== 'supabase') {
+    return purchasingContext(database());
+  }
+
+  const token = await accessToken();
+  const resolved = await resolveCallerOnce(token);
+  if (!resolved.ok) {
+    // Fail closed: no membership, no context. There is no fallback to a
+    // privileged client, because that is how a tenant boundary quietly becomes
+    // optional.
+    const err: any = new Error('no authenticated tenant context');
+    err.reason = resolved.reason;
+    throw err;
+  }
+  return supabasePurchasingContext(config, { accessToken: token, orgId: resolved.orgId });
 }
 
 /**
@@ -54,6 +114,14 @@ export async function currentActor(): Promise<Actor | null> {
   const store = await cookies();
   const verified = await verifySession(store.get(SESSION_COOKIE)?.value, config.sessionSecret);
   if (!verified.valid) return null;
+
+  if (config.persistenceProvider === 'supabase') {
+    // The signed cookie says who claims to be here; Postgres says whether they
+    // still are. A revoked token or a suspended membership stops working on
+    // the next request, not at cookie expiry.
+    const resolved = await resolveCallerOnce(store.get(ACCESS_TOKEN_COOKIE)?.value ?? null);
+    return resolved.ok ? resolved.actor : null;
+  }
 
   const actor = await identityAdapter(database()).load(verified.payload.uid);
   if (!actor || !actor.isActive) return null;
@@ -116,7 +184,13 @@ export async function signIn(email: string, password: string, next?: string): Pr
   const result = await authAdapter(db, config).signIn(email, password);
   if (!result.ok) return { ok: false, error: result.reason };
 
-  const actor = await identityAdapter(db).load(result.userId);
+  let actor: Actor | null;
+  if (config.persistenceProvider === 'supabase') {
+    const resolved = await resolveSupabaseActor(config, result.accessToken ?? null);
+    actor = resolved.ok ? resolved.actor : null;
+  } else {
+    actor = await identityAdapter(db).load(result.userId);
+  }
   if (!actor || !actor.isActive) return { ok: false, error: 'account_disabled' };
 
   const token = await signSession(
@@ -124,13 +198,19 @@ export async function signIn(email: string, password: string, next?: string): Pr
     config.sessionSecret,
   );
   const store = await cookies();
-  store.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
+  const cookieOptions = {
+    httpOnly: true as const,
+    sameSite: 'lax' as const,
     secure: config.isProduction,
     path: '/',
     maxAge: config.sessionTtlSeconds,
-  });
+  };
+  store.set(SESSION_COOKIE, token, cookieOptions);
+
+  // The provider's tokens ride in their own httpOnly cookies. They are never
+  // rendered, never returned in a body, and never readable by script.
+  if (result.accessToken) store.set(ACCESS_TOKEN_COOKIE, result.accessToken, cookieOptions);
+  if (result.refreshToken) store.set(REFRESH_TOKEN_COOKIE, result.refreshToken, cookieOptions);
 
   // Only ever redirect INSIDE this application: an open redirect on a sign-in
   // form is a phishing primitive.
@@ -140,7 +220,11 @@ export async function signIn(email: string, password: string, next?: string): Pr
 
 export async function signOut() {
   const store = await cookies();
+  // Every cookie, not just the identity one: leaving the access token behind
+  // would leave a usable credential in the browser after "sign out".
   store.delete(SESSION_COOKIE);
+  store.delete(ACCESS_TOKEN_COOKIE);
+  store.delete(REFRESH_TOKEN_COOKIE);
 }
 
 // --- developer demo mode ----------------------------------------------------

@@ -3,22 +3,29 @@
 What is real, what is written but unproven, and what does not exist. Written to be
 disagreed with: if a line here is wrong, fix the line rather than the impression.
 
-Status as of Checkpoint 1E. Verified locally: **411 automated checks** (165 domain unit,
-158 integration, 88 website acceptance) plus a clean production build.
+Status as of Checkpoint 1E-B. Verified locally: **835 automated checks** — 203 domain,
+244 provider conformance, 177 integration (local + deferred), 88 website acceptance,
+123 tenant isolation — plus **41 checks against the real website running on Supabase
+persistence**, two live SQL security suites, and a clean production build.
 
 ---
 
 ## 1. Externally blocked — cannot be verified from this environment
 
-These are not "nearly done". They have **never been executed**, because this machine has no
-Supabase project, no Supabase CLI, no Docker and no credentials. Nothing below should be
-described to anyone as working.
+This section used to say nothing here had ever been executed. That is no longer true: a local
+Supabase stack runs under Docker, every migration is applied to it, and the website has been
+driven against it. What remains genuinely unexecuted is anything **hosted**.
+
+The distinction that matters throughout this document: *local Postgres* is real Postgres, with
+real row level security, and a result there is a real result. It is not a hosted project, and
+a hosted project can differ in configuration, extensions and network policy.
 
 | Item | State | What is missing |
 | --- | --- | --- |
-| Supabase migrations 0016–0020 | **APPLIED AND VERIFIED** against a local Postgres (`bash scripts/verify-supabase-live.sh`). Never applied to a hosted project. | a hosted project + `supabase db push` |
-| Supabase Auth adapter | written and wired behind `AuthPort`, **never contacted a server** | project URL, anon key, service role key |
-| Supabase repositories | **do not exist** | the adapter itself — the async boundary it plugs into is done (§2), so this is now writing code rather than changing the application |
+| Supabase migrations 0016–0021 | **APPLIED AND VERIFIED** against local Postgres (`bash scripts/verify-supabase-live.sh`). Never applied to a hosted project. | a hosted project + `supabase db push` |
+| Supabase Auth adapter | **EXERCISED**: real sign-in, sign-out, wrong password and unknown address, against the local stack's auth server, through the website's own form | a hosted project |
+| Supabase repositories | **EXIST AND RUN**: every page of the website reads and writes through them under `PURCHASING_PERSISTENCE=supabase`, scoped by the caller's own access token | behavioural parity with the local provider, case for case |
+| Browser-level tenant isolation | **PROVEN LOCALLY**: two provisioned organizations, two signed-in users, 41 HTTP checks including forged org identifiers, swapped tokens, expired tokens and suspended memberships | the same run against a hosted project |
 | Supabase Storage | **not implemented**; attachments are stored inline in the pilot database | bucket, policies, signed URL flow |
 | Real email delivery | deliberately absent; drafts only, and the schema pins `external_send_enabled = false` | a reviewed decision to send at all |
 | Production deployment | never performed | a host, a domain, TLS, credentials |
@@ -40,14 +47,20 @@ become a Postgres function called through a single RPC. Two of them already exis
 
 ## 3. Written but unproven (would work, has not been shown to)
 
-- **Supabase Auth** (`infrastructure/auth/supabase-auth.ts`): sign-in, password set, disable,
-  and the `users.auth_user_id` binding. Selected by `AUTH_PROVIDER=supabase`. Every automated
-  check runs against the local provider instead.
-- **Migration 0017**: the auth link, job assignments, `purchasing_may_receive()` and the
-  receiving policy that answers to assignments. Linted for parity with the app's role and
-  permission tables; never applied.
+- **Password reset and administrative account changes** in `supabase-auth.ts` (`setPassword`,
+  `setDisabled`, `requestPasswordReset`). Sign-in is exercised; these three are not. They use
+  the service role client, so they are also the paths where a mistake costs the most.
+- **Behavioural parity between the two providers.** Both are exercised, but not against the
+  same scenario asserting the same outputs. `eval-purchasing-providers.sh` compares them
+  statically — shape, arity, number conversion, tenancy — not by result.
+- **Migration 0017's receiving policy** (`purchasing_may_receive()`, job-assignment scoping) is
+  applied locally and passes the isolation suite, but no website check yet drives a foreman
+  receiving against an assignment they do not hold.
 - **Health endpoint's migration check** compares the *pilot* schema version. Against Supabase it
   needs to read `supabase_migrations.schema_migrations` instead.
+- **Sign-in page branding is fixed to Lippolis Electric.** A Northgate user signs in under a
+  Lippolis logo and page title, then lands on their own correctly-isolated data. The isolation
+  is real; the branding is not tenant-aware. Cosmetic today, wrong for a second customer.
 
 ## 4. Not built (named in the brief, absent in the code)
 

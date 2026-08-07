@@ -17,7 +17,7 @@ export const metadata = { title: 'Receipt — Lippolis Purchasing' };
 export default async function ReceiptPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const actor = await requireAccess('/receipts');
-  const ctx = purchasingRequestContext();
+  const ctx = await purchasingRequestContext();
 
   let evidence: any;
   try {

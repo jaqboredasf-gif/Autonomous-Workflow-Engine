@@ -13,7 +13,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   const { id } = await params;
   const actor = await requireAccess('/requests');
 
-  const ctx = purchasingRequestContext();
+  const ctx = await purchasingRequestContext();
   let detail: any;
   try {
     detail = await S.getRequestDetail(ctx, actor, id);

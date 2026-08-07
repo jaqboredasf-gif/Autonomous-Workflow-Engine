@@ -21,8 +21,8 @@
 // in front of it until then, and it says so rather than pretending to be it.
 // ---------------------------------------------------------------------------
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -117,16 +117,20 @@ check(threw, 'a non-decimal value is refused rather than silently becoming 0');
 
 console.log('--- table names exist in the migrations ------------------------');
 
-const migrations = ['0016_purchasing_control.sql', '0017_purchasing_auth_and_assignments.sql',
-                    '0018_purchasing_history_and_jobs.sql', '0019_purchasing_tenant_isolation.sql']
-  .map((f) => readFileSync(join(ROOT, 'supabase', 'migrations', f), 'utf8'))
+// Every migration, discovered rather than listed. The list used to be
+// hardcoded, which meant tables added by a LATER migration were reported as
+// "not created by a migration" — the check failing for its own reasons rather
+// than the code's. A directory read cannot go stale that way.
+const MIGRATIONS_DIR = join(ROOT, 'supabase', 'migrations');
+const allSql = readdirSync(MIGRATIONS_DIR)
+  .filter((f) => f.endsWith('.sql'))
+  .sort()
+  .map((f) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
   .join('\n');
-const core = readFileSync(join(ROOT, 'supabase', 'migrations', '0001_core.sql'), 'utf8');
-const allSql = `${core}\n${migrations}`;
 
 for (const [key, table] of Object.entries(mappers.TABLES)) {
   check(
-    new RegExp(`create table (if not exists )?${table}\\b`).test(allSql),
+    new RegExp(`create table (if not exists )?(public\\.)?${table}\\b`).test(allSql),
     `TABLES.${key} -> ${table} is created by a migration`,
   );
 }
@@ -169,11 +173,66 @@ check(
   'and says why in the file',
 );
 
+// ---------------------------------------------------------------------------
+console.log('--- enabling PURCHASING_PERSISTENCE=supabase fails closed -------');
+
+// Not static: validateEnvironment is imported and run. Every precondition below
+// is a precondition for a request carrying the caller's access token. Missing
+// one and starting anyway would mean querying anonymously, which RLS refuses —
+// an empty screen instead of a stated misconfiguration.
+const env = await import(`${pathToFileURL(join(ROOT, 'apps/purchasing/src/purchasing/infrastructure/env.ts')).href}`);
+
+const GOOD = {
+  NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-key',
+  AUTH_PROVIDER: 'supabase',
+  PURCHASING_PERSISTENCE: 'supabase',
+  SESSION_SECRET: 'a-real-session-secret-of-sufficient-length',
+  APP_BASE_URL: 'http://localhost:3000',
+};
+const verdict = (overrides) => {
+  const e = { ...GOOD, ...overrides };
+  for (const [k, v] of Object.entries(e)) if (v === undefined) delete e[k];
+  const result = env.validateEnvironment(e);
+  return { ok: result.ok, keys: result.problems.filter((x) => x.level === 'error').map((x) => x.variable) };
+};
+
+check(verdict({}).ok, 'a fully configured Supabase deployment is accepted');
+
+check(!verdict({ NEXT_PUBLIC_SUPABASE_URL: undefined }).ok,
+  'Supabase persistence without a URL is refused');
+check(!verdict({ NEXT_PUBLIC_SUPABASE_ANON_KEY: undefined }).ok,
+  'Supabase persistence without an anon key is refused');
+check(!verdict({ AUTH_PROVIDER: 'local' }).ok,
+  'Supabase persistence with the local credential provider is refused');
+check(verdict({ AUTH_PROVIDER: 'local' }).keys.includes('PURCHASING_PERSISTENCE'),
+  'the refusal names PURCHASING_PERSISTENCE, so the operator knows which one to change');
+check(!verdict({ PURCHASING_DEMO_MODE: '1' }).ok,
+  'Supabase persistence with the demo identity picker is refused (it mints no token)');
+check(!verdict({ SESSION_SECRET: undefined }).ok,
+  'Supabase persistence with the built-in development session secret is refused');
+
+// The flag never turns itself on. Supabase credentials being present is not
+// consent to move where the company's purchasing records live.
+const inferred = env.loadConfig({
+  NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-key',
+});
+check(inferred.persistenceProvider === 'local',
+  'persistence stays local when the flag is absent, even with Supabase configured');
+check(inferred.authProvider === 'supabase',
+  'auth still infers upward from configured credentials (unchanged behaviour)');
+
+console.log('');
 console.log('--- what this file does NOT prove ------------------------------');
-console.log('    The Supabase adapter has never executed a query. Shape, number');
-console.log('    conversion, table names and tenancy are checked statically.');
-console.log('    Behavioural parity needs a real project: see');
-console.log('    docs/PURCHASING_ASYNC_REFACTOR_HANDOFF.md.');
+console.log('    THIS FILE is static: shape, number conversion, table names and');
+console.log('    tenancy are read out of the source, not executed.');
+console.log('');
+console.log('    The adapter itself is no longer unexercised — it runs against');
+console.log('    local Postgres in scripts/eval-purchasing-supabase-web.mjs,');
+console.log('    driven through the website over HTTP. What remains unproven is');
+console.log('    behavioural parity with the local provider case for case, and');
+console.log('    anything against a hosted project.');
 
 console.log('');
 console.log(`provider checks: ${pass} passed, ${fail} failed`);

@@ -43,7 +43,20 @@ export interface Clock {
 }
 
 export type AuthResult =
-  | { ok: true; userId: string }
+  | {
+      ok: true;
+      userId: string;
+      /**
+       * The caller's access token. Present when the provider issues one
+       * (Supabase); absent for the local credential store, which has no
+       * database session to scope. Everything downstream that talks to
+       * Postgres carries this so row level security applies to the PERSON,
+       * not to a service role.
+       */
+      accessToken?: string;
+      refreshToken?: string;
+      expiresAt?: number;
+    }
   | { ok: false; reason: 'invalid_credentials' | 'account_disabled' | 'unavailable' };
 
 /**
