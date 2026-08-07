@@ -150,7 +150,14 @@ language sql stable security definer as $$
       where m.user_id = auth.uid() and m.status = 'ACTIVE'
       order by m.is_primary desc, m.created_at
       limit 1),
-    (select u.org_id from users u where u.id = auth.uid())
+    -- The legacy fallback serves users who have NO membership row at all —
+    -- the AWE users that migrations 0002-0015 were written for. It must NOT
+    -- serve someone whose membership was suspended or removed: found by the
+    -- live suite, where a suspended member kept their access through this
+    -- column. Once a membership exists, membership is the only answer.
+    (select u.org_id from users u
+      where u.id = auth.uid()
+        and not exists (select 1 from purchasing_org_memberships m2 where m2.user_id = u.id))
   )
 $$;
 
@@ -197,7 +204,7 @@ create or replace function provision_organization(
   p_admin_name     text,
   p_po_prefix      text default 'PO-',
   p_po_start       bigint default 1001
-) returns table (org_id uuid, admin_user_id uuid)
+) returns table (out_org_id uuid, out_admin_user_id uuid)
 language plpgsql security definer as $$
 declare
   v_org  uuid;
@@ -237,8 +244,8 @@ begin
   insert into purchasing_org_memberships (org_id, user_id, status, accepted_at, is_primary)
        values (v_org, v_user, 'ACTIVE', now(), true);
 
-  org_id := v_org;
-  admin_user_id := v_user;
+  out_org_id := v_org;
+  out_admin_user_id := v_user;
   return next;
 end $$;
 
@@ -305,7 +312,7 @@ create policy purchasing_invitations_invitee_read on purchasing_invitations
  * user cannot elevate themselves by asking for more.
  */
 create or replace function accept_purchasing_invitation(p_invitation uuid)
-returns table (org_id uuid, user_id uuid)
+returns table (out_org_id uuid, out_user_id uuid)
 language plpgsql security definer as $$
 declare
   inv    purchasing_invitations%rowtype;
@@ -363,8 +370,8 @@ begin
      set accepted_at = now(), accepted_user_id = v_user
    where id = p_invitation;
 
-  org_id := inv.org_id;
-  user_id := v_user;
+  out_org_id := inv.org_id;
+  out_user_id := v_user;
   return next;
 end $$;
 

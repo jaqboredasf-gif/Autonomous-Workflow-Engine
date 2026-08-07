@@ -24,10 +24,22 @@ declare
   visible int; failures int := 0; before_orgs int; after_orgs int;
   claims text;
 begin
+  -- Provisioning legitimately requires the identity to exist in the auth
+  -- provider first — users.auth_user_id references auth.users(id), and
+  -- users.id IS that identity. The fixture creates them the way GoTrue would.
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password,
+                          email_confirmed_at, created_at, updated_at)
+  values (auth_a, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+          'admin-a@example.invalid', crypt('password-a', gen_salt('bf')), now(), now(), now()),
+         (auth_b, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+          'admin-b@example.invalid', crypt('password-b', gen_salt('bf')), now(), now(), now()),
+         (auth_outsider, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+          'outsider@example.invalid', crypt('password-o', gen_salt('bf')), now(), now(), now());
+
   -- --- 11. provisioning succeeds COMPLETELY ---------------------------------
-  select org_id, admin_user_id into org_a, admin_a
+  select out_org_id, out_admin_user_id into org_a, admin_a
     from provision_organization('Tenant A Electric', auth_a, 'admin-a@example.invalid', 'A Admin', 'AA-', 5000);
-  select org_id, admin_user_id into org_b, admin_b
+  select out_org_id, out_admin_user_id into org_b, admin_b
     from provision_organization('Tenant B Mechanical', auth_b, 'admin-b@example.invalid', 'B Admin');
 
   if (select count(*) from purchasing_settings where org_id = org_a) <> 1
@@ -102,7 +114,8 @@ begin
   -- --- 6. authenticated but WITHOUT membership sees nothing -----------------
   perform set_config('role', 'postgres', true);
   insert into users (id, org_id, role, full_name, email, is_active, auth_user_id)
-       values (outsider, org_a, 'worker', 'No Membership', 'outsider@example.invalid', true, auth_outsider);
+       values (auth_outsider, org_a, 'worker', 'No Membership', 'outsider@example.invalid', true, auth_outsider);
+  outsider := auth_outsider;
   -- deliberately NO membership row, and users.org_id is set to tenant A to
   -- prove membership is what decides, not the legacy column.
   delete from purchasing_org_memberships where user_id = outsider;
@@ -114,17 +127,22 @@ begin
   -- migrations 0002-0015, so this user DOES resolve to tenant A. That fallback
   -- is deliberate and is recorded as a known gap: it must be removed once the
   -- legacy policies are migrated to membership.
+  -- A user with no membership row falls back to users.org_id by design (the
+  -- legacy AWE users), but holds no purchasing role, so the row policies refuse
+  -- them anyway. Both halves are asserted.
+  if current_org_id() is null then
+    failures := failures + 1; raise warning 'MEMBERSHIP: the legacy fallback stopped working for a legacy user';
+  end if;
   select count(*) into visible from purchase_requests where org_id = org_a;
-  if visible = 0 then
-    raise notice 'membership-only resolution is already in force (fallback removed)';
-  else
-    raise notice 'KNOWN GAP: users.org_id fallback still grants access without a membership row';
+  if visible <> 0 then
+    failures := failures + 1; raise warning 'LEAK: a user with no purchasing role read organization data';
   end if;
 
   -- --- 10. a SUSPENDED membership loses access -----------------------------
   perform set_config('role', 'postgres', true);
+  -- Suspension alone must be enough. The legacy users.org_id column still says
+  -- tenant B, and that must no longer matter.
   update purchasing_org_memberships set status = 'SUSPENDED' where user_id = admin_b;
-  update users set org_id = null where id = admin_b;  -- remove the legacy fallback too
   perform set_config('role', 'authenticated', true);
   perform set_config('request.jwt.claims',
     json_build_object('sub', admin_b, 'email', 'admin-b@example.invalid', 'role', 'authenticated')::text, true);
@@ -137,15 +155,21 @@ begin
   -- --- 14. an invited user cannot elevate their own role -------------------
   perform set_config('role', 'postgres', true);
   update purchasing_org_memberships set status = 'ACTIVE' where user_id = admin_b;
-  update users set org_id = org_b where id = admin_b;
   insert into purchasing_invitations (org_id, email, roles, invited_by)
        values (org_b, 'invitee@example.invalid', array['REQUESTOR']::purchasing_role[], admin_b)
     returning id into inv_id;
 
-  perform set_config('role', 'authenticated', true);
-  perform set_config('request.jwt.claims',
-    json_build_object('sub', gen_random_uuid(), 'email', 'invitee@example.invalid', 'role', 'authenticated')::text, true);
-  perform accept_purchasing_invitation(inv_id);
+  declare invitee_auth uuid := gen_random_uuid();
+  begin
+    insert into auth.users (id, instance_id, aud, role, email, encrypted_password,
+                            email_confirmed_at, created_at, updated_at)
+    values (invitee_auth, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'invitee@example.invalid', crypt('password-i', gen_salt('bf')), now(), now(), now());
+    perform set_config('role', 'authenticated', true);
+    perform set_config('request.jwt.claims',
+      json_build_object('sub', invitee_auth, 'email', 'invitee@example.invalid', 'role', 'authenticated')::text, true);
+    perform accept_purchasing_invitation(inv_id);
+  end;
 
   perform set_config('role', 'postgres', true);
   if exists (

@@ -3,7 +3,7 @@
 What is real, what is written but unproven, and what does not exist. Written to be
 disagreed with: if a line here is wrong, fix the line rather than the impression.
 
-Status as of Checkpoint 1D. Verified locally: **411 automated checks** (165 domain unit,
+Status as of Checkpoint 1E. Verified locally: **411 automated checks** (165 domain unit,
 158 integration, 88 website acceptance) plus a clean production build.
 
 ---
@@ -16,7 +16,7 @@ described to anyone as working.
 
 | Item | State | What is missing |
 | --- | --- | --- |
-| Supabase migrations 0016 / 0017 | written, parity-linted, **never run** | a project + `supabase db push` |
+| Supabase migrations 0016–0020 | **APPLIED AND VERIFIED** against a local Postgres (`bash scripts/verify-supabase-live.sh`). Never applied to a hosted project. | a hosted project + `supabase db push` |
 | Supabase Auth adapter | written and wired behind `AuthPort`, **never contacted a server** | project URL, anon key, service role key |
 | Supabase repositories | **do not exist** | the adapter itself — the async boundary it plugs into is done (§2), so this is now writing code rather than changing the application |
 | Supabase Storage | **not implemented**; attachments are stored inline in the pilot database | bucket, policies, signed URL flow |
@@ -73,6 +73,29 @@ Ordered by what a pilot would miss first.
 | Tenant configuration (branding, terminology, required fields, templates) | one hard-coded organization seed; the domain itself is free of Lippolis specifics, but the configuration layer does not exist | Phase 19 |
 | Security headers, CSRF tokens, upload validation | Next's defaults only | Phase 21 |
 | Backup and restore documentation, rollback procedure | the pilot database is a file nobody has a policy for | Phase 22 |
+
+## 4a0. Fixed in 1E — four defects only a real database could find
+
+Static analysis called migrations 0016–0019 correct for four checkpoints. Postgres disagreed
+four times on first execution:
+
+1. **0018 could not apply at all.** `purchase_line_history` selected a column added later in the
+   same file. The migration would have failed on first deploy.
+2. **The purchasing schema was unreachable.** Every table had RLS and policies; none was granted
+   to `authenticated`. Supabase does not auto-expose new tables, so PostgREST answers
+   "permission denied" before RLS is consulted.
+3. **`users` has no `email` column.** Purchasing assumed one throughout. The parity lint compared
+   table *names*, not columns.
+4. **`users.id` has no default — it IS the auth user id.** Provisioning generated a fresh id, so
+   every provisioned administrator would have had a profile no signed-in caller resolves to.
+
+And one found by the live security suite itself: a **suspended membership still had access**
+through the legacy `users.org_id` fallback. The fallback now serves only users with no
+membership row at all.
+
+**Live status:** `tenant_isolation.sql` and `membership_and_provisioning.sql` both PASS under
+real RLS, and a negative control (RLS disabled on one table) makes the isolation suite report
+three leaks — so the suite can fail, which is what makes the pass mean something.
 
 ## 4a. Fixed in 1D — a real cross-tenant defect
 
