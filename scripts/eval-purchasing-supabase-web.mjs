@@ -27,6 +27,15 @@ const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const PASSWORD = 'pilot-password-9137';
 
+/**
+ * A page whose HTML contains the tenant's marker vendor.
+ *
+ * The marker is how every cross-tenant check below tells whose data came back,
+ * so it has to be a page that actually renders vendors. It carries a query
+ * string already, which is why the forged-parameter URLs append with `&`.
+ */
+const MARKER_PAGE = '/admin?module=vendors';
+
 let passed = 0;
 const failures = [];
 function check(name, ok, detail = '') {
@@ -173,8 +182,14 @@ const errorText = (html) => {
 }
 
 // 5. The signed-in user reaches their own workspace and sees their own data.
+//
+// MARKER_PAGE is a page that actually RENDERS the marker vendor. /admin alone
+// no longer does: it became tabbed, and its default module is Users, so every
+// check below that looks for a marker was passing or failing on whether an
+// unrelated tab happened to contain the string. A leak check that cannot see
+// either tenant's data proves nothing about leaks.
 {
-  const res = await lippolis.go('/admin');
+  const res = await lippolis.go(MARKER_PAGE);
   check('signed-in user reaches a workspace', res.status === 200, `status ${res.status}`);
   check('workspace shows this tenant\'s marker', res.body.includes('LIPPOLIS-ONLY-VENDOR'),
     'the Lippolis marker vendor was not rendered');
@@ -186,7 +201,7 @@ const errorText = (html) => {
 const northgate = browser();
 {
   await signIn(northgate, 'admin@northgate.test');
-  const res = await northgate.go('/admin');
+  const res = await northgate.go(MARKER_PAGE);
   check('second tenant reaches their workspace', res.status === 200, `status ${res.status}`);
   check('second tenant sees their own marker', res.body.includes('NORTHGATE-ONLY-VENDOR'));
   check('second tenant sees NO Lippolis marker', !res.body.includes('LIPPOLIS-ONLY-VENDOR'),
@@ -199,9 +214,9 @@ if (admin) {
   const { data: orgs } = await admin.from('orgs').select('id, name');
   const northgateOrg = (orgs ?? []).find((o) => /northgate/i.test(o.name))?.id;
   const forged = [
-    `/admin?org_id=${northgateOrg}`,
-    `/admin?orgId=${northgateOrg}`,
-    '/admin?org_id=00000000-0000-0000-0000-000000000000',
+    `${MARKER_PAGE}&org_id=${northgateOrg}`,
+    `${MARKER_PAGE}&orgId=${northgateOrg}`,
+    `${MARKER_PAGE}&org_id=00000000-0000-0000-0000-000000000000`,
   ];
   for (const path of forged) {
     const res = await lippolis.go(path);
@@ -215,7 +230,7 @@ if (admin) {
       `status ${res.status}`);
   }
   // The same claim, in a header — some frameworks read these.
-  const res = await lippolis.go('/admin', { headers: { 'x-org-id': northgateOrg ?? '' } });
+  const res = await lippolis.go(MARKER_PAGE, { headers: { 'x-org-id': northgateOrg ?? '' } });
   check('fabricated org header is ignored', !res.body.includes('NORTHGATE-ONLY-VENDOR'),
     'CROSS-TENANT LEAK: an org header changed what was returned');
 }
@@ -233,7 +248,7 @@ if (admin) {
     const mixed = browser();
     for (const [k, v] of lippolis.jar) mixed.jar.set(k, v);   // Lippolis identity cookie
     mixed.jar.set('purchasing_at', northgateToken);            // Northgate token
-    const res = await mixed.go('/admin');
+    const res = await mixed.go(MARKER_PAGE);
     const leaked = res.body.includes('LIPPOLIS-ONLY-VENDOR');
     check('a swapped token cannot read the cookie-claimed tenant', !leaked,
       'CROSS-TENANT LEAK: identity came from the cookie while the token said otherwise');
