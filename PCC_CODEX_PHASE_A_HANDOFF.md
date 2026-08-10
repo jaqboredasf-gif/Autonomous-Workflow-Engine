@@ -359,6 +359,22 @@ Also keep in mind:
 
 ---
 
+## PHASE 2 — LEGACY PO IMPORT (designed, not built)
+
+The architecture for importing historical Lippolis purchase orders is complete and
+implementation-ready: `docs/planning/PCC_LEGACY_PO_IMPORT_ARCHITECTURE.md`.
+
+Read it before touching anything named `import` or `legacy`. The three rules it exists to
+enforce: imported history lives in its own tables and never in `purchase_history_lines`;
+raw source values are preserved verbatim and never overwritten; nothing becomes immutable
+until a human accepts it, and then it is immutable by the same four fences native history
+uses (grant, RLS, row trigger, truncate trigger).
+
+First milestone is **2A — schema + domain model**, migration `0034`. Its objective,
+affected files, acceptance criteria and stop condition are in §K of that document.
+
+---
+
 ## NEXT AFTER PHASE A
 
 B. material catalog import
