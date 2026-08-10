@@ -693,11 +693,22 @@ const otherSiteForeman = users.luis;
   const requestRow = db.prepare('select requestor_id, approver_id from purchase_requests where id = ?').get(mikesOwn.id);
   eq(requestRow.requestor_id, mike.id, 'BR-014.7 the requester is still named');
   eq(requestRow.approver_id, mike.id, 'BR-014.7 the approver is still named');
-  check(
-    db.prepare("select count(*) c from purchase_activity_log where request_id = ? and action like 'receipt.%'")
-      .get(mikesOwn.id).c > 0,
-    'BR-014.7 the receipt appears in the activity history',
-  );
+  const receiptEvents = db.prepare(
+    `select action, actor_id, at from purchase_activity_log
+      where request_id = ? and action like 'receipt.%' order by seq`).all(mikesOwn.id);
+  check(receiptEvents.length > 0, 'BR-014.7 the receipt appears in the activity history');
+  check(receiptEvents.every((e) => e.actor_id === mike.id),
+    'BR-014.7 the activity entry names the person who did the receiving, not the requester or approver');
+  check(receiptEvents.every((e) => Boolean(e.at)), 'BR-014.7 every receiving event is timestamped');
+
+  // The approval actor and the receiving actor are recorded SEPARATELY, even
+  // when they are the same person. BR-011 and BR-014 each write their own
+  // actor; neither infers one from the other.
+  const approvalEvents = db.prepare(
+    `select action, actor_id from purchase_activity_log
+      where request_id = ? and action like 'request.approved%'`).all(mikesOwn.id);
+  check(approvalEvents.every((e) => e.actor_id === mike.id),
+    'BR-014.7 the approval actor is recorded independently of the receiving actor');
 
   // BR-014.1 on the write path: a request-only user is refused server-side,
   // not merely un-offered a button.

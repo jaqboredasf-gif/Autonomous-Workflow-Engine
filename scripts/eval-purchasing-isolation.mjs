@@ -22,7 +22,7 @@
 //     but an expectation is not a result.
 // ---------------------------------------------------------------------------
 
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -53,6 +53,44 @@ const sql = ['0016_purchasing_control.sql', '0017_purchasing_auth_and_assignment
              '0018_purchasing_history_and_jobs.sql', '0019_purchasing_tenant_isolation.sql']
   .map((f) => readFileSync(join(MIGRATIONS, f), 'utf8')).join('\n');
 
+/**
+ * THE EFFECTIVE POLICY SET — what the database actually enforces.
+ *
+ * `sql` above is a fixed list of four files, which was fine when it was written
+ * and is not any more: migrations are append-only, so a policy created in 0016
+ * can be dropped and replaced in 0017, 0025 or 0029, and a scan that stops at
+ * 0019 reports on rules the database no longer has. Worse, it CANNOT SEE a
+ * policy added later — so "every policy is scoped" was a claim about a subset
+ * nobody was maintaining.
+ *
+ * This replays every migration in order and keeps the last definition of each
+ * (table, policy name), dropping the ones that were dropped. Postgres ORs
+ * permissive policies together, so the weakest surviving policy is the rule —
+ * which is exactly what these checks need to look at.
+ */
+const ALL_MIGRATIONS = readdirSync(MIGRATIONS)
+  .filter((f) => f.endsWith('.sql'))
+  .sort()
+  .map((f) => ({ name: f, text: readFileSync(join(MIGRATIONS, f), 'utf8') }));
+
+const effectivePolicies = (() => {
+  const live = new Map(); // `${table}:${policy}` -> {table, policy, body, file}
+  for (const file of ALL_MIGRATIONS) {
+    // Statements in order, so a drop followed by a create in the same file
+    // resolves the way Postgres would run it.
+    const events = [...file.text.matchAll(
+      /(?:drop policy(?: if exists)? (\w+) on (\w+)|create policy (\w+) on (\w+)\b([\s\S]*?);)/g,
+    )];
+    for (const e of events) {
+      if (e[1]) live.delete(`${e[2]}:${e[1]}`);
+      else live.set(`${e[4]}:${e[3]}`, { table: e[4], policy: e[3], body: e[5], file: file.name });
+    }
+  }
+  return [...live.values()];
+})();
+
+const policiesOn = (table) => effectivePolicies.filter((p) => p.table === table);
+
 console.log('--- every tenant-owned table is protected -----------------------');
 
 const created = [...sql.matchAll(/create table (?:if not exists )?(\w+)\s*\(([\s\S]*?)\n\);/g)]
@@ -68,16 +106,44 @@ for (const table of tenantOwned) {
 }
 
 // A policy that does not mention the organization is not a tenant policy.
+// Checked over the EFFECTIVE set, across every migration — see above.
 for (const table of tenantOwned) {
-  const policies = [...sql.matchAll(new RegExp(`create policy \\w+ on ${table.name}\\b([\\s\\S]*?);`, 'g'))]
-    .map((m) => m[1]);
+  const policies = policiesOn(table.name).map((p) => p.body);
   check(policies.length > 0, `${table.name} has at least one policy`);
   const unscoped = policies.filter(
-    (p) => !/org_id|current_org_id|purchasing_can|exists\s*\(/.test(p),
+    (p) => !/org_id|current_org_id|purchasing_can|purchasing_may_receive|exists\s*\(/.test(p),
   );
   check(unscoped.length === 0, `${table.name}: every policy is scoped (${unscoped.length} unscoped)`);
   check(!policies.some((p) => /using\s*\(\s*true\s*\)/.test(p)), `${table.name}: no policy is 'using (true)'`);
 }
+
+console.log('--- BR-014: receiving writes answer to receiving authority ------');
+
+// The receipt HEADER was always gated on purchasing_may_receive(). Its LINES —
+// where the quantities live — were gated on the capability alone (0016) and
+// then, by a `for all` org-scoped policy (0019), on nothing but tenancy. The
+// weakest permissive policy is the rule, so the numbers on a receipt asked less
+// than the receipt did, and `for all` quietly granted UPDATE and DELETE on an
+// append-only record. 0029 closes it; this keeps it closed.
+for (const table of ['purchase_receipts', 'purchase_receipt_items', 'purchase_receipt_attachments']) {
+  const writes = policiesOn(table).filter((p) => /for (insert|all|update|delete)/.test(p.body));
+  check(writes.length > 0, `${table} has a write policy`);
+  for (const p of writes) {
+    check(/purchasing_may_receive/.test(p.body),
+      `${table}.${p.policy} (${p.file}): a receiving write must ask purchasing_may_receive — capability AND job scope, not one of the two`);
+    check(!/for all/.test(p.body),
+      `${table}.${p.policy} (${p.file}): 'for all' on an append-only receiving record grants UPDATE and DELETE`);
+  }
+}
+
+// A receipt line is corrected by recording another receipt, never by editing
+// or removing one. No policy may grant either.
+for (const p of policiesOn('purchase_receipt_items')) {
+  check(!/for (update|delete)/.test(p.body),
+    `purchase_receipt_items.${p.policy}: receipts are append-only; corrections are new receipts`);
+}
+check(/create trigger purchase_receipt_items_no_delete/.test(ALL_MIGRATIONS.map((f) => f.text).join('\n')),
+  'purchase_receipt_items carries the no-delete trigger its parent receipt has');
 
 console.log('--- views run as the caller ------------------------------------');
 

@@ -151,6 +151,9 @@ export async function respondToClarification(ctx: PurchasingContext, actor: Acto
 
 export async function cancelPurchaseRequest(ctx: PurchasingContext, actor: Actor, requestId: string, reason: string) {
   const request = await loadRequest(ctx, actor, requestId);
+  // OWNERSHIP-OK: WIDENS — owning the request lets you cancel it with the
+  // cheaper permission. Someone who does not own it is not refused here; they
+  // are asked for request.cancel.any, which purchasing staff hold.
   const owns = request.requestorId === actor.id || request.createdBy === actor.id;
   await must(ctx, actor, owns ? 'request.cancel.own' : 'request.cancel.any', request);
   if (!reason || !reason.trim()) throw new PurchasingError('reason_required', 'a cancellation must record a reason');

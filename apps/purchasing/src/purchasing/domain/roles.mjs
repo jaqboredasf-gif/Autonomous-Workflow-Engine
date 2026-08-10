@@ -327,6 +327,8 @@ export function isApprover(user) {
  * question: the approval record says so, the request detail can show it, and a
  * reviewer reading the history can see that one person stood on both sides of
  * it without having to compare two user ids by eye.
+ *
+ * OWNERSHIP-OK: AUDIT — records a fact, authorizes nothing.
  */
 export function isSelfApproval(user, request) {
   if (!user || !user.id || !request) return false;
@@ -361,9 +363,25 @@ export const DENY_REASONS = [
  */
 const ASSIGNMENT_SCOPED = ['deliveries.confirm', 'receiving.record'];
 
-function isFieldOnly(user) {
+/**
+ * SHOP-COUNTER ROLES — the people for whom receiving is NOT job-scoped.
+ *
+ * Exported because one rule decides three things that must agree: whether
+ * authorize() applies a job scope, which orders the receiving index lists, and
+ * which deliveries a field user is shown. Those were three separate copies of
+ * this array, and the day somebody adds a role to one of them the other two
+ * silently disagree about who may sign for what.
+ */
+export const SHOP_COUNTER_ROLES = ['OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'];
+
+/**
+ * Is this user field-only — does their receiving authority stop at the job
+ * sites they are assigned to? Shop staff are not scoped: the counter is not a
+ * job site.
+ */
+export function isFieldOnly(user) {
   const roles = user?.roles ?? [];
-  return !roles.some((r) => ['OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'].includes(r));
+  return !roles.some((r) => SHOP_COUNTER_ROLES.includes(r));
 }
 
 /**
@@ -397,10 +415,17 @@ export function authorize(user, permission, ctx = {}) {
   // a question addressed to a specific person — only reach the caller's own
   // requests. Office staff can see and annotate everything; they cannot answer
   // on the foreman's behalf, because the answer is evidence of who said what.
+  //
+  // OWNERSHIP-OK: GRANTS — these permissions are DEFINED by ownership. The test
+  // does not subtract authority from anyone: a user who needs to act on another
+  // person's request uses a different permission (request.read.all,
+  // request.cancel.any), which they either hold or do not.
   if (request && (permission.endsWith('.own') || OWNERSHIP_REQUIRED.includes(permission))) {
     const owns = request.requestorId === user.id || request.createdBy === user.id;
     if (!owns) return deny('not_owner', 'not the requestor of this request');
   }
+  // OWNERSHIP-OK: GRANTS — the fallback for someone who cannot read everything:
+  // they can still read their own. Anyone holding request.read.all skips it.
   if (request && permission === 'request.read.own' && !hasPermission(user, 'request.read.all')) {
     const owns = request.requestorId === user.id || request.createdBy === user.id;
     if (!owns) return deny('not_owner', 'not the requestor of this request');

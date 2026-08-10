@@ -102,6 +102,88 @@ for (const key of Object.keys(AUTHORIZED_BY_CALLER)) {
 }
 
 // ===========================================================================
+console.log('--- no identity check may override a capability -----------------');
+
+// THE PRINCIPLE BR-011 AND BR-014 SHARE:
+//
+//   an identity relationship must not remove authority a user independently
+//   possesses.
+//
+// Both bugs were the same bug. Approval asked "did you raise this?" and
+// receiving was *described* as asking it. Neither question has anything to do
+// with whether the company authorized this person to approve, or to sign for a
+// delivery.
+//
+// Ownership is still legitimate in one direction: it can GRANT a cheaper
+// permission (your own draft, your own cancellation, the clarification
+// addressed to you). It may never subtract. So every ownership comparison in
+// the domain and the application layer is listed here with the reason it is
+// allowed, and a new one fails this test until somebody writes down why.
+const OWNERSHIP_SITES = {
+  'domain/roles.mjs:isSelfApproval':
+    'AUDIT ONLY — stamps a decision as self-approved. Authorizes nothing.',
+  'domain/roles.mjs:.own-permissions':
+    'GRANTS. The ".own" permissions and request.respond_clarification are DEFINED by ownership: answering a question addressed to you is evidence of who said what.',
+  'domain/roles.mjs:read.own-fallback':
+    'GRANTS. A user without request.read.all may still read their own request.',
+  'application/requests.ts:cancelPurchaseRequest':
+    'WIDENS. Owning the request lets you cancel with the cheaper request.cancel.own; a capability holder still passes through request.cancel.any.',
+};
+
+{
+  const scanned = [
+    ['domain/roles.mjs', readFileSync(join(APP, 'domain', 'roles.mjs'), 'utf8')],
+    ...['requests.ts', 'review.ts', 'decisions.ts', 'fulfilment.ts', 'administration.ts', 'queries.ts']
+      .map((f) => [`application/${f}`, readFileSync(join(APP, 'application', f), 'utf8')]),
+  ];
+
+  const OWNERSHIP = /(requestorId|createdBy|approverId)\s*===\s*(actor|user)\.id/;
+  // Every ownership comparison must declare, AT THE SITE, which of the three
+  // legitimate kinds it is. A proximity heuristic cannot tell a `.own` refusal
+  // (ownership DEFINES that permission) from a capability refusal (forbidden),
+  // and a guard that guesses is one people learn to work around. An annotation
+  // is unambiguous, survives refactoring, and is visible in review.
+  const KINDS = ['AUDIT', 'GRANTS', 'WIDENS'];
+  let found = 0;
+  for (const [name, src] of scanned) {
+    const lines = src.split('\n');
+    lines.forEach((line, i) => {
+      if (!OWNERSHIP.test(line)) return;
+      found += 1;
+      const preamble = lines.slice(Math.max(0, i - 8), i + 1).join('\n');
+      const marker = /OWNERSHIP-OK:\s*(\w+)/.exec(preamble);
+      check(Boolean(marker),
+        `${name}:${i + 1} compares identity without an OWNERSHIP-OK annotation — say which kind it is (${KINDS.join('/')}), or it is a capability override`,
+        line.trim());
+      if (marker) {
+        check(KINDS.includes(marker[1]),
+          `${name}:${i + 1} declares OWNERSHIP-OK: ${marker[1]}, which is not one of ${KINDS.join('/')} — an identity relationship may record, define or widen authority, never remove it`);
+      }
+    });
+  }
+  // The scan must actually be finding things: a regex that matches nothing
+  // would pass this section silently forever.
+  check(found >= 4, `the ownership scan found ${found} comparison sites to check`);
+  check(Object.keys(OWNERSHIP_SITES).length >= 4, 'every known ownership site is documented with why it is allowed');
+
+  // The two capability names the business uses, and the two rules they carry.
+  check(hasCapability(user({ roles: ['WORKSHOP_APPROVER'], canApprove: true }), roles.APPROVE_PURCHASE),
+    'the purchaser holds APPROVE_PURCHASE');
+  check(hasCapability(user({ roles: ['WORKSHOP_APPROVER'], canApprove: true }), roles.RECORD_RECEIPT),
+    'the purchaser holds RECORD_RECEIPT');
+  check(!hasCapability(user({ roles: ['REQUESTOR'] }), roles.APPROVE_PURCHASE)
+     && !hasCapability(user({ roles: ['REQUESTOR'] }), roles.RECORD_RECEIPT),
+    'a request-only user holds neither capability');
+  // The two are INDEPENDENT: holding one must not imply the other in either
+  // direction, or "who may approve" and "who may sign for it" collapse.
+  check(hasCapability(user({ roles: ['FOREMAN'], assignedJobNumbers: ['24-118'] }), roles.RECORD_RECEIPT)
+     && !hasCapability(user({ roles: ['FOREMAN'], assignedJobNumbers: ['24-118'] }), roles.APPROVE_PURCHASE),
+    'a foreman receives without approving — the capabilities are independent');
+  check(hasCapability(user({ roles: ['OFFICE'], canApprove: true }), roles.APPROVE_PURCHASE),
+    'an office approver approves without holding the workshop role');
+}
+
+// ===========================================================================
 console.log('--- the capability vocabulary ----------------------------------');
 
 for (const [capability, permissions] of Object.entries(CAPABILITIES)) {

@@ -11,7 +11,7 @@
 
 import { allowed, loadRequest, must, type PurchasingContext } from './context.ts';
 import type { Actor } from './ports.ts';
-import { availableActions, isApprover } from '../domain/roles.mjs';
+import { availableActions, isApprover, isFieldOnly } from '../domain/roles.mjs';
 import { QUEUE_STATUSES } from '../domain/status.mjs';
 
 export async function listRequests(ctx: PurchasingContext, actor: Actor) {
@@ -285,7 +285,8 @@ function parseJson(value: unknown) {
  */
 export async function deliveriesForActor(ctx: PurchasingContext, actor: Actor) {
   await must(ctx, actor, 'deliveries.confirm');
-  const fieldOnly = !actor.roles.some((r) => ['OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'].includes(r));
+  // The domain's rule, not a second copy of it — see SHOP_COUNTER_ROLES.
+  const fieldOnly = isFieldOnly(actor);
   const all = await ctx.requests.listForOrg(actor.orgId);
   return all
     .filter((r) => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(r.status))
@@ -304,7 +305,8 @@ export async function deliveriesForActor(ctx: PurchasingContext, actor: Actor) {
  */
 export async function receivableForActor(ctx: PurchasingContext, actor: Actor) {
   await must(ctx, actor, 'receiving.record');
-  const fieldOnly = !actor.roles.some((r) => ['OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'].includes(r));
+  // The domain's rule, not a second copy of it — see SHOP_COUNTER_ROLES.
+  const fieldOnly = isFieldOnly(actor);
   const all = await ctx.requests.listForOrg(actor.orgId);
   return all
     .filter((r) => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(r.status))
