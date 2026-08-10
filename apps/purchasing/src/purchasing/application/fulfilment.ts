@@ -261,25 +261,47 @@ export async function recordReceipt(
   }
   if (!input.receivedDate) throw new PurchasingError('validation_failed', 'a receipt needs the date it arrived');
 
+  // Parse and validate BEFORE either provider writes a receipt header. A
+  // zero-line receipt is not evidence that anything arrived, and previously
+  // moved an ORDERED request into PARTIALLY_RECEIVED with an empty audit row.
+  const parsedLines = input.lines.map((line) => ({
+    purchaseOrderItemId: line.purchaseOrderItemId,
+    receivedQty: optional(line.receivedQty),
+    damagedQty: optional(line.damagedQty),
+    backorderedQty: optional(line.backorderedQty),
+    writtenOffQty: optional(line.writtenOffQty),
+    overrideReason: line.overrideReason ?? null,
+    notes: line.notes ?? null,
+  }));
+  if (!parsedLines.some((line) =>
+    line.receivedQty + line.damagedQty + line.backorderedQty + line.writtenOffQty > 0
+  )) {
+    throw new PurchasingError('receipt_empty', 'enter at least one received, damaged, backordered, or not-coming quantity');
+  }
+
+  // Give both providers the same human-readable validation before the atomic
+  // adapter is called. The RPC repeats these checks under its transaction so a
+  // concurrent receipt cannot race this preflight.
+  const preflightProgress = new Map(
+    (await ctx.orders.progressFor(requestId)).map((line) => [line.purchaseOrderItemId, line]),
+  );
+  for (const line of parsedLines) {
+    if (line.receivedQty + line.damagedQty + line.backorderedQty + line.writtenOffQty === 0) continue;
+    const state = preflightProgress.get(line.purchaseOrderItemId);
+    if (!state) throw new PurchasingError('unknown_line', 'that line is not on this purchase order');
+    validateReceiptLine(state, line);
+  }
+
   // A provider that can do the whole receipt in one transaction server-side
   // does so. The local provider has no `atomic` — its unit of work IS a
   // transaction, so composing the steps below is already atomic there.
   if (ctx.atomic) {
-    const parsed = input.lines.map((line) => ({
-      purchaseOrderItemId: line.purchaseOrderItemId,
-      receivedQty: optional(line.receivedQty),
-      damagedQty: optional(line.damagedQty),
-      backorderedQty: optional(line.backorderedQty),
-      writtenOffQty: optional(line.writtenOffQty),
-      overrideReason: line.overrideReason ?? null,
-      notes: line.notes ?? null,
-    }));
     const result = await ctx.atomic.recordReceipt({
       requestId,
       receivedDate: input.receivedDate,
       packingSlipNumber: input.packingSlipNumber ?? null,
       notes: input.notes ?? null,
-      lines: parsed,
+      lines: parsedLines,
     });
 
     // The events are still emitted from here: the RPC owns the WRITE, the
@@ -317,25 +339,16 @@ export async function recordReceipt(
 
     const emitted: any[] = [];
 
-    for (const line of input.lines) {
+    for (const line of parsedLines) {
       const state = progress.get(line.purchaseOrderItemId);
       if (!state) throw new PurchasingError('unknown_line', 'that line is not on this purchase order');
 
-      const received = optional(line.receivedQty);
-      const damaged = optional(line.damagedQty);
-      const backordered = optional(line.backorderedQty);
-      const writtenOff = optional(line.writtenOffQty);
+      const received = line.receivedQty;
+      const damaged = line.damagedQty;
+      const backordered = line.backorderedQty;
+      const writtenOff = line.writtenOffQty;
       if (received + damaged + backordered + writtenOff === 0) continue;
-
-      if (received > 0) {
-        const check = receiptGuard({
-          orderedQty: state.finalOrderQty,
-          alreadyReceivedQty: state.receivedQty + state.damagedQty + state.writtenOffQty,
-          incomingQty: received,
-          override: Boolean(line.overrideReason),
-        });
-        if (!check.ok) throw new PurchasingError(check.reason ?? 'over_receipt', check.message ?? 'receipt refused');
-      }
+      validateReceiptLine(state, line);
 
       await ctx.receipts.insertLine(
         receipt.id,
@@ -446,4 +459,33 @@ function optional(value: string | number | undefined | null): number {
   const parsed = parseQty(value);
   if (!parsed.ok) throw new PurchasingError('validation_failed', parsed.error as string);
   return parsed.value;
+}
+
+function validateReceiptLine(
+  state: { finalOrderQty: number; receivedQty: number; writtenOffQty: number },
+  line: { receivedQty: number; damagedQty: number; writtenOffQty: number; overrideReason?: string | null },
+) {
+  if (line.damagedQty > line.receivedQty) {
+    throw new PurchasingError(
+      'damage_exceeds_received',
+      'damaged quantity is part of what arrived and cannot exceed the received quantity',
+    );
+  }
+  const alreadyResolved = state.receivedQty + state.writtenOffQty;
+  const remainingAfterReceipt = Math.max(0, state.finalOrderQty - alreadyResolved - line.receivedQty);
+  if (line.writtenOffQty > remainingAfterReceipt) {
+    throw new PurchasingError(
+      'writeoff_exceeds_outstanding',
+      'not-coming quantity cannot exceed what remains after this delivery',
+    );
+  }
+  if (line.receivedQty > 0) {
+    const check = receiptGuard({
+      orderedQty: state.finalOrderQty,
+      alreadyReceivedQty: alreadyResolved,
+      incomingQty: line.receivedQty,
+      override: Boolean(line.overrideReason),
+    });
+    if (!check.ok) throw new PurchasingError(check.reason ?? 'over_receipt', check.message ?? 'receipt refused');
+  }
 }

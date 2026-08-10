@@ -158,13 +158,15 @@ export function receiptGuard({ orderedQty, alreadyReceivedQty, incomingQty, over
 }
 
 /**
- * A line is resolved when everything ordered is accounted for: received,
- * recorded as damaged, or written off as short/backordered-and-cancelled.
+ * A line is resolved when everything ordered is accounted for as physically
+ * received or written off as not coming. `damagedQty` is a subset of
+ * `receivedQty` (the receiving form asks "of which damaged"), so adding it a
+ * second time would close an order early and make the immutable completion
+ * snapshot overstate what arrived.
  */
 export function lineOutstandingQty(line) {
   const ordered = Number(line.finalOrderQty ?? 0);
-  const accounted =
-    Number(line.receivedQty ?? 0) + Number(line.damagedQty ?? 0) + Number(line.writtenOffQty ?? 0);
+  const accounted = Number(line.receivedQty ?? 0) + Number(line.writtenOffQty ?? 0);
   return Math.max(0, ordered - accounted);
 }
 

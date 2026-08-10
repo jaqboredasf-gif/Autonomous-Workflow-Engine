@@ -417,6 +417,34 @@ const poItem = db.prepare('select * from purchase_order_items where purchase_ord
 await refuses(
   async () => S.recordReceipt(ctx(), mike, created.id, {
     receivedDate: '2026-08-05',
+    lines: [{ purchaseOrderItemId: poItem.id }],
+  }),
+  'receipt_empty',
+  'a receipt with no quantities writes no false delivery evidence',
+);
+eq(db.prepare('select count(*) c from purchase_receipts where request_id = ?').get(created.id).c, 0,
+   'the empty-receipt refusal happens before the receipt header is inserted');
+
+await refuses(
+  async () => S.recordReceipt(ctx(), mike, created.id, {
+    receivedDate: '2026-08-05',
+    lines: [{ purchaseOrderItemId: poItem.id, receivedQty: '1', damagedQty: '2' }],
+  }),
+  'damage_exceeds_received',
+  'damaged quantity must be a subset of the physical quantity received',
+);
+await refuses(
+  async () => S.recordReceipt(ctx(), mike, created.id, {
+    receivedDate: '2026-08-05',
+    lines: [{ purchaseOrderItemId: poItem.id, receivedQty: '15', writtenOffQty: '4' }],
+  }),
+  'writeoff_exceeds_outstanding',
+  'written-off quantity cannot resolve more than the order still owes',
+);
+
+await refuses(
+  async () => S.recordReceipt(ctx(), mike, created.id, {
+    receivedDate: '2026-08-05',
     lines: [{ purchaseOrderItemId: poItem.id, receivedQty: '19' }],
   }),
   'over_receipt',
@@ -740,14 +768,21 @@ const otherSiteForeman = users.luis;
   // that Mike raised, approved and part-received it changes nothing.
   const rest = await S.recordReceipt(ctx(), foreman, mikesOwn.id, {
     receivedDate: '2026-08-08',
-    // 20 ordered, 8 received and 1 damaged already accounted for: 11 closes it.
-    lines: [{ purchaseOrderItemId: ownItem.id, receivedQty: '11' }],
+    // 20 ordered, 8 physically received (one of which was damaged): 12 closes
+    // it. Damage is a subset of received, never an extra delivered unit.
+    lines: [{ purchaseOrderItemId: ownItem.id, receivedQty: '12' }],
   });
   eq(rest.outstandingLines, 0, 'BR-014.2 the assigned foreman finishes the receipt');
   const second = db.prepare(
     'select received_by from purchase_receipts where request_id = ? order by created_at desc limit 1').get(mikesOwn.id);
   eq(second.received_by, foreman.id,
      'BR-014.7 each receipt records ITS OWN receiver — two people, two rows, no overwrite');
+  const usableInventory = db.prepare(
+    `select coalesce(sum(delta_qty), 0) qty from inventory_adjustments
+      where request_id = ? and request_item_id = ?`,
+  ).get(mikesOwn.id, ownItem.request_item_id);
+  eq(usableInventory.qty, 19_000,
+     '20 physical arrivals with one damaged add 19 usable units to inventory');
 }
 
 console.log('--- integration seams ------------------------------------------');
@@ -1013,6 +1048,23 @@ const catalogSuggestion = (await ctx().catalog.suggest(DEMO_ORG_ID, '2x4', 8))
 check(Boolean(catalogSuggestion), 'typing a known material surfaces a completed-history suggestion');
 eq(catalogSuggestion.completedOrderCount, 1, 'autocomplete reports completed-order evidence only');
 eq(catalogSuggestion.commonQuantity, 18_000, 'autocomplete exposes the observed common order quantity');
+
+const reused = await S.createRequest(ctx(), foreman, {
+  jobNumber: '24-118', needByDate: '2026-08-20', needByTime: '08:00',
+  deliveryLocationId: jobsite.id, deliveryMethod: 'DELIVERY',
+  reason: 'New work using a completed material as the starting point.',
+  items: [{
+    description: catalogSuggestion.canonicalDescription,
+    qty: formatQty(catalogSuggestion.commonQuantity),
+    unit: catalogSuggestion.defaultUnit,
+    stockNumber: catalogSuggestion.catalogNumber ?? undefined,
+  }],
+});
+check(reused.id !== created.id, 'reusing completed material creates a completely new request');
+eq((await ctx().requests.itemsFor(reused.id))[0].requestedQty, catalogSuggestion.commonQuantity,
+   'the historical common quantity can prefill the new request');
+eq((await historyRepo.listLines(DEMO_ORG_ID, { requestId: created.id })).length, 1,
+   'starting a new request from history does not mutate the completed evidence');
 
 db.prepare(
   `insert into purchase_item_catalog

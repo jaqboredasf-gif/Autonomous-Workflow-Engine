@@ -25,6 +25,11 @@ import { currentActor, purchasingRequestContext } from '../server/session.ts';
 
 type Result = { ok: true; data?: any } | { ok: false; error: string; reason?: string; details?: any };
 
+function resultLocation(path: string, kind: 'error' | 'notice', message: string) {
+  const query = new URLSearchParams({ [kind]: message });
+  return `${path}?${query.toString()}`;
+}
+
 async function run<T>(fn: (ctx: any, actor: S.Actor) => Promise<T> | T): Promise<Result> {
   const actor = await currentActor();
   if (!actor) return { ok: false, error: 'You are signed out. Sign in again.', reason: 'no_session' };
@@ -146,8 +151,10 @@ function parseItems(formData: FormData) {
 
 export async function submitRequestAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) => await S.submitRequest(ctx, actor, id));
+  const result = await run(async (ctx, actor) => await S.submitRequest(ctx, actor, id));
   revalidatePath(`/requests/${id}`);
+  if (!result.ok) redirect(resultLocation(`/requests/${id}`, 'error', result.error));
+  redirect(resultLocation(`/requests/${id}`, 'notice', 'Request submitted to purchasing.'));
 }
 
 export async function cancelRequestAction(formData: FormData) {
@@ -264,41 +271,53 @@ export async function generatePoAction(formData: FormData) {
   const id = String(formData.get('requestId'));
   const result = await run(async (ctx, actor) => await S.generatePurchaseOrder(ctx, actor, id));
   revalidatePath(`/requests/${id}`);
-  if (result.ok) redirect(`/requests/${id}/po`);
+  if (!result.ok) redirect(resultLocation(`/requests/${id}`, 'error', result.error));
+  redirect(`/requests/${id}/po`);
 }
 
 export async function generateEmailDraftAction(formData: FormData) {
   const id = String(formData.get('requestId'));
   const result = await run(async (ctx, actor) => await S.generateVendorEmailDraft(ctx, actor, id));
   revalidatePath(`/requests/${id}`);
-  if (result.ok) redirect(`/requests/${id}/email`);
+  if (!result.ok) redirect(resultLocation(`/requests/${id}`, 'error', result.error));
+  redirect(`/requests/${id}/email`);
 }
 
 export async function updateEmailDraftAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) =>
+  const result = await run(async (ctx, actor) =>
     await S.updateEmailDraft(ctx, actor, String(formData.get('draftId')), {
       subject: String(formData.get('subject') ?? ''),
       body: String(formData.get('body') ?? ''),
     }),
   );
   revalidatePath(`/requests/${id}/email`);
+  if (!result.ok) redirect(resultLocation(`/requests/${id}/email`, 'error', result.error));
+  redirect(resultLocation(`/requests/${id}/email`, 'notice', 'Draft edits saved.'));
 }
 
 export async function advanceEmailDraftAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) =>
-    await S.advanceEmailDraft(ctx, actor, String(formData.get('draftId')), String(formData.get('to')) as any),
+  const to = String(formData.get('to'));
+  const result = await run(async (ctx, actor) =>
+    await S.advanceEmailDraft(ctx, actor, String(formData.get('draftId')), to as any),
   );
   revalidatePath(`/requests/${id}/email`);
+  if (!result.ok) redirect(resultLocation(`/requests/${id}/email`, 'error', result.error));
+  const notice = to === 'SENT'
+    ? 'Vendor email recorded as sent. Mark the order placed when the vendor has the PO.'
+    : `Vendor email moved to ${to.toLowerCase().replace(/_/g, ' ')}.`;
+  redirect(resultLocation(`/requests/${id}/email`, 'notice', notice));
 }
 
 // --- ordering, tracking, receiving, completion ------------------------------
 
 export async function markOrderedAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) => await S.markOrdered(ctx, actor, id, { notes: String(formData.get('notes') ?? '') }));
+  const result = await run(async (ctx, actor) => await S.markOrdered(ctx, actor, id, { notes: String(formData.get('notes') ?? '') }));
   revalidatePath(`/requests/${id}`);
+  if (!result.ok) redirect(resultLocation(`/requests/${id}`, 'error', result.error));
+  redirect(resultLocation(`/requests/${id}`, 'notice', 'Order recorded as placed with the vendor.'));
 }
 
 export async function updateTrackingAction(formData: FormData) {
@@ -434,8 +453,10 @@ export async function setApprovalAuthorityAction(formData: FormData) {
 
 export async function completeRequestAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) => await S.completeRequest(ctx, actor, id, String(formData.get('notes') ?? '')));
+  const result = await run(async (ctx, actor) => await S.completeRequest(ctx, actor, id, String(formData.get('notes') ?? '')));
   revalidatePath(`/requests/${id}`);
+  if (!result.ok) redirect(resultLocation(`/requests/${id}`, 'error', result.error));
+  redirect(resultLocation(`/requests/${id}`, 'notice', 'Request completed. Its purchasing history is now immutable.'));
 }
 
 // --- directories: vendors and jobs -------------------------------------------

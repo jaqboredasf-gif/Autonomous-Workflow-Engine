@@ -79,6 +79,9 @@ const PCC_SCHEMA_FILES = new Set([
 const sql = ALL_MIGRATIONS.filter((file) => PCC_SCHEMA_FILES.has(file.name))
   .map((file) => file.text).join('\n');
 const historySql = ALL_MIGRATIONS.find((file) => file.name.endsWith('_immutable_purchase_history.sql')).text;
+const receiptHardeningSql = ALL_MIGRATIONS.find(
+  (file) => file.name.endsWith('_purchasing_receipt_damage_subset.sql'),
+)?.text ?? '';
 
 const effectivePolicies = (() => {
   const live = new Map(); // `${table}:${policy}` -> {table, policy, body, file}
@@ -151,6 +154,15 @@ for (const p of policiesOn('purchase_receipt_items')) {
 }
 check(/create trigger purchase_receipt_items_no_delete/.test(ALL_MIGRATIONS.map((f) => f.text).join('\n')),
   'purchase_receipt_items carries the no-delete trigger its parent receipt has');
+
+check(/sum\(received_qty \+ written_off_qty\)/.test(receiptHardeningSql),
+  'receipt completion counts damaged quantity only inside physical received quantity');
+check(!/sum\(received_qty \+ damaged_qty \+ written_off_qty\)/.test(receiptHardeningSql),
+  'the effective receipt RPC does not double-count damaged units');
+check(/if not v_has_quantity then[\s\S]{0,180}?raise exception/.test(receiptHardeningSql),
+  'the receipt RPC rejects an evidence-free receipt before inserting its header');
+check(/security definer[\s\S]{0,80}?set search_path = public/.test(receiptHardeningSql),
+  'the replacement security-definer receipt RPC pins its search path');
 
 console.log('--- views run as the caller ------------------------------------');
 

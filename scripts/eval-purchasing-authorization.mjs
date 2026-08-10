@@ -391,6 +391,18 @@ console.log('--- BR-011: approval authority ---------------------------------');
     'shop staff receive at the counter without a job assignment');
 }
 
+// The UI only claims an order was placed after the human email workflow has
+// recorded SENT evidence. Permission still decides who may act; evidence
+// decides when the action is truthful to offer.
+{
+  const purchaser = user({ roles: ['WORKSHOP_APPROVER'], canApprove: true });
+  const emailDrafted = request({ status: 'EMAIL_DRAFTED' });
+  check(!roles.availableActions(purchaser, emailDrafted).includes('mark_ordered'),
+    'mark ordered is not offered before vendor-email sent evidence');
+  check(roles.availableActions(purchaser, emailDrafted, { hasSentVendorEmailDraft: true }).includes('mark_ordered'),
+    'mark ordered is offered after vendor-email sent evidence');
+}
+
 // THE HANDOFF SEPARATION the brief asks for: purchasing authority is not
 // receiving authority, in both directions.
 {

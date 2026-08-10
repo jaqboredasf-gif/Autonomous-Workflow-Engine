@@ -57,7 +57,7 @@ Run this end to end before anyone relies on it. Stop at the first step that surp
 - [ ] A foreman cannot open the workshop queue or administration
 - [ ] A foreman cannot confirm another job site's delivery
 - [ ] An office user without authority cannot approve
-- [ ] An approver cannot approve their own request
+- [ ] A request-only user cannot approve; an authorized approver can approve their own request and the decision is visibly stamped as self-approved
 - [ ] A disabled account cannot sign in
 - [ ] An expired session returns to sign-in with an explanation
 
