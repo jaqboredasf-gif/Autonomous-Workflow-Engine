@@ -212,6 +212,10 @@ export function renderPoPdf(view: any): Buffer {
     current.right(formatMoney(item.estimatedUnitCostCents), C.unitCost, y, { size: 10 });
     current.right(formatMoney(item.lineTotalCents), C.lineTotal, y, { size: 10 });
     y -= LAYOUT.rowHeight;
+    if (item.vendorPartNumber) {
+      current.text(`vendor part: ${truncate(item.vendorPartNumber, 60)}`, C.description, y, { size: 8 });
+      y -= 12;
+    }
     if (item.substituteFor) {
       current.text(`substitute for: ${truncate(item.substituteFor, 60)}`, C.description, y, { size: 8 });
       y -= 12;

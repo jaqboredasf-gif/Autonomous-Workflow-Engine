@@ -300,6 +300,7 @@ await S.saveReview(ctx(), mike, created.id, {
     approvedQty: '20',
     finalOrderQty: '18',
     vendorId: graybar.id,
+    vendorPartNumber: 'GB-TR-4000K',
     estimatedUnitCost: '86.40',
     overrideReason: 'four spare fixtures back into workshop stock',
   }],
@@ -314,6 +315,7 @@ eq(line.finalOrderQty, 18_000, 'Mike overrides the suggestion to 18');
 eq(line.replenishmentQty, 4_000, 'the four extra are recorded as replenishment, not as job need');
 eq(line.stockAppliedQty, 6_000, 'six units come off the shelf for the job');
 eq(line.estimatedUnitCostCents, 8_640, 'the unit cost is stored in cents');
+eq(line.vendorPartNumber, 'GB-TR-4000K', 'the review captures the vendor part number');
 eq(line.estimatedLineTotalCents, lineTotalCents(8_640, 18_000), 'the line total is calculated');
 eq(line.estimatedLineTotalCents, 155_520, '18 x $86.40 = $1,555.20');
 eq(formatMoney(line.estimatedLineTotalCents), '$1,555.20', 'money formats exactly');
@@ -350,6 +352,8 @@ eq(po.poNumber, 'LE-52901', 'the first PO number comes from the configured seque
 const poRow = db.prepare('select * from purchase_orders where request_id = ?').get(created.id);
 eq(Number(poRow.estimated_total_cents), 155_520, 'the PO carries the estimated total');
 eq(db.prepare('select status from purchase_requests where id = ?').get(created.id).status, 'PO_GENERATED', 'the request moves to PO_GENERATED');
+eq(db.prepare('select vendor_part_number from purchase_order_items where purchase_order_id = ?').get(poRow.id).vendor_part_number,
+   'GB-TR-4000K', 'the purchase order preserves the reviewed vendor part number');
 
 const doc = db.prepare('select * from purchase_order_documents where purchase_order_id = ?').get(poRow.id);
 check(Boolean(doc), 'a document is stored with the purchase order');
@@ -358,6 +362,7 @@ check(pdfBytes.subarray(0, 5).toString() === '%PDF-', 'the stored document is a 
 check(pdfBytes.includes(Buffer.from('LE-52901')), 'the PDF contains the PO number');
 check(pdfBytes.includes(Buffer.from('24-118')), 'the PDF contains the job number');
 check(pdfBytes.includes(Buffer.from('Graybar')), 'the PDF contains the vendor');
+check(pdfBytes.includes(Buffer.from('GB-TR-4000K')), 'the PDF contains the vendor part number');
 check(pdfBytes.includes(Buffer.from('$1,555.20')), 'the PDF contains the total');
 check(doc.sha256.length === 64, 'the document is hashed for evidence');
 writeFileSync(join(TMP, 'sample-po.pdf'), pdfBytes);
@@ -988,6 +993,7 @@ eq(snapshot.purchaseOrderId, poRow.id, 'history retains the PO ID');
 eq(snapshot.poNumberSnapshot, po.poNumber, 'history retains the PO number snapshot');
 eq(snapshot.vendorId, graybar.id, 'history retains the vendor ID');
 eq(snapshot.vendorNameSnapshot, graybar.name, 'history retains the vendor name snapshot');
+eq(snapshot.vendorPartNumberSnapshot, 'GB-TR-4000K', 'history retains the order-time vendor part number snapshot');
 eq(snapshot.orderedAt, db.prepare('select ordered_at from purchase_requests where id = ?').get(created.id).ordered_at,
    'ordered_at is the actual vendor-placement time from the request');
 check(snapshot.orderedAt !== poRow.generated_at, 'PO generation time is never substituted for actual ordering time');
@@ -1001,6 +1007,28 @@ const derivedTwice = await historyRepo.materialIntelligence(DEMO_ORG_ID, snapsho
 eq(derivedTwice, derivedOnce, 'derived intelligence is deterministic when recomputed');
 eq(JSON.stringify(await historyRepo.listLines(DEMO_ORG_ID, { requestId: created.id })), bytesBefore,
    'recomputing intelligence does not rewrite immutable evidence');
+
+const catalogSuggestion = (await ctx().catalog.suggest(DEMO_ORG_ID, '2x4', 8))
+  .find((entry) => entry.normalizedDescription === snapshot.normalizedDescription);
+check(Boolean(catalogSuggestion), 'typing a known material surfaces a completed-history suggestion');
+eq(catalogSuggestion.completedOrderCount, 1, 'autocomplete reports completed-order evidence only');
+eq(catalogSuggestion.commonQuantity, 18_000, 'autocomplete exposes the observed common order quantity');
+
+db.prepare(
+  `insert into purchase_item_catalog
+     (id, org_id, normalized_description, canonical_description, default_unit, default_vendor_id,
+      catalog_number, is_active, normalizer_version, first_seen_at, last_seen_at, created_at, updated_at, created_by)
+   values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+).run(
+  randomUUID(), DEMO_ORG_ID, snapshot.normalizedDescription, snapshot.materialDescriptionSnapshot,
+  snapshot.unitSnapshot, graybar.id, 'CAT-TR-4000K', 1, snapshot.normalizerVersion,
+  nowIso, nowIso, nowIso, nowIso, mike.id,
+);
+const reviewEvidence = (await S.reviewMaterialHistory(ctx(), mike, created.id))[item.id];
+eq(reviewEvidence.observedVendors[0].vendorNameSnapshot, snapshot.vendorNameSnapshot,
+   'the review read model labels the historical vendor with its observed snapshot name');
+eq(reviewEvidence.configuredDefaultVendor.id, graybar.id,
+   'the configured default remains a separate relationship in the review read model');
 
 await throws(
   () => db.prepare('update purchase_history_lines set vendor_name_snapshot = ? where id = ?')
@@ -1019,12 +1047,21 @@ await throws(
 db.prepare('update vendors set name = ? where id = ?').run('Graybar — renamed later', snapshot.vendorId);
 db.prepare('update purchase_order_items set description = ? where id = ?')
   .run('Live material renamed later', snapshot.purchaseOrderItemId);
+db.prepare('update purchase_order_items set vendor_part_number = ? where id = ?')
+  .run('CHANGED-AFTER-COMPLETION', snapshot.purchaseOrderItemId);
 if (snapshot.jobId) db.prepare('update purchase_jobs set name = ? where id = ?').run('Live job renamed later', snapshot.jobId);
 const afterRename = (await historyRepo.listLines(DEMO_ORG_ID, { requestId: created.id }))[0];
 eq(afterRename.vendorNameSnapshot, snapshot.vendorNameSnapshot, 'vendor rename does not rewrite history');
 eq(afterRename.materialDescriptionSnapshot, snapshot.materialDescriptionSnapshot,
    'material rename does not rewrite history');
+eq(afterRename.vendorPartNumberSnapshot, 'GB-TR-4000K',
+   'vendor part-number edits after completion do not rewrite history');
 eq(afterRename.jobNameSnapshot, snapshot.jobNameSnapshot, 'job rename does not rewrite history');
+const afterRenameEvidence = (await S.reviewMaterialHistory(ctx(), mike, created.id))[item.id];
+eq(afterRenameEvidence.observedVendors[0].vendorNameSnapshot, snapshot.vendorNameSnapshot,
+   'observed vendor keeps the historical name after a current vendor rename');
+eq(afterRenameEvidence.configuredDefaultVendor.name, 'Graybar — renamed later',
+   'configured vendor is visibly resolved from the current directory');
 
 const terminalOutcomes = await historyRepo.listOutcomes(DEMO_ORG_ID, { outcome: 'REJECTED' });
 check(terminalOutcomes.some((row) => row.request_id === rejected.id),

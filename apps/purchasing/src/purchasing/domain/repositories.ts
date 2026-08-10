@@ -68,6 +68,8 @@ export type RequestItemRecord = {
   requestedQty: number;
   unit: string;
   stockNumber: string | null;
+  normalizedDescription: string | null;
+  catalogItemId: Id | null;
   notes: string | null;
 };
 
@@ -86,6 +88,7 @@ export type ReviewLineRecord = {
   replenishmentQty: number;
   vendorId: Id | null;
   vendorName: string | null;
+  vendorPartNumber: string | null;
   estimatedUnitCostCents: number | null;
   estimatedLineTotalCents: number;
   substituteDescription: string | null;
@@ -308,13 +311,19 @@ export type CatalogEntry = {
   aliases: string[];
   defaultUnit: string | null;
   catalogNumber: string | null;
+  /** A manually configured relationship; never presented as observed history. */
+  configuredDefaultVendorId: Id | null;
+  configuredDefaultVendorName: string | null;
   /** How many request lines have asked for it. */
   timesRequested: number;
   totalQtyRequested: number;
   lastRequestedAt: string | null;
+  commonQuantity: number | null;
+  completedOrderCount: number;
   /** The vendor it was last actually bought from, when it has been. */
   lastVendorId: Id | null;
   lastVendorName: string | null;
+  lastVendorPartNumber: string | null;
   lastUnitCostCents: number | null;
   lastOrderedAt: string | null;
   isActive: boolean;

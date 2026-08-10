@@ -57,6 +57,7 @@ export function deriveMaterialIntelligence(lines = []) {
       lastDescriptionSnapshot: latest.materialDescriptionSnapshot,
       lastVendorId: latest.vendorId,
       lastVendorNameSnapshot: latest.vendorNameSnapshot,
+      lastVendorPartNumberSnapshot: latest.vendorPartNumberSnapshot ?? null,
       lastOrderedAt: latest.orderedAt,
       lastUnitPriceCents: effectivePrice(latest),
       recentAverageUnitPriceCents: mean(recentPrices),
@@ -89,6 +90,8 @@ export function deriveVendorMaterialIntelligence(lines = []) {
       vendorNameSnapshot: latest.vendorNameSnapshot,
       normalizedDescription: latest.normalizedDescription,
       materialDescriptionSnapshot: latest.materialDescriptionSnapshot,
+      lastVendorPartNumberSnapshot: latest.vendorPartNumberSnapshot ?? null,
+      commonQuantity: mode(group.map((line) => line.quantityOrdered)),
       completedOrderCount: new Set(group.map((line) => line.purchaseOrderId)).size,
       lastOrderedAt: latest.orderedAt,
       lastUnitPriceCents: effectivePrice(latest),
@@ -98,6 +101,24 @@ export function deriveVendorMaterialIntelligence(lines = []) {
       leadTimeSampleSize: leadTimes.length,
     };
   });
+}
+
+/**
+ * Evidence-only vendor suggestions for one material.
+ *
+ * There is deliberately no score and no "preferred" flag: a larger completed
+ * sample sorts first, recency breaks a tie, and vendor id makes the result
+ * deterministic. A configured relationship is not an observation and never
+ * enters this function.
+ */
+export function rankObservedVendors(lines = [], normalizedDescription = '') {
+  return deriveVendorMaterialIntelligence(
+    lines.filter((line) => line.normalizedDescription === normalizedDescription),
+  ).sort((a, b) =>
+    b.completedOrderCount - a.completedOrderCount ||
+    String(b.lastOrderedAt ?? '').localeCompare(String(a.lastOrderedAt ?? '')) ||
+    String(a.vendorId).localeCompare(String(b.vendorId)),
+  );
 }
 
 /** Vendor facts, without a fabricated score or preference claim. */

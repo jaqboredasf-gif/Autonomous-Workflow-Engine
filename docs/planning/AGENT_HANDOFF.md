@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-08-10T15:23:33Z
+2026-08-10T15:25:43Z
 
 ## agent
 
@@ -14,106 +14,110 @@ Codex
 
 ## branch
 
-`codex/pcc-phase-a-history`, based on
-`origin/claude/purchasing-control-center` at `d1bc94c`.
+`codex/pcc-phase-b-intelligence`, rebased onto merged Phase A at
+`origin/claude/purchasing-control-center`.
 
 ## commit
 
-Phase A implementation commit: `aade134cfc44ad3314275bfaf0ffa3ef824a076f`.
-This handoff-validation correction will be the next commit on the same PR.
+Original Phase B implementation commit before rebase:
+`488b5feebcf1e35f3d4a5a666451df66d43d4936`. Resolve the rebased commit from
+the branch head after rebase completion.
 
 ## current objective
 
-Phase A immutable purchasing history is complete. The completion transition
-captures tenant-scoped ID + literal snapshot evidence in the same transaction.
-The architecture is frozen; do not extend or redesign it.
+Phase B practical purchasing intelligence is complete without autonomous
+purchasing decisions. Phase A immutable history remains the sole evidence
+source and its ID + snapshot architecture is frozen.
 
 ## completed work
 
-- Added append-only completed purchase-line and terminal-outcome history.
-- Captured request, PO, job, material, vendor, people, price, lifecycle, and
-  receipt facts using ID + snapshot semantics.
-- Added deterministic native/backfill capture, RLS, mutation refusal, and
-  security-invoker derived reads.
-- Added pure material, vendor-material, and vendor intelligence projections.
-- Moved catalog and review history reads to completed immutable evidence.
-- Verified rename survival, deterministic recomputation, terminal-attempt
-  exclusion, actual order time, and tenant separation.
+- Persisted vendor part numbers through review, PO, rendering, and immutable
+  completion snapshot.
+- Added deterministic evidence-only vendor/material ranking by completed-order
+  count, recency, and stable vendor-ID tie-breaker.
+- Enriched completed-history autocomplete with common quantity, completed
+  order count, and most recent purchase date.
+- Applied the existing exact → alias → prefix → contains match tiers in both
+  providers.
+- Allowed explicit reuse of historical material fields on a completely new
+  request without mutating history.
+- Split observed historical vendors and configured defaults into separately
+  labelled review cards with explicit reuse buttons.
+- Preserved existing capability checks, tenant scoping, and all immutable
+  mutation guards.
 
 ## files changed
 
-The Phase A commit changes the immutable-history migration, history/catalog
-domain and repository contracts, SQLite/Supabase repositories, review context,
-and focused domain/integration/isolation evaluations. See
-`PCC_CODEX_PHASE_A_HANDOFF.md` and `git show --stat aade134` for the exact list.
-This CI correction changes only `docs/planning/AGENT_HANDOFF.md`.
+Phase B changes the request/review/PO UI, material suggestion endpoint,
+application review/query/fulfilment flows, history/catalog domain contracts,
+SQLite/Supabase repositories and mappers, PDF rendering, focused evaluations,
+the Phase B migration, and `PCC_CODEX_PHASE_B_HANDOFF.md`. Use
+`git show --stat` on the rebased branch head for the exact list.
 
 ## migrations
 
-`supabase/migrations/20260810133348_immutable_purchase_history.sql` creates the
-immutable evidence tables, lifecycle writers, mutation guards, deterministic
-backfill, tenant policies, compatibility view, and derived read models.
-No hosted migration was applied.
+`supabase/migrations/20260810140316_purchasing_intelligence_phase_b.sql` adds
+nullable vendor-part fields to review/order lines, copies review → order on
+INSERT (including the RPC path), and copies order → immutable history snapshot
+on INSERT. Phase A mutation guards are unchanged. No hosted migration was
+applied.
 
 ## commands run
 
-- `bash scripts/eval-purchasing.sh`
-- `bash scripts/eval-purchasing-authorization.sh`
+- `npm run typecheck -w purchasing`
 - `bash scripts/eval-purchasing-domain.sh`
+- `bash scripts/eval-purchasing-authorization.sh`
 - `bash scripts/eval-purchasing-providers.sh`
 - `bash scripts/eval-purchasing-isolation.sh`
+- `bash scripts/eval-purchasing.sh`
 - `bash scripts/eval-purchasing-web.sh`
-- `npm run typecheck -w purchasing`
-- isolated PostgreSQL migration validation
+- isolated PostgreSQL 17 migration/trigger smoke test
 - `bash scripts/validate-agent-handoff.sh`
 
 ## tests passed
 
 - TypeScript: pass
-- Domain: 284 passed
+- Domain: 288 passed
 - Authorization: 215 passed
 - Provider conformance: 286 passed
 - Tenant isolation: 167 passed
-- Integration: 243 local + 244 deferred passed
+- Integration: 255 local + 256 deferred passed
 - Web acceptance: 89 passed
 - Production build: pass
-- Isolated PostgreSQL migration validation: pass
+- Isolated PostgreSQL migration and trigger behavior: pass
 
 ## tests failed
 
-The GitHub handoff check originally failed because this file used combined
-headings such as `repository and branch` rather than the validator's exact
-required headings. The document is now aligned with the checked contract.
-ESLint remains unavailable because of the pre-existing
-`eslint-config-next` parser-resolution problem.
+The original GitHub handoff check failed because this document combined
+required headings. It now follows the exact checked contract. ESLint remains
+blocked by the pre-existing `eslint-config-next` parser-resolution problem.
 
 ## live changes
 
-None. No hosted Supabase project, email transport, or other live business
-system was modified.
+None. Hosted Supabase, email transport, and business systems were not modified.
 
 ## approvals required
 
-Hosted migration application still requires explicit user approval. Merge PR
-#12 before retargeting or merging Phase B PR #13.
+Hosted migration application still requires explicit approval. Merge Phase B
+only after the rebased branch and its complete PCC suite are green.
 
 ## risks
 
-- Hosted RLS and lifecycle behavior remain unproven until an explicitly
-  approved rollout and live verification.
-- Backfill intentionally refuses nominally completed records missing a real
-  order/completion time or PO line.
-- Facts unavailable at completion remain null; the system does not guess.
-- The local Supabase CLI reset caveat remains: use an isolated container, never
-  another database on the existing local Supabase port.
+- Hosted RLS and trigger behavior remain unproven.
+- Pre-Phase-B completed history correctly retains null vendor part numbers.
+- Vendor part numbers are human-entered until the separately scoped catalog
+  import exists.
+- Supabase catalog aggregation remains deliberately bounded at 5,000 history
+  rows.
 
 ## blockers
 
-No known Phase A code blocker. PR #12 must have a green handoff check before
-merge.
+No known Phase B code blocker. Complete rebase verification and obtain a green
+PR #13 handoff check before merge.
 
 ## exact next prompt
 
-Confirm PR #12 is green and merge it into `claude/purchasing-control-center`.
-Then rebase Phase B PR #13 onto that updated branch, rerun the complete PCC
-suite, and retarget #13 before beginning workflow-hardening implementation.
+Retarget PR #13 to `claude/purchasing-control-center`, run the complete PCC
+suite and production build on the rebased commit, and merge only when green.
+Then audit the end-to-end employee purchasing workflow and implement only P0/P1
+operator-usability gaps on a new branch.

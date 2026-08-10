@@ -272,6 +272,7 @@ create table if not exists purchase_review_items (
   stock_applied_qty       integer not null default 0,
   replenishment_qty       integer not null default 0,
   vendor_id               text references vendors(id),
+  vendor_part_number      text,
   estimated_unit_cost_cents integer,
   estimated_line_total_cents integer not null default 0,
   substitute_description  text,
@@ -371,6 +372,7 @@ create table if not exists purchase_order_items (
   substitute_description text,
   order_qty         integer not null check (order_qty > 0),
   unit              text not null,
+  vendor_part_number text,
   unit_cost_cents   integer not null default 0,
   line_total_cents  integer not null default 0,
   expected_arrival_date text,
@@ -775,6 +777,10 @@ const ADDED_COLUMNS = [
   // purchaser may order without knowing the price.
   'alter table purchase_order_items add column actual_unit_cost_cents integer',
   'alter table purchase_order_items add column actual_line_total_cents integer',
+  // Phase B: vendor-specific identifiers are captured at review, copied to
+  // the order, and snapshotted only when immutable history is written.
+  'alter table purchase_review_items add column vendor_part_number text',
+  'alter table purchase_order_items add column vendor_part_number text',
   'alter table purchase_orders add column actual_total_cents integer',
   'alter table purchase_orders add column actual_cost_source text',
   // 0018: a job assignment says what kind of relationship it is.
@@ -818,6 +824,9 @@ function migrate(db: DatabaseSync) {
  * become accidental purchase-line evidence.
  */
 function installHistoryLifecycle(db: DatabaseSync) {
+  // Recreate the completion trigger so an existing Phase A database picks up
+  // the additive Phase B snapshot field. Existing evidence is untouched.
+  db.exec('drop trigger if exists purchase_requests_capture_completed_history');
   db.exec(`
     create trigger if not exists purchase_history_lines_no_update
       before update on purchase_history_lines
@@ -863,7 +872,7 @@ function installHistoryLifecycle(db: DatabaseSync) {
           oi.catalog_item_id, oi.normalizer_version, oi.normalized_description,
           oi.description, ri.description,
           oi.order_qty, oi.unit,
-          po.vendor_id, v.name, null,
+          po.vendor_id, v.name, oi.vendor_part_number,
           oi.unit_cost_cents, oi.line_total_cents,
           oi.actual_unit_cost_cents, oi.actual_line_total_cents,
           new.requestor_id, requestor.full_name,
@@ -975,7 +984,7 @@ function backfillImmutableHistory(db: DatabaseSync) {
       oi.catalog_item_id, oi.normalizer_version, oi.normalized_description,
       oi.description, ri.description,
       oi.order_qty, oi.unit,
-      po.vendor_id, v.name, null,
+      po.vendor_id, v.name, oi.vendor_part_number,
       oi.unit_cost_cents, oi.line_total_cents,
       oi.actual_unit_cost_cents, oi.actual_line_total_cents,
       r.requestor_id, requestor.full_name,

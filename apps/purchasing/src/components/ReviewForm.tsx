@@ -21,6 +21,7 @@ type LineState = {
   finalOrderQty: string;
   finalTouched: boolean;
   vendorId: string;
+  vendorPartNumber: string;
   unitCost: string;
   substitute: string;
   expectedArrival: string;
@@ -56,6 +57,7 @@ export default function ReviewForm({
         finalOrderQty: existing.finalOrderQty ? formatQty(existing.finalOrderQty) : '',
         finalTouched: Boolean(existing.finalOrderQty),
         vendorId: existing.vendorId ?? '',
+        vendorPartNumber: existing.vendorPartNumber ?? '',
         unitCost: existing.estimatedUnitCostCents ? (existing.estimatedUnitCostCents / 100).toFixed(2) : '',
         substitute: existing.substituteDescription ?? '',
         expectedArrival: existing.expectedArrivalDate ?? '',
@@ -121,7 +123,15 @@ export default function ReviewForm({
         subtitle="Stock, vendor, cost and how much to actually order."
       >
         <div className="space-y-4">
-          {lines.map((l, idx) => (
+          {lines.map((l, idx) => {
+            const intelligence = materialHistory[l.requestItemId] ?? {};
+            const evidence = intelligence.evidence ?? null;
+            const observedVendors = intelligence.observedVendors ?? [];
+            const configured = intelligence.configuredDefaultVendor ?? null;
+            const configuredAvailable = configured
+              ? vendors.some((vendor) => vendor.id === configured.id)
+              : false;
+            return (
             <div key={l.requestItemId} className="rounded-md border border-slate-200 p-3">
               <input type="hidden" name="lineRequestItemId" value={l.requestItemId} />
               <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -133,21 +143,64 @@ export default function ReviewForm({
                 </span>
               </div>
 
-              {materialHistory[l.requestItemId] ? (
-                <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950">
-                  Last ordered from <strong>{materialHistory[l.requestItemId].lastVendorNameSnapshot}</strong>
-                  {' on '}{String(materialHistory[l.requestItemId].lastOrderedAt).slice(0, 10)}
-                  {materialHistory[l.requestItemId].lastUnitPriceCents === null
-                    ? ''
-                    : ` at ${formatMoney(materialHistory[l.requestItemId].lastUnitPriceCents)}`}
-                  {' · '}{materialHistory[l.requestItemId].completedOrderCount} completed order(s)
-                  {materialHistory[l.requestItemId].commonQuantity === null
-                    ? ''
-                    : ` · common quantity ${formatQty(materialHistory[l.requestItemId].commonQuantity)}`}
+              {evidence ? (
+                <div className="mt-2 space-y-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950">
+                  <div>
+                    <strong>Observed from completed purchases</strong>
+                    {' · '}last purchase {String(evidence.lastOrderedAt).slice(0, 10)}
+                    {evidence.lastUnitPriceCents === null ? '' : ` at ${formatMoney(evidence.lastUnitPriceCents)}`}
+                    {' · '}{evidence.completedOrderCount} completed order(s)
+                    {evidence.commonQuantity === null ? '' : ` · common quantity ${formatQty(evidence.commonQuantity)}`}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {observedVendors.map((observed: any) => {
+                      const vendorStillConfigured = vendors.some((vendor) => vendor.id === observed.vendorId);
+                      return (
+                        <div key={observed.vendorId} className="rounded border border-blue-200 bg-white p-2">
+                          <strong>{observed.vendorNameSnapshot}</strong>
+                          <div>
+                            {observed.completedOrderCount} completed order(s) · last {String(observed.lastOrderedAt).slice(0, 10)}
+                            {observed.lastUnitPriceCents === null ? '' : ` · ${formatMoney(observed.lastUnitPriceCents)}`}
+                            {observed.commonQuantity === null ? '' : ` · common qty ${formatQty(observed.commonQuantity)}`}
+                            {observed.lastVendorPartNumberSnapshot ? ` · vendor part ${observed.lastVendorPartNumberSnapshot}` : ''}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={!vendorStillConfigured}
+                            className="mt-1 font-medium underline disabled:text-slate-400"
+                            onClick={() => update(l.requestItemId, {
+                              vendorId: observed.vendorId,
+                              unitCost: observed.lastUnitPriceCents === null
+                                ? l.unitCost
+                                : (observed.lastUnitPriceCents / 100).toFixed(2),
+                              vendorPartNumber: observed.lastVendorPartNumberSnapshot ?? l.vendorPartNumber,
+                            })}
+                          >
+                            {vendorStillConfigured ? 'Use observed values' : 'Vendor no longer configured'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : (
                 <div className="mt-2 text-xs text-slate-500">No completed purchase history for this material yet.</div>
               )}
+
+              {configured ? (
+                <div className="mt-2 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-950">
+                  <strong>Configured default vendor</strong>: {configured.name ?? 'Unnamed vendor'}
+                  <button
+                    type="button"
+                    disabled={!configuredAvailable}
+                    className="ml-2 font-medium underline disabled:text-slate-400"
+                    onClick={() => update(l.requestItemId, { vendorId: configured.id })}
+                  >
+                    {configuredAvailable ? 'Use configured vendor' : 'Configured vendor unavailable'}
+                  </button>
+                  <span className="ml-2">This is a manual relationship, not completed-purchase evidence.</span>
+                </div>
+              ) : null}
 
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Field label="Usable stock in workshop" required>
@@ -186,7 +239,7 @@ export default function ReviewForm({
                 </Field>
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
                 <Field label="Vendor">
                   <select
                     name="lineVendorId"
@@ -201,6 +254,14 @@ export default function ReviewForm({
                       </option>
                     ))}
                   </select>
+                </Field>
+                <Field label="Vendor part number">
+                  <input
+                    name="lineVendorPartNumber"
+                    className={inputClass}
+                    value={l.vendorPartNumber}
+                    onChange={(e) => update(l.requestItemId, { vendorPartNumber: e.target.value })}
+                  />
                 </Field>
                 <Field label="Estimated unit cost">
                   <input
@@ -260,7 +321,8 @@ export default function ReviewForm({
                 </Field>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3">
