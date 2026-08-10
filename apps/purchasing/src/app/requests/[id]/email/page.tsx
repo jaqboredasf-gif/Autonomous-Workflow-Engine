@@ -8,12 +8,20 @@ import { notFound, redirect } from 'next/navigation';
 import { requireAccess, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import { Empty, Section, buttonClass, inputClass, secondaryButtonClass } from '../../../../components/ui';
-import { advanceEmailDraftAction, generateEmailDraftAction, updateEmailDraftAction } from '../../../actions.ts';
+import { advanceEmailDraftAction, generateEmailDraftAction, markOrderedAction, updateEmailDraftAction } from '../../../actions.ts';
+import { Alert, Button } from '../../../../components/pcc';
 
 export const dynamic = 'force-dynamic';
 
-export default async function EmailDraftPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EmailDraftPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ error?: string; notice?: string }>;
+}) {
   const { id } = await params;
+  const feedback = (await searchParams) ?? {};
   const actor = await requireAccess('/requests');
 
   let detail: any;
@@ -54,6 +62,9 @@ export default async function EmailDraftPage({ params }: { params: Promise<{ id:
           Back to request
         </Link>
       </div>
+
+      {feedback.error ? <Alert tone="danger" title="Action not completed">{feedback.error}</Alert> : null}
+      {feedback.notice ? <Alert tone="success" title={feedback.notice} /> : null}
 
       <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
         This system does not send email. Review the draft, then send it from your own mail client and mark it sent so
@@ -136,6 +147,18 @@ export default async function EmailDraftPage({ params }: { params: Promise<{ id:
           </div>
         </Section>
       ))}
+
+      {detail.actions.includes('mark_ordered') ? (
+        <Section
+          title="Next: record the order as placed"
+          subtitle="The email is recorded as sent. This separate step confirms the vendor actually has the order."
+        >
+          <form action={markOrderedAction}>
+            <input type="hidden" name="requestId" value={id} />
+            <Button type="submit">Mark order placed</Button>
+          </form>
+        </Section>
+      ) : null}
     </div>
   );
 }

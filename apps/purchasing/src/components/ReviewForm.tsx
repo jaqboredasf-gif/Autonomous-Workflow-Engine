@@ -94,6 +94,13 @@ export default function ReviewForm({
         <div className="rounded-md border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">{state.error}</div>
       ) : null}
 
+      {vendors.length === 0 ? (
+        <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          No vendors are configured. An administrator must add a vendor and contact in Administration before this
+          request can be approved or turned into a purchase order.
+        </div>
+      ) : null}
+
       <Section title="Section A — the original request" subtitle="Read-only. Nothing below can change it.">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <ReadOnly label="Requestor" value={request.requestorName} />
@@ -352,7 +359,7 @@ export default function ReviewForm({
           <button type="submit" name="intent" value="save" className={secondaryButtonClass} disabled={pending}>
             Save review
           </button>
-          <button type="submit" name="intent" value="APPROVE" className={buttonClass} disabled={pending}>
+          <button type="submit" name="intent" value="APPROVE" className={buttonClass} disabled={pending || vendors.length === 0}>
             Approve
           </button>
           <button

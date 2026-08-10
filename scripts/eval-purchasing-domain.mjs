@@ -85,9 +85,14 @@ eq(
   'outstanding is what has not yet been accounted for',
 );
 eq(
-  E.lineQuantities({ requested: 18 * K, observedStock: 0, finalOrder: 18 * K, received: 12 * K, damaged: 2 * K, writtenOff: 4 * K }).outstanding,
+  E.lineQuantities({ requested: 18 * K, observedStock: 0, finalOrder: 18 * K, received: 14 * K, damaged: 2 * K, writtenOff: 4 * K }).outstanding,
   0,
-  'received, damaged and written off all resolve a line',
+  'received and written off resolve a line while damaged remains a subset of received',
+);
+eq(
+  E.lineQuantities({ requested: 10 * K, observedStock: 0, finalOrder: 10 * K, received: 8 * K, damaged: 2 * K }).outstanding,
+  2 * K,
+  'damage is not double-counted as additional delivered quantity',
 );
 refuses(() => E.lineQuantities({ requested: -1 }), 'invalid_quantity', 'a negative quantity is refused');
 

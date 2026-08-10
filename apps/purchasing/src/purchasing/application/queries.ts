@@ -47,6 +47,7 @@ export async function getRequestDetail(ctx: PurchasingContext, actor: Actor, req
 
   const settings = await ctx.reference.settings(actor.orgId);
   const order = await ctx.orders.findByRequest(requestId);
+  const emailDrafts = await ctx.drafts.listForRequest(requestId);
 
   return {
     request,
@@ -67,12 +68,17 @@ export async function getRequestDetail(ctx: PurchasingContext, actor: Actor, req
     // without navigating back to the request that started it, and a mailto
     // with no address is not reachable.
     vendorContact: order?.vendorId ? await ctx.reference.primaryContact(order.vendorId) : null,
-    emailDrafts: await ctx.drafts.listForRequest(requestId),
+    emailDrafts,
     receipts: await ctx.receipts.listForRequest(requestId),
     progress: await ctx.orders.progressFor(requestId),
     approvals: await ctx.approvals.listForRequest(requestId),
     timeline: await ctx.audit.timelineFor(requestId),
-    actions: availableActions(actor, authzView(request), { settings }),
+    actions: availableActions(actor, authzView(request), {
+      settings,
+      hasSentVendorEmailDraft: emailDrafts.some(
+        (draft: any) => draft.templateKey === 'VENDOR_PURCHASE_ORDER' && draft.status === 'SENT',
+      ),
+    }),
     viewer: { id: actor.id, name: actor.name, roles: actor.roles, isApprover: isApprover(actor) },
   };
 }

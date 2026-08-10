@@ -62,8 +62,15 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-export default async function RequestDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function RequestDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ error?: string; notice?: string }>;
+}) {
   const { id } = await params;
+  const feedback = (await searchParams) ?? {};
   const actor = await requireAccess('/requests');
 
   let detail: any;
@@ -118,6 +125,9 @@ export default async function RequestDetailPage({ params }: { params: Promise<{ 
           </ButtonRow>
         }
       />
+
+      {feedback.error ? <Alert tone="danger" title="Action not completed">{feedback.error}</Alert> : null}
+      {feedback.notice ? <Alert tone="success" title={feedback.notice} /> : null}
 
       {/* What has to happen next, in words, before anything else on the page. */}
       <Alert tone={next.actionable ? 'info' : 'success'} title={`Next: ${next.label}`}>

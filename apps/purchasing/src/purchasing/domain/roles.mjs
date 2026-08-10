@@ -569,7 +569,11 @@ export function availableActions(user, request, ctx = {}) {
       break;
     case 'EMAIL_DRAFTED':
       allow('review_email', 'email.review');
-      allow('mark_ordered', 'order.mark_ordered');
+      // The button's claim is "the vendor was actually sent this order".
+      // Authorization alone cannot establish that fact; the request read model
+      // supplies the recorded SENT evidence. The server transition remains the
+      // authority if a stale or forged form is posted.
+      if (ctx.hasSentVendorEmailDraft) allow('mark_ordered', 'order.mark_ordered');
       break;
     case 'ORDERED':
     case 'PARTIALLY_RECEIVED':

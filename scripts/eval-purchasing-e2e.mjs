@@ -275,8 +275,16 @@ if (!requestId) {
   //    cannot be recorded as placed before anybody looked at what was sent.
   {
     await submit(purchasing, `/requests/${requestId}`, 'Draft vendor email');
+    const tooEarly = await purchasing.go(`/requests/${requestId}`);
+    check('mark ordered is not offered before the vendor email is sent',
+      !/Mark ordered/.test(tooEarly.body),
+      'the UI claimed an un-sent order had been placed');
     await submit(purchasing, `/requests/${requestId}/email`, 'Mark reviewed');
     await submit(purchasing, `/requests/${requestId}/email`, 'Approve to send');
+    const approvedOnly = await purchasing.go(`/requests/${requestId}`);
+    check('email approval alone does not expose mark ordered',
+      !/Mark ordered/.test(approvedOnly.body),
+      'the vendor has not yet been sent the PO');
     await submit(purchasing, `/requests/${requestId}/email`, 'I sent it — mark sent');
 
     const beforeOrdering = await purchasing.go(`/requests/${requestId}`);
@@ -334,6 +342,18 @@ if (!requestId) {
       check(`the completed record still shows that ${what}`, pattern.test(t),
         'the audit history is incomplete');
     }
+
+    // The closed loop: completion becomes tenant-scoped evidence for the next
+    // request, without changing the completed record.
+    const suggestion = await requester.go(`/api/materials/suggest?q=${encodeURIComponent(MATERIAL.slice(0, 18))}`);
+    const suggestionBody = JSON.parse(suggestion.body || '{"items":[]}');
+    const completedMatch = suggestionBody.items?.find((item) => item.description === MATERIAL);
+    check('the completed material is available to the next request autocomplete',
+      suggestion.status === 200 && Boolean(completedMatch),
+      `status ${suggestion.status}`);
+    check('autocomplete labels the result with completed-order evidence',
+      completedMatch?.completedOrderCount === 1,
+      suggestion.body.slice(0, 160));
   }
 }
 

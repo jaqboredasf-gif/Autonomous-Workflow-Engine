@@ -24,6 +24,7 @@
 // requester's SUGGESTION as text on the request's notes, clearly attributed.
 // The workshop still chooses.
 import { useActionState, useState } from 'react';
+import Link from 'next/link';
 
 import { createRequestAction } from '../app/actions.ts';
 import { formatQty, UNITS } from '../purchasing/domain/numbers.mjs';
@@ -68,12 +69,14 @@ export default function NewRequestForm({
   jobs,
   vendors = [],
   now,
+  canConfigure = false,
 }: {
   actorName: string;
   locations: Array<{ id: string; name: string; kind: string }>;
   jobs: Array<{ number: string; name: string }>;
   vendors?: Array<{ id: string; name: string }>;
   now: string;
+  canConfigure?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(createRequestAction, null as any);
   const [lines, setLines] = useState<Line[]>([emptyLine(1)]);
@@ -109,6 +112,22 @@ export default function NewRequestForm({
               ))}
             </ul>
           ) : null}
+        </Alert>
+      ) : null}
+
+      {locations.length === 0 || jobs.length === 0 ? (
+        <Alert tone="warning" title="Purchasing setup is incomplete">
+          <p>
+            {locations.length === 0 ? 'No delivery location is configured. ' : ''}
+            {jobs.length === 0 ? 'No job is available in the job directory. ' : ''}
+            {canConfigure ? (
+              <Link href="/admin" className="font-medium underline">
+                Finish setup in Administration before submitting this request.
+              </Link>
+            ) : (
+              'Ask your PCC administrator to finish setup before you submit this request.'
+            )}
+          </p>
         </Alert>
       ) : null}
 

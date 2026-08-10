@@ -13,7 +13,7 @@
 // write path:
 //
 //   OK           → receivedQty
-//   Damaged      → receivedQty + damagedQty      (it arrived, it is unusable)
+//   Damaged      → receivedQty with damagedQty as a subset (it arrived, part is unusable)
 //   Backordered  → backorderedQty                (the vendor still owes it)
 //   Missing      → writtenOffQty                 (short-shipped, not coming)
 //   Incorrect    → writtenOffQty + a required note naming what turned up
@@ -52,8 +52,10 @@ export function ReceivingItem({ line, index }: { line: any; index: number }) {
   const [writtenOff, setWrittenOff] = useState('');
   const [note, setNote] = useState('');
 
+  // Damaged is "of which damaged": it is already inside receiving and must
+  // not reduce Remaining a second time.
   const entered =
-    num(receiving) + (condition === 'BACKORDERED' ? num(backordered) : 0) + (condition === 'MISSING' || condition === 'INCORRECT' ? num(writtenOff) : 0);
+    num(receiving) + (condition === 'MISSING' || condition === 'INCORRECT' ? num(writtenOff) : 0);
   const remaining = Math.max(0, outstanding - entered);
   const overReceiving = num(receiving) > outstanding && outstanding > 0;
   const noteRequired = condition === 'INCORRECT' && !note.trim();
@@ -124,7 +126,7 @@ export function ReceivingItem({ line, index }: { line: any; index: number }) {
         </label>
 
         <label className={condition === 'DAMAGED' ? 'block' : 'hidden'}>
-          <span className="mb-1 block text-xs font-semibold text-ink-soft">Of which damaged</span>
+          <span className="mb-1 block text-xs font-semibold text-ink-soft">Of the received quantity, damaged</span>
           <input
             name="receiptDamagedQty"
             inputMode="decimal"
