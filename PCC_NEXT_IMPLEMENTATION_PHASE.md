@@ -13,25 +13,42 @@ earlier shortcut becomes someone's afternoon.
 
 ## A. Purchasing historical-memory system
 
+> **Full implementation handoff: `PCC_CODEX_PHASE_A_HANDOFF.md`.** It carries
+> the baseline, the existing substrate, BR-012/BR-013, the raw-history field
+> list, the three-layer architecture and the acceptance tests. Read it first.
+
 **Why first:** everything downstream reads from it, and history that was not
-captured cannot be backfilled. The substrate exists — every request line already
-stores its normalized form and `NORMALIZER_VERSION` at write time
-(`domain/catalog.mjs`) — so this phase is about *reading* it well, not about
-adding storage.
+captured cannot be backfilled.
+
+Partial substrate already exists — every request line stores its normalized form
+and `NORMALIZER_VERSION` at write time (`domain/catalog.mjs`), and
+`purchase_line_history` (migration 0018) projects one row per ordered line.
+
+**But that view is a projection, not a snapshot.** It resolves `vendor_id` at
+read time, so renaming a vendor silently rewrites what every historical row
+says. Phase A therefore needs an **immutable observed-history table written at
+completion, carrying snapshots** — not another view. It is also missing the
+approver, the received and completed timestamps, the full receipt outcome,
+vendor name and part number, and anything that never became an order
+(cancelled/rejected requests are invisible to an INNER JOIN on purchase_orders).
 
 Build:
-- A durable line-history read model: description, normalized key, quantity,
-  unit, vendor, job, PO, estimated vs actual unit cost, received quantity, dates
-  (`HISTORY_FIELDS` is the contract).
-- "What did we pay last time" on the review screen, at the line level, with the
-  date and vendor beside it — a price with no date is a rumour.
+- The immutable history table and its write point, with ID **and** snapshot for
+  every entity reference (`HISTORY_FIELDS` is the contract).
+- Derived read models, separate and recomputable, never written back into
+  history (BR-012).
+- Observed kept distinct from configured — "last ordered from" is not "preferred
+  vendor" (BR-013).
+- "What did we pay last time" on the review screen at line level, with the date
+  and vendor beside it — a price with no date is a rumour.
 - Reorder signal: how often, how recently, in what quantity.
 
 Do not: re-cluster old rows under new normalization rules. `NORMALIZER_VERSION`
 exists so history keeps the key it was matched under.
 
 **Done when:** a purchaser reviewing a line sees what this company paid, to whom
-and when, without leaving the screen.
+and when, without leaving the screen — and a vendor rename does not change one
+word of what history says.
 
 ---
 
