@@ -88,6 +88,19 @@ export async function reviewLines(ctx: PurchasingContext, requestId: string) {
   return await ctx.reviews.linesFor(requestId);
 }
 
+/** Line-level completed-purchase context for the approval screen (BR-012/013). */
+export async function reviewMaterialHistory(ctx: PurchasingContext, actor: Actor, requestId: string) {
+  const request = await loadRequest(ctx, actor, requestId);
+  await must(ctx, actor, 'review.decide', request);
+  const items = await ctx.requests.itemsFor(requestId);
+  return Object.fromEntries(await Promise.all(items.map(async (item: any) => {
+    const rows = item.normalizedDescription
+      ? await ctx.history.materialIntelligence(actor.orgId, item.normalizedDescription)
+      : [];
+    return [item.id, rows[0] ?? null];
+  })));
+}
+
 export async function listVendors(ctx: PurchasingContext, actor: Actor) {
   return await ctx.reference.vendors(actor.orgId);
 }

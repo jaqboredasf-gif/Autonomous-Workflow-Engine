@@ -12,7 +12,7 @@
 import type {
   ApprovalRepository, EmailDraftRepository, InventoryRepository, ItemCatalogRepository,
   PoNumberAllocator, PurchaseOrderRepository, PurchaseRequestRepository, ReceiptRepository,
-  ReferenceRepository, WorkshopReviewRepository,
+  PurchaseHistoryRepository, ReferenceRepository, WorkshopReviewRepository,
 } from '../domain/repositories.ts';
 import type {
   Actor, AtomicOperations, AttachmentPort, AuditPort, AuthPort, Clock, DocumentPort,
@@ -37,6 +37,8 @@ export type PurchasingContext = {
   reference: ReferenceRepository;
   /** The organization's own materials vocabulary, read from its history. */
   catalog: ItemCatalogRepository;
+  /** Append-only completed-purchase evidence and pure derived observations. */
+  history: PurchaseHistoryRepository;
   poNumbers: PoNumberAllocator;
   identity: IdentityPort;
   auth: AuthPort;

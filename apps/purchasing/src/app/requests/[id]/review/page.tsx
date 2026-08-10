@@ -38,6 +38,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     id: String(v.id),
     name: String(v.name),
   }));
+  const materialHistory = await S.reviewMaterialHistory(ctx, actor, id);
 
   return (
     <div className="space-y-4">
@@ -49,6 +50,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
         originalItems={detail.originalItems}
         reviewLines={detail.reviewLines}
         vendors={vendors}
+        materialHistory={materialHistory}
       />
     </div>
   );

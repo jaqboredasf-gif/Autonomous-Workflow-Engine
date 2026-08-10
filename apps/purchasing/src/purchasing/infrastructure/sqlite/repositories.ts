@@ -27,12 +27,18 @@ import type { DatabaseSync } from 'node:sqlite';
 import type {
   ApprovalRepository, CatalogEntry, EmailDraftRepository, InventoryRepository,
   ItemCatalogRepository, LineProgressRecord, PoNumberAllocator, PurchaseOrderRepository,
-  PurchaseRequestRecord, PurchaseRequestRepository, ReceiptRepository, ReferenceRepository,
+  PurchaseHistoryLineRecord, PurchaseHistoryRepository, PurchaseRequestRecord,
+  PurchaseRequestRepository, ReceiptRepository, ReferenceRepository,
   RequestItemRecord, ReviewLineRecord, WorkshopReviewRepository,
 } from '../../domain/repositories.ts';
 import { formatPoNumber } from '../../domain/po-number.mjs';
 import { lineOutstandingQty } from '../../domain/numbers.mjs';
-import { byCatalogUsefulness, matchCatalog, normalizeDescription } from '../../domain/catalog.mjs';
+import {
+  byCatalogUsefulness, matchCatalog, normalizeDescription, NORMALIZER_VERSION,
+} from '../../domain/catalog.mjs';
+import {
+  deriveMaterialIntelligence, deriveVendorIntelligence, deriveVendorMaterialIntelligence,
+} from '../../domain/history.mjs';
 
 const uuid = () => randomUUID();
 
@@ -109,6 +115,56 @@ function toRequest(row: any): PurchaseRequestRecord {
   } as PurchaseRequestRecord;
 }
 
+function toHistoryLine(row: any): PurchaseHistoryLineRecord {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    requestId: row.request_id,
+    requestNumberSnapshot: row.request_number_snapshot,
+    purchaseOrderId: row.purchase_order_id,
+    purchaseOrderItemId: row.purchase_order_item_id,
+    poNumberSnapshot: row.po_number_snapshot,
+    jobId: row.job_id ?? null,
+    jobNumberSnapshot: row.job_number_snapshot,
+    jobNameSnapshot: row.job_name_snapshot ?? null,
+    catalogItemId: row.catalog_item_id ?? null,
+    normalizerVersion: Number(row.normalizer_version),
+    normalizedDescription: row.normalized_description_snapshot,
+    materialDescriptionSnapshot: row.material_description_snapshot,
+    requestedDescriptionSnapshot: row.requested_description_snapshot ?? null,
+    quantityOrdered: Number(row.quantity_ordered),
+    unitSnapshot: row.unit_snapshot,
+    vendorId: row.vendor_id,
+    vendorNameSnapshot: row.vendor_name_snapshot,
+    vendorPartNumberSnapshot: row.vendor_part_number_snapshot ?? null,
+    estimatedUnitPriceCents: nullableInteger(row.estimated_unit_price_cents),
+    estimatedTotalPriceCents: nullableInteger(row.estimated_total_price_cents),
+    actualUnitPriceCents: nullableInteger(row.actual_unit_price_cents),
+    actualTotalPriceCents: nullableInteger(row.actual_total_price_cents),
+    requesterUserId: row.requester_user_id,
+    requesterNameSnapshot: row.requester_name_snapshot,
+    approverUserId: row.approver_user_id,
+    approverNameSnapshot: row.approver_name_snapshot,
+    requestedAt: row.requested_at ?? null,
+    approvedAt: row.approved_at ?? null,
+    orderedAt: row.ordered_at,
+    receivedAt: row.received_at ?? null,
+    completedAt: row.completed_at,
+    receivedQty: Number(row.received_qty),
+    damagedQty: Number(row.damaged_qty),
+    backorderedQtySnapshot: Number(row.backordered_qty_snapshot),
+    wasBackordered: Boolean(Number(row.was_backordered)),
+    writtenOffQty: Number(row.written_off_qty),
+    receiptOutcome: row.receipt_outcome,
+    captureSource: row.capture_source,
+    recordedAt: row.recorded_at,
+  };
+}
+
+function nullableInteger(value: unknown): number | null {
+  return value === null || value === undefined ? null : Number(value);
+}
+
 function toItem(row: any): RequestItemRecord {
   return {
     id: row.id,
@@ -168,13 +224,13 @@ export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestReposi
       record.items.forEach((item: any, idx: number) => {
         db.prepare(
           `insert into purchase_request_items
-             (id, request_id, org_id, line_no, description, normalized_description,
+             (id, request_id, org_id, line_no, description, normalized_description, normalizer_version,
               requested_qty, unit, stock_number, notes, created_at, updated_at, created_by)
-           values (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         ).run(uuid(), id, record.orgId, idx + 1, item.description,
               // What the person typed is kept as typed; this is what it matched
               // on, recorded now so a later rule change cannot re-cluster history.
-              normalizeDescription(item.description),
+              normalizeDescription(item.description), NORMALIZER_VERSION,
               item.requestedQty, item.unit,
               item.stockNumber ?? null, item.notes ?? null, record.now, record.now, record.createdBy);
       });
@@ -444,13 +500,13 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
         db.prepare(
           `insert into purchase_order_items
              (id, purchase_order_id, org_id, line_no, request_item_id, description,
-              normalized_description, substitute_description, order_qty, unit,
+              normalized_description, normalizer_version, substitute_description, order_qty, unit,
               unit_cost_cents, line_total_cents, expected_arrival_date, created_at)
-           values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         ).run(uuid(), id, order.orgId, line.lineNo, line.requestItemId, line.description,
               // The ORDERED description is normalized too: a substitute is a
               // different item, and history should be able to see that.
-              normalizeDescription(line.substituteDescription || line.description),
+              normalizeDescription(line.substituteDescription || line.description), NORMALIZER_VERSION,
               line.substituteDescription,
               line.orderQty, line.unit, line.unitCostCents, line.lineTotalCents,
               line.expectedArrivalDate, now);
@@ -901,6 +957,64 @@ export function sqliteReferenceRepository(db: DatabaseSync): ReferenceRepository
 }
 
 // ---------------------------------------------------------------------------
+// Immutable purchasing history.
+
+export function sqliteHistoryRepository(db: DatabaseSync): PurchaseHistoryRepository {
+  const listLines = async (
+    orgId: string,
+    options: { requestId?: string; normalizedDescription?: string; vendorId?: string; limit?: number } = {},
+  ): Promise<PurchaseHistoryLineRecord[]> => {
+    const filters = ['org_id = ?'];
+    const values: Array<string | number> = [orgId];
+    if (options.requestId) {
+      filters.push('request_id = ?');
+      values.push(options.requestId);
+    }
+    if (options.normalizedDescription) {
+      filters.push('normalized_description_snapshot = ?');
+      values.push(options.normalizedDescription);
+    }
+    if (options.vendorId) {
+      filters.push('vendor_id = ?');
+      values.push(options.vendorId);
+    }
+    values.push(Math.max(1, options.limit ?? 5000));
+    return (db.prepare(
+      `select * from purchase_history_lines
+        where ${filters.join(' and ')}
+        order by completed_at desc, id desc limit ?`,
+    ).all(...values) as any[]).map(toHistoryLine);
+  };
+
+  return {
+    listLines,
+    async listOutcomes(orgId, options = {}) {
+      const filters = ['org_id = ?'];
+      const values: Array<string | number> = [orgId];
+      if (options.outcome) {
+        filters.push('outcome = ?');
+        values.push(options.outcome);
+      }
+      values.push(Math.max(1, options.limit ?? 5000));
+      return db.prepare(
+        `select * from purchase_request_outcome_history
+          where ${filters.join(' and ')}
+          order by outcome_at desc, id desc limit ?`,
+      ).all(...values) as any[];
+    },
+    async materialIntelligence(orgId, normalizedDescription) {
+      return deriveMaterialIntelligence(await listLines(orgId, { normalizedDescription }));
+    },
+    async vendorMaterialIntelligence(orgId, vendorId) {
+      return deriveVendorMaterialIntelligence(await listLines(orgId, { vendorId }));
+    },
+    async vendorIntelligence(orgId, vendorId) {
+      return deriveVendorIntelligence(await listLines(orgId, { vendorId }));
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The item catalogue.
 //
 // Built from the line items themselves rather than from a counter column: the
@@ -912,78 +1026,15 @@ export function sqliteReferenceRepository(db: DatabaseSync): ReferenceRepository
 // ---------------------------------------------------------------------------
 
 export function sqliteItemCatalogRepository(db: DatabaseSync): ItemCatalogRepository {
-  /**
-   * One row per normalized item, from history. The aggregates are the
-   * database's work; the shaping is this file's.
-   */
-  const HISTORY = `
-    select ri.normalized_description                       as normalized_description,
-           min(ri.description)                             as first_description,
-           group_concat(distinct ri.description)           as aliases,
-           count(*)                                        as times_requested,
-           sum(ri.requested_qty)                           as total_qty,
-           max(r.created_at)                               as last_requested_at,
-           max(ri.unit)                                    as default_unit,
-           max(ri.stock_number)                            as catalog_number
-      from purchase_request_items ri
-      join purchase_requests r on r.id = ri.request_id
-     where ri.org_id = ?
-       and ri.normalized_description is not null
-       and ri.normalized_description <> ''
-     group by ri.normalized_description`;
-
-  /** What each item was last actually bought as, and from whom. */
-  const PURCHASE = `
-    select ri.normalized_description as normalized_description,
-           v.id                      as vendor_id,
-           v.name                    as vendor_name,
-           oi.unit_cost_cents        as unit_cost_cents,
-           po.generated_at           as ordered_at
-      from purchase_order_items oi
-      join purchase_orders po on po.id = oi.purchase_order_id
-      join purchase_request_items ri on ri.id = oi.request_item_id
-      join vendors v on v.id = po.vendor_id
-     where po.org_id = ?
-     order by po.generated_at desc`;
-
-  const curatedFor = (orgId: string) => {
-    const rows = db
-      .prepare('select * from purchase_item_catalog where org_id = ?')
-      .all(orgId) as any[];
-    return new Map(rows.map((row) => [String(row.normalized_description), row]));
-  };
-
-  const purchasesFor = (orgId: string) => {
-    const rows = db.prepare(PURCHASE).all(orgId) as any[];
-    // Ordered newest first, so the FIRST row seen for a key is the latest.
-    const latest = new Map<string, any>();
-    for (const row of rows) {
-      if (!latest.has(String(row.normalized_description))) {
-        latest.set(String(row.normalized_description), row);
-      }
-    }
-    return latest;
-  };
-
   const entriesFor = (orgId: string): CatalogEntry[] => {
-    const curated = curatedFor(orgId);
-    const purchases = purchasesFor(orgId);
-    const history = db.prepare(HISTORY).all(orgId) as any[];
-
-    const entries = history.map((row) => {
-      const key = String(row.normalized_description);
-      const c = curated.get(key);
-      const p = purchases.get(key);
-      return toCatalogEntry({ history: row, curated: c, purchase: p });
-    });
-
-    // A curated entry nobody has ordered yet still belongs in the catalogue:
-    // that is what curating one ahead of time is FOR.
-    for (const [key, row] of curated) {
-      if (entries.some((e) => e.normalizedDescription === key)) continue;
-      entries.push(toCatalogEntry({ history: null, curated: row, purchase: purchases.get(key) }));
-    }
-    return entries;
+    const curated = new Map(
+      (db.prepare('select * from purchase_item_catalog where org_id = ?').all(orgId) as any[])
+        .map((row) => [String(row.normalized_description), row]),
+    );
+    const lines = (db.prepare(
+      'select * from purchase_history_lines where org_id = ? order by ordered_at desc, id desc',
+    ).all(orgId) as any[]).map(toHistoryLine);
+    return catalogEntriesFromHistory(lines, curated);
   };
 
   return {
@@ -1007,75 +1058,53 @@ export function sqliteItemCatalogRepository(db: DatabaseSync): ItemCatalogReposi
     },
 
     async forVendor(vendorId, limit = 25) {
-      const rows = db
-        .prepare(
-          `select ri.normalized_description as normalized_description,
-                  min(ri.description)       as first_description,
-                  count(*)                  as times_requested,
-                  sum(oi.order_qty)         as total_qty,
-                  max(po.generated_at)      as last_ordered_at,
-                  max(ri.unit)              as default_unit,
-                  max(oi.unit_cost_cents)   as unit_cost_cents
-             from purchase_order_items oi
-             join purchase_orders po on po.id = oi.purchase_order_id
-             join purchase_request_items ri on ri.id = oi.request_item_id
-            where po.vendor_id = ?
-              and ri.normalized_description is not null
-            group by ri.normalized_description
-            order by count(*) desc
-            limit ?`,
-        )
-        .all(vendorId, limit) as any[];
-      return rows.map((row) => ({
-        catalogItemId: null,
-        normalizedDescription: String(row.normalized_description),
-        canonicalDescription: String(row.first_description),
-        aliases: [],
-        defaultUnit: row.default_unit ?? null,
-        catalogNumber: null,
-        timesRequested: Number(row.times_requested ?? 0),
-        totalQtyRequested: Number(row.total_qty ?? 0),
-        lastRequestedAt: null,
-        lastVendorId: vendorId,
-        lastVendorName: null,
-        lastUnitCostCents: row.unit_cost_cents === null || row.unit_cost_cents === undefined
-          ? null
-          : Number(row.unit_cost_cents),
-        lastOrderedAt: row.last_ordered_at ?? null,
-        isActive: true,
-      }));
+      const rows = (db.prepare(
+        `select * from purchase_history_lines
+          where org_id = (select org_id from vendors where id = ?)
+            and vendor_id = ? order by ordered_at desc, id desc`,
+      ).all(vendorId, vendorId) as any[]).map(toHistoryLine);
+      return catalogEntriesFromHistory(rows, new Map())
+        .sort((a, b) => b.timesRequested - a.timesRequested)
+        .slice(0, limit);
     },
   };
 }
 
-/** Fold history, curation and the last purchase into one entry. */
-function toCatalogEntry({ history, curated, purchase }: { history: any; curated: any; purchase: any }): CatalogEntry {
-  const normalized = String(history?.normalized_description ?? curated?.normalized_description ?? '');
-  const aliases = String(history?.aliases ?? '')
-    .split(',')
-    .map((a: string) => a.trim())
-    .filter(Boolean);
-  return {
-    catalogItemId: curated ? String(curated.id) : null,
-    normalizedDescription: normalized,
-    // Curation wins on the NAME and only on the name: it is the one field a
-    // human is expected to improve.
-    canonicalDescription: String(curated?.canonical_description ?? history?.first_description ?? normalized),
-    aliases: [...new Set(aliases)],
-    defaultUnit: curated?.default_unit ?? history?.default_unit ?? null,
-    catalogNumber: curated?.catalog_number ?? history?.catalog_number ?? null,
-    timesRequested: Number(history?.times_requested ?? 0),
-    totalQtyRequested: Number(history?.total_qty ?? 0),
-    lastRequestedAt: history?.last_requested_at ?? null,
-    lastVendorId: purchase?.vendor_id ?? curated?.default_vendor_id ?? null,
-    lastVendorName: purchase?.vendor_name ?? null,
-    lastUnitCostCents:
-      purchase?.unit_cost_cents === null || purchase?.unit_cost_cents === undefined
-        ? null
-        : Number(purchase.unit_cost_cents),
-    lastOrderedAt: purchase?.ordered_at ?? null,
-    // Only a curated row can be switched off. An item somebody bought last
-    // week is active whether or not anyone has curated it.
-    isActive: curated ? Boolean(Number(curated.is_active ?? 1)) : true,
-  };
+function catalogEntriesFromHistory(
+  lines: PurchaseHistoryLineRecord[],
+  curated: Map<string, any>,
+): CatalogEntry[] {
+  const grouped = new Map<string, PurchaseHistoryLineRecord[]>();
+  for (const line of lines) {
+    const group = grouped.get(line.normalizedDescription) ?? [];
+    group.push(line);
+    grouped.set(line.normalizedDescription, group);
+  }
+  const keys = new Set([...grouped.keys(), ...curated.keys()]);
+  return [...keys].map((key) => {
+    const history = grouped.get(key) ?? [];
+    const latest = history[0];
+    const c = curated.get(key);
+    return {
+      catalogItemId: c ? String(c.id) : latest?.catalogItemId ?? null,
+      normalizedDescription: key,
+      canonicalDescription: String(c?.canonical_description ?? latest?.materialDescriptionSnapshot ?? key),
+      aliases: [...new Set(history.flatMap((line) => [
+        line.materialDescriptionSnapshot,
+        line.requestedDescriptionSnapshot,
+      ]).filter(Boolean) as string[])],
+      defaultUnit: c?.default_unit ?? latest?.unitSnapshot ?? null,
+      catalogNumber: c?.catalog_number ?? null,
+      // Legacy property names are retained at the repository boundary, but
+      // these values are completed purchase evidence, never rejected/draft requests.
+      timesRequested: history.length,
+      totalQtyRequested: history.reduce((total, line) => total + line.quantityOrdered, 0),
+      lastRequestedAt: latest?.requestedAt ?? null,
+      lastVendorId: latest?.vendorId ?? null,
+      lastVendorName: latest?.vendorNameSnapshot ?? null,
+      lastUnitCostCents: latest?.actualUnitPriceCents ?? latest?.estimatedUnitPriceCents ?? null,
+      lastOrderedAt: latest?.orderedAt ?? null,
+      isActive: c ? Boolean(Number(c.is_active ?? 1)) : true,
+    };
+  });
 }

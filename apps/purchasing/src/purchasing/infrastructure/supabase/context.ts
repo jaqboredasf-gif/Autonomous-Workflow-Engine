@@ -22,7 +22,7 @@ import { TABLES, money, qty, toActor } from './mappers.ts';
 import {
   supabaseApprovalRepository, supabaseEmailDraftRepository, supabaseInventoryRepository,
   supabaseOrderRepository, supabasePoNumberAllocator, supabaseReceiptRepository,
-  supabaseItemCatalogRepository, supabaseReferenceRepository, supabaseRequestRepository,
+  supabaseHistoryRepository, supabaseItemCatalogRepository, supabaseReferenceRepository, supabaseRequestRepository,
   supabaseReviewRepository,
 } from './repositories.ts';
 
@@ -384,6 +384,7 @@ export function supabasePurchasingContext(
     inventory: supabaseInventoryRepository(handles),
     reference,
     catalog,
+    history: supabaseHistoryRepository(handles),
     poNumbers: supabasePoNumberAllocator(handles),
     identity: identity(handles, config),
     // Credentials stay with the AuthPort; the Supabase auth adapter already

@@ -43,6 +43,10 @@ const MIGRATION_0017 = join(ROOT, 'supabase', 'migrations', '0017_purchasing_aut
 // 0018 adds tenant ownership on line items, the item catalog and the job
 // directory. Parity is checked over the whole set.
 const MIGRATION_0018 = join(ROOT, 'supabase', 'migrations', '0018_purchasing_history_and_jobs.sql');
+const HISTORY_MIGRATION = join(
+  MIGRATIONS_DIR,
+  readdirSync(MIGRATIONS_DIR).find((name) => name.endsWith('_immutable_purchase_history.sql')),
+);
 const APP = join(ROOT, 'apps', 'purchasing', 'src');
 
 /**
@@ -85,10 +89,13 @@ export const TABLE_MAP = {
   user_job_assignments: 'purchasing_job_assignments',
   purchase_item_catalog: 'purchase_item_catalog',
   purchase_jobs: 'purchase_jobs',
+  purchase_history_lines: 'purchase_history_lines',
+  purchase_request_outcome_history: 'purchase_request_outcome_history',
 };
 
 export async function validate() {
-  const sql = [MIGRATION, MIGRATION_0017, MIGRATION_0018].map((f) => readFileSync(f, 'utf8')).join('\n');
+  const sql = [MIGRATION, MIGRATION_0017, MIGRATION_0018, HISTORY_MIGRATION]
+    .map((f) => readFileSync(f, 'utf8')).join('\n');
   const problems = [];
   const bad = (m) => problems.push(m);
 

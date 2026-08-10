@@ -145,6 +145,7 @@ export const getRequestDetail = queries.getRequestDetail;
 export const purchaseOrderView = queries.purchaseOrderView;
 export const orderProgress = queries.orderProgress;
 export const reviewLines = queries.reviewLines;
+export const reviewMaterialHistory = queries.reviewMaterialHistory;
 export const listVendors = queries.listVendors;
 export const listDeliveryLocations = queries.listDeliveryLocations;
 export const listJobs = queries.listJobs;

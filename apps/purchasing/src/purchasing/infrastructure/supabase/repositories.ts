@@ -27,12 +27,18 @@
 import type {
   ApprovalRepository, CatalogEntry, EmailDraftRepository, InventoryRepository,
   ItemCatalogRepository, LineProgressRecord, PoNumberAllocator, PurchaseOrderRepository,
-  PurchaseRequestRepository, ReceiptRepository, ReferenceRepository, WorkshopReviewRepository,
+  PurchaseHistoryLineRecord, PurchaseHistoryRepository, PurchaseRequestRepository,
+  ReceiptRepository, ReferenceRepository, WorkshopReviewRepository,
 } from '../../domain/repositories.ts';
 // Matching and ranking are the DOMAIN's, shared with the local provider on
 // purpose: two catalogues that ordered their suggestions differently would be
 // two products. Only the read differs between providers.
-import { byCatalogUsefulness, matchCatalog, normalizeDescription } from '../../domain/catalog.mjs';
+import {
+  byCatalogUsefulness, matchCatalog, normalizeDescription, NORMALIZER_VERSION,
+} from '../../domain/catalog.mjs';
+import {
+  deriveMaterialIntelligence, deriveVendorIntelligence, deriveVendorMaterialIntelligence,
+} from '../../domain/history.mjs';
 import { lineOutstandingQty } from '../../domain/numbers.mjs';
 import type { SupabaseHandles } from './client.ts';
 import { unwrap } from './client.ts';
@@ -49,6 +55,52 @@ const REQUEST_SELECT = `
   vendor:purchase_vendors(name),
   purchase_order:purchase_orders(po_number)
 `;
+
+function toHistoryLine(row: any): PurchaseHistoryLineRecord {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    requestId: row.request_id,
+    requestNumberSnapshot: row.request_number_snapshot,
+    purchaseOrderId: row.purchase_order_id,
+    purchaseOrderItemId: row.purchase_order_item_id,
+    poNumberSnapshot: row.po_number_snapshot,
+    jobId: row.job_id ?? null,
+    jobNumberSnapshot: row.job_number_snapshot,
+    jobNameSnapshot: row.job_name_snapshot ?? null,
+    catalogItemId: row.catalog_item_id ?? null,
+    normalizerVersion: Number(row.normalizer_version),
+    normalizedDescription: row.normalized_description_snapshot,
+    materialDescriptionSnapshot: row.material_description_snapshot,
+    requestedDescriptionSnapshot: row.requested_description_snapshot ?? null,
+    quantityOrdered: qty.read(row.quantity_ordered),
+    unitSnapshot: row.unit_snapshot,
+    vendorId: row.vendor_id,
+    vendorNameSnapshot: row.vendor_name_snapshot,
+    vendorPartNumberSnapshot: row.vendor_part_number_snapshot ?? null,
+    estimatedUnitPriceCents: nullableMoney.read(row.estimated_unit_price),
+    estimatedTotalPriceCents: nullableMoney.read(row.estimated_total_price),
+    actualUnitPriceCents: nullableMoney.read(row.actual_unit_price),
+    actualTotalPriceCents: nullableMoney.read(row.actual_total_price),
+    requesterUserId: row.requester_user_id,
+    requesterNameSnapshot: row.requester_name_snapshot,
+    approverUserId: row.approver_user_id,
+    approverNameSnapshot: row.approver_name_snapshot,
+    requestedAt: row.requested_at ?? null,
+    approvedAt: row.approved_at ?? null,
+    orderedAt: row.ordered_at,
+    receivedAt: row.received_at ?? null,
+    completedAt: row.completed_at,
+    receivedQty: qty.read(row.received_qty),
+    damagedQty: qty.read(row.damaged_qty),
+    backorderedQtySnapshot: qty.read(row.backordered_qty_snapshot),
+    wasBackordered: Boolean(row.was_backordered),
+    writtenOffQty: qty.read(row.written_off_qty),
+    receiptOutcome: row.receipt_outcome,
+    captureSource: row.capture_source,
+    recordedAt: row.recorded_at,
+  };
+}
 
 // --- requests ---------------------------------------------------------------
 
@@ -97,6 +149,7 @@ export function supabaseRequestRepository(h: SupabaseHandles): PurchaseRequestRe
               // one provider did, the item catalogue would exist on one and be
               // empty on the other.
               normalized_description: normalizeDescription(item.description),
+              normalizer_version: NORMALIZER_VERSION,
               requested_qty: qty.write(item.requestedQty),
               unit: item.unit,
               stock_number: item.stockNumber ?? null,
@@ -444,6 +497,7 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
             // Same rule as the request line: the matching key is written when
             // the row is written, never derived on read.
             normalized_description: normalizeDescription(line.substituteDescription || line.description),
+            normalizer_version: NORMALIZER_VERSION,
             order_qty: qty.write(line.orderQty), unit: line.unit,
             unit_cost: money.write(line.unitCostCents), line_total: money.write(line.lineTotalCents),
             expected_arrival_date: line.expectedArrivalDate,
@@ -945,6 +999,53 @@ export function supabaseReferenceRepository(h: SupabaseHandles): ReferenceReposi
 }
 
 // ---------------------------------------------------------------------------
+// Immutable purchasing history.
+
+export function supabaseHistoryRepository(h: SupabaseHandles): PurchaseHistoryRepository {
+  const listLines = async (
+    orgId: string,
+    options: { requestId?: string; normalizedDescription?: string; vendorId?: string; limit?: number } = {},
+  ): Promise<PurchaseHistoryLineRecord[]> => {
+    if (orgId !== h.orgId) return [];
+    let query: any = h.db.from(TABLES.historyLines).select('*').eq('org_id', h.orgId);
+    if (options.requestId) query = query.eq('request_id', options.requestId);
+    if (options.normalizedDescription) {
+      query = query.eq('normalized_description_snapshot', options.normalizedDescription);
+    }
+    if (options.vendorId) query = query.eq('vendor_id', options.vendorId);
+    const rows = unwrap(
+      await query.order('completed_at', { ascending: false }).order('id', { ascending: false })
+        .limit(Math.max(1, options.limit ?? HISTORY_LIMIT)),
+      'read immutable purchase history',
+    ) as any[];
+    return rows.map(toHistoryLine);
+  };
+
+  return {
+    listLines,
+    async listOutcomes(orgId, options = {}) {
+      if (orgId !== h.orgId) return [];
+      let query: any = h.db.from(TABLES.requestOutcomeHistory).select('*').eq('org_id', h.orgId);
+      if (options.outcome) query = query.eq('outcome', options.outcome);
+      return unwrap(
+        await query.order('outcome_at', { ascending: false }).order('id', { ascending: false })
+          .limit(Math.max(1, options.limit ?? HISTORY_LIMIT)),
+        'read immutable request outcome history',
+      ) as any[];
+    },
+    async materialIntelligence(orgId, normalizedDescription) {
+      return deriveMaterialIntelligence(await listLines(orgId, { normalizedDescription }));
+    },
+    async vendorMaterialIntelligence(orgId, vendorId) {
+      return deriveVendorMaterialIntelligence(await listLines(orgId, { vendorId }));
+    },
+    async vendorIntelligence(orgId, vendorId) {
+      return deriveVendorIntelligence(await listLines(orgId, { vendorId }));
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The item catalogue.
 //
 // Same contract as the local provider, built the same way: from the line items
@@ -962,86 +1063,24 @@ const HISTORY_LIMIT = 5000;
 
 export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRepository {
   const loadEntries = async (): Promise<CatalogEntry[]> => {
-    const [items, curatedRows, orderRows] = await Promise.all([
+    const [historyRows, curatedRows] = await Promise.all([
       unwrap(
         await h.db
-          .from(TABLES.requestItems)
-          .select('normalized_description, description, requested_qty, unit, stock_number, created_at')
+          .from(TABLES.historyLines)
+          .select('*')
           .eq('org_id', h.orgId)
-          .not('normalized_description', 'is', null)
-          .order('created_at', { ascending: false })
+          .order('ordered_at', { ascending: false })
           .limit(HISTORY_LIMIT),
-        'read item history',
+        'read immutable item history',
       ) as any[],
       unwrap(
         await h.db.from(TABLES.itemCatalog).select('*').eq('org_id', h.orgId),
         'read item catalog',
       ) as any[],
-      unwrap(
-        await h.db
-          .from(TABLES.orderItems)
-          .select(
-            'normalized_description, unit_cost, order_qty, purchase_order:purchase_orders(generated_at, vendor:purchase_vendors(id,name))',
-          )
-          .eq('org_id', h.orgId)
-          .not('normalized_description', 'is', null)
-          .limit(HISTORY_LIMIT),
-        'read purchase history',
-      ) as any[],
     ]);
 
     const curated = new Map(curatedRows.map((row) => [String(row.normalized_description), row]));
-
-    // Latest purchase per item.
-    const purchases = new Map<string, any>();
-    for (const row of orderRows) {
-      const key = String(row.normalized_description);
-      const at = row.purchase_order?.generated_at ?? '';
-      const seen = purchases.get(key);
-      if (!seen || String(seen.at) < String(at)) {
-        purchases.set(key, {
-          at,
-          vendorId: row.purchase_order?.vendor?.id ?? null,
-          vendorName: row.purchase_order?.vendor?.name ?? null,
-          unitCostCents: row.unit_cost === null || row.unit_cost === undefined ? null : money.read(row.unit_cost),
-        });
-      }
-    }
-
-    // Aggregate the request history.
-    const grouped = new Map<string, any>();
-    for (const row of items) {
-      const key = String(row.normalized_description);
-      if (!key) continue;
-      const acc = grouped.get(key) ?? {
-        descriptions: new Set<string>(),
-        timesRequested: 0,
-        totalQty: 0,
-        lastRequestedAt: null as string | null,
-        unit: null as string | null,
-        catalogNumber: null as string | null,
-      };
-      acc.descriptions.add(String(row.description));
-      acc.timesRequested += 1;
-      acc.totalQty += qty.read(row.requested_qty);
-      if (!acc.lastRequestedAt || String(row.created_at) > acc.lastRequestedAt) {
-        acc.lastRequestedAt = String(row.created_at);
-      }
-      acc.unit = acc.unit ?? row.unit ?? null;
-      acc.catalogNumber = acc.catalogNumber ?? row.stock_number ?? null;
-      grouped.set(key, acc);
-    }
-
-    const entries: CatalogEntry[] = [];
-    for (const [key, acc] of grouped) {
-      entries.push(buildEntry(key, acc, curated.get(key), purchases.get(key)));
-    }
-    // A curated entry nobody has ordered yet still belongs in the catalogue.
-    for (const [key, row] of curated) {
-      if (grouped.has(key)) continue;
-      entries.push(buildEntry(key, null, row, purchases.get(key)));
-    }
-    return entries;
+    return catalogEntriesFromSnapshots(historyRows.map(toHistoryLine), curated);
   };
 
   return {
@@ -1066,67 +1105,54 @@ export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRe
     async forVendor(vendorId, limit = 25) {
       const rows = unwrap(
         await h.db
-          .from(TABLES.orderItems)
-          .select(
-            'normalized_description, description, unit, unit_cost, order_qty, purchase_order:purchase_orders!inner(generated_at, vendor_id)',
-          )
+          .from(TABLES.historyLines)
+          .select('*')
           .eq('org_id', h.orgId)
-          .eq('purchase_order.vendor_id', vendorId)
-          .not('normalized_description', 'is', null)
+          .eq('vendor_id', vendorId)
+          .order('ordered_at', { ascending: false })
           .limit(HISTORY_LIMIT),
-        'read vendor materials',
+        'read immutable vendor materials',
       ) as any[];
-
-      const grouped = new Map<string, CatalogEntry>();
-      for (const row of rows) {
-        const key = String(row.normalized_description);
-        const entry = grouped.get(key) ?? {
-          catalogItemId: null,
-          normalizedDescription: key,
-          canonicalDescription: String(row.description),
-          aliases: [],
-          defaultUnit: row.unit ?? null,
-          catalogNumber: null,
-          timesRequested: 0,
-          totalQtyRequested: 0,
-          lastRequestedAt: null,
-          lastVendorId: vendorId,
-          lastVendorName: null,
-          lastUnitCostCents: null,
-          lastOrderedAt: null,
-          isActive: true,
-        };
-        entry.timesRequested += 1;
-        entry.totalQtyRequested += qty.read(row.order_qty);
-        const at = row.purchase_order?.generated_at ?? null;
-        if (at && (!entry.lastOrderedAt || String(at) > entry.lastOrderedAt)) {
-          entry.lastOrderedAt = String(at);
-          entry.lastUnitCostCents =
-            row.unit_cost === null || row.unit_cost === undefined ? null : money.read(row.unit_cost);
-        }
-        grouped.set(key, entry);
-      }
-      return [...grouped.values()].sort((a, b) => b.timesRequested - a.timesRequested).slice(0, limit);
+      return catalogEntriesFromSnapshots(rows.map(toHistoryLine), new Map())
+        .sort((a, b) => b.timesRequested - a.timesRequested)
+        .slice(0, limit);
     },
   };
 }
 
-function buildEntry(key: string, history: any, curated: any, purchase: any): CatalogEntry {
-  const aliases: string[] = history ? [...history.descriptions] : [];
-  return {
-    catalogItemId: curated ? String(curated.id) : null,
-    normalizedDescription: key,
-    canonicalDescription: String(curated?.canonical_description ?? aliases[0] ?? key),
-    aliases,
-    defaultUnit: curated?.default_unit ?? history?.unit ?? null,
-    catalogNumber: curated?.catalog_number ?? history?.catalogNumber ?? null,
-    timesRequested: Number(history?.timesRequested ?? 0),
-    totalQtyRequested: Number(history?.totalQty ?? 0),
-    lastRequestedAt: history?.lastRequestedAt ?? null,
-    lastVendorId: purchase?.vendorId ?? curated?.default_vendor_id ?? null,
-    lastVendorName: purchase?.vendorName ?? null,
-    lastUnitCostCents: purchase?.unitCostCents ?? null,
-    lastOrderedAt: purchase?.at ?? null,
-    isActive: curated ? curated.is_active !== false : true,
-  };
+function catalogEntriesFromSnapshots(
+  lines: PurchaseHistoryLineRecord[],
+  curated: Map<string, any>,
+): CatalogEntry[] {
+  const grouped = new Map<string, PurchaseHistoryLineRecord[]>();
+  for (const line of lines) {
+    const group = grouped.get(line.normalizedDescription) ?? [];
+    group.push(line);
+    grouped.set(line.normalizedDescription, group);
+  }
+  const keys = new Set([...grouped.keys(), ...curated.keys()]);
+  return [...keys].map((key) => {
+    const history = grouped.get(key) ?? [];
+    const latest = history[0];
+    const c = curated.get(key);
+    return {
+      catalogItemId: c ? String(c.id) : latest?.catalogItemId ?? null,
+      normalizedDescription: key,
+      canonicalDescription: String(c?.canonical_description ?? latest?.materialDescriptionSnapshot ?? key),
+      aliases: [...new Set(history.flatMap((line) => [
+        line.materialDescriptionSnapshot,
+        line.requestedDescriptionSnapshot,
+      ]).filter(Boolean) as string[])],
+      defaultUnit: c?.default_unit ?? latest?.unitSnapshot ?? null,
+      catalogNumber: c?.catalog_number ?? null,
+      timesRequested: history.length,
+      totalQtyRequested: history.reduce((total, line) => total + line.quantityOrdered, 0),
+      lastRequestedAt: latest?.requestedAt ?? null,
+      lastVendorId: latest?.vendorId ?? null,
+      lastVendorName: latest?.vendorNameSnapshot ?? null,
+      lastUnitCostCents: latest?.actualUnitPriceCents ?? latest?.estimatedUnitPriceCents ?? null,
+      lastOrderedAt: latest?.orderedAt ?? null,
+      isActive: c ? c.is_active !== false : true,
+    };
+  });
 }

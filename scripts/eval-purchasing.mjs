@@ -976,10 +976,67 @@ check(orderedRows.every((r) => r.unit_cost_cents !== null), 'estimated cost is r
 check(orderedRows.every((r) => r.actual_unit_cost_cents === null),
       'actual cost is null until reconciled — unknown is not zero');
 
+// Phase A's evidence begins only at COMPLETED. It is captured by the status
+// transition's database trigger, in the same transaction as completion.
+const historyRepo = ctx().history;
+const completedHistory = await historyRepo.listLines(DEMO_ORG_ID, { requestId: created.id });
+eq(completedHistory.length, 1, 'completion atomically captures one immutable snapshot per order line');
+const snapshot = completedHistory[0];
+eq(snapshot.requestId, created.id, 'history retains the request ID');
+eq(snapshot.requestNumberSnapshot, created.requestNumber, 'history retains the request number snapshot');
+eq(snapshot.purchaseOrderId, poRow.id, 'history retains the PO ID');
+eq(snapshot.poNumberSnapshot, po.poNumber, 'history retains the PO number snapshot');
+eq(snapshot.vendorId, graybar.id, 'history retains the vendor ID');
+eq(snapshot.vendorNameSnapshot, graybar.name, 'history retains the vendor name snapshot');
+eq(snapshot.orderedAt, db.prepare('select ordered_at from purchase_requests where id = ?').get(created.id).ordered_at,
+   'ordered_at is the actual vendor-placement time from the request');
+check(snapshot.orderedAt !== poRow.generated_at, 'PO generation time is never substituted for actual ordering time');
+eq(snapshot.receivedQty, 18_000, 'history preserves the completed receipt quantity');
+eq(snapshot.receiptOutcome, 'RECEIVED', 'history preserves the receipt outcome');
+eq(snapshot.captureSource, 'NATIVE', 'a normal completion is labelled as native capture');
+
+const bytesBefore = JSON.stringify(completedHistory);
+const derivedOnce = await historyRepo.materialIntelligence(DEMO_ORG_ID, snapshot.normalizedDescription);
+const derivedTwice = await historyRepo.materialIntelligence(DEMO_ORG_ID, snapshot.normalizedDescription);
+eq(derivedTwice, derivedOnce, 'derived intelligence is deterministic when recomputed');
+eq(JSON.stringify(await historyRepo.listLines(DEMO_ORG_ID, { requestId: created.id })), bytesBefore,
+   'recomputing intelligence does not rewrite immutable evidence');
+
+await throws(
+  () => db.prepare('update purchase_history_lines set vendor_name_snapshot = ? where id = ?')
+    .run('Rewritten Vendor', snapshot.id),
+  /immutable/i,
+  'the database refuses UPDATE of a completed history snapshot',
+);
+await throws(
+  () => db.prepare('delete from purchase_history_lines where id = ?').run(snapshot.id),
+  /immutable/i,
+  'the database refuses DELETE of a completed history snapshot',
+);
+
+// Rename live entities after capture. IDs remain joinable, while every word in
+// the evidence remains the literal value that was observed at completion.
+db.prepare('update vendors set name = ? where id = ?').run('Graybar — renamed later', snapshot.vendorId);
+db.prepare('update purchase_order_items set description = ? where id = ?')
+  .run('Live material renamed later', snapshot.purchaseOrderItemId);
+if (snapshot.jobId) db.prepare('update purchase_jobs set name = ? where id = ?').run('Live job renamed later', snapshot.jobId);
+const afterRename = (await historyRepo.listLines(DEMO_ORG_ID, { requestId: created.id }))[0];
+eq(afterRename.vendorNameSnapshot, snapshot.vendorNameSnapshot, 'vendor rename does not rewrite history');
+eq(afterRename.materialDescriptionSnapshot, snapshot.materialDescriptionSnapshot,
+   'material rename does not rewrite history');
+eq(afterRename.jobNameSnapshot, snapshot.jobNameSnapshot, 'job rename does not rewrite history');
+
+const terminalOutcomes = await historyRepo.listOutcomes(DEMO_ORG_ID, { outcome: 'REJECTED' });
+check(terminalOutcomes.some((row) => row.request_id === rejected.id),
+      'a rejected attempt is preserved in request-level outcome history');
+check(!(await historyRepo.listLines(DEMO_ORG_ID)).some((row) => row.requestId === rejected.id),
+      'a rejected attempt never becomes a fabricated purchase line');
+
 // Cross-tenant: the second organization created earlier must own no history,
 // and a history query scoped to it must return nothing belonging to Lippolis.
 const strangerHistory = db.prepare('select count(*) c from purchase_request_items where org_id = ?').get(otherOrg);
 eq(strangerHistory.c, 0, 'another organization has no line-item history of its own');
+eq(await historyRepo.listLines(otherOrg), [], 'the repository refuses cross-tenant immutable-history reads');
 const mixed = db.prepare(
   `select count(*) c from purchase_request_items i
      join purchase_requests r on r.id = i.request_id

@@ -187,6 +187,71 @@ export interface InventoryRepository {
   adjust(record: any, now: string): Promise<void>;
 }
 
+/**
+ * One immutable completed purchase-line snapshot (BR-012).
+ *
+ * IDs preserve joinability. Every human-readable value is the literal value
+ * observed at completion and is never resolved from a live directory on read.
+ */
+export type PurchaseHistoryLineRecord = {
+  id: Id;
+  orgId: Id;
+  requestId: Id;
+  requestNumberSnapshot: string;
+  purchaseOrderId: Id;
+  purchaseOrderItemId: Id;
+  poNumberSnapshot: string;
+  jobId: Id | null;
+  jobNumberSnapshot: string;
+  jobNameSnapshot: string | null;
+  catalogItemId: Id | null;
+  normalizerVersion: number;
+  normalizedDescription: string;
+  materialDescriptionSnapshot: string;
+  requestedDescriptionSnapshot: string | null;
+  quantityOrdered: number;
+  unitSnapshot: string;
+  vendorId: Id;
+  vendorNameSnapshot: string;
+  vendorPartNumberSnapshot: string | null;
+  estimatedUnitPriceCents: number | null;
+  estimatedTotalPriceCents: number | null;
+  actualUnitPriceCents: number | null;
+  actualTotalPriceCents: number | null;
+  requesterUserId: Id;
+  requesterNameSnapshot: string;
+  approverUserId: Id;
+  approverNameSnapshot: string;
+  requestedAt: string | null;
+  approvedAt: string | null;
+  orderedAt: string;
+  receivedAt: string | null;
+  completedAt: string;
+  receivedQty: number;
+  damagedQty: number;
+  backorderedQtySnapshot: number;
+  wasBackordered: boolean;
+  writtenOffQty: number;
+  receiptOutcome: 'RECEIVED' | 'DAMAGED' | 'WRITTEN_OFF' | 'MIXED';
+  captureSource: 'NATIVE' | 'BACKFILL';
+  recordedAt: string;
+};
+
+/**
+ * Read-only by contract. The database lifecycle trigger is the sole writer,
+ * so a recomputation path cannot acquire a handle that mutates evidence.
+ */
+export interface PurchaseHistoryRepository {
+  listLines(
+    orgId: Id,
+    options?: { requestId?: Id; normalizedDescription?: string; vendorId?: Id; limit?: number },
+  ): Promise<PurchaseHistoryLineRecord[]>;
+  listOutcomes(orgId: Id, options?: { outcome?: 'REJECTED' | 'CANCELLED'; limit?: number }): Promise<any[]>;
+  materialIntelligence(orgId: Id, normalizedDescription?: string): Promise<any[]>;
+  vendorMaterialIntelligence(orgId: Id, vendorId?: Id): Promise<any[]>;
+  vendorIntelligence(orgId: Id, vendorId?: Id): Promise<any[]>;
+}
+
 export interface ReferenceRepository {
   vendors(orgId: Id): Promise<any[]>;
   primaryContact(vendorId: Id): Promise<any | null>;

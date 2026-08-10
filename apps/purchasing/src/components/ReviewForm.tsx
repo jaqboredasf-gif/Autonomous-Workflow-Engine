@@ -33,11 +33,13 @@ export default function ReviewForm({
   originalItems,
   reviewLines,
   vendors,
+  materialHistory,
 }: {
   request: any;
   originalItems: any[];
   reviewLines: any[];
   vendors: Array<{ id: string; name: string }>;
+  materialHistory: Record<string, any>;
 }) {
   const [state, formAction, pending] = useActionState(reviewAndDecideAction, null as any);
   const [lines, setLines] = useState<LineState[]>(() =>
@@ -130,6 +132,22 @@ export default function ReviewForm({
                   field requested {formatQty(l.requestedQty)} {l.unit}
                 </span>
               </div>
+
+              {materialHistory[l.requestItemId] ? (
+                <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950">
+                  Last ordered from <strong>{materialHistory[l.requestItemId].lastVendorNameSnapshot}</strong>
+                  {' on '}{String(materialHistory[l.requestItemId].lastOrderedAt).slice(0, 10)}
+                  {materialHistory[l.requestItemId].lastUnitPriceCents === null
+                    ? ''
+                    : ` at ${formatMoney(materialHistory[l.requestItemId].lastUnitPriceCents)}`}
+                  {' · '}{materialHistory[l.requestItemId].completedOrderCount} completed order(s)
+                  {materialHistory[l.requestItemId].commonQuantity === null
+                    ? ''
+                    : ` · common quantity ${formatQty(materialHistory[l.requestItemId].commonQuantity)}`}
+                </div>
+              ) : (
+                <div className="mt-2 text-xs text-slate-500">No completed purchase history for this material yet.</div>
+              )}
 
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Field label="Usable stock in workshop" required>

@@ -19,7 +19,7 @@
 /** The context members that represent persistence or an external boundary. */
 const DEFERRED_MEMBERS = [
   'requests', 'reviews', 'approvals', 'orders', 'drafts', 'receipts', 'inventory',
-  'reference', 'poNumbers', 'identity', 'audit', 'notifications', 'documents',
+  'reference', 'catalog', 'history', 'poNumbers', 'identity', 'audit', 'notifications', 'documents',
   'attachments', 'auth',
 ];
 

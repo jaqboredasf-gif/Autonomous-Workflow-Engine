@@ -41,6 +41,7 @@ const { EMAIL_DRAFT_TRANSITIONS, EXTERNAL_SEND_ENABLED, composeDraft, draftGuard
 const { validateRequestDraft, stripRequestorFields } = await import(join(DOMAIN, 'validation.mjs'));
 const { isOverdue, summarize, purchasingStatus, receivingStatus, vendorActivity, recentPurchaseOrders } =
   await import(join(DOMAIN, 'dashboard.mjs'));
+const H = await import(join(DOMAIN, 'history.mjs'));
 
 let pass = 0;
 let fail = 0;
@@ -454,12 +455,44 @@ const b = C.catalogKeyFor({ orgId: 'org-b', description: '2x4 LED troffer' });
 eq(a.normalizedDescription, b.normalizedDescription, 'two organizations can buy the same thing');
 check(a.orgId !== b.orgId, 'and their catalog entries are still separate rows');
 
-// The fields history must preserve for the future features to be possible.
-for (const field of ['orgId', 'normalizedDescription', 'description', 'quantity', 'unit',
-                     'vendorId', 'jobNumber', 'estimatedUnitCostCents', 'actualUnitCostCents',
-                     'receivedQty', 'orderedAt']) {
+// The ID + literal snapshot fields history must preserve for later features.
+for (const field of ['orgId', 'requestId', 'requestNumberSnapshot', 'purchaseOrderId',
+                     'purchaseOrderItemId', 'poNumberSnapshot', 'jobId', 'jobNumberSnapshot',
+                     'jobNameSnapshot', 'catalogItemId', 'normalizerVersion',
+                     'normalizedDescription', 'materialDescriptionSnapshot',
+                     'quantityOrdered', 'unitSnapshot', 'vendorId', 'vendorNameSnapshot',
+                     'vendorPartNumberSnapshot', 'estimatedUnitPriceCents', 'actualUnitPriceCents',
+                     'requesterUserId', 'approverUserId', 'receivedQty', 'damagedQty',
+                     'backorderedQtySnapshot', 'writtenOffQty', 'receiptOutcome', 'orderedAt',
+                     'receivedAt', 'completedAt', 'captureSource']) {
   check(C.HISTORY_FIELDS.includes(field), `history preserves ${field}`);
 }
+
+const historyEvidence = Object.freeze([
+  Object.freeze({
+    id: 'h1', orgId: 'org-a', purchaseOrderId: 'po1', vendorId: 'v1',
+    vendorNameSnapshot: 'Graybar then', normalizedDescription: key,
+    materialDescriptionSnapshot: '2x4 LED troffer, 4000K', quantityOrdered: 20 * K,
+    estimatedUnitPriceCents: 8950, actualUnitPriceCents: null,
+    orderedAt: '2026-08-01T12:00:00Z', receivedAt: '2026-08-03T12:00:00Z',
+  }),
+  Object.freeze({
+    id: 'h2', orgId: 'org-a', purchaseOrderId: 'po2', vendorId: 'v1',
+    vendorNameSnapshot: 'Graybar then', normalizedDescription: key,
+    materialDescriptionSnapshot: 'LED troffer 2x4', quantityOrdered: 10 * K,
+    estimatedUnitPriceCents: 9150, actualUnitPriceCents: 9050,
+    orderedAt: '2026-08-05T12:00:00Z', receivedAt: null,
+  }),
+]);
+const evidenceBefore = JSON.stringify(historyEvidence);
+const materialFacts = H.deriveMaterialIntelligence(historyEvidence)[0];
+eq(materialFacts.lastVendorNameSnapshot, 'Graybar then', 'material facts retain the observed vendor snapshot');
+eq(materialFacts.lastUnitPriceCents, 9050, 'actual price wins over estimate when observed');
+eq(materialFacts.recentPriceSampleSize, 2, 'an average reports its real sample size');
+eq(materialFacts.commonQuantity, 10 * K, 'common quantity has deterministic tie-breaking');
+eq(H.deriveVendorMaterialIntelligence(historyEvidence)[0].leadTimeSampleSize, 1,
+   'lead time counts only rows with both endpoints');
+eq(JSON.stringify(historyEvidence), evidenceBefore, 'deriving intelligence never mutates evidence');
 
 // --- autocomplete order: exact, alias, frequent, recent --------------------
 //
