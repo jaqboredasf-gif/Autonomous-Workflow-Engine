@@ -16,6 +16,7 @@
 // ---------------------------------------------------------------------------
 
 import { emit, loadRequest, must, PurchasingError, transitionTo, type PurchasingContext } from './context.ts';
+import { recordPurchaseHistory } from './history.ts';
 import type { Actor } from './ports.ts';
 import { events } from '../domain/events.mjs';
 import { draftGuard } from '../domain/email.mjs';
@@ -386,8 +387,16 @@ export async function completePurchaseRequest(ctx: PurchasingContext, actor: Act
   await must(ctx, actor, 'request.complete', request);
   return ctx.uow.run(async () => {
     await transitionTo(ctx, actor, request, 'COMPLETED', { completed_at: ctx.clock.now() });
+
+    // THE HISTORY WRITE POINT. Inside the transition's unit of work and after
+    // the transition, because `completed_at` is part of what history records.
+    // If this fails, the completion fails: a completed purchase nobody can
+    // reconstruct is worse than one that has to be retried. See BR-012 and
+    // application/history.ts.
+    const history = await recordPurchaseHistory(ctx, actor, requestId, 'COMPLETED');
+
     await emit(ctx, actor, actor.orgId, [events.requestCompleted(request, notes ?? null)]);
-    return { status: 'COMPLETED' };
+    return { status: 'COMPLETED', historyLines: history.inserted };
   });
 }
 

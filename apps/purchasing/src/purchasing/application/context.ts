@@ -11,8 +11,8 @@
 
 import type {
   ApprovalRepository, EmailDraftRepository, InventoryRepository, ItemCatalogRepository,
-  PoNumberAllocator, PurchaseOrderRepository, PurchaseRequestRepository, ReceiptRepository,
-  ReferenceRepository, WorkshopReviewRepository,
+  PoNumberAllocator, PurchaseHistoryRepository, PurchaseOrderRepository, PurchaseRequestRepository,
+  ReceiptRepository, ReferenceRepository, WorkshopReviewRepository,
 } from '../domain/repositories.ts';
 import type {
   Actor, AtomicOperations, AttachmentPort, AuditPort, AuthPort, Clock, DocumentPort,
@@ -37,6 +37,13 @@ export type PurchasingContext = {
   reference: ReferenceRepository;
   /** The organization's own materials vocabulary, read from its history. */
   catalog: ItemCatalogRepository;
+  /**
+   * The immutable record of what was actually purchased. Written once, when a
+   * request reaches a terminal state; never updated, never deleted. Everything
+   * derived from it (autocomplete ranking, last price, observed lead time) is a
+   * read model computed on top — see application/history.ts and BR-012.
+   */
+  history: PurchaseHistoryRepository;
   poNumbers: PoNumberAllocator;
   identity: IdentityPort;
   auth: AuthPort;

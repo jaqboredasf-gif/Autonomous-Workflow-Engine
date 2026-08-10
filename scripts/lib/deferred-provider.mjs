@@ -21,6 +21,10 @@ const DEFERRED_MEMBERS = [
   'requests', 'reviews', 'approvals', 'orders', 'drafts', 'receipts', 'inventory',
   'reference', 'poNumbers', 'identity', 'audit', 'notifications', 'documents',
   'attachments', 'auth',
+  // The catalogue and the immutable history are persistence too. History is on
+  // the completion path, so a missing await there would lose the record of a
+  // purchase — exactly the class of bug this instrument exists to surface.
+  'catalog', 'history',
 ];
 
 /** Members that are computation, not persistence: they stay immediate. */

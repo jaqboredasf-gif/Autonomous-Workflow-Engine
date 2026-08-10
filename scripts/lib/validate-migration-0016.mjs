@@ -43,6 +43,9 @@ const MIGRATION_0017 = join(ROOT, 'supabase', 'migrations', '0017_purchasing_aut
 // 0018 adds tenant ownership on line items, the item catalog and the job
 // directory. Parity is checked over the whole set.
 const MIGRATION_0018 = join(ROOT, 'supabase', 'migrations', '0018_purchasing_history_and_jobs.sql');
+// 0030 replaces the purchase_line_history VIEW with the immutable history
+// table. It creates a pilot-parity table, so table parity must see it.
+const MIGRATION_0030 = join(ROOT, 'supabase', 'migrations', '0030_purchasing_immutable_history.sql');
 const APP = join(ROOT, 'apps', 'purchasing', 'src');
 
 /**
@@ -85,10 +88,12 @@ export const TABLE_MAP = {
   user_job_assignments: 'purchasing_job_assignments',
   purchase_item_catalog: 'purchase_item_catalog',
   purchase_jobs: 'purchase_jobs',
+  purchase_history_lines: 'purchase_history_lines',
 };
 
 export async function validate() {
-  const sql = [MIGRATION, MIGRATION_0017, MIGRATION_0018].map((f) => readFileSync(f, 'utf8')).join('\n');
+  const sql = [MIGRATION, MIGRATION_0017, MIGRATION_0018, MIGRATION_0030]
+    .map((f) => readFileSync(f, 'utf8')).join('\n');
   const problems = [];
   const bad = (m) => problems.push(m);
 
@@ -275,6 +280,38 @@ export async function validate() {
       if (body.includes(identity)) {
         bad(`${latest.name}: purchasing_may_receive() consults ${identity} — BR-014 makes receipt authority a capability plus scope, never a function of who requested or approved the order`);
       }
+    }
+  }
+
+  // --- BR-012: history is immutable evidence --------------------------------
+  //
+  // The rule the DATABASE enforces, checked over every migration in order: the
+  // history table must exist, must be append-only, and no migration may add an
+  // UPDATE or DELETE policy to it later. The old view must be gone — leaving it
+  // would leave a second, contradictory answer to "what did we buy", and the
+  // wrong one is the one called `history`.
+  const everySql = migrationFiles.map((f) => f.text).join('\n');
+  if (!/create table (?:if not exists )?purchase_history_lines/.test(everySql)) {
+    bad('no migration creates purchase_history_lines — BR-012 needs an immutable history table');
+  }
+  if (!/drop view if exists purchase_line_history/.test(everySql)) {
+    bad('purchase_line_history (the mutable view) is never dropped — two answers to "what did we buy" is one too many');
+  }
+  for (const trigger of ['purchase_history_lines_no_update', 'purchase_history_lines_no_delete']) {
+    if (!everySql.includes(`create trigger ${trigger}`)) {
+      bad(`purchase_history_lines is missing the ${trigger} guard — BR-012 makes history append-only`);
+    }
+  }
+  for (const m of everySql.matchAll(/create policy (\w+) on purchase_history_lines\b([\s\S]*?);/g)) {
+    if (/for (update|delete|all)\b/.test(m[2])) {
+      bad(`policy ${m[1]} grants UPDATE or DELETE on purchase_history_lines — a correction is a new request, never an edit`);
+    }
+  }
+  // Snapshot columns are the whole point: an id-only history is the view again.
+  for (const column of ['vendor_name', 'requestor_name', 'approver_name', 'request_number',
+                        'po_number', 'job_number', 'requested_description', 'ordered_description']) {
+    if (!new RegExp(`\\n\\s+${column}\\s`).test(everySql.slice(everySql.indexOf('create table purchase_history_lines')))) {
+      bad(`purchase_history_lines has no ${column} snapshot — without it a rename rewrites history`);
     }
   }
 

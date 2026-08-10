@@ -13,6 +13,7 @@
 import { emit, loadRequest, must, PurchasingError, transitionTo, type PurchasingContext } from './context.ts';
 import type { Actor } from './ports.ts';
 import { changesFromOriginal, saveWorkshopReview } from './review.ts';
+import { recordPurchaseHistory } from './history.ts';
 import { events } from '../domain/events.mjs';
 import { isSelfApproval } from '../domain/roles.mjs';
 import { QUEUE_STATUSES } from '../domain/status.mjs';
@@ -73,6 +74,14 @@ export async function decidePurchaseRequest(
       notes: input.notes ?? null,
       reason: decision === 'CLARIFY' ? (input.question ?? '') : (input.reason ?? ''),
     });
+    // A rejection ends the request, so it writes history here too. The RPC owns
+    // the decision's transaction; this is a second statement against a request
+    // that is already terminal, and it is idempotent, so a retry after a failure
+    // between the two completes the record rather than duplicating it.
+    if (decision === 'REJECT') {
+      await recordPurchaseHistory(ctx, actor, requestId, 'REJECTED', input.reason ?? null);
+    }
+
     const emitted =
       decision === 'APPROVE' ? [events.approved(request, changes, input.notes ?? null)]
       : decision === 'REJECT' ? [events.rejected(request, input.reason ?? '')]
@@ -141,6 +150,13 @@ async function reject(
     approver_id: actor.id, decided_at: now, decision_notes: notes, rejection_reason: why,
   });
   await ctx.approvals.record(request.id, actor.id, 'REJECTED', notes, why, changes, now, isSelfApproval(actor, request));
+
+  // REJECTED is terminal, so this is where the request's history is written.
+  // The row records that the material was asked for and refused, and why — a
+  // rejected request that vanished from history would make the record a list
+  // of successes rather than of what happened.
+  await recordPurchaseHistory(ctx, actor, request.id, 'REJECTED', why);
+
   await emit(ctx, actor, actor.orgId, [events.rejected(request, why)]);
   return { status: 'REJECTED' };
 }

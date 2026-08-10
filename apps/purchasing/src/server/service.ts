@@ -36,6 +36,7 @@ import * as review from '../purchasing/application/review.ts';
 import * as decisions from '../purchasing/application/decisions.ts';
 import * as fulfilment from '../purchasing/application/fulfilment.ts';
 import * as queries from '../purchasing/application/queries.ts';
+import * as history from '../purchasing/application/history.ts';
 import * as administration from '../purchasing/application/administration.ts';
 
 import { identityAdapter } from '../purchasing/infrastructure/adapters.ts';
@@ -151,6 +152,14 @@ export const listJobs = queries.listJobs;
 export const listUsers = queries.listUsers;
 export const listNotifications = queries.listNotifications;
 export const auditLog = queries.auditLog;
+
+/**
+ * The immutable record of what was actually purchased. READ ONLY through this
+ * facade on purpose: history is written by the use cases that end a request,
+ * and there is no path here — or anywhere above infrastructure — that edits it.
+ */
+export const purchaseHistory = history.purchaseHistory;
+export const requestHistory = history.purchaseHistoryForRequest;
 
 // --- administration ---------------------------------------------------------
 

@@ -656,6 +656,104 @@ create table if not exists purchase_jobs (
 
 create index if not exists purchase_jobs_org_status_idx on purchase_jobs(org_id, status);
 
+-- --- immutable purchasing history (mirrors migration 0030) -----------------
+--
+-- What a purchase LOOKED LIKE when it ended. Written once, at the terminal
+-- transition, by application/history.ts; never updated, never deleted.
+--
+-- It replaces the purchase_line_history VIEW, which resolved vendor and
+-- description at READ time and therefore rewrote itself whenever an entity was
+-- renamed. Every *_name, *_number and *_description column here is a SNAPSHOT
+-- taken at the moment the request ended, kept BESIDE the id: the id stays
+-- joinable to current data, the snapshot stays true about what happened.
+--
+-- The triggers below are the pilot's version of the production RLS shape:
+-- production has an INSERT policy and no UPDATE or DELETE policy at all, plus
+-- guard_no_delete(). SQLite has no policies, so the same guarantee is written
+-- as triggers that refuse the statement.
+
+create table if not exists purchase_history_lines (
+  id                        text primary key,
+  org_id                    text not null references orgs(id),
+
+  terminal_state            text not null
+    check (terminal_state in ('COMPLETED','CANCELLED','REJECTED')),
+  terminal_reason           text,
+  recorded_at               text not null,
+  recorded_by               text not null references users(id),
+
+  request_id                text not null references purchase_requests(id),
+  request_number            text not null,
+  request_item_id           text not null references purchase_request_items(id),
+  line_no                   integer not null,
+  purchase_order_id         text references purchase_orders(id),
+  po_number                 text,
+  purchase_order_item_id    text references purchase_order_items(id),
+  job_id                    text references purchase_jobs(id),
+  job_number                text not null,
+  catalog_item_id           text references purchase_item_catalog(id),
+
+  normalized_description    text not null,
+  normalizer_version        integer not null,
+  requested_description     text not null,
+  ordered_description       text,
+  unit                      text not null,
+  requested_qty             integer not null,
+  ordered_qty               integer not null,
+
+  vendor_id                 text references vendors(id),
+  vendor_name               text,
+  vendor_part_number        text,
+
+  estimated_unit_cost_cents  integer,
+  estimated_line_total_cents integer,
+  actual_unit_cost_cents     integer,
+  actual_line_total_cents    integer,
+
+  requestor_id              text not null references users(id),
+  requestor_name            text,
+  approver_id               text references users(id),
+  approver_name             text,
+
+  requested_at              text,
+  po_generated_at           text,
+  ordered_at                text,
+  received_at               text,
+  completed_at              text,
+
+  received_qty              integer not null default 0,
+  damaged_qty               integer not null default 0,
+  backordered_qty           integer not null default 0,
+  written_off_qty           integer not null default 0,
+  outcome                   text not null,
+
+  -- One row per request line, forever. This is also what makes the write
+  -- idempotent: a retried completion inserts nothing the second time.
+  unique (org_id, request_id, request_item_id)
+);
+
+create index if not exists purchase_history_lines_org_idx
+  on purchase_history_lines(org_id, ordered_at desc);
+create index if not exists purchase_history_lines_material_idx
+  on purchase_history_lines(org_id, normalized_description);
+create index if not exists purchase_history_lines_vendor_idx
+  on purchase_history_lines(org_id, vendor_id);
+
+-- BR-012, enforced rather than intended: a history row cannot be edited or
+-- removed. A correction is a new request, exactly as a miscounted receipt is a
+-- new receipt.
+create trigger if not exists purchase_history_lines_no_update
+  before update on purchase_history_lines
+  begin
+    select raise(ABORT, 'purchasing history is immutable: a correction is a new request, never an edit');
+  end;
+
+create trigger if not exists purchase_history_lines_no_delete
+  before delete on purchase_history_lines
+  begin
+    select raise(ABORT, 'purchasing history is append-only and cannot be deleted');
+  end;
+
 create table if not exists schema_meta (
   key   text primary key,
   value text not null
@@ -783,4 +881,5 @@ export const TABLES = [
   'user_job_assignments',
   'purchase_item_catalog',
   'purchase_jobs',
+  'purchase_history_lines',
 ];

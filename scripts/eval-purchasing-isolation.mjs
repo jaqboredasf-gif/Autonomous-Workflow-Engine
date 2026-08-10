@@ -50,7 +50,12 @@ async function refuses(fn, m) {
 }
 
 const sql = ['0016_purchasing_control.sql', '0017_purchasing_auth_and_assignments.sql',
-             '0018_purchasing_history_and_jobs.sql', '0019_purchasing_tenant_isolation.sql']
+             '0018_purchasing_history_and_jobs.sql', '0019_purchasing_tenant_isolation.sql',
+             // 0030 replaces the purchase_line_history view with the immutable
+             // history table. It is tenant-owned, so the scans below must see
+             // it — a table added after this list was written would otherwise
+             // be checked by nothing.
+             '0030_purchasing_immutable_history.sql']
   .map((f) => readFileSync(join(MIGRATIONS, f), 'utf8')).join('\n');
 
 /**
@@ -145,6 +150,33 @@ for (const p of policiesOn('purchase_receipt_items')) {
 check(/create trigger purchase_receipt_items_no_delete/.test(ALL_MIGRATIONS.map((f) => f.text).join('\n')),
   'purchase_receipt_items carries the no-delete trigger its parent receipt has');
 
+console.log('--- BR-012: purchasing history is append-only -------------------');
+
+// History is evidence. The table must be readable within the organization,
+// insertable within the organization, and editable by nobody — including the
+// application that wrote it. RLS denies what it does not permit, so the absence
+// of an UPDATE or DELETE policy IS the rule; the triggers say the same thing to
+// the callers RLS does not reach.
+const historyPolicies = policiesOn('purchase_history_lines');
+check(historyPolicies.length > 0, 'purchase_history_lines has policies');
+for (const p of historyPolicies) {
+  check(!/for (update|delete|all)\b/.test(p.body),
+    `purchase_history_lines.${p.policy} (${p.file}): history cannot be edited or removed — a correction is a new request`);
+  check(/org_id = current_org_id\(\)/.test(p.body),
+    `purchase_history_lines.${p.policy} (${p.file}): every history policy is organization-scoped`);
+}
+check(/create policy \w+ on purchase_history_lines\s+for insert/.test(sql),
+  'purchase_history_lines has an INSERT policy — history is written once, by the terminal transition');
+check(/create trigger purchase_history_lines_no_update/.test(sql),
+  'purchase_history_lines carries a no-update guard');
+check(/create trigger purchase_history_lines_no_delete/.test(sql),
+  'purchase_history_lines carries a no-delete guard');
+// The insert policy asks the request whether it has actually ended. History
+// written for a purchase still in flight would have to be corrected later, and
+// correcting it is precisely what the table forbids.
+check(/COMPLETED', 'CANCELLED', 'REJECTED/.test(sql),
+  'the history INSERT policy requires the request to already be in a terminal state');
+
 console.log('--- views run as the caller ------------------------------------');
 
 // THE DEFECT THIS EXISTS TO CATCH: a Postgres view runs with its OWNER's
@@ -173,6 +205,13 @@ const COMPOSITE_REQUIRED = [
   ['purchase_email_drafts', 'request'], ['purchase_email_drafts', 'order'],
   ['purchase_item_catalog', 'vendor'], ['purchase_jobs', 'location'],
   ['purchase_request_items', 'catalog'], ['purchase_order_items', 'catalog'],
+  // The immutable history points at seven tenant-owned parents. Every one of
+  // those pointers is composite, so a history row cannot name another
+  // organization's request, order, vendor, job or catalogue entry.
+  ['purchase_history_lines', 'request'], ['purchase_history_lines', 'requestitem'],
+  ['purchase_history_lines', 'order'], ['purchase_history_lines', 'orderitem'],
+  ['purchase_history_lines', 'vendor'], ['purchase_history_lines', 'job'],
+  ['purchase_history_lines', 'catalog'],
 ];
 for (const [table, ref] of COMPOSITE_REQUIRED) {
   check(
@@ -183,7 +222,8 @@ for (const [table, ref] of COMPOSITE_REQUIRED) {
 
 // The parents of those composite keys need the matching unique constraint.
 for (const parent of ['purchase_vendors', 'purchase_delivery_locations', 'purchase_requests',
-                      'purchase_orders', 'purchase_receipts', 'purchase_item_catalog', 'purchase_jobs']) {
+                      'purchase_orders', 'purchase_receipts', 'purchase_item_catalog', 'purchase_jobs',
+                      'purchase_request_items', 'purchase_order_items']) {
   check(
     new RegExp(`add constraint ${parent}_id_org_key\\s+unique \\(id, org_id\\)`).test(sql),
     `${parent} is unique on (id, org_id) so a composite reference can target it`,
@@ -330,6 +370,42 @@ const crossed = db.prepare(
      join purchase_requests r on r.id = i.request_id where i.org_id <> r.org_id`,
 ).get();
 eq(crossed.c, 0, 'no line item is owned by a different organization than its parent');
+
+// --- and so does the immutable history ---------------------------------------
+//
+// Tenant A finishes its order, which writes history. Tenant B must see none of
+// it, and the rows must be reachable only through the organization that owns
+// them — the same question the catalogue's autocomplete asks every keystroke.
+const receipt = (await S.orderProgress(ctx(), created_a.id)).map((p) => ({
+  purchaseOrderItemId: p.purchaseOrderItemId, receivedQty: String(p.finalOrderQty / 1000),
+}));
+await S.recordReceipt(ctx(), mike, created_a.id, { receivedDate: '2026-09-02', lines: receipt });
+await S.completeRequest(ctx(), mike, created_a.id);
+
+const historyForA = await S.purchaseHistory(ctx(), mike);
+check(historyForA.length > 0, 'completing a request in tenant A writes history for tenant A');
+eq((await S.purchaseHistory(ctx(), rival)).length, 0, "tenant B sees none of tenant A's purchasing history");
+eq((await S.requestHistory(ctx(), rival, created_a.id)).length, 0,
+   "tenant B cannot read tenant A's history even by naming the request");
+
+const crossedHistory = db.prepare(
+  `select count(*) c from purchase_history_lines h
+     join purchase_requests r on r.id = h.request_id where h.org_id <> r.org_id`,
+).get();
+eq(crossedHistory.c, 0, 'no history row is owned by a different organization than the request it describes');
+
+// The autocomplete path reads history, so it inherits the same boundary. Both
+// organizations have a catalogue; neither may see the other's vendor or price.
+const rivalCatalog = await ctx().catalog.list(orgB);
+check(
+  rivalCatalog.every((entry) => !entry.lastVendorName),
+  "tenant B's catalogue carries no vendor learned from tenant A's purchases",
+);
+const ownCatalog = await ctx().catalog.list(DEMO_ORG_ID);
+check(
+  ownCatalog.some((entry) => entry.lastVendorName),
+  "tenant A's catalogue does learn its own vendor from its own history (the check above means something)",
+);
 
 db.close();
 rmSync(TMP, { recursive: true, force: true });

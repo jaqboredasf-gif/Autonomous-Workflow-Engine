@@ -1,5 +1,17 @@
 # PCC — Phase A Handoff: Purchasing Historical Memory
 
+> **STATUS: the history substrate described below is BUILT.**
+> Migration `0030_purchasing_immutable_history.sql` drops the `purchase_line_history` view and
+> replaces it with the immutable `purchase_history_lines` table; `domain/history.mjs` builds the
+> rows, `application/history.ts` writes them at the terminal transition (complete, cancel,
+> reject), and both providers read the catalogue's last-purchase facts from the snapshots.
+> The cancellation/rejection policy is decided and written down in three places
+> (`docs/PURCHASING_HISTORY_AND_CATALOG.md` §4, the migration header, `domain/history.mjs`).
+>
+> Still open from the list below: the **UI target** (last ordered from / last price / last
+> ordered date / frequency on the review screen and `MaterialSearch`) and the vendor–material
+> intelligence panels. The data they need now exists and is queryable per organization.
+
 For the next coding agent. Everything you need to start Phase A without
 rediscovering the project.
 

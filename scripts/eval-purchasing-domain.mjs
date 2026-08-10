@@ -41,6 +41,7 @@ const { EMAIL_DRAFT_TRANSITIONS, EXTERNAL_SEND_ENABLED, composeDraft, draftGuard
 const { validateRequestDraft, stripRequestorFields } = await import(join(DOMAIN, 'validation.mjs'));
 const { isOverdue, summarize, purchasingStatus, receivingStatus, vendorActivity, recentPurchaseOrders } =
   await import(join(DOMAIN, 'dashboard.mjs'));
+const H = await import(join(DOMAIN, 'history.mjs'));
 
 let pass = 0;
 let fail = 0;
@@ -583,6 +584,154 @@ eq(message.params.poNumber, 'LE-52901', 'with the values to interpolate, rather 
 eq(message.params.actor, 'Mike', 'including who did it');
 check(ACTIVITY_ACTIONS.every((a) => activityMessage({ action: a }).key.startsWith('purchasing.activity.')),
       'every recorded action has a translation key');
+
+console.log('--- immutable history: the rules both providers share ----------');
+
+// domain/history.mjs decides what a history row SAYS. Both providers only write
+// it, so every rule that could differ between them is checked here.
+
+// --- the outcome vocabulary, and its precedence -----------------------------
+// An exception outranks a completion: a line fully received WITH a damaged unit
+// is a line something went wrong on, and that is what a reader needs to see.
+// The quantities beside it still say exactly how much of each.
+eq(H.receiptOutcome({ orderedQty: 0, receivedQty: 0 }), 'NOT_ORDERED',
+   'a line that never became an order line is NOT_ORDERED');
+eq(H.receiptOutcome({ orderedQty: 10 * K, receivedQty: 10 * K }), 'RECEIVED', 'everything arrived');
+eq(H.receiptOutcome({ orderedQty: 10 * K, receivedQty: 4 * K }), 'PARTIALLY_RECEIVED', 'some of it arrived');
+eq(H.receiptOutcome({ orderedQty: 10 * K, receivedQty: 0 }), 'NOT_RECEIVED', 'none of it arrived');
+eq(H.receiptOutcome({ orderedQty: 10 * K, receivedQty: 6 * K, backorderedQty: 4 * K }), 'BACKORDERED',
+   'an outstanding backorder is what the reader needs first');
+eq(H.receiptOutcome({ orderedQty: 10 * K, receivedQty: 9 * K, damagedQty: 1 * K }), 'DAMAGED',
+   'damage outranks the fact that the rest arrived');
+eq(H.receiptOutcome({ orderedQty: 10 * K, receivedQty: 9 * K, damagedQty: 1 * K, writtenOffQty: 1 * K }), 'WRITTEN_OFF',
+   'a write-off outranks damage');
+check(H.RECEIPT_OUTCOMES.length === 7, 'the outcome vocabulary is closed');
+
+// --- cancellation and rejection: the policy, as executable rules ------------
+const orderedLine = {
+  terminalState: 'COMPLETED', orderedAt: '2026-08-05T10:00:00.000Z', receivedAt: '2026-08-08T10:00:00.000Z',
+  orderedQty: 10 * K, estimatedUnitCostCents: 8640, actualUnitCostCents: null, vendorName: 'Graybar',
+};
+const rejectedLine = { terminalState: 'REJECTED', orderedAt: null, orderedQty: 0, estimatedUnitCostCents: 8640 };
+const cancelledBeforeOrder = { terminalState: 'CANCELLED', orderedAt: null, orderedQty: 5 * K, estimatedUnitCostCents: 100 };
+const cancelledAfterOrder = {
+  terminalState: 'CANCELLED', orderedAt: '2026-08-05T10:00:00.000Z', receivedAt: null,
+  orderedQty: 5 * K, estimatedUnitCostCents: 12_000,
+};
+
+check(H.countsTowardPricing(orderedLine), 'a completed order informs price');
+check(!H.countsTowardPricing(rejectedLine), 'a REJECTED request never reached a vendor, so it informs no price');
+check(!H.countsTowardPricing(cancelledBeforeOrder),
+      'a cancellation before the order was placed informs no price either');
+check(H.countsTowardPricing(cancelledAfterOrder),
+      'a cancellation AFTER the order was placed is real price evidence — the money was committed');
+check(!H.countsTowardPricing({ ...orderedLine, estimatedUnitCostCents: null, actualUnitCostCents: null }),
+      'a line with no price at all informs no price');
+check(!H.countsTowardPurchaseFrequency(rejectedLine) && !H.countsTowardPurchaseFrequency(cancelledBeforeOrder),
+      'neither inflates a purchase-frequency count');
+check(H.countsTowardDemand(rejectedLine), 'but both are still DEMAND — somebody asked for the material');
+eq(H.evidencedUnitCostCents({ estimatedUnitCostCents: 8640, actualUnitCostCents: 9000 }), 9000,
+   'the invoice wins over the estimate when both are known');
+eq(H.evidencedUnitCostCents({ estimatedUnitCostCents: null, actualUnitCostCents: null }), null,
+   'and unknown stays unknown, never 0');
+
+// --- lead time is reported only where it is measurable ----------------------
+eq(H.leadTimeDays(orderedLine), 3, 'lead time is ordered-to-received in whole days');
+eq(H.leadTimeDays(cancelledAfterOrder), null, 'a line that never arrived reports NO lead time — not a zero');
+eq(H.leadTimeDays(rejectedLine), null, 'nor does one that was never ordered');
+eq(H.leadTimeDays({ orderedAt: '2026-08-08T10:00:00.000Z', receivedAt: '2026-08-05T10:00:00.000Z' }), null,
+   'and an impossible interval reports nothing rather than a negative number');
+
+// --- building a row ---------------------------------------------------------
+const historyInput = {
+  request: {
+    id: 'req-1', orgId: 'org-1', requestNumber: 'PR-01001', jobNumber: '24-118', requestorId: 'u-dave',
+    approverId: 'u-mike', createdAt: '2026-08-03T13:00:00.000Z', orderedAt: '2026-08-05T10:00:00.000Z',
+    receivedAt: '2026-08-08T10:00:00.000Z', completedAt: '2026-08-08T12:00:00.000Z',
+  },
+  requestItems: [{ id: 'ri-1', lineNo: 1, description: '2x4 LED Troffer 4000K', requestedQty: 20 * K, unit: 'ea' }],
+  reviewLines: [{ requestItemId: 'ri-1', vendorId: 'v-1', vendorName: 'IGNORED WHEN ORDERED', estimatedUnitCostCents: 1 }],
+  order: { id: 'po-1', poNumber: 'LE-52901', vendorId: 'v-1', generatedAt: '2026-08-04T09:00:00.000Z' },
+  orderItems: [{
+    id: 'oi-1', request_item_id: 'ri-1', description: '2x4 LED Troffer 4000K', substitute_description: null,
+    normalized_description: '2x4 led troffer 4000k', catalog_item_id: 'cat-1', order_qty: 18 * K, unit: 'ea',
+    unit_cost_cents: 8640, line_total_cents: 155_520, actual_unit_cost_cents: null,
+  }],
+  progress: [{ requestItemId: 'ri-1', receivedQty: 18 * K, damagedQty: 0, backorderedQty: 0, writtenOffQty: 0 }],
+  vendor: { id: 'v-1', name: 'Graybar Electric' },
+  job: { id: 'job-1', jobNumber: '24-118' },
+  requestor: { id: 'u-dave', name: 'Dave Foreman' },
+  approver: { id: 'u-mike', name: 'Mike Purchaser' },
+  terminalState: 'COMPLETED', terminalReason: null,
+  recordedAt: '2026-08-08T12:00:00.000Z', recordedBy: 'u-mike',
+};
+
+const historyRow = H.buildHistoryLines(historyInput);
+eq(historyRow.length, 1, 'one row per request line');
+for (const field of H.HISTORY_LINE_FIELDS) {
+  check(field in historyRow[0], `the historyRow row carries ${field}`);
+}
+eq(historyRow[0].vendorName, 'Graybar Electric', 'the vendor name is snapshotted from the order, not the review');
+eq(historyRow[0].requestedQty, 20 * K, 'what was asked for is preserved');
+eq(historyRow[0].orderedQty, 18 * K, 'and what was actually ordered is a different number, also preserved');
+eq(historyRow[0].outcome, 'RECEIVED', 'the outcome is classified from the quantities');
+eq(historyRow[0].normalizedDescription, '2x4 led troffer 4000k',
+   'the matching key is the one the line was MATCHED under, not one recomputed now');
+eq(historyRow[0].normalizerVersion, 1, 'and the normalizer version in force is recorded beside it');
+eq(historyRow[0].poGeneratedAt, '2026-08-04T09:00:00.000Z', 'PO generation is kept');
+eq(historyRow[0].orderedAt, '2026-08-05T10:00:00.000Z', 'separately from when the order was actually placed');
+
+// PURE: same input, same output, and the input is not touched.
+const inputBefore = JSON.stringify(historyInput);
+eq(JSON.stringify(H.buildHistoryLines(historyInput)), JSON.stringify(historyRow), 'building twice gives the same rows');
+eq(JSON.stringify(historyInput), inputBefore, 'and building does not mutate what it was given');
+
+// A line the workshop filled from stock never became an order line, and is
+// still part of what happened.
+const fromStock = H.buildHistoryLines({
+  ...historyInput,
+  requestItems: [...historyInput.requestItems, { id: 'ri-2', lineNo: 2, description: 'wire nuts', requestedQty: 5 * K, unit: 'box' }],
+  reviewLines: [...historyInput.reviewLines,
+                { requestItemId: 'ri-2', vendorId: 'v-9', vendorName: 'Workshop shelf', estimatedUnitCostCents: 500 }],
+});
+eq(fromStock.length, 2, 'a line filled entirely from stock still gets a history row');
+eq(fromStock[1].outcome, 'NOT_ORDERED', 'and reads as NOT_ORDERED');
+eq(fromStock[1].orderedDescription, null, 'with no ordered description, because it was never ordered');
+// The request HAS a purchase order — for its other line. Naming that vendor
+// here would claim this material came from them, which it did not.
+eq(fromStock[1].vendorName, 'Workshop shelf',
+   'a line that never became an order line records the vendor the workshop had chosen, not the order\'s vendor');
+eq(fromStock[0].vendorName, 'Graybar Electric', 'while the ordered line on the same request names the vendor it came from');
+
+// A substitute is a different item and history must be able to see that.
+const substituted = H.buildHistoryLines({
+  ...historyInput,
+  orderItems: [{ ...historyInput.orderItems[0], substitute_description: 'Lithonia 2x4 4000K' }],
+});
+eq(substituted[0].requestedDescription, '2x4 LED Troffer 4000K', 'what was asked for');
+eq(substituted[0].orderedDescription, 'Lithonia 2x4 4000K', 'and what was actually bought instead');
+
+refuses(() => H.buildHistoryLines({ ...historyInput, terminalState: 'ORDERED' }), 'history_before_terminal',
+        'history cannot be written for a request that has not ended');
+refuses(() => H.buildHistoryLines({ ...historyInput, request: null }), 'history_without_request',
+        'nor without the request it describes');
+eq(H.HISTORY_TERMINAL_STATES.length, 3, 'there are exactly three states history is written in');
+
+// --- the derived read model -------------------------------------------------
+const summary = H.summarizeMaterial([
+  { ...orderedLine, normalizedDescription: 'troffer', orderedAt: '2026-08-05T10:00:00.000Z', estimatedUnitCostCents: 8000 },
+  { ...orderedLine, normalizedDescription: 'troffer', orderedAt: '2026-08-09T10:00:00.000Z',
+    receivedAt: '2026-08-12T10:00:00.000Z', estimatedUnitCostCents: 9000, vendorId: 'v-2', vendorName: 'Rexel' },
+  { ...rejectedLine, normalizedDescription: 'troffer' },
+]);
+eq(summary.timesPurchased, 2, 'only ordered lines are purchases');
+eq(summary.timesRequested, 3, 'but every line is demand');
+eq(summary.lastVendorName, 'Rexel', 'the last vendor is the most recently ORDERED one');
+eq(summary.averageUnitCostCents, 8500, 'the average is over priced, ordered lines only');
+eq(summary.priceSampleSize, 2, 'and it is reported with its sample size — an average of one is not a trend');
+eq(summary.averageLeadTimeDays, 3, 'lead time averages only the measurable lines');
+eq(summary.leadTimeSampleSize, 2, 'with its own sample size');
+eq(H.summarizeMaterial([]).averageUnitCostCents, null, 'no observations means no number, never 0');
 
 console.log('--- intake validation + dashboard ------------------------------');
 

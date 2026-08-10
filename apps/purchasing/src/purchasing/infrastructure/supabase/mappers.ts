@@ -95,6 +95,8 @@ export const TABLES = {
   deliveryLocations: 'purchase_delivery_locations',
   jobs: 'purchase_jobs',
   itemCatalog: 'purchase_item_catalog',
+  /** The immutable record of what was purchased. Migration 0030. */
+  historyLines: 'purchase_history_lines',
   requests: 'purchase_requests',
   requestItems: 'purchase_request_items',
   requestAttachments: 'purchase_request_attachments',
@@ -233,6 +235,11 @@ export function toOrderItem(row: any): any {
     order_qty: qty.read(row.order_qty),
     unit_cost_cents: money.read(row.unit_cost),
     line_total_cents: money.read(row.line_total),
+    // The actual cost is nullable on purpose: NULL means "not reconciled yet",
+    // and money.read() would turn that into 0 — a purchase that cost nothing.
+    // History snapshots this, so both providers must present it the same way.
+    actual_unit_cost_cents: nullableMoney.read(row.actual_unit_cost ?? null),
+    actual_line_total_cents: nullableMoney.read(row.actual_line_total ?? null),
   };
 }
 

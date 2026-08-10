@@ -271,6 +271,92 @@ export interface ItemCatalogRepository {
 }
 
 /**
+ * ONE LINE OF PURCHASING HISTORY, as it was when the request ended.
+ *
+ * The fields are built by domain/history.mjs and written once. Every `*Name`
+ * and `*Number` field is a SNAPSHOT: renaming the vendor, re-describing the
+ * material or re-numbering a job changes the entity, never this row.
+ *
+ * Both an id and a snapshot are present for the same thing on purpose — the id
+ * keeps the row joinable to current data, the snapshot keeps it true.
+ */
+export type PurchaseHistoryLineRecord = {
+  id?: Id;
+  orgId: Id;
+
+  terminalState: string;
+  terminalReason: string | null;
+  recordedAt: string;
+  recordedBy: Id;
+
+  requestId: Id;
+  requestNumber: string;
+  requestItemId: Id;
+  lineNo: number;
+  purchaseOrderId: Id | null;
+  poNumber: string | null;
+  purchaseOrderItemId: Id | null;
+  jobId: Id | null;
+  jobNumber: string;
+  catalogItemId: Id | null;
+
+  normalizedDescription: string;
+  normalizerVersion: number;
+  requestedDescription: string;
+  orderedDescription: string | null;
+  unit: string;
+  requestedQty: number;
+  orderedQty: number;
+
+  vendorId: Id | null;
+  vendorName: string | null;
+  vendorPartNumber: string | null;
+
+  estimatedUnitCostCents: number | null;
+  estimatedLineTotalCents: number | null;
+  actualUnitCostCents: number | null;
+  actualLineTotalCents: number | null;
+
+  requestorId: Id;
+  requestorName: string | null;
+  approverId: Id | null;
+  approverName: string | null;
+
+  requestedAt: string | null;
+  poGeneratedAt: string | null;
+  orderedAt: string | null;
+  receivedAt: string | null;
+  completedAt: string | null;
+
+  receivedQty: number;
+  damagedQty: number;
+  backorderedQty: number;
+  writtenOffQty: number;
+  outcome: string;
+};
+
+/**
+ * IMMUTABLE PURCHASING HISTORY.
+ *
+ * There is no update method and no delete method, and that is the interface's
+ * whole point: BR-012 makes completed purchasing activity evidence. A correction
+ * is a new request, exactly as a miscounted receipt is a new receipt.
+ *
+ * `record` is idempotent by (orgId, requestId, requestItemId). Asking twice —
+ * a retried transaction, a replayed event, an operator re-running a backfill —
+ * writes nothing the second time and reports how many rows were new. It must
+ * never raise on a duplicate: history that refuses to be written twice would
+ * turn a harmless retry into a failed completion.
+ */
+export interface PurchaseHistoryRepository {
+  record(lines: PurchaseHistoryLineRecord[], now: string): Promise<{ inserted: number; skipped: number }>;
+  /** The rows written for one request. Empty until it reaches a terminal state. */
+  forRequest(orgId: Id, requestId: Id): Promise<PurchaseHistoryLineRecord[]>;
+  /** An organization's whole history, newest first. The derived read model's input. */
+  listForOrg(orgId: Id, options?: { limit?: number; normalizedDescription?: string; vendorId?: Id }): Promise<PurchaseHistoryLineRecord[]>;
+}
+
+/**
  * PO numbering is a repository, not a service: the number comes from durable,
  * transactional storage or it is not safe. The implementation holds the write
  * lock; nothing above this interface may invent a number.

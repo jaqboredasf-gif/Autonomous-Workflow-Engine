@@ -26,8 +26,9 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import type {
   ApprovalRepository, CatalogEntry, EmailDraftRepository, InventoryRepository,
-  ItemCatalogRepository, LineProgressRecord, PoNumberAllocator, PurchaseOrderRepository,
-  PurchaseRequestRecord, PurchaseRequestRepository, ReceiptRepository, ReferenceRepository,
+  ItemCatalogRepository, LineProgressRecord, PoNumberAllocator, PurchaseHistoryLineRecord,
+  PurchaseHistoryRepository, PurchaseOrderRepository, PurchaseRequestRecord,
+  PurchaseRequestRepository, ReceiptRepository, ReferenceRepository,
   RequestItemRecord, ReviewLineRecord, WorkshopReviewRepository,
 } from '../../domain/repositories.ts';
 import { formatPoNumber } from '../../domain/po-number.mjs';
@@ -932,19 +933,32 @@ export function sqliteItemCatalogRepository(db: DatabaseSync): ItemCatalogReposi
        and ri.normalized_description <> ''
      group by ri.normalized_description`;
 
-  /** What each item was last actually bought as, and from whom. */
+  /**
+   * What each item was last actually bought as, and from whom — read from the
+   * IMMUTABLE HISTORY, not from a join to the live vendor row.
+   *
+   * This is the rename bug, closed. The previous query joined `vendors` at read
+   * time, so renaming a vendor rewrote every "last ordered from" the catalogue
+   * had ever shown. `purchase_history_lines.vendor_name` is the name the
+   * purchase order carried, and it does not move.
+   *
+   * Only lines that were ACTUALLY ORDERED are price evidence — `ordered_at`
+   * present and a quantity above zero. A rejected or never-placed request has
+   * neither, so it is excluded by the facts rather than by a special case. See
+   * domain/history.mjs for the policy this implements.
+   */
   const PURCHASE = `
-    select ri.normalized_description as normalized_description,
-           v.id                      as vendor_id,
-           v.name                    as vendor_name,
-           oi.unit_cost_cents        as unit_cost_cents,
-           po.generated_at           as ordered_at
-      from purchase_order_items oi
-      join purchase_orders po on po.id = oi.purchase_order_id
-      join purchase_request_items ri on ri.id = oi.request_item_id
-      join vendors v on v.id = po.vendor_id
-     where po.org_id = ?
-     order by po.generated_at desc`;
+    select h.normalized_description                              as normalized_description,
+           h.vendor_id                                           as vendor_id,
+           h.vendor_name                                         as vendor_name,
+           coalesce(h.actual_unit_cost_cents,
+                    h.estimated_unit_cost_cents)                 as unit_cost_cents,
+           h.ordered_at                                          as ordered_at
+      from purchase_history_lines h
+     where h.org_id = ?
+       and h.ordered_at is not null
+       and h.ordered_qty > 0
+     order by h.ordered_at desc`;
 
   const curatedFor = (orgId: string) => {
     const rows = db
@@ -1007,21 +1021,26 @@ export function sqliteItemCatalogRepository(db: DatabaseSync): ItemCatalogReposi
     },
 
     async forVendor(vendorId, limit = 25) {
+      // History, again: what this vendor was bought for is a statement about
+      // past orders, and it must not change because a material was re-described
+      // afterwards. `ordered_description` is what the purchase order said.
       const rows = db
         .prepare(
-          `select ri.normalized_description as normalized_description,
-                  min(ri.description)       as first_description,
-                  count(*)                  as times_requested,
-                  sum(oi.order_qty)         as total_qty,
-                  max(po.generated_at)      as last_ordered_at,
-                  max(ri.unit)              as default_unit,
-                  max(oi.unit_cost_cents)   as unit_cost_cents
-             from purchase_order_items oi
-             join purchase_orders po on po.id = oi.purchase_order_id
-             join purchase_request_items ri on ri.id = oi.request_item_id
-            where po.vendor_id = ?
-              and ri.normalized_description is not null
-            group by ri.normalized_description
+          `select h.normalized_description                            as normalized_description,
+                  min(coalesce(h.ordered_description,
+                               h.requested_description))              as first_description,
+                  count(*)                                            as times_requested,
+                  sum(h.ordered_qty)                                  as total_qty,
+                  max(h.ordered_at)                                   as last_ordered_at,
+                  max(h.unit)                                         as default_unit,
+                  max(coalesce(h.actual_unit_cost_cents,
+                               h.estimated_unit_cost_cents))          as unit_cost_cents
+             from purchase_history_lines h
+            where h.vendor_id = ?
+              and h.ordered_at is not null
+              and h.ordered_qty > 0
+              and h.normalized_description <> ''
+            group by h.normalized_description
             order by count(*) desc
             limit ?`,
         )
@@ -1046,6 +1065,141 @@ export function sqliteItemCatalogRepository(db: DatabaseSync): ItemCatalogReposi
       }));
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// IMMUTABLE PURCHASING HISTORY.
+//
+// Insert-only. There is no update statement and no delete statement in this
+// repository, and the schema carries triggers that refuse both anyway — the
+// repository not offering them is a design statement, the triggers are the
+// guarantee.
+// ---------------------------------------------------------------------------
+
+const HISTORY_COLUMNS = [
+  'id', 'org_id', 'terminal_state', 'terminal_reason', 'recorded_at', 'recorded_by',
+  'request_id', 'request_number', 'request_item_id', 'line_no',
+  'purchase_order_id', 'po_number', 'purchase_order_item_id', 'job_id', 'job_number', 'catalog_item_id',
+  'normalized_description', 'normalizer_version', 'requested_description', 'ordered_description',
+  'unit', 'requested_qty', 'ordered_qty',
+  'vendor_id', 'vendor_name', 'vendor_part_number',
+  'estimated_unit_cost_cents', 'estimated_line_total_cents',
+  'actual_unit_cost_cents', 'actual_line_total_cents',
+  'requestor_id', 'requestor_name', 'approver_id', 'approver_name',
+  'requested_at', 'po_generated_at', 'ordered_at', 'received_at', 'completed_at',
+  'received_qty', 'damaged_qty', 'backordered_qty', 'written_off_qty', 'outcome',
+];
+
+export function sqlitePurchaseHistoryRepository(db: DatabaseSync): PurchaseHistoryRepository {
+  const INSERT = `insert or ignore into purchase_history_lines (${HISTORY_COLUMNS.join(', ')})
+                  values (${HISTORY_COLUMNS.map(() => '?').join(',')})`;
+
+  return {
+    async record(lines, _now) {
+      let inserted = 0;
+      for (const line of lines) {
+        // `insert or ignore` on the (org, request, request item) unique key:
+        // writing history twice is a no-op, so a retried completion completes
+        // rather than failing on a duplicate.
+        const result = db.prepare(INSERT).run(
+          line.id ?? uuid(), line.orgId, line.terminalState, line.terminalReason ?? null,
+          line.recordedAt, line.recordedBy,
+          line.requestId, line.requestNumber, line.requestItemId, line.lineNo,
+          line.purchaseOrderId ?? null, line.poNumber ?? null, line.purchaseOrderItemId ?? null,
+          line.jobId ?? null, line.jobNumber, line.catalogItemId ?? null,
+          line.normalizedDescription, line.normalizerVersion, line.requestedDescription,
+          line.orderedDescription ?? null, line.unit, line.requestedQty, line.orderedQty,
+          line.vendorId ?? null, line.vendorName ?? null, line.vendorPartNumber ?? null,
+          line.estimatedUnitCostCents ?? null, line.estimatedLineTotalCents ?? null,
+          line.actualUnitCostCents ?? null, line.actualLineTotalCents ?? null,
+          line.requestorId, line.requestorName ?? null, line.approverId ?? null, line.approverName ?? null,
+          line.requestedAt ?? null, line.poGeneratedAt ?? null, line.orderedAt ?? null,
+          line.receivedAt ?? null, line.completedAt ?? null,
+          line.receivedQty, line.damagedQty, line.backorderedQty, line.writtenOffQty, line.outcome,
+        );
+        inserted += Number(result.changes);
+      }
+      return { inserted, skipped: lines.length - inserted };
+    },
+
+    async forRequest(orgId, requestId) {
+      const rows = db
+        .prepare('select * from purchase_history_lines where org_id = ? and request_id = ? order by line_no')
+        .all(orgId, requestId) as any[];
+      return rows.map(toHistoryLine);
+    },
+
+    async listForOrg(orgId, options = {}) {
+      const { limit = 500, normalizedDescription, vendorId } = options;
+      const where = ['org_id = ?'];
+      const args: any[] = [orgId];
+      if (normalizedDescription) { where.push('normalized_description = ?'); args.push(normalizedDescription); }
+      if (vendorId) { where.push('vendor_id = ?'); args.push(vendorId); }
+      const rows = db
+        .prepare(
+          `select * from purchase_history_lines
+            where ${where.join(' and ')}
+            order by coalesce(ordered_at, recorded_at) desc, line_no
+            limit ?`,
+        )
+        .all(...args, limit) as any[];
+      return rows.map(toHistoryLine);
+    },
+  };
+}
+
+function toHistoryLine(row: any): PurchaseHistoryLineRecord {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    terminalState: row.terminal_state,
+    terminalReason: row.terminal_reason ?? null,
+    recordedAt: row.recorded_at,
+    recordedBy: row.recorded_by,
+    requestId: row.request_id,
+    requestNumber: row.request_number,
+    requestItemId: row.request_item_id,
+    lineNo: Number(row.line_no),
+    purchaseOrderId: row.purchase_order_id ?? null,
+    poNumber: row.po_number ?? null,
+    purchaseOrderItemId: row.purchase_order_item_id ?? null,
+    jobId: row.job_id ?? null,
+    jobNumber: row.job_number,
+    catalogItemId: row.catalog_item_id ?? null,
+    normalizedDescription: row.normalized_description,
+    normalizerVersion: Number(row.normalizer_version),
+    requestedDescription: row.requested_description,
+    orderedDescription: row.ordered_description ?? null,
+    unit: row.unit,
+    requestedQty: Number(row.requested_qty),
+    orderedQty: Number(row.ordered_qty),
+    vendorId: row.vendor_id ?? null,
+    vendorName: row.vendor_name ?? null,
+    vendorPartNumber: row.vendor_part_number ?? null,
+    estimatedUnitCostCents: nullableNumber(row.estimated_unit_cost_cents),
+    estimatedLineTotalCents: nullableNumber(row.estimated_line_total_cents),
+    actualUnitCostCents: nullableNumber(row.actual_unit_cost_cents),
+    actualLineTotalCents: nullableNumber(row.actual_line_total_cents),
+    requestorId: row.requestor_id,
+    requestorName: row.requestor_name ?? null,
+    approverId: row.approver_id ?? null,
+    approverName: row.approver_name ?? null,
+    requestedAt: row.requested_at ?? null,
+    poGeneratedAt: row.po_generated_at ?? null,
+    orderedAt: row.ordered_at ?? null,
+    receivedAt: row.received_at ?? null,
+    completedAt: row.completed_at ?? null,
+    receivedQty: Number(row.received_qty),
+    damagedQty: Number(row.damaged_qty),
+    backorderedQty: Number(row.backordered_qty),
+    writtenOffQty: Number(row.written_off_qty),
+    outcome: row.outcome,
+  };
+}
+
+/** An unknown cost stays unknown. 0 is a recorded price of zero, not "no idea". */
+function nullableNumber(value: any): number | null {
+  return value === null || value === undefined ? null : Number(value);
 }
 
 /** Fold history, curation and the last purchase into one entry. */

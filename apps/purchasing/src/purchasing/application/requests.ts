@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { emit, loadRequest, must, PurchasingError, transitionTo, type PurchasingContext } from './context.ts';
+import { recordPurchaseHistory } from './history.ts';
 import type { Actor } from './ports.ts';
 import { events } from '../domain/events.mjs';
 import { formatQty, parseQty } from '../domain/numbers.mjs';
@@ -160,6 +161,14 @@ export async function cancelPurchaseRequest(ctx: PurchasingContext, actor: Actor
 
   return ctx.uow.run(async () => {
     await transitionTo(ctx, actor, request, 'CANCELLED', { cancelled_at: ctx.clock.now(), cancel_reason: reason.trim() });
+
+    // A cancelled request is still part of what happened, and it is recorded
+    // with its terminal state and reason. What it does NOT do is inform price
+    // or lead time unless it had actually been placed with a vendor — that
+    // policy lives in domain/history.mjs, stated once, beside the rules that
+    // depend on it.
+    await recordPurchaseHistory(ctx, actor, requestId, 'CANCELLED', reason.trim());
+
     await emit(ctx, actor, actor.orgId, [events.requestCancelled(request, reason.trim())]);
     return { status: 'CANCELLED' };
   });

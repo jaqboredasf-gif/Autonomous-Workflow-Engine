@@ -18,9 +18,9 @@ import {
 } from './infrastructure/adapters.ts';
 import {
   sqliteApprovalRepository, sqliteEmailDraftRepository, sqliteInventoryRepository,
-  sqliteOrderRepository, sqlitePoNumberAllocator, sqliteReceiptRepository,
-  sqliteItemCatalogRepository, sqliteReferenceRepository, sqliteRequestRepository,
-  sqliteReviewRepository,
+  sqliteOrderRepository, sqlitePoNumberAllocator, sqlitePurchaseHistoryRepository,
+  sqliteReceiptRepository, sqliteItemCatalogRepository, sqliteReferenceRepository,
+  sqliteRequestRepository, sqliteReviewRepository,
 } from './infrastructure/sqlite/repositories.ts';
 import { getDb } from './infrastructure/sqlite/database.ts';
 import { builtinIntegrationProviders } from './infrastructure/providers/builtin.ts';
@@ -61,6 +61,10 @@ export function purchasingContext(db: DatabaseSync = getDb(), now?: string): Pur
     inventory: sqliteInventoryRepository(db),
     reference,
     catalog,
+    // The immutable record. Written at the terminal transition; everything the
+    // catalogue says about "last ordered from" and "last price" is read from
+    // here rather than from a live join.
+    history: sqlitePurchaseHistoryRepository(db),
     poNumbers: sqlitePoNumberAllocator(db),
     identity: identityAdapter(db),
     // Credentials: Supabase Auth in production, the local scrypt store for the

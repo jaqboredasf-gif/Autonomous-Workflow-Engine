@@ -2,6 +2,11 @@
 
 Checkpoint 1C. Migration `0018_purchasing_history_and_jobs.sql`.
 
+> **Superseded in part by Phase A.** Section 4 described `purchase_line_history`, a VIEW.
+> Migration `0030_purchasing_immutable_history.sql` **drops that view** and replaces it with
+> `purchase_history_lines`, an immutable snapshot table. Everything else here still holds.
+> Read [§4](#4-purchase_history_lines--the-immutable-record) for what replaced it and why.
+
 None of the features below are built. This document exists because the *data* they need has to
 be captured now: a company's purchasing history cannot be reconstructed later from records that
 never held it.
@@ -81,14 +86,124 @@ filter applied afterwards.
 writes a line item without updating it, and every count it could hold is derivable from the line
 items, which are now indexed by organization. *Ranking is a query, not a column.*
 
-## 4. `purchase_line_history` — the view the future features read
+## 4. `purchase_history_lines` — the immutable record
 
-One row per ordered line, with organization, normalized and original descriptions, quantity,
-unit, vendor, job, PO, requestor, estimated cost, actual cost and received quantity.
+Migration `0030_purchasing_immutable_history.sql`. This replaces `purchase_line_history`, which
+was a view.
 
-A view rather than a table: it cannot drift out of step with the rows it summarizes, and the
-tenant boundary is written once, in one place. Read it with `org_id = current_org_id()`; never
-across organizations.
+### Why the view had to go
+
+The view was one row per ordered line, resolved from live entities at read time. That is the
+right shape for a projection and the wrong shape for history, and the difference only becomes
+visible once a company has been using the system for a year:
+
+| The view did this | Which meant |
+| --- | --- |
+| resolved `vendor_id` at read time | renaming a vendor rewrote every historical row that mentioned it |
+| read `description` from the live line item | re-describing a material rewrote what past purchases said |
+| `INNER JOIN purchase_orders` | a **cancelled or rejected** request was invisible — history recorded only the purchases that succeeded |
+| had no approver, no received/completed timestamps | "who approved this and how long did it take" was unanswerable |
+| collapsed everything into `received_qty` | damaged, backordered and written-off quantities were lost |
+| used `purchase_orders.generated_at` as `ordered_at` | lead time measured from the wrong event |
+
+BR-012 makes completed purchasing activity **immutable evidence**. A record that changes when
+somebody edits a vendor is not evidence, and no number of extra columns on a view would make it
+one.
+
+### The rule the table encodes: the id **and** the snapshot
+
+Every entity a history row refers to appears twice — as an id, and as the value it had at the
+time:
+
+| Id | Snapshot |
+| --- | --- |
+| `vendor_id` | `vendor_name` |
+| `request_id` | `request_number` |
+| `purchase_order_id` | `po_number` |
+| `job_id` | `job_number` |
+| `requestor_id` / `approver_id` | `requestor_name` / `approver_name` |
+| `request_item_id` | `requested_description`, `ordered_description`, `unit` |
+
+The id keeps the row **joinable** to whatever the entity is called today. The snapshot keeps the
+row **true** about what was bought at the time. Neither is derived from the other on read,
+because the point is that they are allowed to disagree.
+
+### Written once, at the terminal transition
+
+One row per **request line**, written when the request reaches `COMPLETED`, `CANCELLED` or
+`REJECTED` — including a line the workshop filled entirely from stock, which never became an
+order line and is still part of what happened.
+
+- **Write point:** `application/history.ts`, called from `completePurchaseRequest`,
+  `cancelPurchaseRequest` and the reject branch of `decidePurchaseRequest`. It runs *inside* the
+  terminal transition's unit of work: if history cannot be written, the request does not end.
+- **Not a trigger.** A trigger would have to exist twice — plpgsql for production, JavaScript for
+  the pilot — and two copies of a rule are two rules. `domain/history.mjs` builds the rows;
+  both providers only write them.
+- **Idempotent.** Unique on `(org_id, request_id, request_item_id)`; both providers
+  insert-or-ignore, so a retried completion completes rather than failing on a duplicate.
+
+### Append-only, enforced rather than intended
+
+| Where | How |
+| --- | --- |
+| Postgres RLS | a SELECT policy and an INSERT policy, and **no UPDATE or DELETE policy at all** |
+| Postgres triggers | `guard_no_update()` and `guard_no_delete()` — for the callers RLS does not reach |
+| The INSERT policy | additionally requires the request to be *already* terminal |
+| SQLite (pilot) | `BEFORE UPDATE` / `BEFORE DELETE` triggers that `raise(ABORT, …)` |
+| The repository interface | offers `record`, `forRequest`, `listForOrg` — and no way to change a row |
+
+A correction is a new request, exactly as a miscounted receipt is a new receipt.
+
+### Cancellation and rejection — the policy
+
+Stated in three places that must agree: this document, the migration header, and
+`domain/history.mjs` where the functions that depend on it live.
+
+1. **A cancelled or rejected request IS recorded**, with `terminal_state` and the reason given
+   verbatim. "We asked for this and were refused" is exactly the fact a manager reconstructing a
+   decision needs, and it is the fact the old view threw away.
+2. **Whether a row counts toward money and timing follows from the facts on the row, not from its
+   label:**
+   - *pricing* requires `ordered_at is not null and ordered_qty > 0` — the line actually reached a
+     vendor. A rejected request can never satisfy that (`REJECTED` cannot reach `ORDERED` in the
+     transition graph), so it is excluded by construction rather than by a special case.
+   - a request **cancelled after** it was placed did commit money at a real price, so it **is**
+     price evidence and counts.
+   - *lead time* requires `ordered_at` **and** `received_at`. A line that never arrived reports
+     nothing — never a zero.
+3. **Demand is a different question from purchase.** Every row is demand; only ordered rows are
+   purchases. `countsTowardDemand` / `countsTowardPurchaseFrequency` / `countsTowardPricing` keep
+   them apart, because conflating them is how a rejected request quietly inflates a frequency
+   count.
+
+### What reads it
+
+The item catalogue's "last ordered from", "last price" and "last ordered at" now come from these
+snapshots on **both** providers. Previously the local provider joined `vendors` and the Supabase
+provider embedded `purchase_vendors` — the same rename bug, written twice. The integration suite
+renames the vendor, the material, the job and the approver, re-reads, and asserts nothing moved;
+removing the fix makes that assertion fail (verified by negative control).
+
+Derived intelligence (`summarizeMaterial`, `summarizeByMaterial` in `domain/history.mjs`) is a
+pure fold over these rows: recomputable, never written back, and every average reported with its
+sample size.
+
+### One consequence worth stating plainly
+
+History is written **at the terminal transition**, so a purchase that has been ordered but not yet
+completed contributes nothing to "last ordered from" or "last price" until it ends. That is the
+correct reading of BR-012 — the row cannot be written early and corrected later, because
+correcting it is exactly what the table forbids — but it means a material bought for the first
+time last week shows no price to the purchaser until that request completes.
+
+The counts the catalogue shows for *requests* (`timesRequested`, `lastRequestedAt`) are unchanged
+and still come from the live request lines, so a newly requested item still appears in
+autocomplete immediately. It appears **without** a vendor or a price, which is the honest answer:
+nobody has finished buying it yet.
+
+If the pilot finds that gap unacceptable, the fix is a **separate, clearly-labelled read** of
+in-flight orders ("on order from …"), not an early write into history.
 
 ## 5. Estimated cost and actual cost are different facts
 

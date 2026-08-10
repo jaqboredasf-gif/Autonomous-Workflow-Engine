@@ -26,8 +26,9 @@
 
 import type {
   ApprovalRepository, CatalogEntry, EmailDraftRepository, InventoryRepository,
-  ItemCatalogRepository, LineProgressRecord, PoNumberAllocator, PurchaseOrderRepository,
-  PurchaseRequestRepository, ReceiptRepository, ReferenceRepository, WorkshopReviewRepository,
+  ItemCatalogRepository, LineProgressRecord, PoNumberAllocator, PurchaseHistoryLineRecord,
+  PurchaseHistoryRepository, PurchaseOrderRepository, PurchaseRequestRepository,
+  ReceiptRepository, ReferenceRepository, WorkshopReviewRepository,
 } from '../../domain/repositories.ts';
 // Matching and ranking are the DOMAIN's, shared with the local provider on
 // purpose: two catalogues that ordered their suggestions differently would be
@@ -945,6 +946,158 @@ export function supabaseReferenceRepository(h: SupabaseHandles): ReferenceReposi
 }
 
 // ---------------------------------------------------------------------------
+// IMMUTABLE PURCHASING HISTORY.
+//
+// Insert and read. No update method, no delete method — and the migration backs
+// that with an INSERT-only policy set plus guard_no_delete(), so a client that
+// tried anyway would be refused by the database rather than by this file.
+//
+// `record` uses upsert with ignoreDuplicates on the (org, request, request item)
+// key: writing the same history twice is a no-op, so a retried completion
+// completes instead of failing on a conflict. It is NOT an update — a duplicate
+// leaves the row that is already there exactly as it was.
+// ---------------------------------------------------------------------------
+
+export function supabasePurchaseHistoryRepository(h: SupabaseHandles): PurchaseHistoryRepository {
+  return {
+    async record(lines, _now) {
+      if (!lines.length) return { inserted: 0, skipped: 0 };
+      const rows = unwrap(
+        await h.db.from(TABLES.historyLines)
+          .upsert(lines.map(toHistoryRow), {
+            onConflict: 'org_id,request_id,request_item_id',
+            ignoreDuplicates: true,
+          })
+          .select('id'),
+        'record purchase history',
+      ) as any[];
+      const inserted = (rows ?? []).length;
+      return { inserted, skipped: lines.length - inserted };
+    },
+
+    async forRequest(orgId, requestId) {
+      const rows = unwrap(
+        await h.db.from(TABLES.historyLines).select('*')
+          .eq('org_id', orgId).eq('request_id', requestId).order('line_no'),
+        'read request history',
+      ) as any[];
+      return rows.map(toHistoryLine);
+    },
+
+    async listForOrg(orgId, options = {}) {
+      const { limit = 500, normalizedDescription, vendorId } = options;
+      let query = h.db.from(TABLES.historyLines).select('*').eq('org_id', orgId);
+      if (normalizedDescription) query = query.eq('normalized_description', normalizedDescription);
+      if (vendorId) query = query.eq('vendor_id', vendorId);
+      const rows = unwrap(
+        await query.order('ordered_at', { ascending: false, nullsFirst: false }).order('line_no').limit(limit),
+        'read purchase history',
+      ) as any[];
+      return rows.map(toHistoryLine);
+    },
+  };
+}
+
+/** Domain record -> row. Money and quantity cross the boundary here, as always. */
+function toHistoryRow(line: PurchaseHistoryLineRecord): Record<string, unknown> {
+  return {
+    org_id: line.orgId,
+    terminal_state: line.terminalState,
+    terminal_reason: line.terminalReason ?? null,
+    recorded_at: line.recordedAt,
+    recorded_by: line.recordedBy,
+    request_id: line.requestId,
+    request_number: line.requestNumber,
+    request_item_id: line.requestItemId,
+    line_no: line.lineNo,
+    purchase_order_id: line.purchaseOrderId ?? null,
+    po_number: line.poNumber ?? null,
+    purchase_order_item_id: line.purchaseOrderItemId ?? null,
+    job_id: line.jobId ?? null,
+    job_number: line.jobNumber,
+    catalog_item_id: line.catalogItemId ?? null,
+    normalized_description: line.normalizedDescription,
+    normalizer_version: line.normalizerVersion,
+    requested_description: line.requestedDescription,
+    ordered_description: line.orderedDescription ?? null,
+    unit: line.unit,
+    requested_qty: qty.write(line.requestedQty),
+    ordered_qty: qty.write(line.orderedQty),
+    vendor_id: line.vendorId ?? null,
+    vendor_name: line.vendorName ?? null,
+    vendor_part_number: line.vendorPartNumber ?? null,
+    estimated_unit_cost: nullableMoney.write(line.estimatedUnitCostCents),
+    estimated_line_total: nullableMoney.write(line.estimatedLineTotalCents),
+    actual_unit_cost: nullableMoney.write(line.actualUnitCostCents),
+    actual_line_total: nullableMoney.write(line.actualLineTotalCents),
+    requestor_id: line.requestorId,
+    requestor_name: line.requestorName ?? null,
+    approver_id: line.approverId ?? null,
+    approver_name: line.approverName ?? null,
+    requested_at: line.requestedAt ?? null,
+    po_generated_at: line.poGeneratedAt ?? null,
+    ordered_at: line.orderedAt ?? null,
+    received_at: line.receivedAt ?? null,
+    completed_at: line.completedAt ?? null,
+    received_qty: qty.write(line.receivedQty),
+    damaged_qty: qty.write(line.damagedQty),
+    backordered_qty: qty.write(line.backorderedQty),
+    written_off_qty: qty.write(line.writtenOffQty),
+    outcome: line.outcome,
+  };
+}
+
+/** Row -> domain record. The same shape the local provider returns. */
+function toHistoryLine(row: any): PurchaseHistoryLineRecord {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    terminalState: row.terminal_state,
+    terminalReason: row.terminal_reason ?? null,
+    recordedAt: row.recorded_at,
+    recordedBy: row.recorded_by,
+    requestId: row.request_id,
+    requestNumber: row.request_number,
+    requestItemId: row.request_item_id,
+    lineNo: Number(row.line_no),
+    purchaseOrderId: row.purchase_order_id ?? null,
+    poNumber: row.po_number ?? null,
+    purchaseOrderItemId: row.purchase_order_item_id ?? null,
+    jobId: row.job_id ?? null,
+    jobNumber: row.job_number,
+    catalogItemId: row.catalog_item_id ?? null,
+    normalizedDescription: row.normalized_description,
+    normalizerVersion: Number(row.normalizer_version),
+    requestedDescription: row.requested_description,
+    orderedDescription: row.ordered_description ?? null,
+    unit: row.unit,
+    requestedQty: qty.read(row.requested_qty),
+    orderedQty: qty.read(row.ordered_qty),
+    vendorId: row.vendor_id ?? null,
+    vendorName: row.vendor_name ?? null,
+    vendorPartNumber: row.vendor_part_number ?? null,
+    estimatedUnitCostCents: nullableMoney.read(row.estimated_unit_cost),
+    estimatedLineTotalCents: nullableMoney.read(row.estimated_line_total),
+    actualUnitCostCents: nullableMoney.read(row.actual_unit_cost),
+    actualLineTotalCents: nullableMoney.read(row.actual_line_total),
+    requestorId: row.requestor_id,
+    requestorName: row.requestor_name ?? null,
+    approverId: row.approver_id ?? null,
+    approverName: row.approver_name ?? null,
+    requestedAt: row.requested_at ?? null,
+    poGeneratedAt: row.po_generated_at ?? null,
+    orderedAt: row.ordered_at ?? null,
+    receivedAt: row.received_at ?? null,
+    completedAt: row.completed_at ?? null,
+    receivedQty: qty.read(row.received_qty),
+    damagedQty: qty.read(row.damaged_qty),
+    backorderedQty: qty.read(row.backordered_qty),
+    writtenOffQty: qty.read(row.written_off_qty),
+    outcome: row.outcome,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The item catalogue.
 //
 // Same contract as the local provider, built the same way: from the line items
@@ -977,14 +1130,24 @@ export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRe
         await h.db.from(TABLES.itemCatalog).select('*').eq('org_id', h.orgId),
         'read item catalog',
       ) as any[],
+      // WHAT WAS ACTUALLY BOUGHT, from the immutable history.
+      //
+      // This used to read purchase_order_items and embed the live vendor row,
+      // so renaming a vendor rewrote every "last ordered from" the catalogue
+      // had ever shown. purchase_history_lines carries the vendor NAME the
+      // purchase order carried, and only lines that reached a vendor
+      // (ordered_at present, ordered_qty above zero) are price evidence — the
+      // policy in domain/history.mjs, applied identically by both providers.
       unwrap(
         await h.db
-          .from(TABLES.orderItems)
+          .from(TABLES.historyLines)
           .select(
-            'normalized_description, unit_cost, order_qty, purchase_order:purchase_orders(generated_at, vendor:purchase_vendors(id,name))',
+            'normalized_description, vendor_id, vendor_name, estimated_unit_cost, actual_unit_cost, ordered_at',
           )
           .eq('org_id', h.orgId)
-          .not('normalized_description', 'is', null)
+          .not('ordered_at', 'is', null)
+          .gt('ordered_qty', 0)
+          .order('ordered_at', { ascending: false })
           .limit(HISTORY_LIMIT),
         'read purchase history',
       ) as any[],
@@ -992,18 +1155,21 @@ export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRe
 
     const curated = new Map(curatedRows.map((row) => [String(row.normalized_description), row]));
 
-    // Latest purchase per item.
+    // Latest purchase per item, from the snapshots. The vendor's name here is
+    // the one on the purchase order, not the one in the directory today.
     const purchases = new Map<string, any>();
     for (const row of orderRows) {
       const key = String(row.normalized_description);
-      const at = row.purchase_order?.generated_at ?? '';
+      const at = row.ordered_at ?? '';
       const seen = purchases.get(key);
       if (!seen || String(seen.at) < String(at)) {
         purchases.set(key, {
           at,
-          vendorId: row.purchase_order?.vendor?.id ?? null,
-          vendorName: row.purchase_order?.vendor?.name ?? null,
-          unitCostCents: row.unit_cost === null || row.unit_cost === undefined ? null : money.read(row.unit_cost),
+          vendorId: row.vendor_id ?? null,
+          vendorName: row.vendor_name ?? null,
+          // The invoice where there is one, the estimate otherwise, and null
+          // when neither is known — never 0, which reads as "it was free".
+          unitCostCents: nullableMoney.read(row.actual_unit_cost ?? row.estimated_unit_cost ?? null),
         });
       }
     }
@@ -1064,15 +1230,19 @@ export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRe
     },
 
     async forVendor(vendorId, limit = 25) {
+      // History again: what a vendor is bought for is a statement about past
+      // orders, and re-describing a material afterwards must not change it.
       const rows = unwrap(
         await h.db
-          .from(TABLES.orderItems)
+          .from(TABLES.historyLines)
           .select(
-            'normalized_description, description, unit, unit_cost, order_qty, purchase_order:purchase_orders!inner(generated_at, vendor_id)',
+            'normalized_description, requested_description, ordered_description, unit, '
+            + 'estimated_unit_cost, actual_unit_cost, ordered_qty, ordered_at',
           )
           .eq('org_id', h.orgId)
-          .eq('purchase_order.vendor_id', vendorId)
-          .not('normalized_description', 'is', null)
+          .eq('vendor_id', vendorId)
+          .not('ordered_at', 'is', null)
+          .gt('ordered_qty', 0)
           .limit(HISTORY_LIMIT),
         'read vendor materials',
       ) as any[];
@@ -1083,7 +1253,7 @@ export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRe
         const entry = grouped.get(key) ?? {
           catalogItemId: null,
           normalizedDescription: key,
-          canonicalDescription: String(row.description),
+          canonicalDescription: String(row.ordered_description ?? row.requested_description),
           aliases: [],
           defaultUnit: row.unit ?? null,
           catalogNumber: null,
@@ -1097,12 +1267,11 @@ export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRe
           isActive: true,
         };
         entry.timesRequested += 1;
-        entry.totalQtyRequested += qty.read(row.order_qty);
-        const at = row.purchase_order?.generated_at ?? null;
+        entry.totalQtyRequested += qty.read(row.ordered_qty);
+        const at = row.ordered_at ?? null;
         if (at && (!entry.lastOrderedAt || String(at) > entry.lastOrderedAt)) {
           entry.lastOrderedAt = String(at);
-          entry.lastUnitCostCents =
-            row.unit_cost === null || row.unit_cost === undefined ? null : money.read(row.unit_cost);
+          entry.lastUnitCostCents = nullableMoney.read(row.actual_unit_cost ?? row.estimated_unit_cost ?? null);
         }
         grouped.set(key, entry);
       }

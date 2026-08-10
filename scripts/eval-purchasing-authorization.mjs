@@ -62,7 +62,7 @@ console.log('--- coverage: every mutating use case authorizes ----------------')
 // A mutation is an exported use case that takes an actor. Queries are read
 // paths and are scoped by orgId instead; they live in queries.ts, which is
 // excluded by name rather than by guesswork.
-const USE_CASE_FILES = ['requests.ts', 'review.ts', 'decisions.ts', 'fulfilment.ts', 'administration.ts'];
+const USE_CASE_FILES = ['requests.ts', 'review.ts', 'decisions.ts', 'fulfilment.ts', 'administration.ts', 'history.ts'];
 
 // Internal helpers, exported for composition but never reached from a route.
 // Each is listed with the caller that DOES authorize, so this stays a decision
@@ -73,6 +73,13 @@ const AUTHORIZED_BY_CALLER = {
   'fulfilment.ts:renderAndStore': 'generatePurchaseOrder (po.generate)',
   'decisions.ts:saveReviewAndDecide': 'delegates to saveWorkshopReview + decidePurchaseRequest',
   'administration.ts:poConfig': 'read-only; authorizes with admin.po_config',
+  // The history WRITE is not a use case a route can reach: it runs inside the
+  // terminal transition of the three use cases that end a request, each of
+  // which authorized before transitioning. Asking again here would authorize
+  // the same act twice and, worse, imply there is a way to write history
+  // without ending a request. There is not.
+  'history.ts:recordPurchaseHistory':
+    'completePurchaseRequest (request.complete), cancelPurchaseRequest (request.cancel.*), decidePurchaseRequest (review.decide)',
 };
 
 for (const file of USE_CASE_FILES) {
@@ -133,7 +140,7 @@ const OWNERSHIP_SITES = {
 {
   const scanned = [
     ['domain/roles.mjs', readFileSync(join(APP, 'domain', 'roles.mjs'), 'utf8')],
-    ...['requests.ts', 'review.ts', 'decisions.ts', 'fulfilment.ts', 'administration.ts', 'queries.ts']
+    ...['requests.ts', 'review.ts', 'decisions.ts', 'fulfilment.ts', 'administration.ts', 'queries.ts', 'history.ts']
       .map((f) => [`application/${f}`, readFileSync(join(APP, 'application', f), 'utf8')]),
   ];
 

@@ -64,6 +64,10 @@ const { validateRequestDraft } = await import(join(APP, 'purchasing', 'domain', 
 const { EXTERNAL_SEND_ENABLED, EMAIL_TEMPLATE_TYPES, EMAIL_DRAFT_STATUSES } =
   await import(join(APP, 'purchasing', 'domain', 'email.mjs'));
 const { ACTIVITY_ACTIONS, NOTIFICATION_EVENTS, buildTimeline } = await import(join(APP, 'purchasing', 'domain', 'activity.mjs'));
+const {
+  HISTORY_LINE_FIELDS, HISTORY_TERMINAL_STATES, RECEIPT_OUTCOMES,
+  countsTowardPricing, countsTowardPurchaseFrequency, leadTimeDays, summarizeByMaterial,
+} = await import(join(APP, 'purchasing', 'domain', 'history.mjs'));
 const { summarize, isOverdue } = await import(join(APP, 'purchasing', 'domain', 'dashboard.mjs'));
 
 // --- harness plumbing -------------------------------------------------------
@@ -995,6 +999,138 @@ const jobsTable = db.prepare(
   "select count(*) c from sqlite_master where type='table' and name='purchase_jobs'",
 ).get();
 eq(jobsTable.c, 1, 'the job directory table exists');
+
+console.log('--- BR-012: immutable history, written at the terminal state ----');
+
+// The whole point of the architecture, tested where it can actually be broken:
+// a completed purchase, then the world changes around it.
+
+const completedHistory = await S.requestHistory(ctx(), mike, created.id);
+check(completedHistory.length > 0, 'completing a request writes its history');
+eq(completedHistory.length, (await S.getRequestDetail(ctx(), mike, created.id)).originalItems.length,
+   'one history row per REQUEST line — including any line the workshop filled from stock');
+
+const hLine = completedHistory[0];
+for (const field of HISTORY_LINE_FIELDS) {
+  check(field in hLine, `the history row carries ${field}`);
+}
+eq(hLine.terminalState, 'COMPLETED', 'the row records the state the request ended in');
+check(HISTORY_TERMINAL_STATES.includes(hLine.terminalState), 'and it is one of the three terminal states');
+check(RECEIPT_OUTCOMES.includes(hLine.outcome), 'the outcome is from the closed vocabulary');
+eq(hLine.outcome, 'RECEIVED', 'a fully received line reads as RECEIVED');
+
+// IDS **AND** SNAPSHOTS. Both, for the same things.
+for (const idField of ['requestId', 'requestItemId', 'purchaseOrderId', 'purchaseOrderItemId', 'vendorId', 'requestorId', 'approverId']) {
+  check(hLine[idField], `the row keeps the ${idField} — history stays joinable to current data`);
+}
+eq(hLine.requestNumber, db.prepare('select request_number from purchase_requests where id = ?').get(created.id).request_number,
+   'the request NUMBER is snapshotted, not only the id');
+eq(hLine.poNumber, poRow.po_number, 'the PO number is snapshotted');
+eq(hLine.vendorName, graybar.name, 'the vendor NAME as the purchase order carried it');
+eq(hLine.jobNumber, baseDraft.jobNumber, 'the job number the field typed');
+check(hLine.requestorName && hLine.approverName, 'the requester and the approver are named, not only referenced');
+check(hLine.requestedDescription && hLine.orderedDescription, 'what was asked for and what was ordered are both kept');
+check(hLine.normalizedDescription && hLine.normalizerVersion >= 1,
+      'the matching key is stored with the normalizer version that produced it');
+
+// The timestamps the old view could not answer with.
+check(hLine.orderedAt && hLine.receivedAt && hLine.completedAt,
+      'ordered, received and completed timestamps are all recorded');
+check(hLine.poGeneratedAt && hLine.poGeneratedAt !== hLine.orderedAt,
+      'PO generation and actually placing the order are kept apart — lead time depends on which one you mean');
+eq(leadTimeDays(hLine), 0, 'lead time is measurable for a line that was ordered and received');
+check(hLine.receivedQty > 0 && hLine.orderedQty > 0, 'the quantities are preserved');
+eq(hLine.actualUnitCostCents, null, 'an unreconciled invoice stays unknown — never zero');
+check(countsTowardPricing(hLine) && countsTowardPurchaseFrequency(hLine),
+      'a completed, ordered, priced line is price and frequency evidence');
+
+// --- THE DECISIVE TEST: the world changes, history does not -----------------
+//
+// This is the test the view could not pass. Rename the vendor, re-describe the
+// material, rename the job, correct the approver's name — everything the row
+// used to resolve at read time — and read it again.
+const beforeRename = JSON.stringify(await S.requestHistory(ctx(), mike, created.id));
+
+db.prepare('update vendors set name = ? where id = ?').run('Graybar Electric Company, Inc.', graybar.id);
+db.prepare('update purchase_order_items set description = ? where id = ?').run('SUPERSEDED FIXTURE TEXT', poItem.id);
+db.prepare('update purchase_request_items set description = ? where id = ?')
+  .run('SUPERSEDED REQUEST TEXT', poItem.request_item_id);
+db.prepare('update purchase_requests set job_number = ? where id = ?').run('99-999', created.id);
+db.prepare('update users set full_name = ? where id = ?').run('M. Renamed', mike.id);
+
+const afterRename = await S.requestHistory(ctx(), mike, created.id);
+eq(JSON.stringify(afterRename), beforeRename,
+   'renaming the vendor, the material, the job and the approver changes NOTHING in history');
+eq(afterRename[0].vendorName, graybar.name, 'the historical row still names the vendor as it was at the time');
+check(db.prepare('select name from vendors where id = ?').get(graybar.id).name !== afterRename[0].vendorName,
+      'and the live vendor really did change — the assertion above is not vacuous');
+
+// The read model inherits the property, because it reads the snapshots.
+const catalogAfterRename = await ctx().catalog.list(DEMO_ORG_ID);
+const learned = catalogAfterRename.find((e) => e.lastVendorName);
+check(learned, 'the catalogue learns a vendor from history');
+eq(learned.lastVendorName, graybar.name,
+   '"last ordered from" is what the purchase order said, not what the vendor is called today');
+
+// --- append-only, enforced ---------------------------------------------------
+await throws(
+  () => db.prepare('update purchase_history_lines set vendor_name = ? where id = ?').run('anything', hLine.id),
+  /immutable/i,
+  'a history row cannot be edited, even directly in the database',
+);
+await throws(
+  () => db.prepare('delete from purchase_history_lines where id = ?').run(hLine.id),
+  /append-only/i,
+  'a history row cannot be deleted',
+);
+
+// --- writing it twice is a no-op --------------------------------------------
+const rewrite = await ctx().history.record(afterRename, new Date(clock).toISOString());
+eq(rewrite.inserted, 0, 'recording the same history again inserts nothing');
+eq(rewrite.skipped, afterRename.length, 'and reports what it skipped rather than failing');
+
+// --- derived intelligence never mutates history -----------------------------
+const orgHistory = await S.purchaseHistory(ctx(), mike, { limit: 500 });
+const snapshotBefore = JSON.stringify(orgHistory);
+const firstPass = JSON.stringify([...summarizeByMaterial(orgHistory).entries()]);
+const secondPass = JSON.stringify([...summarizeByMaterial(await S.purchaseHistory(ctx(), mike, { limit: 500 })).entries()]);
+eq(firstPass, secondPass, 'recomputing derived intelligence twice gives the same answer');
+eq(JSON.stringify(await S.purchaseHistory(ctx(), mike, { limit: 500 })), snapshotBefore,
+   'and leaves every history row byte-identical, timestamps included');
+
+const summary = summarizeByMaterial(orgHistory).get(hLine.normalizedDescription);
+check(summary.priceSampleSize >= 1 && summary.averageUnitCostCents !== null,
+      'the derived summary reports an average WITH its sample size');
+eq(summary.lastVendorName, graybar.name, 'the derived summary quotes the snapshot, not the current name');
+
+// --- cancellation and rejection are recorded, and cost nothing --------------
+const rejectedHistory = await S.requestHistory(ctx(), mike, rejected.id);
+check(rejectedHistory.length > 0, 'a REJECTED request is recorded in history — it is part of what happened');
+eq(rejectedHistory[0].terminalState, 'REJECTED', 'with its terminal state');
+eq(rejectedHistory[0].terminalReason, 'Twenty-five already on the shelf.', 'and the reason given, verbatim');
+eq(rejectedHistory[0].orderedAt, null, 'a rejected request never reached a vendor');
+eq(rejectedHistory[0].outcome, 'NOT_ORDERED', 'so its outcome is NOT_ORDERED');
+check(!countsTowardPricing(rejectedHistory[0]), 'and it informs no price');
+check(!countsTowardPurchaseFrequency(rejectedHistory[0]), 'and inflates no purchase-frequency count');
+eq(leadTimeDays(rejectedHistory[0]), null, 'and reports no lead time — not a zero');
+
+const cancelled = await S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Ordered twice by mistake.' });
+await S.submitRequest(ctx(), foreman, cancelled.id);
+await S.cancelRequest(ctx(), foreman, cancelled.id, 'Duplicate of the earlier request.');
+const cancelledHistory = await S.requestHistory(ctx(), mike, cancelled.id);
+check(cancelledHistory.length > 0, 'a CANCELLED request is recorded too');
+eq(cancelledHistory[0].terminalState, 'CANCELLED', 'with its terminal state');
+eq(cancelledHistory[0].terminalReason, 'Duplicate of the earlier request.', 'and the reason');
+check(!countsTowardPricing(cancelledHistory[0]), 'a cancellation that never reached a vendor informs no price');
+check(cancelledHistory[0].requestedDescription && cancelledHistory[0].requestedQty > 0,
+      'what was asked for is still preserved — demand is recorded even when nothing was bought');
+
+// The old view's blind spot, stated as a test: neither of these requests ever
+// became a purchase order, and both are nonetheless in the record.
+check(
+  [...rejectedHistory, ...cancelledHistory].every((r) => r.purchaseOrderId === null),
+  'neither ever became a purchase order — the predecessor view could not see them at all',
+);
 
 console.log('--- migration parity (0016) ------------------------------------');
 

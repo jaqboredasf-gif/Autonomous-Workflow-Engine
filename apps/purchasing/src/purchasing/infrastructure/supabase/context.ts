@@ -21,9 +21,9 @@ import { requestClient, privilegedClient, unwrap, type SupabaseHandles } from '.
 import { TABLES, money, qty, toActor } from './mappers.ts';
 import {
   supabaseApprovalRepository, supabaseEmailDraftRepository, supabaseInventoryRepository,
-  supabaseOrderRepository, supabasePoNumberAllocator, supabaseReceiptRepository,
-  supabaseItemCatalogRepository, supabaseReferenceRepository, supabaseRequestRepository,
-  supabaseReviewRepository,
+  supabaseOrderRepository, supabasePoNumberAllocator, supabasePurchaseHistoryRepository,
+  supabaseReceiptRepository, supabaseItemCatalogRepository, supabaseReferenceRepository,
+  supabaseRequestRepository, supabaseReviewRepository,
 } from './repositories.ts';
 
 /**
@@ -384,6 +384,10 @@ export function supabasePurchasingContext(
     inventory: supabaseInventoryRepository(handles),
     reference,
     catalog,
+    // Immutable history, written at the terminal transition. The catalogue's
+    // "last ordered from" and "last price" read from here, so a renamed vendor
+    // cannot rewrite what a past purchase says.
+    history: supabasePurchaseHistoryRepository(handles),
     poNumbers: supabasePoNumberAllocator(handles),
     identity: identity(handles, config),
     // Credentials stay with the AuthPort; the Supabase auth adapter already

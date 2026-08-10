@@ -110,6 +110,26 @@ membership row at all.
 real RLS, and a negative control (RLS disabled on one table) makes the isolation suite report
 three leaks — so the suite can fail, which is what makes the pass mean something.
 
+## 4a-1. Fixed in Phase A — history that rewrote itself
+
+`purchase_line_history` was a **view over live entities**, so it resolved `vendor_id` and the
+line descriptions at read time. Renaming a vendor silently changed what every past purchase said
+it was bought from; re-describing a material changed what had been bought. Its `INNER JOIN` to
+`purchase_orders` also meant a **cancelled or rejected** request never appeared at all, and it
+carried no approver, no received/completed timestamps and no damaged/backordered/written-off
+breakdown.
+
+Migration `0030_purchasing_immutable_history.sql` drops the view and replaces it with
+`purchase_history_lines`: one row per request line, written once at the terminal transition,
+carrying the **id and the snapshot** of every entity it names. Append-only by RLS (no UPDATE or
+DELETE policy) and by trigger, on both providers. The catalogue's "last ordered from" and "last
+price" now read the snapshots instead of joining the live vendor row — the same defect had been
+written twice, once per provider.
+
+Verified: the full migration set replays cleanly into an empty database including 0030; the
+integration suite renames the vendor, material, job and approver and asserts history does not
+move; reverting the read model to the live join makes that assertion fail.
+
 ## 4a. Fixed in 1D — a real cross-tenant defect
 
 `purchase_line_history` (added in 1C) was created **without `security_invoker`**. A Postgres view
@@ -134,7 +154,8 @@ blocks the SaaS onboarding milestone and belongs in 1E/3A.
   belongs to a different organization than its parent.
 - `normalized_description` stored beside the original text; normalization lives in the domain and
   is versioned.
-- `purchase_item_catalog` (unique per organization), `purchase_line_history` view.
+- `purchase_item_catalog` (unique per organization), `purchase_line_history` view — the view was
+  replaced by the immutable `purchase_history_lines` table in Phase A (§4a-1).
 - `purchase_jobs` directory; job number stays free text on the request on purpose.
 - Estimated vs actual cost, where unknown is NULL rather than zero.
 - Audit `seq` now has a database default (was a read-modify-write race).

@@ -57,6 +57,11 @@ const PAIRS = [
   ['inventory', sqlite.sqliteInventoryRepository, supabase.supabaseInventoryRepository],
   ['reference', sqlite.sqliteReferenceRepository, supabase.supabaseReferenceRepository],
   ['poNumbers', sqlite.sqlitePoNumberAllocator, supabase.supabasePoNumberAllocator],
+  ['itemCatalog', sqlite.sqliteItemCatalogRepository, supabase.supabaseItemCatalogRepository],
+  // The immutable history is on the completion path in both providers. A method
+  // missing from one of them would mean a purchase completing without a record
+  // on exactly one deployment.
+  ['history', sqlite.sqlitePurchaseHistoryRepository, supabase.supabasePurchaseHistoryRepository],
 ];
 
 for (const [name, localFactory, remoteFactory] of PAIRS) {
@@ -133,6 +138,47 @@ for (const [key, table] of Object.entries(mappers.TABLES)) {
     new RegExp(`create table (if not exists )?(public\\.)?${table}\\b`).test(allSql),
     `TABLES.${key} -> ${table} is created by a migration`,
   );
+}
+
+console.log('--- BR-012: neither provider can edit history ------------------');
+
+// The interface offers no update and no delete. This checks the two
+// IMPLEMENTATIONS as well, because a repository is free to add a method the
+// interface never asked for, and history that one provider can rewrite is not
+// immutable history — it is immutable on one deployment.
+{
+  const localHistory = sqlite.sqlitePurchaseHistoryRepository(fakeDb);
+  const remoteHistory = supabase.supabasePurchaseHistoryRepository(handles);
+  eq(Object.keys(localHistory).sort(), ['forRequest', 'listForOrg', 'record'],
+     'the local history repository offers exactly record + two reads');
+  eq(Object.keys(remoteHistory).sort(), ['forRequest', 'listForOrg', 'record'],
+     'and so does the Supabase one — no update, no delete, on either');
+}
+
+const historySource = readFileSync(join(SUPABASE_DIR, 'repositories.ts'), 'utf8')
+  .split('supabasePurchaseHistoryRepository')[1] ?? '';
+const historyBody = historySource.slice(0, historySource.indexOf('\n}\n'));
+check(!/\.update\(|\.delete\(/.test(historyBody),
+      'the Supabase history repository issues no UPDATE and no DELETE');
+check(/ignoreDuplicates:\s*true/.test(historyBody),
+      'writing the same history twice is ignored rather than an error — a retried completion must complete');
+
+const sqliteSource = readFileSync(join(APP, 'infrastructure', 'sqlite', 'repositories.ts'), 'utf8');
+const sqliteHistory = sqliteSource.split('sqlitePurchaseHistoryRepository')[1] ?? '';
+check(!/update purchase_history_lines|delete from purchase_history_lines/.test(sqliteHistory.slice(0, 4000)),
+      'the local history repository issues no UPDATE and no DELETE either');
+check(/insert or ignore into purchase_history_lines/.test(sqliteHistory),
+      'and it writes idempotently, on the same (org, request, request item) key');
+
+// Both providers must READ the same evidence. The catalogue's "last ordered
+// from" is the field the old view got wrong, so both are checked for reading it
+// out of history rather than joining the live vendor row.
+for (const [name, source] of [['sqlite', sqliteSource], ['supabase', readFileSync(join(SUPABASE_DIR, 'repositories.ts'), 'utf8')]]) {
+  const catalogue = source.split(name === 'sqlite' ? 'sqliteItemCatalogRepository' : 'supabaseItemCatalogRepository')[1] ?? '';
+  check(/purchase_history_lines|TABLES.historyLines/.test(catalogue),
+        `${name}: the catalogue reads its last-purchase facts from immutable history`);
+  check(!/join vendors v on v\.id = po\.vendor_id|vendor:purchase_vendors\(id,name\)/.test(catalogue),
+        `${name}: and NOT by joining the live vendor row — that join is how a rename rewrote history`);
 }
 
 console.log('--- tenancy and privilege in the adapter -----------------------');
