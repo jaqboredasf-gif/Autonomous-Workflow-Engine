@@ -656,6 +656,93 @@ create table if not exists purchase_jobs (
 
 create index if not exists purchase_jobs_org_status_idx on purchase_jobs(org_id, status);
 
+-- --- immutable purchasing memory (PCC Phase A) ---------------------------
+--
+-- These are OBSERVED facts, captured at completion. IDs keep each snapshot
+-- joinable to current directories; *_snapshot columns keep it true after a
+-- vendor, material or job is renamed. Nothing in the application updates or
+-- deletes either table.
+
+create table if not exists purchase_history_lines (
+  id                              text primary key,
+  org_id                          text not null references orgs(id),
+  request_id                      text not null references purchase_requests(id),
+  request_number_snapshot         text not null,
+  purchase_order_id               text not null references purchase_orders(id),
+  purchase_order_item_id          text not null references purchase_order_items(id),
+  po_number_snapshot              text not null,
+  job_id                          text references purchase_jobs(id),
+  job_number_snapshot             text not null,
+  job_name_snapshot               text,
+  catalog_item_id                 text references purchase_item_catalog(id),
+  normalizer_version              integer not null,
+  normalized_description_snapshot text not null,
+  material_description_snapshot   text not null,
+  requested_description_snapshot  text,
+  quantity_ordered                integer not null check (quantity_ordered > 0),
+  unit_snapshot                   text not null,
+  vendor_id                       text not null references vendors(id),
+  vendor_name_snapshot            text not null,
+  vendor_part_number_snapshot     text,
+  estimated_unit_price_cents      integer,
+  estimated_total_price_cents     integer,
+  actual_unit_price_cents         integer,
+  actual_total_price_cents        integer,
+  requester_user_id               text not null references users(id),
+  requester_name_snapshot         text not null,
+  approver_user_id                text not null references users(id),
+  approver_name_snapshot          text not null,
+  requested_at                    text,
+  approved_at                     text,
+  ordered_at                      text not null,
+  received_at                     text,
+  completed_at                    text not null,
+  received_qty                    integer not null default 0 check (received_qty >= 0),
+  damaged_qty                     integer not null default 0 check (damaged_qty >= 0),
+  backordered_qty_snapshot        integer not null default 0 check (backordered_qty_snapshot >= 0),
+  was_backordered                 integer not null default 0 check (was_backordered in (0,1)),
+  written_off_qty                 integer not null default 0 check (written_off_qty >= 0),
+  receipt_outcome                 text not null check (receipt_outcome in ('RECEIVED','DAMAGED','WRITTEN_OFF','MIXED')),
+  capture_source                  text not null check (capture_source in ('NATIVE','BACKFILL')),
+  recorded_at                     text not null,
+  unique (org_id, purchase_order_item_id)
+);
+
+create index if not exists purchase_history_lines_material_idx
+  on purchase_history_lines(org_id, normalized_description_snapshot, completed_at desc);
+create index if not exists purchase_history_lines_vendor_material_idx
+  on purchase_history_lines(org_id, vendor_id, normalized_description_snapshot, completed_at desc);
+create index if not exists purchase_history_lines_vendor_idx
+  on purchase_history_lines(org_id, vendor_id, completed_at desc);
+create index if not exists purchase_history_lines_request_idx
+  on purchase_history_lines(org_id, request_id);
+
+-- Rejected/cancelled requests are memory of an attempt, not a purchase. They
+-- are deliberately request-level and are never read by price/frequency code.
+create table if not exists purchase_request_outcome_history (
+  id                       text primary key,
+  org_id                   text not null references orgs(id),
+  request_id               text not null references purchase_requests(id),
+  request_number_snapshot  text not null,
+  job_id                   text references purchase_jobs(id),
+  job_number_snapshot      text not null,
+  job_name_snapshot        text,
+  requester_user_id        text not null references users(id),
+  requester_name_snapshot  text not null,
+  approver_user_id         text references users(id),
+  approver_name_snapshot   text,
+  outcome                  text not null check (outcome in ('REJECTED','CANCELLED')),
+  reason_snapshot          text not null,
+  requested_at             text,
+  outcome_at               text not null,
+  capture_source           text not null check (capture_source in ('NATIVE','BACKFILL')),
+  recorded_at              text not null,
+  unique (org_id, request_id, outcome)
+);
+
+create index if not exists purchase_request_outcomes_org_time_idx
+  on purchase_request_outcome_history(org_id, outcome_at desc);
+
 create table if not exists schema_meta (
   key   text primary key,
   value text not null
@@ -680,6 +767,10 @@ const ADDED_COLUMNS = [
   'alter table purchase_request_items add column catalog_item_id text references purchase_item_catalog(id)',
   'alter table purchase_order_items add column normalized_description text',
   'alter table purchase_order_items add column catalog_item_id text references purchase_item_catalog(id)',
+  // Phase A: the version is snapshot data too. Every pre-Phase-A line was
+  // written under v1, and future repositories supply the current version.
+  'alter table purchase_request_items add column normalizer_version integer not null default 1',
+  'alter table purchase_order_items add column normalizer_version integer not null default 1',
   // 0018: actual cost beside estimated. NULL means unknown, not zero — a
   // purchaser may order without knowing the price.
   'alter table purchase_order_items add column actual_unit_cost_cents integer',
@@ -709,6 +800,8 @@ function migrate(db: DatabaseSync) {
     }
   }
   backfillLineItemOrgs(db);
+  installHistoryLifecycle(db);
+  backfillImmutableHistory(db);
 
   const row = db.prepare('select value from schema_meta where key = ?').get('version') as
     | { value: string }
@@ -716,6 +809,231 @@ function migrate(db: DatabaseSync) {
   if (!row) {
     db.prepare('insert into schema_meta (key, value) values (?, ?)').run('version', SCHEMA_VERSION);
   }
+}
+
+/**
+ * The lifecycle write point. SQLite runs these triggers inside the SAME
+ * transaction as the status update, exactly like the Postgres migration.
+ * Completion cannot commit without its snapshots, and terminal attempts cannot
+ * become accidental purchase-line evidence.
+ */
+function installHistoryLifecycle(db: DatabaseSync) {
+  db.exec(`
+    create trigger if not exists purchase_history_lines_no_update
+      before update on purchase_history_lines
+      begin select raise(abort, 'purchase_history_lines is immutable'); end;
+    create trigger if not exists purchase_history_lines_no_delete
+      before delete on purchase_history_lines
+      begin select raise(abort, 'purchase_history_lines is immutable'); end;
+    create trigger if not exists purchase_request_outcomes_no_update
+      before update on purchase_request_outcome_history
+      begin select raise(abort, 'purchase_request_outcome_history is immutable'); end;
+    create trigger if not exists purchase_request_outcomes_no_delete
+      before delete on purchase_request_outcome_history
+      begin select raise(abort, 'purchase_request_outcome_history is immutable'); end;
+
+    create trigger if not exists purchase_requests_capture_completed_history
+      after update of status on purchase_requests
+      when new.status = 'COMPLETED' and old.status <> 'COMPLETED'
+      begin
+        insert or ignore into purchase_history_lines (
+          id, org_id, request_id, request_number_snapshot,
+          purchase_order_id, purchase_order_item_id, po_number_snapshot,
+          job_id, job_number_snapshot, job_name_snapshot,
+          catalog_item_id, normalizer_version, normalized_description_snapshot,
+          material_description_snapshot, requested_description_snapshot,
+          quantity_ordered, unit_snapshot,
+          vendor_id, vendor_name_snapshot, vendor_part_number_snapshot,
+          estimated_unit_price_cents, estimated_total_price_cents,
+          actual_unit_price_cents, actual_total_price_cents,
+          requester_user_id, requester_name_snapshot,
+          approver_user_id, approver_name_snapshot,
+          requested_at, approved_at, ordered_at, received_at, completed_at,
+          received_qty, damaged_qty, backordered_qty_snapshot, was_backordered,
+          written_off_qty, receipt_outcome, capture_source, recorded_at
+        )
+        select
+          lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' ||
+            substr(lower(hex(randomblob(2))),2) || '-' ||
+            substr('89ab',abs(random()) % 4 + 1,1) ||
+            substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))),
+          new.org_id, new.id, new.request_number,
+          po.id, oi.id, po.po_number,
+          j.id, new.job_number, j.name,
+          oi.catalog_item_id, oi.normalizer_version, oi.normalized_description,
+          oi.description, ri.description,
+          oi.order_qty, oi.unit,
+          po.vendor_id, v.name, null,
+          oi.unit_cost_cents, oi.line_total_cents,
+          oi.actual_unit_cost_cents, oi.actual_line_total_cents,
+          new.requestor_id, requestor.full_name,
+          po.approver_id, approver.full_name,
+          coalesce(new.submitted_at, new.created_at), new.decided_at,
+          new.ordered_at, new.received_at, new.completed_at,
+          coalesce((select sum(x.received_qty) from purchase_receipt_items x
+                    where x.purchase_order_item_id = oi.id), 0),
+          coalesce((select sum(x.damaged_qty) from purchase_receipt_items x
+                    where x.purchase_order_item_id = oi.id), 0),
+          coalesce((select x.backordered_qty from purchase_receipt_items x
+                    join purchase_receipts xr on xr.id = x.receipt_id
+                    where x.purchase_order_item_id = oi.id
+                    order by xr.created_at desc, x.created_at desc, x.id desc limit 1), 0),
+          case when exists (
+            select 1 from purchase_receipt_items x
+             where x.purchase_order_item_id = oi.id and x.backordered_qty > 0
+          ) then 1 else 0 end,
+          coalesce((select sum(x.written_off_qty) from purchase_receipt_items x
+                    where x.purchase_order_item_id = oi.id), 0),
+          case
+            when coalesce((select sum(x.damaged_qty) from purchase_receipt_items x
+                           where x.purchase_order_item_id = oi.id), 0) > 0
+             and coalesce((select sum(x.written_off_qty) from purchase_receipt_items x
+                           where x.purchase_order_item_id = oi.id), 0) > 0 then 'MIXED'
+            when coalesce((select sum(x.damaged_qty) from purchase_receipt_items x
+                           where x.purchase_order_item_id = oi.id), 0) > 0 then 'DAMAGED'
+            when coalesce((select sum(x.written_off_qty) from purchase_receipt_items x
+                           where x.purchase_order_item_id = oi.id), 0) > 0 then 'WRITTEN_OFF'
+            else 'RECEIVED'
+          end,
+          'NATIVE', new.completed_at
+        from purchase_orders po
+        join purchase_order_items oi on oi.purchase_order_id = po.id and oi.org_id = po.org_id
+        left join purchase_request_items ri on ri.id = oi.request_item_id and ri.org_id = oi.org_id
+        join vendors v on v.id = po.vendor_id and v.org_id = po.org_id
+        join users requestor on requestor.id = new.requestor_id
+        join users approver on approver.id = po.approver_id
+        left join purchase_jobs j on j.org_id = new.org_id and j.job_number = new.job_number
+        where po.request_id = new.id and po.org_id = new.org_id;
+
+        select case when not exists (
+          select 1 from purchase_history_lines
+           where org_id = new.org_id and request_id = new.id
+        ) then raise(abort, 'a completed request must create immutable history') end;
+      end;
+
+    create trigger if not exists purchase_requests_capture_outcome_history
+      after update of status on purchase_requests
+      when new.status in ('REJECTED','CANCELLED') and old.status <> new.status
+      begin
+        insert or ignore into purchase_request_outcome_history (
+          id, org_id, request_id, request_number_snapshot,
+          job_id, job_number_snapshot, job_name_snapshot,
+          requester_user_id, requester_name_snapshot,
+          approver_user_id, approver_name_snapshot,
+          outcome, reason_snapshot, requested_at, outcome_at, capture_source, recorded_at
+        )
+        select
+          lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' ||
+            substr(lower(hex(randomblob(2))),2) || '-' ||
+            substr('89ab',abs(random()) % 4 + 1,1) ||
+            substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))),
+          new.org_id, new.id, new.request_number,
+          j.id, new.job_number, j.name,
+          new.requestor_id, requestor.full_name,
+          new.approver_id, approver.full_name,
+          new.status,
+          case when new.status = 'REJECTED' then new.rejection_reason else new.cancel_reason end,
+          coalesce(new.submitted_at, new.created_at),
+          case when new.status = 'REJECTED' then new.decided_at else new.cancelled_at end,
+          'NATIVE',
+          case when new.status = 'REJECTED' then new.decided_at else new.cancelled_at end
+        from users requestor
+        left join users approver on approver.id = new.approver_id
+        left join purchase_jobs j on j.org_id = new.org_id and j.job_number = new.job_number
+        where requestor.id = new.requestor_id;
+      end;
+  `);
+}
+
+/** Deterministic backfill for databases that existed before Phase A. */
+function backfillImmutableHistory(db: DatabaseSync) {
+  // Re-drive only the lifecycle triggers, without changing any business fact.
+  // SQLite fires UPDATE OF status even when the value is assigned to itself,
+  // but the trigger's old/new inequality keeps native capture from duplicating;
+  // the explicit inserts below therefore carry BACKFILL honestly.
+  db.exec(`
+    insert or ignore into purchase_history_lines (
+      id, org_id, request_id, request_number_snapshot,
+      purchase_order_id, purchase_order_item_id, po_number_snapshot,
+      job_id, job_number_snapshot, job_name_snapshot,
+      catalog_item_id, normalizer_version, normalized_description_snapshot,
+      material_description_snapshot, requested_description_snapshot,
+      quantity_ordered, unit_snapshot,
+      vendor_id, vendor_name_snapshot, vendor_part_number_snapshot,
+      estimated_unit_price_cents, estimated_total_price_cents,
+      actual_unit_price_cents, actual_total_price_cents,
+      requester_user_id, requester_name_snapshot,
+      approver_user_id, approver_name_snapshot,
+      requested_at, approved_at, ordered_at, received_at, completed_at,
+      received_qty, damaged_qty, backordered_qty_snapshot, was_backordered,
+      written_off_qty, receipt_outcome, capture_source, recorded_at
+    )
+    select
+      lower(hex(randomblob(16))), r.org_id, r.id, r.request_number,
+      po.id, oi.id, po.po_number,
+      j.id, r.job_number, j.name,
+      oi.catalog_item_id, oi.normalizer_version, oi.normalized_description,
+      oi.description, ri.description,
+      oi.order_qty, oi.unit,
+      po.vendor_id, v.name, null,
+      oi.unit_cost_cents, oi.line_total_cents,
+      oi.actual_unit_cost_cents, oi.actual_line_total_cents,
+      r.requestor_id, requestor.full_name,
+      po.approver_id, approver.full_name,
+      coalesce(r.submitted_at, r.created_at), r.decided_at,
+      r.ordered_at, r.received_at, r.completed_at,
+      coalesce((select sum(x.received_qty) from purchase_receipt_items x where x.purchase_order_item_id = oi.id),0),
+      coalesce((select sum(x.damaged_qty) from purchase_receipt_items x where x.purchase_order_item_id = oi.id),0),
+      coalesce((select x.backordered_qty from purchase_receipt_items x
+                join purchase_receipts xr on xr.id = x.receipt_id
+                where x.purchase_order_item_id = oi.id
+                order by xr.created_at desc, x.created_at desc, x.id desc limit 1),0),
+      case when exists (select 1 from purchase_receipt_items x
+                        where x.purchase_order_item_id = oi.id and x.backordered_qty > 0)
+           then 1 else 0 end,
+      coalesce((select sum(x.written_off_qty) from purchase_receipt_items x where x.purchase_order_item_id = oi.id),0),
+      case
+        when coalesce((select sum(x.damaged_qty) from purchase_receipt_items x where x.purchase_order_item_id = oi.id),0) > 0
+         and coalesce((select sum(x.written_off_qty) from purchase_receipt_items x where x.purchase_order_item_id = oi.id),0) > 0 then 'MIXED'
+        when coalesce((select sum(x.damaged_qty) from purchase_receipt_items x where x.purchase_order_item_id = oi.id),0) > 0 then 'DAMAGED'
+        when coalesce((select sum(x.written_off_qty) from purchase_receipt_items x where x.purchase_order_item_id = oi.id),0) > 0 then 'WRITTEN_OFF'
+        else 'RECEIVED'
+      end,
+      'BACKFILL', r.completed_at
+    from purchase_requests r
+    join purchase_orders po on po.request_id = r.id and po.org_id = r.org_id
+    join purchase_order_items oi on oi.purchase_order_id = po.id and oi.org_id = po.org_id
+    left join purchase_request_items ri on ri.id = oi.request_item_id and ri.org_id = oi.org_id
+    join vendors v on v.id = po.vendor_id and v.org_id = po.org_id
+    join users requestor on requestor.id = r.requestor_id
+    join users approver on approver.id = po.approver_id
+    left join purchase_jobs j on j.org_id = r.org_id and j.job_number = r.job_number
+    where r.status = 'COMPLETED' and r.ordered_at is not null and r.completed_at is not null;
+
+    insert or ignore into purchase_request_outcome_history (
+      id, org_id, request_id, request_number_snapshot,
+      job_id, job_number_snapshot, job_name_snapshot,
+      requester_user_id, requester_name_snapshot,
+      approver_user_id, approver_name_snapshot,
+      outcome, reason_snapshot, requested_at, outcome_at, capture_source, recorded_at
+    )
+    select
+      lower(hex(randomblob(16))), r.org_id, r.id, r.request_number,
+      j.id, r.job_number, j.name,
+      r.requestor_id, requestor.full_name,
+      r.approver_id, approver.full_name,
+      r.status,
+      case when r.status = 'REJECTED' then r.rejection_reason else r.cancel_reason end,
+      coalesce(r.submitted_at, r.created_at),
+      case when r.status = 'REJECTED' then r.decided_at else r.cancelled_at end,
+      'BACKFILL',
+      case when r.status = 'REJECTED' then r.decided_at else r.cancelled_at end
+    from purchase_requests r
+    join users requestor on requestor.id = r.requestor_id
+    left join users approver on approver.id = r.approver_id
+    left join purchase_jobs j on j.org_id = r.org_id and j.job_number = r.job_number
+    where r.status in ('REJECTED','CANCELLED');
+  `);
 }
 
 /**
@@ -783,4 +1101,6 @@ export const TABLES = [
   'user_job_assignments',
   'purchase_item_catalog',
   'purchase_jobs',
+  'purchase_history_lines',
+  'purchase_request_outcome_history',
 ];

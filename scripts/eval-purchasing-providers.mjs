@@ -56,6 +56,7 @@ const PAIRS = [
   ['receipt', sqlite.sqliteReceiptRepository, supabase.supabaseReceiptRepository],
   ['inventory', sqlite.sqliteInventoryRepository, supabase.supabaseInventoryRepository],
   ['reference', sqlite.sqliteReferenceRepository, supabase.supabaseReferenceRepository],
+  ['history', sqlite.sqliteHistoryRepository, supabase.supabaseHistoryRepository],
   ['poNumbers', sqlite.sqlitePoNumberAllocator, supabase.supabasePoNumberAllocator],
 ];
 

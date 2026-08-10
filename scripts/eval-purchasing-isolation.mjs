@@ -49,10 +49,6 @@ async function refuses(fn, m) {
   }
 }
 
-const sql = ['0016_purchasing_control.sql', '0017_purchasing_auth_and_assignments.sql',
-             '0018_purchasing_history_and_jobs.sql', '0019_purchasing_tenant_isolation.sql']
-  .map((f) => readFileSync(join(MIGRATIONS, f), 'utf8')).join('\n');
-
 /**
  * THE EFFECTIVE POLICY SET — what the database actually enforces.
  *
@@ -72,6 +68,17 @@ const ALL_MIGRATIONS = readdirSync(MIGRATIONS)
   .filter((f) => f.endsWith('.sql'))
   .sort()
   .map((f) => ({ name: f, text: readFileSync(join(MIGRATIONS, f), 'utf8') }));
+// Schema coverage is intentionally limited to the PCC migrations. Effective
+// policy replay above still reads every migration, because later PCC fixes can
+// drop/replace policies; unrelated AWE domains have their own policy suites.
+const PCC_SCHEMA_FILES = new Set([
+  '0016_purchasing_control.sql', '0017_purchasing_auth_and_assignments.sql',
+  '0018_purchasing_history_and_jobs.sql', '0019_purchasing_tenant_isolation.sql',
+  ALL_MIGRATIONS.find((file) => file.name.endsWith('_immutable_purchase_history.sql'))?.name,
+]);
+const sql = ALL_MIGRATIONS.filter((file) => PCC_SCHEMA_FILES.has(file.name))
+  .map((file) => file.text).join('\n');
+const historySql = ALL_MIGRATIONS.find((file) => file.name.endsWith('_immutable_purchase_history.sql')).text;
 
 const effectivePolicies = (() => {
   const live = new Map(); // `${table}:${policy}` -> {table, policy, body, file}
@@ -160,6 +167,27 @@ for (const view of views) {
   );
 }
 
+console.log('--- BR-012/013: immutable observed history ---------------------');
+
+for (const table of ['purchase_history_lines', 'purchase_request_outcome_history']) {
+  const policies = policiesOn(table);
+  check(policies.length > 0, `${table} has an effective read policy`);
+  check(!policies.some((policy) => /for (insert|update|delete|all)/.test(policy.body)),
+    `${table} has no application write policy`);
+}
+check(/create trigger purchase_history_lines_immutable[\s\S]{0,140}?before update or delete/.test(historySql),
+  'completed history refuses UPDATE and DELETE even for privileged callers');
+check(/create trigger purchase_request_outcomes_immutable[\s\S]{0,140}?before update or delete/.test(historySql),
+  'terminal outcome history refuses UPDATE and DELETE');
+check(/p_request\.ordered_at/.test(historySql) && !/po\.generated_at[\s\S]{0,100}?as ordered_at/.test(historySql),
+  'history uses actual order placement time, never PO generation time');
+for (const view of ['purchase_material_intelligence', 'purchase_vendor_material_intelligence',
+                    'purchase_vendor_intelligence']) {
+  const body = historySql.slice(historySql.indexOf(`create or replace view ${view}`));
+  check(!body.slice(0, body.indexOf(';')).includes('default_vendor_id'),
+    `${view} contains observed evidence only, not configured vendor preference`);
+}
+
 console.log('--- references cannot cross organizations ----------------------');
 
 // Referential integrity is checked by the system with RLS BYPASSED, so a plain
@@ -173,17 +201,22 @@ const COMPOSITE_REQUIRED = [
   ['purchase_email_drafts', 'request'], ['purchase_email_drafts', 'order'],
   ['purchase_item_catalog', 'vendor'], ['purchase_jobs', 'location'],
   ['purchase_request_items', 'catalog'], ['purchase_order_items', 'catalog'],
+  ['purchase_history_lines', 'request'], ['purchase_history_lines', 'order'],
+  ['purchase_history_lines', 'order_item'], ['purchase_history_lines', 'job'],
+  ['purchase_history_lines', 'catalog'], ['purchase_history_lines', 'vendor'],
+  ['purchase_request_outcomes', 'request'], ['purchase_request_outcomes', 'job'],
 ];
 for (const [table, ref] of COMPOSITE_REQUIRED) {
   check(
-    new RegExp(`add constraint ${table}_${ref}_same_org[\\s\\S]{0,220}?foreign key \\([\\w_]+, org_id\\)`).test(sql),
+    new RegExp(`constraint ${table}_${ref}_same_org[\\s\\S]{0,220}?foreign key \\([\\w_]+, org_id\\)`).test(sql),
     `${table}.${ref} is a composite (id, org_id) reference`,
   );
 }
 
 // The parents of those composite keys need the matching unique constraint.
 for (const parent of ['purchase_vendors', 'purchase_delivery_locations', 'purchase_requests',
-                      'purchase_orders', 'purchase_receipts', 'purchase_item_catalog', 'purchase_jobs']) {
+                      'purchase_orders', 'purchase_order_items', 'purchase_receipts',
+                      'purchase_item_catalog', 'purchase_jobs']) {
   check(
     new RegExp(`add constraint ${parent}_id_org_key\\s+unique \\(id, org_id\\)`).test(sql),
     `${parent} is unique on (id, org_id) so a composite reference can target it`,

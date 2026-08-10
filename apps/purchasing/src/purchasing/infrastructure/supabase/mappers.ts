@@ -116,6 +116,8 @@ export const TABLES = {
   activityLog: 'purchase_activity_log',
   notifications: 'purchase_notifications',
   settings: 'purchasing_settings',
+  historyLines: 'purchase_history_lines',
+  requestOutcomeHistory: 'purchase_request_outcome_history',
 } as const;
 
 // ---------------------------------------------------------------------------

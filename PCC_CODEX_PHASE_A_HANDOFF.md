@@ -1,5 +1,12 @@
 # PCC — Phase A Handoff: Purchasing Historical Memory
 
+> **Phase A implementation status (2026-08-10): COMPLETE on
+> `codex/pcc-phase-a-history`.** The immutable completion snapshot, separate
+> terminal-outcome memory, derived observed-intelligence reads, provider parity,
+> and line-level review context described below are implemented. No hosted
+> migration has been applied. Remaining rollout risks and validation evidence
+> are recorded in `docs/planning/AGENT_HANDOFF.md`.
+
 For the next coding agent. Everything you need to start Phase A without
 rediscovering the project.
 

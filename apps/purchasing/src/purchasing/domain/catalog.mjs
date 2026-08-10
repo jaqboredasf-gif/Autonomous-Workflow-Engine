@@ -116,21 +116,46 @@ export function isSameItem(a, b) {
  * same troffer have two catalog entries, and neither can see the other's.
  */
 export const HISTORY_FIELDS = Object.freeze([
-  'orgId',                  // tenant ownership, on the row itself
-  'normalizedDescription',  // what it matched on, at the time
-  'description',            // what the person actually typed
-  'quantity',
-  'unit',
-  'vendorId',               // vendor relationship, when known
-  'jobNumber',              // job context
+  'orgId',
   'requestId',
+  'requestNumberSnapshot',
   'purchaseOrderId',
-  'poNumber',
-  'estimatedUnitCostCents', // what the workshop thought — may be unknown
-  'actualUnitCostCents',    // what the invoice said — may be unknown
+  'purchaseOrderItemId',
+  'poNumberSnapshot',
+  'jobId',
+  'jobNumberSnapshot',
+  'jobNameSnapshot',
+  'catalogItemId',
+  'normalizerVersion',
+  'normalizedDescription',
+  'materialDescriptionSnapshot',
+  'requestedDescriptionSnapshot',
+  'quantityOrdered',
+  'unitSnapshot',
+  'vendorId',
+  'vendorNameSnapshot',
+  'vendorPartNumberSnapshot',
+  'estimatedUnitPriceCents',
+  'estimatedTotalPriceCents',
+  'actualUnitPriceCents',
+  'actualTotalPriceCents',
+  'requesterUserId',
+  'requesterNameSnapshot',
+  'approverUserId',
+  'approverNameSnapshot',
+  'requestedAt',
+  'approvedAt',
   'receivedQty',
+  'damagedQty',
+  'backorderedQtySnapshot',
+  'wasBackordered',
+  'writtenOffQty',
+  'receiptOutcome',
   'orderedAt',
-  'createdAt',
+  'receivedAt',
+  'completedAt',
+  'captureSource',
+  'recordedAt',
 ]);
 
 // ---------------------------------------------------------------------------
