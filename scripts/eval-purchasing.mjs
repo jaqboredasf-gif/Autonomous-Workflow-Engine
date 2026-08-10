@@ -29,6 +29,11 @@
 //                          "sent", and the draft is frozen once reviewed
 //   * receiving          — partial receipts, the over-receipt guard, and the
 //                          explicit override
+//   * BR-014             — receipt authority follows capability and scope: a
+//                          purchaser receives the order he raised AND approved,
+//                          a request-only user is refused server-side, a foreman
+//                          is refused off his sites, and every receipt records
+//                          its own receiver, date, quantities and exceptions
 //   * audit              — every meaningful action appears on the timeline
 //   * tenancy            — another org's request is not found, not forbidden
 //   * the §16 demo       — the whole scenario, end to end, in order
@@ -630,6 +635,104 @@ const colleagueRow = db.prepare(
 eq(colleagueRow.requestor_id, foreman.id, 'BR-011.5 the requester is the foreman who raised it');
 eq(colleagueRow.approver_id, rick.id, 'BR-011.5 the approver is the purchaser who decided it');
 eq(colleagueRow.self_approved, 0, "BR-011.5 deciding a colleague's request is not stamped as self-approval");
+
+console.log('--- BR-014: receipt authority ----------------------------------');
+
+// Sam raises requests and nothing else; Luis is a foreman assigned to 24-203,
+// not to this order's job. Both are seeded for exactly this kind of proof.
+const requestOnly = users.sam;
+const otherSiteForeman = users.luis;
+
+// BR-014 cases 5, 6 and 7 end to end, on the request Mike raised AND approved
+// himself under BR-011. One person is requester, approver and receiver here —
+// the hardest case for the rule, and the ordinary case in a small shop. Every
+// step must go through, and the record must say who did each part.
+{
+  await S.generatePurchaseOrder(ctx(), mike, mikesOwn.id);
+  const ownDraft = await S.generateVendorEmailDraft(ctx(), mike, mikesOwn.id);
+  // The human review gate still applies to a self-approved order — BR-014
+  // loosens who may RECEIVE, and loosens nothing about how an order goes out.
+  await S.advanceEmailDraft(ctx(), mike, ownDraft.id, 'REVIEWED');
+  await S.advanceEmailDraft(ctx(), mike, ownDraft.id, 'APPROVED_TO_SEND');
+  await S.advanceEmailDraft(ctx(), mike, ownDraft.id, 'SENT');
+  await S.markOrdered(ctx(), mike, mikesOwn.id, { notes: 'Placed at the counter.' });
+  eq(db.prepare('select status from purchase_requests where id = ?').get(mikesOwn.id).status, 'ORDERED',
+     'BR-014 the self-approved order reaches ORDERED');
+
+  const ownItem = db.prepare(
+    `select i.* from purchase_order_items i
+       join purchase_orders o on o.id = i.purchase_order_id
+      where o.request_id = ?`).get(mikesOwn.id);
+
+  // A partial receipt first: partial receiving must survive BR-014 untouched.
+  const part = await S.recordReceipt(ctx(), mike, mikesOwn.id, {
+    receivedDate: '2026-08-07',
+    packingSlipNumber: 'PS-90001',
+    lines: [{ purchaseOrderItemId: ownItem.id, receivedQty: '8', damagedQty: '1',
+              notes: 'One coil crushed in transit.' }],
+  });
+  check(part.outstandingLines > 0, 'BR-014.5/6 a purchaser receives the order they raised and approved');
+  eq(db.prepare('select status from purchase_requests where id = ?').get(mikesOwn.id).status, 'PARTIALLY_RECEIVED',
+     'BR-014 partial receiving is preserved — the order stays visibly incomplete');
+
+  // BR-014.7: the audit trail names the RECEIVER, and does so independently of
+  // the requester and the approver — who here happen to be the same person, so
+  // the columns must be populated separately rather than inferred.
+  const receipt = db.prepare(
+    'select * from purchase_receipts where request_id = ? order by created_at desc limit 1').get(mikesOwn.id);
+  eq(receipt.received_by, mike.id, 'BR-014.7 the receiving actor is recorded on the receipt');
+  check(Boolean(receipt.created_at), 'BR-014.7 the receipt records when it was written');
+  eq(receipt.received_date, '2026-08-07', 'BR-014.7 the receipt records the date the material arrived');
+  eq(receipt.packing_slip_number, 'PS-90001', 'BR-014.7 the packing slip is kept as evidence');
+
+  const line = db.prepare('select * from purchase_receipt_items where receipt_id = ?').get(receipt.id);
+  check(Number(line.received_qty) > 0, 'BR-014.7 the quantity received is recorded');
+  check(Number(line.damaged_qty) > 0, 'BR-014.7 damage is recorded as an exception rather than lost');
+  check(String(line.notes ?? '').length > 0, 'BR-014.7 the receiver\'s note about the exception is kept');
+
+  const requestRow = db.prepare('select requestor_id, approver_id from purchase_requests where id = ?').get(mikesOwn.id);
+  eq(requestRow.requestor_id, mike.id, 'BR-014.7 the requester is still named');
+  eq(requestRow.approver_id, mike.id, 'BR-014.7 the approver is still named');
+  check(
+    db.prepare("select count(*) c from purchase_activity_log where request_id = ? and action like 'receipt.%'")
+      .get(mikesOwn.id).c > 0,
+    'BR-014.7 the receipt appears in the activity history',
+  );
+
+  // BR-014.1 on the write path: a request-only user is refused server-side,
+  // not merely un-offered a button.
+  await refuses(
+    async () => S.recordReceipt(ctx(), requestOnly, mikesOwn.id, {
+      receivedDate: '2026-08-07',
+      lines: [{ purchaseOrderItemId: ownItem.id, receivedQty: '1' }],
+    }),
+    'missing_permission',
+    'BR-014.1 a request-only user cannot record a receipt, enforced on the server',
+  );
+
+  // BR-014.3: a foreman assigned elsewhere is refused on THIS job, by scope.
+  await refuses(
+    async () => S.recordReceipt(ctx(), otherSiteForeman, mikesOwn.id, {
+      receivedDate: '2026-08-07',
+      lines: [{ purchaseOrderItemId: ownItem.id, receivedQty: '1' }],
+    }),
+    'not_assigned',
+    'BR-014.3 a foreman on another job site is refused, by scope rather than identity',
+  );
+
+  // BR-014.2: the foreman assigned to THIS job may finish it — and the fact
+  // that Mike raised, approved and part-received it changes nothing.
+  const rest = await S.recordReceipt(ctx(), foreman, mikesOwn.id, {
+    receivedDate: '2026-08-08',
+    // 20 ordered, 8 received and 1 damaged already accounted for: 11 closes it.
+    lines: [{ purchaseOrderItemId: ownItem.id, receivedQty: '11' }],
+  });
+  eq(rest.outstandingLines, 0, 'BR-014.2 the assigned foreman finishes the receipt');
+  const second = db.prepare(
+    'select received_by from purchase_receipts where request_id = ? order by created_at desc limit 1').get(mikesOwn.id);
+  eq(second.received_by, foreman.id,
+     'BR-014.7 each receipt records ITS OWN receiver — two people, two rows, no overwrite');
+}
 
 console.log('--- integration seams ------------------------------------------');
 

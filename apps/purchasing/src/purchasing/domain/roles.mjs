@@ -15,6 +15,8 @@
 // approve unless separately granted approval authority" — a grant, not a role.
 // ---------------------------------------------------------------------------
 
+import { OPEN_ORDER_STATUSES } from './status.mjs';
+
 export const ROLES = ['REQUESTOR', 'FOREMAN', 'OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'];
 
 /**
@@ -174,6 +176,14 @@ export const CAPABILITIES = {
  * naming it here adds a label — never a second, drift-prone gate.
  */
 export const APPROVE_PURCHASE = 'purchase.request.approve';
+
+/**
+ * BR-014's capability by name. Receipt authority follows the capability and the
+ * scope a person is authorized to verify — never the identity of whoever
+ * requested or approved the order. Resolves to `receiving.record`, which is
+ * what authorize() enforces.
+ */
+export const RECORD_RECEIPT = 'receiving.confirm';
 
 /** Does this user hold a capability? True only if they hold ALL of its permissions. */
 export function hasCapability(user, capability) {
@@ -416,8 +426,18 @@ export function authorize(user, permission, ctx = {}) {
   // audit trail names the requester and the approver even when they are the
   // same person. See isSelfApproval() below.
 
-  // Job-site delivery confirmation is scoped to the caller's assigned jobs.
-  // The assignment list comes from the server (never from the browser).
+  // BR-014: RECEIPT AUTHORITY FOLLOWS CAPABILITY AND VERIFIED POSSESSION.
+  //
+  // Note what is NOT tested anywhere on this path: who raised the request and
+  // who approved it. A purchaser may receive an order they requested, and one
+  // they approved — signing for material that physically arrived is a statement
+  // about a delivery, not a second approval of the purchase, so the identity
+  // rules that govern approval have no business here.
+  //
+  // What IS tested is scope: a field user signs for what lands on the sites
+  // they are assigned to. Shop staff are not scoped, because receiving at the
+  // shop counter is their job and the counter is not a job site. The assignment
+  // list comes from the server (never from the browser).
   if (request && ASSIGNMENT_SCOPED.includes(permission) && isFieldOnly(user)) {
     const assigned = ctx.assignedJobNumbers ?? user.assignedJobNumbers ?? [];
     if (!assigned.includes(request.jobNumber)) {
@@ -441,6 +461,49 @@ const OWNERSHIP_REQUIRED = ['request.respond_clarification'];
 
 function deny(reason, message) {
   return { ok: false, reason, message };
+}
+
+/**
+ * BR-014: WHY receiving is unavailable, when it is.
+ *
+ * The receiving screen used to answer this with one sentence covering three
+ * unrelated situations — "either it is not awaiting delivery, or it is on a job
+ * you are not assigned to". A person holding full receipt authority, looking at
+ * an order that had simply already been received, was told they might not be
+ * allowed to touch it. That reads as an authority problem and sends them to ask
+ * for a permission they already have.
+ *
+ * These are three different facts and they get three different answers:
+ *
+ *   no_capability   this person cannot record receipts at all
+ *   not_assigned    they can, but not on this job site
+ *   not_receivable  they can, on this order — it is not awaiting delivery
+ *   cross_tenant    another organization's record (already refused upstream)
+ *
+ * Returns {ok: true} when receiving IS available. The server re-decides with
+ * the record in hand; this exists so the screen can say something true.
+ *
+ * @param {object|null} user
+ * @param {object|null} request
+ * @param {object} [ctx]  {settings, assignedJobNumbers}
+ */
+export function receivingAvailability(user, request, ctx = {}) {
+  const decision = authorize(user, 'receiving.record', { ...ctx, request });
+  if (!decision.ok) {
+    // authorize()'s vocabulary already distinguishes these; `missing_permission`
+    // is renamed here to the thing a reader of this answer cares about.
+    const reason = decision.reason === 'missing_permission' ? 'no_capability' : decision.reason;
+    return { ok: false, reason, message: decision.message };
+  }
+  if (!request) return { ok: true, reason: null, message: null };
+  if (!OPEN_ORDER_STATUSES.includes(request.status)) {
+    return {
+      ok: false,
+      reason: 'not_receivable',
+      message: `a ${request.status} order is not awaiting delivery`,
+    };
+  }
+  return { ok: true, reason: null, message: null };
 }
 
 /**

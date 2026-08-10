@@ -17,6 +17,10 @@
 //   4. BR-011 — approval authority supersedes requester identity. Its five
 //      cases are asserted by name; the fifth (the audit record) needs a
 //      database and lives in eval-purchasing.mjs.
+//   5. BR-014 — receipt authority follows capability and verified possession.
+//      Six of its seven cases are decided by pure functions and asserted here;
+//      the seventh (the receiving actor in the audit trail) is a write, and
+//      lives in eval-purchasing.mjs.
 //
 // Offline. Pure domain functions plus a source scan; no database, no server.
 // ---------------------------------------------------------------------------
@@ -320,6 +324,94 @@ console.log('--- BR-011: approval authority ---------------------------------');
   // "do not assume only the original purchaser can receive".
   check(authorize(receiver, 'receiving.record', { request: request({ requestorId: 'u-other' }) }).ok,
     'receiving does not require being the requestor or the purchaser');
+}
+
+// ===========================================================================
+// BR-014 — RECEIPT AUTHORITY FOLLOWS CAPABILITY AND VERIFIED POSSESSION.
+//
+// Signing for material that physically arrived is a statement about a
+// DELIVERY, not a second approval of the purchase. So the identity rules that
+// govern approval have no place here: what decides it is the RECORD_RECEIPT
+// capability plus the scope a person is authorized to verify.
+//
+// Case 7 (the actor recorded in the audit trail) is a write, and is asserted
+// in eval-purchasing.mjs against a real database.
+console.log('--- BR-014: receipt authority ----------------------------------');
+{
+  const requesterOnly = user({ id: 'u-req', roles: ['REQUESTOR'] });
+  const foreman = user({ id: 'u-fore', roles: ['FOREMAN'], assignedJobNumbers: ['24-118'] });
+  // The Mike/Rick shape: full purchasing authority, receives at the shop.
+  const purchaser = user({ id: 'u-buy', roles: ['WORKSHOP_APPROVER'], canApprove: true });
+  const admin = user({ id: 'u-adm', roles: ['ADMIN'], canApprove: true });
+  // Office staff given receiving without the workshop role.
+  const clerk = user({ id: 'u-off', roles: ['OFFICE'] });
+
+  const ordered = (over = {}) => request({ status: 'ORDERED', ...over });
+
+  // 1. A request-only user holds no receipt authority.
+  const c1 = authorize(requesterOnly, 'receiving.record', { request: ordered() });
+  check(!c1.ok && c1.reason === 'missing_permission',
+    'BR-014.1 a request-only user cannot record receiving', c1.reason);
+  check(!hasCapability(requesterOnly, roles.RECORD_RECEIPT),
+    'BR-014.1 ...because they do not hold RECORD_RECEIPT');
+  // ...and granting it is what changes that — the capability is the gate.
+  check(hasCapability(user({ id: 'u-req2', roles: ['REQUESTOR', 'FOREMAN'], assignedJobNumbers: ['24-118'] }), roles.RECORD_RECEIPT),
+    'BR-014.1 a separately granted receiving role carries RECORD_RECEIPT');
+
+  // 2. A foreman receives on a job site he is assigned to.
+  check(authorize(foreman, 'receiving.record', { request: ordered({ jobNumber: '24-118' }) }).ok,
+    'BR-014.2 a foreman records receiving on his assigned job');
+
+  // 3. ...and not on one he is not. Scope, not identity.
+  const c3 = authorize(foreman, 'receiving.record', { request: ordered({ jobNumber: '25-007' }) });
+  check(!c3.ok && c3.reason === 'not_assigned',
+    'BR-014.3 a scope-restricted foreman cannot receive an unrelated job', c3.reason);
+
+  // 4. Purchasing/workshop staff receive at the shop counter, unscoped — the
+  //    counter is not a job site, so an assignment list would be meaningless.
+  check(authorize(purchaser, 'receiving.record', { request: ordered({ jobNumber: '99-999' }) }).ok,
+    'BR-014.4 a workshop user records receipt for a workshop delivery, on any job');
+  check(authorize(clerk, 'receiving.record', { request: ordered({ jobNumber: '99-999' }) }).ok,
+    'BR-014.4 office staff receive at the counter without a job assignment');
+  check(authorize(admin, 'receiving.record', { request: ordered() }).ok,
+    'BR-014.4 an admin receives according to configured authority');
+
+  // 5. The order they raised themselves.
+  const own = ordered({ requestorId: 'u-buy', createdBy: 'u-buy' });
+  check(authorize(purchaser, 'receiving.record', { request: own }).ok,
+    'BR-014.5 an authorized purchaser receives an order they requested themselves');
+
+  // 6. The order they approved themselves — including a BR-011 self-approval,
+  //    where one person is requester AND approver. Neither fact is consulted.
+  const selfApproved = ordered({ requestorId: 'u-buy', createdBy: 'u-buy', approverId: 'u-buy' });
+  check(authorize(purchaser, 'receiving.record', { request: selfApproved }).ok,
+    'BR-014.6 an authorized purchaser receives an order they approved themselves');
+  check(authorize(purchaser, 'receiving.record', { request: ordered({ approverId: 'u-buy' }) }).ok,
+    'BR-014.6 approving an order does not disqualify you from signing for it');
+
+  // The refusal the screen shows must name the RIGHT thing. One message for
+  // three situations is what made a status problem look like a permissions
+  // problem to somebody who had every permission.
+  const availability = roles.receivingAvailability;
+  check(availability(purchaser, ordered()).ok, 'BR-014 receiving is available to a capable user on an open order');
+  check(availability(purchaser, ordered({ status: 'PARTIALLY_RECEIVED' })).ok,
+    'BR-014 a part-received order is still receivable — partial receiving is preserved');
+  check(availability(purchaser, request({ status: 'RECEIVED' })).reason === 'not_receivable',
+    'BR-014 a fully received order reports the STATUS, not a permissions problem');
+  check(availability(purchaser, request({ status: 'APPROVED' })).reason === 'not_receivable',
+    'BR-014 an order that has not been placed yet reports the status too');
+  check(availability(requesterOnly, ordered()).reason === 'no_capability',
+    'BR-014 someone who genuinely cannot receive is told that, and only that');
+  check(availability(foreman, ordered({ jobNumber: '25-007' })).reason === 'not_assigned',
+    'BR-014 a scope refusal names the scope');
+  check(availability(purchaser, ordered({ orgId: 'org-B' })).reason === 'cross_tenant',
+    'BR-014 the tenant boundary still fires first');
+  check(availability(purchaser, own).ok,
+    'BR-014 the screen offers receiving on an order the viewer raised — no identity test anywhere');
+
+  check(roles.RECORD_RECEIPT === 'receiving.confirm', 'BR-014 RECORD_RECEIPT names the receiving capability');
+  check(CAPABILITIES[roles.RECORD_RECEIPT].includes('receiving.record'),
+    'BR-014 the capability resolves to the permission authorize() actually enforces');
 }
 
 // A requestor's edit window closes when the workshop takes over.

@@ -22,6 +22,9 @@
 //   * BR-011                     — the LATEST definition of the decision RPC
 //                                  gates on the review.decide capability, does
 //                                  not refuse self-approval, and stamps it
+//   * BR-014                     — the LATEST definition of purchasing_may_receive
+//                                  gates on capability + job scope, and never
+//                                  on who requested or approved the order
 //
 // Used by scripts/eval-purchasing.mjs; exits non-zero on its own if run directly.
 // ---------------------------------------------------------------------------
@@ -246,6 +249,32 @@ export async function validate() {
     // The domain must not carry a denial the database cannot produce.
     if (DENY_REASONS.includes('self_approval')) {
       bad("roles.mjs still lists 'self_approval' as a denial reason, which BR-011 removed");
+    }
+  }
+
+  // --- BR-014: receipt authority is capability + scope, never identity ------
+  //
+  // Same reasoning as above, for the receiving side. The rule the database
+  // enforces is whatever the LAST definition of purchasing_may_receive() says,
+  // and what must never appear in it is a test of who raised or approved the
+  // order — signing for a delivery is a statement about the delivery.
+  const receiveDefs = migrationFiles.filter((f) =>
+    f.text.includes('function purchasing_may_receive'));
+  if (receiveDefs.length === 0) {
+    bad('no migration defines purchasing_may_receive()');
+  } else {
+    const latest = receiveDefs[receiveDefs.length - 1];
+    const body = functionBody(latest.text, 'purchasing_may_receive') ?? '';
+    if (!body.includes("purchasing_can(p_user, 'receiving.record')")) {
+      bad(`${latest.name}: purchasing_may_receive() does not check the receiving.record capability`);
+    }
+    if (!body.includes('purchasing_is_field_only')) {
+      bad(`${latest.name}: purchasing_may_receive() does not scope field users to their assigned jobs`);
+    }
+    for (const identity of ['requestor_id', 'created_by', 'approver_id']) {
+      if (body.includes(identity)) {
+        bad(`${latest.name}: purchasing_may_receive() consults ${identity} — BR-014 makes receipt authority a capability plus scope, never a function of who requested or approved the order`);
+      }
     }
   }
 
