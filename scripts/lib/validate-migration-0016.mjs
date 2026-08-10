@@ -307,6 +307,34 @@ export async function validate() {
       bad(`policy ${m[1]} grants UPDATE or DELETE on purchase_history_lines — a correction is a new request, never an edit`);
     }
   }
+  // THE OUTERMOST FENCE, and the one a live database found missing.
+  //
+  // 0030 shipped the table with RLS and two policies and no GRANT, so PostgREST
+  // answered "permission denied" before RLS was ever consulted: the policies
+  // were correct and the feature was unusable. 0031 grants exactly select and
+  // insert. This asserts both halves — that the grant exists, and that no
+  // migration ever widens it. 0020 grants `select, insert, update` over an
+  // ARRAY of table names, and this table being added to such an array is the
+  // realistic way UPDATE gets handed out by accident.
+  if (!/grant\s+select,\s*insert\s+on\s+(public\.)?purchase_history_lines\s+to\s+authenticated/i.test(everySql)) {
+    bad('purchase_history_lines is never granted select+insert to authenticated — PostgREST refuses it before RLS is consulted');
+  }
+  for (const m of everySql.matchAll(/grant\s+([\w\s,]+?)\s+on\s+(?:public\.)?purchase_history_lines\s+to\s+(\w+)/gi)) {
+    const privileges = m[1].toLowerCase();
+    if (/\b(update|delete|all)\b/.test(privileges)) {
+      bad(`a migration grants ${m[1].trim()} on purchase_history_lines to ${m[2]} — history is append-only at the grant as well as the policy`);
+    }
+    if (m[2] !== 'authenticated') {
+      bad(`a migration grants ${m[1].trim()} on purchase_history_lines to ${m[2]} — only authenticated reaches history, and never with RLS bypassed`);
+    }
+  }
+  // The same table added to one of 0020's bulk grant loops would slip past the
+  // check above, because those grants are built with format() at run time.
+  for (const m of everySql.matchAll(/purchasing_tables\s+text\[\]\s*:=\s*array\[([\s\S]*?)\]/g)) {
+    if (m[1].includes('purchase_history_lines')) {
+      bad('purchase_history_lines appears in a bulk grant array — those loops grant UPDATE, which history must never have');
+    }
+  }
   // Snapshot columns are the whole point: an id-only history is the view again.
   for (const column of ['vendor_name', 'requestor_name', 'approver_name', 'request_number',
                         'po_number', 'job_number', 'requested_description', 'ordered_description']) {

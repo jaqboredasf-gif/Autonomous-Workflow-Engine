@@ -177,6 +177,35 @@ check(/create trigger purchase_history_lines_no_delete/.test(sql),
 check(/COMPLETED', 'CANCELLED', 'REJECTED/.test(sql),
   'the history INSERT policy requires the request to already be in a terminal state');
 
+// A policy on a table nobody may reach protects nothing and serves nobody.
+// 0030 shipped exactly that way — RLS and policies, no GRANT — and PostgREST
+// answers "permission denied" before a policy is consulted, so every refusal
+// check above passed while the feature was unusable. The live suite
+// (supabase/tests/tenant_isolation.sql) now proves a tenant can read and write
+// its OWN history; this is the static half of the same claim.
+const everyMigration = ALL_MIGRATIONS.map((f) => f.text).join('\n');
+check(/grant\s+select,\s*insert\s+on\s+(public\.)?purchase_history_lines\s+to\s+authenticated/i.test(everyMigration),
+  'purchase_history_lines is granted select+insert to authenticated (0031) — without it the table is unreachable');
+check(!/grant[\w\s,]*\b(update|delete)\b[\w\s,]*on\s+(public\.)?purchase_history_lines/i.test(everyMigration),
+  'and never granted UPDATE or DELETE — append-only at the grant, not only at the policy');
+check(!/grant[\w\s,]+on\s+(public\.)?purchase_history_lines\s+to\s+service_role/i.test(everyMigration),
+  'service_role is never granted history access — nothing writes history with RLS bypassed');
+
+// TRUNCATE is the fourth way to destroy a record and the only one none of the
+// other three fences can see: row level security does not apply to it, and
+// `for each row` triggers do not fire. Supabase grants it by default, so this
+// has to be taken away explicitly and kept away.
+check(/revoke truncate on public\.%I from anon, authenticated/.test(everyMigration),
+  'a migration revokes TRUNCATE from anon and authenticated across the public schema (0032)');
+check(/alter default privileges[\s\S]{0,120}revoke truncate on tables from anon, authenticated/.test(everyMigration),
+  'and revokes it from the DEFAULT privileges, so the next table created does not get it back');
+check(/create trigger purchase_history_lines_no_truncate[\s\S]{0,160}for each statement/.test(everyMigration),
+  'purchase_history_lines carries a statement-level no-truncate guard');
+for (const evidence of ['purchase_receipts', 'purchase_receipt_items', 'purchase_approvals', 'purchase_activity_log']) {
+  check(new RegExp(`create trigger ${evidence}_no_truncate`).test(everyMigration),
+    `${evidence} carries one too — a missing row IS the damage on an append-only record`);
+}
+
 console.log('--- views run as the caller ------------------------------------');
 
 // THE DEFECT THIS EXISTS TO CATCH: a Postgres view runs with its OWNER's

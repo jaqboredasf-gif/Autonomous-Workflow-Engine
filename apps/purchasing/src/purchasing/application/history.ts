@@ -53,6 +53,22 @@ export async function recordPurchaseHistory(
     throw new PurchasingError('not_found', `purchase request ${requestId} not found`);
   }
 
+  // THE SAME RULE THE DATABASE ENFORCES, IN THE LAYER BOTH PROVIDERS SHARE.
+  //
+  // Migration 0033's INSERT policy refuses a row whose terminal_state is not the
+  // status the request actually reached, and refuses one written for a request
+  // still in flight. The pilot's SQLite store has no policies, so without this
+  // the two providers would disagree about what is writable — Supabase raising
+  // where the local store accepted. Checking it here means the rule holds
+  // wherever the data lives, and the policy becomes the second fence rather
+  // than the only one.
+  if (request.status !== terminalState) {
+    throw new PurchasingError(
+      'history_before_terminal',
+      `history for a ${request.status} request cannot record it as ${terminalState}`,
+    );
+  }
+
   // Independent reads, together: this runs on the completion path and the
   // provider may be remote.
   const [requestItems, reviewLines, order, progress, job] = await Promise.all([

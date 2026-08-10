@@ -1084,6 +1084,30 @@ await throws(
   'a history row cannot be deleted',
 );
 
+// --- the write point refuses a request that has not ended -------------------
+//
+// Migration 0033's INSERT policy enforces this in Postgres. The pilot store has
+// no policies, so the rule lives in the layer both providers share — without it
+// the two would disagree about what is writable, which the conformance suite
+// exists to prevent.
+{
+  const inFlight = await S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'still in flight' });
+  await S.submitRequest(ctx(), foreman, inFlight.id);
+  const historyModule = await import(join(APP, 'purchasing', 'application', 'history.ts'));
+  await refuses(
+    () => historyModule.recordPurchaseHistory(ctx(), mike, inFlight.id, 'COMPLETED'),
+    'history_before_terminal',
+    'history cannot be written for a request that is still in flight',
+  );
+  await refuses(
+    () => historyModule.recordPurchaseHistory(ctx(), mike, created.id, 'CANCELLED'),
+    'history_before_terminal',
+    'nor may it record a COMPLETED request as CANCELLED',
+  );
+  eq((await S.requestHistory(ctx(), mike, inFlight.id)).length, 0,
+     'and the in-flight request has no history rows');
+}
+
 // --- writing it twice is a no-op --------------------------------------------
 const rewrite = await ctx().history.record(afterRename, new Date(clock).toISOString());
 eq(rewrite.inserted, 0, 'recording the same history again inserts nothing');

@@ -110,6 +110,43 @@ membership row at all.
 real RLS, and a negative control (RLS disabled on one table) makes the isolation suite report
 three leaks — so the suite can fail, which is what makes the pass mean something.
 
+## 4a-0. Fixed after Phase A — three defects only the live database could show
+
+Migration 0030 was written, reviewed and proven against six offline suites. Applying it to a
+real Supabase stack found three things none of them could see.
+
+1. **The table was unreachable.** 0030 created `purchase_history_lines` with RLS and two
+   policies and no `GRANT`. Supabase does not auto-expose a new table, so PostgREST answers
+   *permission denied* before a policy is consulted. Every refusal check passed while the
+   feature was completely unusable on Supabase — and because the history write is inside the
+   terminal transition, the failure mode was not "history is missing" but "the purchase cannot
+   be completed at all". Fixed in **0031**, which grants `select, insert` and nothing else.
+   The isolation suite now proves a tenant can read and write its OWN history, because a suite
+   that only proves refusals passes just as well on a table nobody can reach.
+
+2. **`TRUNCATE` ignored every fence.** Row level security does not apply to `TRUNCATE`, and
+   `for each row` triggers do not fire for it — and Supabase's default privileges grant it to
+   `anon` and `authenticated` on every new table in `public`. Verified against the live stack:
+   an ordinary signed-in user of one organization could execute
+   `truncate purchase_history_lines` and destroy **every** organization's purchasing history in
+   one statement. The same was true of the audit log, the receipts, the approvals and the
+   orders — **57 tables**. It predates the immutable history and is not caused by it. Fixed in
+   **0032**: the privilege is revoked across the schema and from the default privileges, and the
+   append-only evidence tables carry a statement-level `guard_no_truncate()`.
+
+3. **A history row could lie about itself.** 0030's INSERT policy checked the organization and
+   that the request had ended. Everything else was taken on trust, so a signed-in user talking
+   to PostgREST directly could write, for their own organization, a row attributing the entry to
+   a colleague, or claiming a request `COMPLETED` when it was in fact `CANCELLED` — which
+   changes whether the line counts as a purchase at all. Neither is a cross-tenant leak; both
+   are lies inside a tenant, in the one record that is not re-derivable from anything else.
+   Fixed in **0033**: `recorded_by = auth.uid()` and the row's terminal state must equal the
+   request's actual status. The same rule is enforced in `application/history.ts` so the pilot
+   store, which has no policies, agrees.
+
+All three have negative controls in `supabase/tests/tenant_isolation.sql`: reintroduce the
+defect, and the suite reports it.
+
 ## 4a-1. Fixed in Phase A — history that rewrote itself
 
 `purchase_line_history` was a **view over live entities**, so it resolved `vendor_id` and the

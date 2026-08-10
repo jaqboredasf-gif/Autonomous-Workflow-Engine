@@ -62,7 +62,14 @@ Env required: `AUTH_PROVIDER=supabase`, `PURCHASING_PERSISTENCE=supabase`,
 `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_SECRET`. Get the keys from
 `npx supabase status`.
 
-Migrations `0028` and `0029` are applied to the running local Postgres.
+The local Postgres is reproducible from the repository: `npx --yes supabase@2.112.0 db reset`
+applies `0001`–`0033` and nothing else. Pin that version — a bare `npx supabase` resolves to a
+package with no `darwin-arm64` binary and fails before it starts.
+
+Anything applied to the local stack that is not a file in `supabase/migrations/` is a divergence
+and will be lost by the next reset. Four such migrations existed on 2026-08-10; what they were,
+why they were dropped and what is worth arguing about in them is in
+`docs/recovered/2026-08-10-local-out-of-band-migrations/`.
 
 ### Key documents now present
 
