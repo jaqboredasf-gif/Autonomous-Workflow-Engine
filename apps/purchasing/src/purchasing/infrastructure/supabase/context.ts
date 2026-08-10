@@ -16,6 +16,7 @@ import type {
 } from '../../application/ports.ts';
 import type { AppConfig } from '../env.ts';
 import { emailDraftAdapter, pdfRenderer, systemClock } from '../adapters.ts';
+import { builtinIntegrationProviders } from '../providers/builtin.ts';
 import { requestClient, privilegedClient, unwrap, type SupabaseHandles } from './client.ts';
 import { TABLES, money, qty, toActor } from './mappers.ts';
 import {
@@ -368,6 +369,9 @@ export function supabasePurchasingContext(
     orgId,
   };
 
+  const reference = supabaseReferenceRepository(handles);
+  const catalog = supabaseItemCatalogRepository(handles);
+
   return {
     clock: systemClock(now),
     uow: supabaseUnitOfWork(),
@@ -378,8 +382,8 @@ export function supabasePurchasingContext(
     drafts: supabaseEmailDraftRepository(handles),
     receipts: supabaseReceiptRepository(handles),
     inventory: supabaseInventoryRepository(handles),
-    reference: supabaseReferenceRepository(handles),
-    catalog: supabaseItemCatalogRepository(handles),
+    reference,
+    catalog,
     poNumbers: supabasePoNumberAllocator(handles),
     identity: identity(handles, config),
     // Credentials stay with the AuthPort; the Supabase auth adapter already
@@ -391,6 +395,12 @@ export function supabasePurchasingContext(
     renderer: pdfRenderer(),
     attachments: attachments(handles),
     email: emailDraftAdapter(),
+    // The same seams, over the Supabase repositories. The adapters are written
+    // against the repository interfaces rather than against SQLite, so both
+    // providers get identical job lookup, autocomplete ranking and email
+    // handoff — which is the property that makes the local harness evidence
+    // about production behaviour rather than about the pilot.
+    integrations: builtinIntegrationProviders({ reference, catalog }),
     atomic: atomicOperations(handles),
   };
 }

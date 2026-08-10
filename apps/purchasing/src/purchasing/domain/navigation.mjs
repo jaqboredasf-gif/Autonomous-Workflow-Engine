@@ -42,6 +42,10 @@ export const NAV_GROUPS = [
     items: [
       { key: 'VENDORS', label: 'Vendors', path: '/vendors', permission: 'request.read.all' },
       { key: 'MATERIALS', label: 'Materials', path: '/materials', permission: 'request.read.all' },
+      // The job directory. Read-only here on purpose: jobs are created in
+      // Administration today and will come from QuickBooks later, so this is
+      // the place to LOOK ONE UP, not a second place to invent one.
+      { key: 'JOBS', label: 'Jobs', path: '/jobs', permission: 'request.read.all' },
     ],
   },
   {

@@ -23,6 +23,7 @@ import {
   sqliteReviewRepository,
 } from './infrastructure/sqlite/repositories.ts';
 import { getDb } from './infrastructure/sqlite/database.ts';
+import { builtinIntegrationProviders } from './infrastructure/providers/builtin.ts';
 import { authAdapter } from './infrastructure/auth/index.ts';
 import { loadConfig } from './infrastructure/env.ts';
 
@@ -44,6 +45,8 @@ export function selectedProvider(config = loadConfig()): 'local' | 'supabase' {
  */
 export function purchasingContext(db: DatabaseSync = getDb(), now?: string): PurchasingContext {
   const clock = systemClock(now);
+  const reference = sqliteReferenceRepository(db);
+  const catalog = sqliteItemCatalogRepository(db);
   return {
     clock,
     // One transaction boundary. It nests (a use case calling another does not
@@ -56,8 +59,8 @@ export function purchasingContext(db: DatabaseSync = getDb(), now?: string): Pur
     drafts: sqliteEmailDraftRepository(db),
     receipts: sqliteReceiptRepository(db),
     inventory: sqliteInventoryRepository(db),
-    reference: sqliteReferenceRepository(db),
-    catalog: sqliteItemCatalogRepository(db),
+    reference,
+    catalog,
     poNumbers: sqlitePoNumberAllocator(db),
     identity: identityAdapter(db),
     // Credentials: Supabase Auth in production, the local scrypt store for the
@@ -69,6 +72,10 @@ export function purchasingContext(db: DatabaseSync = getDb(), now?: string): Pur
     renderer: pdfRenderer(),
     attachments: attachmentAdapter(db),
     email: emailDraftAdapter(),
+    // The external seams. Bound to this organization's own data today; the
+    // whole point of the indirection is that swapping one for QuickBooks or
+    // Microsoft 365 happens on this line and nowhere above it.
+    integrations: builtinIntegrationProviders({ reference, catalog }),
   };
 }
 

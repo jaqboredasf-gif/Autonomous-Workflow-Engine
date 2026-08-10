@@ -40,6 +40,14 @@ export function BrandMark({ size = 28, variant = 'mark', subtitle = 'Purchasing 
       alt={variant === 'lockup' ? '' : 'Lippolis Electric'}
       aria-hidden={variant === 'lockup' ? true : undefined}
       onError={() => setSrc((current) => (current === SVG ? PNG : current))}
+      // An SVG can LOAD and still draw nothing — no intrinsic size means
+      // `width: auto` resolves to zero, and `onError` never fires because
+      // nothing errored. That failure is invisible in code review and obvious
+      // to every user, so it falls back on the same path as a real error.
+      onLoad={(event) => {
+        const img = event.currentTarget;
+        if (img.naturalWidth === 0) setSrc((current) => (current === SVG ? PNG : current));
+      }}
       style={{ height: size, width: 'auto' }}
       className="shrink-0 select-none"
       draggable={false}

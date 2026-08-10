@@ -115,6 +115,7 @@ export const ROUTE_GUARDS = [
   { prefix: '/dashboard', permission: 'request.read.all' },
   { prefix: '/vendors', permission: 'request.read.all' },
   { prefix: '/materials', permission: 'request.read.all' },
+  { prefix: '/jobs', permission: 'request.read.all' },
   { prefix: '/reports', permission: 'request.read.all' },
   // Receiving is the workspace behind screen 06. It is guarded by the
   // permission that RECORDS a receipt rather than by `deliveries.confirm`,

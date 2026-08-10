@@ -14,11 +14,16 @@
   official vector from the brand owner, check the palette still matches those
   tokens.
 
-  No width/height on purpose: the viewBox scales to whatever box BrandMark
-  gives it. currentColor is deliberately NOT used — a two-colour logo is not a
-  glyph, and tinting it would misrepresent the brand.
+  width and height ARE set, matching the viewBox. Without them an <img> has no
+  intrinsic size, and `width: auto` beside a fixed height resolves to zero in
+  Chrome — the file loads, reports success, and draws nothing, so the onError
+  fallback never fires either. CSS still scales it freely; these only give the
+  image an aspect ratio to be scaled BY.
+
+  currentColor is deliberately NOT used — a two-colour logo is not a glyph, and
+  tinting it would misrepresent the brand.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 35 458 354" role="img" aria-label="Lippolis Electric">
+<svg xmlns="http://www.w3.org/2000/svg" width="458" height="354" viewBox="18 35 458 354" role="img" aria-label="Lippolis Electric">
   <path fill="#FF3D00" d="M220 105 L247 36 L476 36 L464 54 L425 108 L220 108 Z M189 187 L213 122 L409 122 L397 140 L363 189 Z"/>
   <path fill="#0800D1" d="M18 282 L111 35 L227 35 L161 210 L349 210 L348 212 L224 389 L259 283 Z"/>
 </svg>

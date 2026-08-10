@@ -183,3 +183,52 @@ export function byCatalogUsefulness(a, b) {
   if (timesB !== timesA) return timesB - timesA;
   return String(b?.lastRequestedAt ?? '').localeCompare(String(a?.lastRequestedAt ?? ''));
 }
+
+/**
+ * MATCH TIER — how well an entry matches what was typed, as a rank.
+ *
+ * The handoff states the autocomplete priority: exact, then alias, then
+ * frequent, then recent. The first two are about the MATCH and the last two are
+ * about the HISTORY, so they compose rather than compete: tier orders the
+ * matches, and byCatalogUsefulness breaks ties inside a tier.
+ *
+ * 0 exact      — what was typed IS the item, by canonical description, by
+ *                catalogue number, or by normalized form. Typing a part number
+ *                should land on that part, not on the thing bought most often.
+ * 1 alias      — one of the organization's own names for it matches exactly.
+ * 2 prefix     — the item starts with what has been typed. Mid-keystroke, this
+ *                is what a person means far more often than a substring hit.
+ * 3 contains   — matched somewhere inside.
+ *
+ * @param {object} entry
+ * @param {string} search
+ * @returns {number}
+ */
+export function matchTier(entry, search) {
+  const raw = String(search ?? '').trim().toLowerCase();
+  if (!raw) return 3;
+  const needle = normalizeDescription(raw);
+  const canonical = String(entry?.canonicalDescription ?? '').toLowerCase();
+  const number = String(entry?.catalogNumber ?? '').toLowerCase();
+  const normalized = String(entry?.normalizedDescription ?? '');
+  const aliases = (entry?.aliases ?? []).map((a) => String(a).toLowerCase());
+
+  if (canonical === raw || number === raw || (needle && normalized === needle)) return 0;
+  if (aliases.some((a) => a === raw)) return 1;
+  if (canonical.startsWith(raw) || number.startsWith(raw) || aliases.some((a) => a.startsWith(raw))) return 2;
+  return 3;
+}
+
+/**
+ * The autocomplete list: filtered by matchCatalog(), then ordered by tier and,
+ * within a tier, by what this organization actually buys.
+ *
+ * One function so every provider — and the future QuickBooks or spreadsheet
+ * adapter — produces the SAME list. An adapter that ranked in its own SQL would
+ * quietly give two deployments different suggestions for the same typing.
+ */
+export function rankMaterialMatches(entries = [], search = '', limit = 8) {
+  const matched = matchCatalog(entries, search).map((entry) => ({ entry, tier: matchTier(entry, search) }));
+  matched.sort((a, b) => (a.tier - b.tier) || byCatalogUsefulness(a.entry, b.entry));
+  return matched.slice(0, Math.max(0, limit)).map((m) => m.entry);
+}

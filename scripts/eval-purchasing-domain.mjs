@@ -461,6 +461,109 @@ for (const field of ['orgId', 'normalizedDescription', 'description', 'quantity'
   check(C.HISTORY_FIELDS.includes(field), `history preserves ${field}`);
 }
 
+// --- autocomplete order: exact, alias, frequent, recent --------------------
+//
+// The handoff states this priority, and it is the whole difference between an
+// autocomplete people trust and one they fight. Ranking lives in the domain so
+// that a future QuickBooks or spreadsheet adapter cannot quietly reorder it.
+{
+  const entry = (over) => ({
+    canonicalDescription: '', normalizedDescription: '', aliases: [], catalogNumber: null,
+    timesRequested: 0, lastRequestedAt: null, isActive: true, ...over,
+  });
+  const exact = entry({
+    canonicalDescription: 'MC cable', normalizedDescription: C.normalizeDescription('MC cable'),
+    timesRequested: 1, lastRequestedAt: '2026-01-01T00:00:00Z',
+  });
+  const aliased = entry({
+    canonicalDescription: 'Metal clad cable 12/2', normalizedDescription: C.normalizeDescription('Metal clad cable 12/2'),
+    aliases: ['MC cable'], timesRequested: 5, lastRequestedAt: '2026-08-01T00:00:00Z',
+  });
+  const frequent = entry({
+    canonicalDescription: 'MC cable 12/3 250ft', normalizedDescription: C.normalizeDescription('MC cable 12/3 250ft'),
+    timesRequested: 90, lastRequestedAt: '2026-02-01T00:00:00Z',
+  });
+  const recent = entry({
+    canonicalDescription: 'MC cable 10/2 coil', normalizedDescription: C.normalizeDescription('MC cable 10/2 coil'),
+    timesRequested: 2, lastRequestedAt: '2026-08-09T00:00:00Z',
+  });
+
+  const ranked = C.rankMaterialMatches([recent, frequent, aliased, exact], 'MC cable', 8);
+  eq(ranked[0].canonicalDescription, 'MC cable', 'autocomplete 1: an exact match wins, however rarely it is bought');
+  eq(ranked[1].canonicalDescription, 'Metal clad cable 12/2', "autocomplete 2: the organization's own alias comes next");
+  eq(ranked[2].canonicalDescription, 'MC cable 12/3 250ft', 'autocomplete 3: then what is bought most often');
+  eq(ranked[3].canonicalDescription, 'MC cable 10/2 coil', 'autocomplete 4: then what was bought most recently');
+  eq(C.rankMaterialMatches([recent, frequent], 'MC cable', 1).length, 1, 'the limit is honoured');
+  eq(C.rankMaterialMatches([], 'anything').length, 0, 'an empty catalogue suggests nothing');
+
+  // A part number is an identifier, not prose: typing it lands on that part
+  // rather than on the popular thing whose description contains it.
+  const byNumber = entry({ canonicalDescription: 'Breaker 20A', catalogNumber: 'QO120', timesRequested: 0 });
+  const popular = entry({ canonicalDescription: 'QO120 breaker assortment', normalizedDescription: C.normalizeDescription('QO120 breaker assortment'), timesRequested: 400 });
+  eq(C.rankMaterialMatches([popular, byNumber], 'QO120')[0].canonicalDescription, 'Breaker 20A',
+     'an exact catalogue number beats a popular description that merely contains it');
+}
+
+console.log('--- material import (the authoritative spreadsheet) ------------');
+
+const MI = await import(join(DOMAIN, 'material-import.mjs'));
+
+// Header mapping tolerates how people actually label columns.
+{
+  const { mapping } = MI.mapColumns(['Material ID', 'Description', 'Mfr. Part #', 'UOM', 'Preferred Vendor']);
+  eq(mapping.materialId, 0, 'an ID column is recognised');
+  eq(mapping.canonicalDescription, 1, 'the description column is recognised');
+  eq(mapping.manufacturerPartNumber, 2, 'punctuation and spacing in a header do not matter');
+  eq(mapping.unit, 3, 'UOM is a unit column');
+  eq(mapping.preferredVendor, 4, 'a preferred vendor column is recognised');
+
+  const missing = MI.normalizeMaterialImport([['Thing', 'Qty'], ['a', '1']]);
+  eq(missing.records.length, 0, 'without a description column nothing is imported');
+  eq(missing.problems[0].code, 'no_description_column', 'and the reason is stated rather than guessed at');
+}
+
+// Units collapse to one vocabulary so quantities can be compared.
+eq(MI.normalizeUnit('Each'), 'EA', 'each is EA');
+eq(MI.normalizeUnit('ft.'), 'FT', 'a trailing period does not make a new unit');
+eq(MI.normalizeUnit(''), null, 'a blank unit is unknown, not a default');
+eq(MI.parseMoneyCents('$1,250.50'), 125_050, 'money survives currency symbols and separators');
+eq(MI.parseMoneyCents(''), null, 'an empty price is unknown rather than free');
+eq(MI.parseMoneyCents('call for pricing'), null, 'an unreadable price is unknown rather than zero');
+
+// A description containing a comma must not shift every column after it.
+{
+  const rows = MI.parseDelimited('Description,Unit\n"Cable, 12/2, 250ft",EA\n');
+  eq(rows[1][0], 'Cable, 12/2, 250ft', 'a quoted comma stays inside its field');
+  eq(rows[1][1], 'EA', 'and the next column is still the next column');
+}
+
+// The whole normalization, on a sheet with the problems real sheets have.
+{
+  const table = [
+    ['Material ID', 'Description', 'Aliases', 'UOM', 'Category', 'Last Price', 'Active', 'Notes'],
+    ['M-1', '2x4 LED Troffer 4000K', 'troffer; 2x4 led', 'Each', 'Lighting', '$89.50', 'Yes', 'ignored'],
+    ['M-2', '  ', 'nothing', 'EA', 'Lighting', '', 'Yes', ''],
+    ['M-3', '2X4 led troffer, 4000k', '', 'ea', 'Lighting', '90', 'Yes', ''],
+    ['M-4', '1/2 in EMT conduit', 'half inch emt', 'FT', 'Conduit', '', 'No', ''],
+    ['', '', '', '', '', '', '', ''],
+  ];
+  const out = MI.normalizeMaterialImport(table);
+  eq(out.records.length, 2, 'two real materials are imported');
+  eq(out.records[0].aliases.length, 2, 'aliases split on the separators people actually use');
+  eq(out.records[0].unit, 'EA', 'units are normalized on the way in');
+  eq(out.records[0].lastUnitCostCents, 8_950, 'the last price is captured as cents');
+  eq(out.records[1].active, false, 'an inactive row is imported as inactive rather than dropped');
+  eq(out.problems.find((p) => p.code === 'missing_description').row, 3,
+     'a row with no description is reported with its SPREADSHEET row number');
+  eq(out.problems.find((p) => p.code === 'duplicate_material').row, 4,
+     'a re-typed duplicate is reported rather than silently merged or double-imported');
+  check(out.problems.find((p) => p.code === 'duplicate_material').message.includes('row 2'),
+        'and the duplicate names the row it collides with, so the sheet can be fixed');
+  check(out.unmappedColumns.some((c) => c.header === 'Notes'),
+        'an unrecognised column is reported — a column nobody mapped is how an import silently loses data');
+  eq(MI.normalizeMaterialImport([]).records.length, 0, 'an empty sheet imports nothing and does not throw');
+}
+
 console.log('--- internationalization seam ----------------------------------');
 
 // The product will ship English and Spanish. Identifiers are never translated;

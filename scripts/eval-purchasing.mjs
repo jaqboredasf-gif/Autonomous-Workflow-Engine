@@ -631,6 +631,61 @@ eq(colleagueRow.requestor_id, foreman.id, 'BR-011.5 the requester is the foreman
 eq(colleagueRow.approver_id, rick.id, 'BR-011.5 the approver is the purchaser who decided it');
 eq(colleagueRow.self_approved, 0, "BR-011.5 deciding a colleague's request is not stamped as self-approval");
 
+console.log('--- integration seams ------------------------------------------');
+
+// The seams where QuickBooks, Microsoft 365 and the material spreadsheet will
+// attach. They are bound to purchasing's own data today, so what is asserted
+// here is the CONTRACT a future adapter has to satisfy — canonical identifiers
+// survive, an exact lookup is exact, and the email path cannot report a send.
+{
+  const integrations = ctx().integrations;
+  check(Boolean(integrations), 'the context exposes the integration seams');
+
+  // Jobs — the type-ahead and the exact re-check a server action performs.
+  const jobs = await integrations.jobs.list(mike.orgId);
+  check(jobs.length > 0, 'the job directory answers from this organization');
+  check(jobs.every((j) => j.sourceId && j.jobNumber), 'every job carries a canonical id AND the number people type');
+  const known = jobs[0];
+  const typeAhead = await integrations.jobs.search(mike.orgId, known.jobNumber.slice(0, 3), 5);
+  check(typeAhead.some((j) => j.jobNumber === known.jobNumber), 'typing the first characters of a job number finds it');
+  eq((await integrations.jobs.byNumber(mike.orgId, known.jobNumber))?.sourceId, known.sourceId,
+     'the exact lookup returns the same canonical record');
+  eq(await integrations.jobs.byNumber(mike.orgId, 'no-such-job'), null,
+     'an unknown job number is null, not a nearest match — this is what re-checks a submitted form');
+
+  // Vendors.
+  const vendorHits = await integrations.vendors.search(mike.orgId, 'gray', 5);
+  check(vendorHits.every((v) => v.vendorId), 'every vendor record carries its id');
+  check((await integrations.vendors.list(mike.orgId)).length > 0, 'the vendor directory answers');
+
+  // Materials — the ranking is the domain's, exercised through the provider.
+  const materialHits = await integrations.materials.search(mike.orgId, 'wire', 5);
+  check(Array.isArray(materialHits), 'the material catalogue answers a search');
+  check(materialHits.length <= 5, 'and honours the limit it was given');
+
+  // Email: prepared for a human, never sent.
+  const prepared = await integrations.email.prepare({
+    orgId: mike.orgId, actorId: mike.id, purchaseOrderId: 'po-1',
+    payload: { to: ['sales@example.invalid'], subject: 'PO LE-00001', body: 'Please supply the following.' },
+  });
+  eq(prepared.sent, false, 'a prepared draft is NEVER reported as sent');
+  check(['display', 'mailto'].includes(prepared.handoff), 'the handoff is one this deployment can actually perform');
+  check(!('send' in integrations.email), 'the email seam has no send() at all — absence is the control');
+  await refuses(
+    async () => integrations.email.prepare({
+      orgId: mike.orgId, actorId: mike.id, purchaseOrderId: 'po-1',
+      payload: { to: [], subject: 'x', body: 'y' },
+    }),
+    'no_recipient',
+    'a draft addressed to nobody is refused rather than produced',
+  );
+
+  // Time tracking is declared and NOT implemented. Null is the honest answer;
+  // an adapter returning zero hours would be indistinguishable from a job
+  // nobody has worked.
+  eq(integrations.timeTracking, null, 'the time-tracking seam is null until Exact Time is connected');
+}
+
 console.log('--- tenant isolation + unauthorized access ---------------------');
 
 const otherOrg = randomUUID();

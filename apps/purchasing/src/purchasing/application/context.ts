@@ -18,6 +18,7 @@ import type {
   Actor, AtomicOperations, AttachmentPort, AuditPort, AuthPort, Clock, DocumentPort,
   DocumentRenderer, EmailDraftPort, IdentityPort, NotificationPort, UnitOfWork,
 } from './ports.ts';
+import type { IntegrationProviders } from './integrations.ts';
 
 import { authorize } from '../domain/roles.mjs';
 import { transitionGuard } from '../domain/status.mjs';
@@ -45,6 +46,15 @@ export type PurchasingContext = {
   renderer: DocumentRenderer;
   attachments: AttachmentPort;
   email: EmailDraftPort;
+  /**
+   * The seams where external systems attach — jobs, materials, vendors, the
+   * vendor-email handoff, labour hours. Separate from the ports above because
+   * these are OTHER PRODUCTS (QuickBooks, Microsoft 365, Exact Time) rather
+   * than platform capabilities, and because the point of naming them is that a
+   * use case can never reach one of those products directly.
+   * See application/integrations.ts.
+   */
+  integrations: IntegrationProviders;
   /**
    * Present only when the provider can do a multi-write operation atomically
    * server-side. Absent on the local provider, whose unit of work is already a
