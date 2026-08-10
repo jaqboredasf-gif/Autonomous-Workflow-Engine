@@ -177,6 +177,8 @@ export function toRequestItem(row: any): any {
     requestedQty: qty.read(row.requested_qty),
     unit: row.unit,
     stockNumber: row.stock_number ?? null,
+    normalizedDescription: row.normalized_description ?? null,
+    catalogItemId: row.catalog_item_id ?? null,
     notes: row.notes ?? null,
   };
 }
@@ -202,6 +204,7 @@ export function toReviewLine(item: any, review: any | null, vendorName: string |
     replenishmentQty: qty.read(review?.replenishment_qty ?? 0),
     vendorId: review?.vendor_id ?? null,
     vendorName,
+    vendorPartNumber: review?.vendor_part_number ?? null,
     estimatedUnitCostCents: nullableMoney.read(review?.estimated_unit_cost),
     estimatedLineTotalCents: money.read(review?.estimated_line_total ?? 0),
     substituteDescription: review?.substitute_description ?? null,

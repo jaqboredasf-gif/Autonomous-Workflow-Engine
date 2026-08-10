@@ -53,6 +53,7 @@ export async function generatePurchaseOrder(ctx: PurchasingContext, actor: Actor
         original: { id: l.requestItemId, lineNo: l.lineNo, description: l.description, unit: l.unit },
         quantities: { finalOrder: l.finalOrderQty },
         unitCostCents: l.estimatedUnitCostCents,
+        vendorPartNumber: l.vendorPartNumber,
         lineTotalCents: l.estimatedLineTotalCents,
         substituteDescription: l.substituteDescription,
         expectedArrivalDate: l.expectedArrivalDate,

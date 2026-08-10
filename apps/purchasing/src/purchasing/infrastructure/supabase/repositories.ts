@@ -34,7 +34,7 @@ import type {
 // purpose: two catalogues that ordered their suggestions differently would be
 // two products. Only the read differs between providers.
 import {
-  byCatalogUsefulness, matchCatalog, normalizeDescription, NORMALIZER_VERSION,
+  matchCatalog, normalizeDescription, NORMALIZER_VERSION, rankMaterialMatches,
 } from '../../domain/catalog.mjs';
 import {
   deriveMaterialIntelligence, deriveVendorIntelligence, deriveVendorMaterialIntelligence,
@@ -358,6 +358,7 @@ export function supabaseReviewRepository(h: SupabaseHandles): WorkshopReviewRepo
         stock_applied_qty: qty.write(values.stockAppliedQty),
         replenishment_qty: qty.write(values.replenishmentQty),
         vendor_id: values.vendorId,
+        vendor_part_number: values.vendorPartNumber,
         estimated_unit_cost: nullableMoney.write(values.estimatedUnitCostCents),
         estimated_line_total: money.write(values.estimatedLineTotalCents),
         substitute_description: values.substituteDescription,
@@ -380,6 +381,7 @@ export function supabaseReviewRepository(h: SupabaseHandles): WorkshopReviewRepo
               approvedQty: qty.read(previous.approved_qty),
               finalOrderQty: qty.read(previous.final_order_qty),
               vendorId: previous.vendor_id ?? null,
+              vendorPartNumber: previous.vendor_part_number ?? null,
               unitCostCents: nullableMoney.read(previous.estimated_unit_cost),
             }
           : null,
@@ -499,6 +501,7 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
             normalized_description: normalizeDescription(line.substituteDescription || line.description),
             normalizer_version: NORMALIZER_VERSION,
             order_qty: qty.write(line.orderQty), unit: line.unit,
+            vendor_part_number: line.vendorPartNumber ?? null,
             unit_cost: money.write(line.unitCostCents), line_total: money.write(line.lineTotalCents),
             expected_arrival_date: line.expectedArrivalDate,
           })),
@@ -614,6 +617,7 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
         items: ((order[TABLES.orderItems] ?? []) as any[]).map((i) => ({
           lineNo: i.line_no, description: i.description, substituteFor: i.substitute_description,
           finalOrderQty: qty.read(i.order_qty), unit: i.unit,
+          vendorPartNumber: i.vendor_part_number ?? null,
           estimatedUnitCostCents: money.read(i.unit_cost), lineTotalCents: money.read(i.line_total),
           expectedArrivalDate: i.expected_arrival_date,
         })),
@@ -1063,7 +1067,7 @@ const HISTORY_LIMIT = 5000;
 
 export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRepository {
   const loadEntries = async (): Promise<CatalogEntry[]> => {
-    const [historyRows, curatedRows] = await Promise.all([
+    const [historyRows, curatedRows, vendorRows] = await Promise.all([
       unwrap(
         await h.db
           .from(TABLES.historyLines)
@@ -1077,10 +1081,15 @@ export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRe
         await h.db.from(TABLES.itemCatalog).select('*').eq('org_id', h.orgId),
         'read item catalog',
       ) as any[],
+      unwrap(
+        await h.db.from(TABLES.vendors).select('id,name').eq('org_id', h.orgId),
+        'read configured vendor names',
+      ) as any[],
     ]);
 
     const curated = new Map(curatedRows.map((row) => [String(row.normalized_description), row]));
-    return catalogEntriesFromSnapshots(historyRows.map(toHistoryLine), curated);
+    const vendorNames = new Map(vendorRows.map((row) => [String(row.id), String(row.name)]));
+    return catalogEntriesFromSnapshots(historyRows.map(toHistoryLine), curated, vendorNames);
   };
 
   return {
@@ -1094,8 +1103,7 @@ export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRe
     },
 
     async suggest(orgId, query, limit = 8) {
-      const entries = matchCatalog((await loadEntries()).filter((e) => e.isActive), query);
-      return entries.sort(byCatalogUsefulness).slice(0, limit);
+      return rankMaterialMatches((await loadEntries()).filter((e) => e.isActive), query, limit);
     },
 
     async findByNormalized(orgId, normalizedDescription) {
@@ -1113,7 +1121,7 @@ export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRe
           .limit(HISTORY_LIMIT),
         'read immutable vendor materials',
       ) as any[];
-      return catalogEntriesFromSnapshots(rows.map(toHistoryLine), new Map())
+      return catalogEntriesFromSnapshots(rows.map(toHistoryLine), new Map(), new Map())
         .sort((a, b) => b.timesRequested - a.timesRequested)
         .slice(0, limit);
     },
@@ -1123,6 +1131,7 @@ export function supabaseItemCatalogRepository(h: SupabaseHandles): ItemCatalogRe
 function catalogEntriesFromSnapshots(
   lines: PurchaseHistoryLineRecord[],
   curated: Map<string, any>,
+  vendorNames: Map<string, string>,
 ): CatalogEntry[] {
   const grouped = new Map<string, PurchaseHistoryLineRecord[]>();
   for (const line of lines) {
@@ -1135,6 +1144,8 @@ function catalogEntriesFromSnapshots(
     const history = grouped.get(key) ?? [];
     const latest = history[0];
     const c = curated.get(key);
+    const facts = deriveMaterialIntelligence(history)[0] ?? null;
+    const configuredDefaultVendorId = c?.default_vendor_id ? String(c.default_vendor_id) : null;
     return {
       catalogItemId: c ? String(c.id) : latest?.catalogItemId ?? null,
       normalizedDescription: key,
@@ -1145,11 +1156,18 @@ function catalogEntriesFromSnapshots(
       ]).filter(Boolean) as string[])],
       defaultUnit: c?.default_unit ?? latest?.unitSnapshot ?? null,
       catalogNumber: c?.catalog_number ?? null,
+      configuredDefaultVendorId,
+      configuredDefaultVendorName: configuredDefaultVendorId
+        ? vendorNames.get(configuredDefaultVendorId) ?? null
+        : null,
       timesRequested: history.length,
       totalQtyRequested: history.reduce((total, line) => total + line.quantityOrdered, 0),
       lastRequestedAt: latest?.requestedAt ?? null,
+      commonQuantity: facts?.commonQuantity ?? null,
+      completedOrderCount: facts?.completedOrderCount ?? 0,
       lastVendorId: latest?.vendorId ?? null,
       lastVendorName: latest?.vendorNameSnapshot ?? null,
+      lastVendorPartNumber: latest?.vendorPartNumberSnapshot ?? null,
       lastUnitCostCents: latest?.actualUnitPriceCents ?? latest?.estimatedUnitPriceCents ?? null,
       lastOrderedAt: latest?.orderedAt ?? null,
       isActive: c ? c.is_active !== false : true,

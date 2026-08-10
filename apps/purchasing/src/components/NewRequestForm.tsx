@@ -26,7 +26,7 @@
 import { useActionState, useState } from 'react';
 
 import { createRequestAction } from '../app/actions.ts';
-import { UNITS } from '../purchasing/domain/numbers.mjs';
+import { formatQty, UNITS } from '../purchasing/domain/numbers.mjs';
 import {
   Alert,
   Badge,
@@ -228,6 +228,7 @@ export default function NewRequestForm({
                     description: suggestion.description,
                     unit: suggestion.unit ?? line.unit,
                     stockNumber: suggestion.catalogNumber ?? line.stockNumber,
+                    qty: line.qty || (suggestion.commonQuantity === null ? '' : formatQty(suggestion.commonQuantity)),
                   })
                 }
               />

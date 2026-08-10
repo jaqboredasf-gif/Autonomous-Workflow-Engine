@@ -34,7 +34,7 @@ import type {
 import { formatPoNumber } from '../../domain/po-number.mjs';
 import { lineOutstandingQty } from '../../domain/numbers.mjs';
 import {
-  byCatalogUsefulness, matchCatalog, normalizeDescription, NORMALIZER_VERSION,
+  matchCatalog, normalizeDescription, NORMALIZER_VERSION, rankMaterialMatches,
 } from '../../domain/catalog.mjs';
 import {
   deriveMaterialIntelligence, deriveVendorIntelligence, deriveVendorMaterialIntelligence,
@@ -174,6 +174,8 @@ function toItem(row: any): RequestItemRecord {
     requestedQty: Number(row.requested_qty),
     unit: row.unit,
     stockNumber: row.stock_number ?? null,
+    normalizedDescription: row.normalized_description ?? null,
+    catalogItemId: row.catalog_item_id ?? null,
     notes: row.notes ?? null,
   };
 }
@@ -339,26 +341,26 @@ export function sqliteReviewRepository(db: DatabaseSync): WorkshopReviewReposito
         db.prepare(
           `update purchase_review_items set
              usable_stock_qty=?, approved_qty=?, suggested_order_qty=?, final_order_qty=?,
-             stock_applied_qty=?, replenishment_qty=?, vendor_id=?, estimated_unit_cost_cents=?,
+             stock_applied_qty=?, replenishment_qty=?, vendor_id=?, vendor_part_number=?, estimated_unit_cost_cents=?,
              estimated_line_total_cents=?, substitute_description=?, expected_arrival_date=?,
              line_notes=?, override_reason=?, updated_at=?, updated_by=?
            where id = ?`,
         ).run(
           v.usableStockQty, v.approvedQty, v.suggestedOrderQty, v.finalOrderQty, v.stockAppliedQty,
-          v.replenishmentQty, v.vendorId, v.estimatedUnitCostCents, v.estimatedLineTotalCents,
+          v.replenishmentQty, v.vendorId, v.vendorPartNumber, v.estimatedUnitCostCents, v.estimatedLineTotalCents,
           v.substituteDescription, v.expectedArrivalDate, v.lineNotes, v.overrideReason, now, actorId, previous.id,
         );
       } else {
         db.prepare(
           `insert into purchase_review_items
              (id, review_id, org_id, request_item_id, usable_stock_qty, approved_qty, suggested_order_qty,
-              final_order_qty, stock_applied_qty, replenishment_qty, vendor_id, estimated_unit_cost_cents,
+              final_order_qty, stock_applied_qty, replenishment_qty, vendor_id, vendor_part_number, estimated_unit_cost_cents,
               estimated_line_total_cents, substitute_description, expected_arrival_date, line_notes,
               override_reason, created_at, updated_at, updated_by)
-           values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         ).run(
           uuid(), reviewId, orgOfReview(db, reviewId), requestItemId, v.usableStockQty, v.approvedQty, v.suggestedOrderQty,
-          v.finalOrderQty, v.stockAppliedQty, v.replenishmentQty, v.vendorId, v.estimatedUnitCostCents,
+          v.finalOrderQty, v.stockAppliedQty, v.replenishmentQty, v.vendorId, v.vendorPartNumber, v.estimatedUnitCostCents,
           v.estimatedLineTotalCents, v.substituteDescription, v.expectedArrivalDate, v.lineNotes,
           v.overrideReason, now, now, actorId,
         );
@@ -370,6 +372,7 @@ export function sqliteReviewRepository(db: DatabaseSync): WorkshopReviewReposito
               approvedQty: Number(previous.approved_qty),
               finalOrderQty: Number(previous.final_order_qty),
               vendorId: previous.vendor_id ?? null,
+              vendorPartNumber: previous.vendor_part_number ?? null,
               unitCostCents: previous.estimated_unit_cost_cents ?? null,
             }
           : null,
@@ -409,6 +412,7 @@ export function sqliteReviewRepository(db: DatabaseSync): WorkshopReviewReposito
         replenishmentQty: Number(row.replenishment_qty ?? 0),
         vendorId: row.vendor_id ?? null,
         vendorName: row.vendor_name ?? null,
+        vendorPartNumber: row.vendor_part_number ?? null,
         estimatedUnitCostCents: row.estimated_unit_cost_cents ?? null,
         estimatedLineTotalCents: Number(row.estimated_line_total_cents ?? 0),
         substituteDescription: row.substitute_description ?? null,
@@ -501,14 +505,14 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
           `insert into purchase_order_items
              (id, purchase_order_id, org_id, line_no, request_item_id, description,
               normalized_description, normalizer_version, substitute_description, order_qty, unit,
-              unit_cost_cents, line_total_cents, expected_arrival_date, created_at)
-           values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              vendor_part_number, unit_cost_cents, line_total_cents, expected_arrival_date, created_at)
+           values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         ).run(uuid(), id, order.orgId, line.lineNo, line.requestItemId, line.description,
               // The ORDERED description is normalized too: a substitute is a
               // different item, and history should be able to see that.
               normalizeDescription(line.substituteDescription || line.description), NORMALIZER_VERSION,
               line.substituteDescription,
-              line.orderQty, line.unit, line.unitCostCents, line.lineTotalCents,
+              line.orderQty, line.unit, line.vendorPartNumber ?? null, line.unitCostCents, line.lineTotalCents,
               line.expectedArrivalDate, now);
       });
       return { id, poNumber: order.poNumber };
@@ -599,6 +603,7 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
         items: items.map((i) => ({
           lineNo: i.line_no, description: i.description, substituteFor: i.substitute_description,
           finalOrderQty: Number(i.order_qty), unit: i.unit,
+          vendorPartNumber: i.vendor_part_number ?? null,
           estimatedUnitCostCents: Number(i.unit_cost_cents), lineTotalCents: Number(i.line_total_cents),
           expectedArrivalDate: i.expected_arrival_date,
         })),
@@ -1034,7 +1039,11 @@ export function sqliteItemCatalogRepository(db: DatabaseSync): ItemCatalogReposi
     const lines = (db.prepare(
       'select * from purchase_history_lines where org_id = ? order by ordered_at desc, id desc',
     ).all(orgId) as any[]).map(toHistoryLine);
-    return catalogEntriesFromHistory(lines, curated);
+    const vendorNames = new Map(
+      (db.prepare('select id, name from vendors where org_id = ?').all(orgId) as any[])
+        .map((row) => [String(row.id), String(row.name)]),
+    );
+    return catalogEntriesFromHistory(lines, curated, vendorNames);
   };
 
   return {
@@ -1049,8 +1058,7 @@ export function sqliteItemCatalogRepository(db: DatabaseSync): ItemCatalogReposi
     },
 
     async suggest(orgId, query, limit = 8) {
-      const entries = matchCatalog(entriesFor(orgId).filter((e) => e.isActive), query);
-      return entries.sort(byCatalogUsefulness).slice(0, limit);
+      return rankMaterialMatches(entriesFor(orgId).filter((e) => e.isActive), query, limit);
     },
 
     async findByNormalized(orgId, normalizedDescription) {
@@ -1063,7 +1071,7 @@ export function sqliteItemCatalogRepository(db: DatabaseSync): ItemCatalogReposi
           where org_id = (select org_id from vendors where id = ?)
             and vendor_id = ? order by ordered_at desc, id desc`,
       ).all(vendorId, vendorId) as any[]).map(toHistoryLine);
-      return catalogEntriesFromHistory(rows, new Map())
+      return catalogEntriesFromHistory(rows, new Map(), new Map())
         .sort((a, b) => b.timesRequested - a.timesRequested)
         .slice(0, limit);
     },
@@ -1073,6 +1081,7 @@ export function sqliteItemCatalogRepository(db: DatabaseSync): ItemCatalogReposi
 function catalogEntriesFromHistory(
   lines: PurchaseHistoryLineRecord[],
   curated: Map<string, any>,
+  vendorNames: Map<string, string>,
 ): CatalogEntry[] {
   const grouped = new Map<string, PurchaseHistoryLineRecord[]>();
   for (const line of lines) {
@@ -1085,6 +1094,8 @@ function catalogEntriesFromHistory(
     const history = grouped.get(key) ?? [];
     const latest = history[0];
     const c = curated.get(key);
+    const facts = deriveMaterialIntelligence(history)[0] ?? null;
+    const configuredDefaultVendorId = c?.default_vendor_id ? String(c.default_vendor_id) : null;
     return {
       catalogItemId: c ? String(c.id) : latest?.catalogItemId ?? null,
       normalizedDescription: key,
@@ -1095,13 +1106,20 @@ function catalogEntriesFromHistory(
       ]).filter(Boolean) as string[])],
       defaultUnit: c?.default_unit ?? latest?.unitSnapshot ?? null,
       catalogNumber: c?.catalog_number ?? null,
+      configuredDefaultVendorId,
+      configuredDefaultVendorName: configuredDefaultVendorId
+        ? vendorNames.get(configuredDefaultVendorId) ?? null
+        : null,
       // Legacy property names are retained at the repository boundary, but
       // these values are completed purchase evidence, never rejected/draft requests.
       timesRequested: history.length,
       totalQtyRequested: history.reduce((total, line) => total + line.quantityOrdered, 0),
       lastRequestedAt: latest?.requestedAt ?? null,
+      commonQuantity: facts?.commonQuantity ?? null,
+      completedOrderCount: facts?.completedOrderCount ?? 0,
       lastVendorId: latest?.vendorId ?? null,
       lastVendorName: latest?.vendorNameSnapshot ?? null,
+      lastVendorPartNumber: latest?.vendorPartNumberSnapshot ?? null,
       lastUnitCostCents: latest?.actualUnitPriceCents ?? latest?.estimatedUnitPriceCents ?? null,
       lastOrderedAt: latest?.orderedAt ?? null,
       isActive: c ? Boolean(Number(c.is_active ?? 1)) : true,

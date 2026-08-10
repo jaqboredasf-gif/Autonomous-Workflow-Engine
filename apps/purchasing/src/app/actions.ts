@@ -186,6 +186,7 @@ function parseReviewLines(formData: FormData) {
   const approved = formData.getAll('lineApprovedQty').map(String);
   const finalQty = formData.getAll('lineFinalOrderQty').map(String);
   const vendor = formData.getAll('lineVendorId').map(String);
+  const vendorPartNumber = formData.getAll('lineVendorPartNumber').map(String);
   const cost = formData.getAll('lineUnitCost').map(String);
   const substitute = formData.getAll('lineSubstitute').map(String);
   const arrival = formData.getAll('lineExpectedArrival').map(String);
@@ -197,6 +198,7 @@ function parseReviewLines(formData: FormData) {
     approvedQty: approved[i] ?? '',
     finalOrderQty: finalQty[i] ?? '',
     vendorId: vendor[i] || null,
+    vendorPartNumber: vendorPartNumber[i] || null,
     estimatedUnitCost: cost[i] || null,
     substituteDescription: substitute[i] || null,
     expectedArrivalDate: arrival[i] || null,

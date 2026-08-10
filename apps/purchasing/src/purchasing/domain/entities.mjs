@@ -281,6 +281,7 @@ export function purchaseOrderFromReview({ request, lines, poNumber, sequenceValu
       substituteDescription: l.substituteDescription,
       orderQty: l.quantities.finalOrder,
       unit: l.original.unit,
+      vendorPartNumber: l.vendorPartNumber ?? null,
       unitCostCents: l.unitCostCents ?? 0,
       lineTotalCents: l.lineTotalCents,
       expectedArrivalDate: l.expectedArrivalDate,

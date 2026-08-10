@@ -30,6 +30,7 @@ export type ReviewLineInput = {
   approvedQty?: string | number;
   finalOrderQty?: string | number;
   vendorId?: string | null;
+  vendorPartNumber?: string | null;
   estimatedUnitCost?: string | number | null;
   substituteDescription?: string | null;
   expectedArrivalDate?: string | null;
@@ -91,6 +92,7 @@ export async function saveWorkshopReview(
         stockAppliedQty: quantities.stockApplied,
         replenishmentQty: quantities.replenishment,
         vendorId: line.vendorId ?? null,
+        vendorPartNumber: String(line.vendorPartNumber ?? '').trim() || null,
         estimatedUnitCostCents: unitCostCents,
         estimatedLineTotalCents: lineTotalCents(unitCostCents ?? 0, quantities.finalOrder),
         substituteDescription: line.substituteDescription ?? null,
@@ -120,6 +122,7 @@ export async function saveWorkshopReview(
             suggestedOrderQty: values.suggestedOrderQty,
             finalOrderQty: values.finalOrderQty,
             vendorId: values.vendorId,
+            vendorPartNumber: values.vendorPartNumber,
             unitCostCents: values.estimatedUnitCostCents,
             lineTotalCents: values.estimatedLineTotalCents,
           },

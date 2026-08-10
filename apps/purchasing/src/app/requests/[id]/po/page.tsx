@@ -135,6 +135,9 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
                   {i.substituteFor ? (
                     <span className="block text-xs text-slate-500">substitute for: {i.substituteFor}</span>
                   ) : null}
+                  {i.vendorPartNumber ? (
+                    <span className="block text-xs text-slate-500">vendor part: {i.vendorPartNumber}</span>
+                  ) : null}
                   {i.expectedArrivalDate ? (
                     <span className="block text-xs text-slate-500">expected {i.expectedArrivalDate}</span>
                   ) : null}

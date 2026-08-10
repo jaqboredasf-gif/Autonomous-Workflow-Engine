@@ -472,6 +472,7 @@ const historyEvidence = Object.freeze([
   Object.freeze({
     id: 'h1', orgId: 'org-a', purchaseOrderId: 'po1', vendorId: 'v1',
     vendorNameSnapshot: 'Graybar then', normalizedDescription: key,
+    vendorPartNumberSnapshot: 'GB-TROFFER-OLD',
     materialDescriptionSnapshot: '2x4 LED troffer, 4000K', quantityOrdered: 20 * K,
     estimatedUnitPriceCents: 8950, actualUnitPriceCents: null,
     orderedAt: '2026-08-01T12:00:00Z', receivedAt: '2026-08-03T12:00:00Z',
@@ -479,6 +480,7 @@ const historyEvidence = Object.freeze([
   Object.freeze({
     id: 'h2', orgId: 'org-a', purchaseOrderId: 'po2', vendorId: 'v1',
     vendorNameSnapshot: 'Graybar then', normalizedDescription: key,
+    vendorPartNumberSnapshot: 'GB-TROFFER-NEW',
     materialDescriptionSnapshot: 'LED troffer 2x4', quantityOrdered: 10 * K,
     estimatedUnitPriceCents: 9150, actualUnitPriceCents: 9050,
     orderedAt: '2026-08-05T12:00:00Z', receivedAt: null,
@@ -490,9 +492,26 @@ eq(materialFacts.lastVendorNameSnapshot, 'Graybar then', 'material facts retain 
 eq(materialFacts.lastUnitPriceCents, 9050, 'actual price wins over estimate when observed');
 eq(materialFacts.recentPriceSampleSize, 2, 'an average reports its real sample size');
 eq(materialFacts.commonQuantity, 10 * K, 'common quantity has deterministic tie-breaking');
+eq(materialFacts.lastVendorPartNumberSnapshot, 'GB-TROFFER-NEW',
+   'material facts retain the latest observed vendor part-number snapshot');
 eq(H.deriveVendorMaterialIntelligence(historyEvidence)[0].leadTimeSampleSize, 1,
    'lead time counts only rows with both endpoints');
 eq(JSON.stringify(historyEvidence), evidenceBefore, 'deriving intelligence never mutates evidence');
+
+const observedVendorRanking = H.rankObservedVendors([
+  ...historyEvidence,
+  {
+    ...historyEvidence[0], id: 'h3', purchaseOrderId: 'po3', vendorId: 'v2',
+    vendorNameSnapshot: 'Configured Elsewhere', vendorPartNumberSnapshot: 'CE-1',
+    orderedAt: '2026-08-09T12:00:00Z',
+  },
+], key);
+eq(observedVendorRanking.map((row) => row.vendorId), ['v1', 'v2'],
+   'observed vendors rank by completed orders before recency');
+eq(observedVendorRanking[0].lastVendorPartNumberSnapshot, 'GB-TROFFER-NEW',
+   'ranked evidence carries the literal vendor part number from its latest snapshot');
+eq(H.rankObservedVendors(historyEvidence, 'another material'), [],
+   'vendor suggestions never infer a relationship for a material with no completed evidence');
 
 // --- autocomplete order: exact, alias, frequent, recent --------------------
 //

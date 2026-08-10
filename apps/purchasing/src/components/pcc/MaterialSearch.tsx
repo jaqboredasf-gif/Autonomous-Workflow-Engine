@@ -13,6 +13,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 
 import { fieldStyle } from './Input';
+import { formatQty } from '../../purchasing/domain/numbers.mjs';
 
 type Suggestion = {
   id: string | null;
@@ -21,6 +22,9 @@ type Suggestion = {
   unit: string | null;
   catalogNumber: string | null;
   timesRequested: number;
+  completedOrderCount: number;
+  commonQuantity: number | null;
+  lastOrderedAt: string | null;
 };
 
 export function MaterialSearch({
@@ -135,14 +139,25 @@ export function MaterialSearch({
                 className="flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-action-soft"
               >
                 <span className="min-w-0 truncate text-ink">{item.description}</span>
-                <span className="shrink-0 text-xs text-muted">
-                  {item.unit ? `${item.unit} · ` : ''}
-                  {item.timesRequested > 0 ? `ordered ${item.timesRequested}×` : 'catalogued'}
+                <span className="shrink-0 text-right text-xs text-muted">
+                  <span className="block">
+                    {item.unit ? `${item.unit} · ` : ''}
+                    {item.completedOrderCount > 0 ? `${item.completedOrderCount} completed order(s)` : 'catalogued'}
+                  </span>
+                  {item.lastOrderedAt ? (
+                    <span className="block">
+                      last {item.lastOrderedAt.slice(0, 10)}
+                      {item.commonQuantity === null ? '' : ` · common qty ${formatQty(item.commonQuantity)}`}
+                    </span>
+                  ) : null}
                 </span>
               </button>
             </li>
           ))}
         </ul>
+      ) : null}
+      {picked ? (
+        <p className="mt-1 text-xs text-muted">Historical values are a starting point for this new request only.</p>
       ) : null}
     </div>
   );

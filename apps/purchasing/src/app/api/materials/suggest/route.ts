@@ -29,6 +29,9 @@ export async function GET(request: Request) {
         unit: e.defaultUnit,
         catalogNumber: e.catalogNumber,
         timesRequested: e.timesRequested,
+        completedOrderCount: e.completedOrderCount,
+        commonQuantity: e.commonQuantity,
+        lastOrderedAt: e.lastOrderedAt,
       })),
     });
   } catch {

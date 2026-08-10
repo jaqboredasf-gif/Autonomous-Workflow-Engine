@@ -13,6 +13,7 @@ import { allowed, loadRequest, must, type PurchasingContext } from './context.ts
 import type { Actor } from './ports.ts';
 import { availableActions, isApprover, isFieldOnly } from '../domain/roles.mjs';
 import { QUEUE_STATUSES } from '../domain/status.mjs';
+import { rankObservedVendors } from '../domain/history.mjs';
 
 export async function listRequests(ctx: PurchasingContext, actor: Actor) {
   return await allowed(ctx, actor, 'request.read.all')
@@ -94,10 +95,24 @@ export async function reviewMaterialHistory(ctx: PurchasingContext, actor: Actor
   await must(ctx, actor, 'review.decide', request);
   const items = await ctx.requests.itemsFor(requestId);
   return Object.fromEntries(await Promise.all(items.map(async (item: any) => {
-    const rows = item.normalizedDescription
-      ? await ctx.history.materialIntelligence(actor.orgId, item.normalizedDescription)
-      : [];
-    return [item.id, rows[0] ?? null];
+    if (!item.normalizedDescription) {
+      return [item.id, { evidence: null, observedVendors: [], configuredDefaultVendor: null }];
+    }
+    const [rows, lines, catalog] = await Promise.all([
+      ctx.history.materialIntelligence(actor.orgId, item.normalizedDescription),
+      ctx.history.listLines(actor.orgId, { normalizedDescription: item.normalizedDescription }),
+      ctx.catalog.findByNormalized(actor.orgId, item.normalizedDescription),
+    ]);
+    return [item.id, {
+      evidence: rows[0] ?? null,
+      observedVendors: rankObservedVendors(lines, item.normalizedDescription),
+      configuredDefaultVendor: catalog?.configuredDefaultVendorId
+        ? {
+            id: catalog.configuredDefaultVendorId,
+            name: catalog.configuredDefaultVendorName,
+          }
+        : null,
+    }];
   })));
 }
 
