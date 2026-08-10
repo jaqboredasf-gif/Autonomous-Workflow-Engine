@@ -3,16 +3,18 @@
 // decisions.ts — approve, reject, return for clarification.
 //
 // The three use cases share one entry point (`decidePurchaseRequest`) because
-// they share one gate: the same permission, the same self-approval refusal, the
-// same "is this request even awaiting a decision", and the same frozen record
-// of what changed relative to the original request. Splitting them into three
-// copies of that gate is how one of them ends up missing a check.
+// they share one gate: the same approval capability, the same "is this request
+// even awaiting a decision", the same self-approval audit stamp, and the same
+// frozen record of what changed relative to the original request. Splitting
+// them into three copies of that gate is how one of them ends up missing a
+// check.
 // ---------------------------------------------------------------------------
 
 import { emit, loadRequest, must, PurchasingError, transitionTo, type PurchasingContext } from './context.ts';
 import type { Actor } from './ports.ts';
 import { changesFromOriginal, saveWorkshopReview } from './review.ts';
 import { events } from '../domain/events.mjs';
+import { isSelfApproval } from '../domain/roles.mjs';
 import { QUEUE_STATUSES } from '../domain/status.mjs';
 
 export type Decision = 'APPROVE' | 'REJECT' | 'CLARIFY';
@@ -53,8 +55,8 @@ export async function decidePurchaseRequest(
   input: { notes?: string; reason?: string; question?: string } = {},
 ) {
   const request = await loadRequest(ctx, actor, requestId);
-  // Carries the self-approval refusal: a request cannot be decided by the
-  // person who raised it unless the org explicitly allows it.
+  // BR-011: the whole authorization question is "does this actor hold the
+  // approval capability". Raising the request neither grants nor removes it.
   await must(ctx, actor, 'review.decide', request);
   if (!QUEUE_STATUSES.includes(request.status)) {
     throw new PurchasingError('not_in_review', `a ${request.status} request is not awaiting a decision`);
@@ -102,7 +104,10 @@ async function approve(
   }
 
   await transitionTo(ctx, actor, request, 'APPROVED', { approver_id: actor.id, decided_at: now, decision_notes: notes });
-  await ctx.approvals.record(request.id, actor.id, 'APPROVED', notes, null, changes, now);
+  // BR-011: an approver may decide their own request. The row records both
+  // sides — requestor_id stays on the request, approver_id goes here — and the
+  // stamp says explicitly when they are the same person.
+  await ctx.approvals.record(request.id, actor.id, 'APPROVED', notes, null, changes, now, isSelfApproval(actor, request));
 
   // Stock the workshop gives up to this job is an inventory movement, and it
   // gets its own auditable row. Inventory never changes silently.
@@ -135,7 +140,7 @@ async function reject(
   await transitionTo(ctx, actor, request, 'REJECTED', {
     approver_id: actor.id, decided_at: now, decision_notes: notes, rejection_reason: why,
   });
-  await ctx.approvals.record(request.id, actor.id, 'REJECTED', notes, why, changes, now);
+  await ctx.approvals.record(request.id, actor.id, 'REJECTED', notes, why, changes, now, isSelfApproval(actor, request));
   await emit(ctx, actor, actor.orgId, [events.rejected(request, why)]);
   return { status: 'REJECTED' };
 }
@@ -148,7 +153,7 @@ async function clarify(
   await transitionTo(ctx, actor, request, 'CLARIFICATION_REQUESTED', {
     approver_id: actor.id, clarification_question: asked, clarification_answer: null,
   });
-  await ctx.approvals.record(request.id, actor.id, 'CLARIFICATION_REQUESTED', notes, asked, changes, now);
+  await ctx.approvals.record(request.id, actor.id, 'CLARIFICATION_REQUESTED', notes, asked, changes, now, isSelfApproval(actor, request));
   await emit(ctx, actor, actor.orgId, [events.clarificationRequested(request, asked)]);
   return { status: 'CLARIFICATION_REQUESTED' };
 }

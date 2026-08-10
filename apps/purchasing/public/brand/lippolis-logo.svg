@@ -1,0 +1,24 @@
+<!--
+  Lippolis Electric mark.
+
+  Vectorised from the supplied artwork (LE LOGO.png, 491x407, 8-bit colormap)
+  by tracing each flat colour region and reducing it to its straight edges, so
+  these are the shapes themselves rather than a resampling of them. The two
+  fills are the brand's own colours, read out of the source file's palette:
+
+    #0800D1  Lippolis blue    — the L / bolt
+    #FF3D00  Lippolis orange  — the E bars
+
+  Those two values are the source of truth for the pcc-brand and pcc-accent
+  custom properties in app/globals.css. If this file is ever replaced with an
+  official vector from the brand owner, check the palette still matches those
+  tokens.
+
+  No width/height on purpose: the viewBox scales to whatever box BrandMark
+  gives it. currentColor is deliberately NOT used — a two-colour logo is not a
+  glyph, and tinting it would misrepresent the brand.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 35 458 354" role="img" aria-label="Lippolis Electric">
+  <path fill="#FF3D00" d="M220 105 L247 36 L476 36 L464 54 L425 108 L220 108 Z M189 187 L213 122 L409 122 L397 140 L363 189 Z"/>
+  <path fill="#0800D1" d="M18 282 L111 35 L227 35 L161 210 L349 210 L348 212 L224 389 L259 283 Z"/>
+</svg>

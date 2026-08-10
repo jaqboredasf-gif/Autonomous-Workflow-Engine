@@ -22,6 +22,7 @@ import Link from 'next/link';
 
 import { signInAction, demoSignInAction, type SignInState } from '../app/auth-actions.ts';
 import { buttonStyle } from './pcc/Button';
+import { BrandMark } from './pcc/BrandMark';
 import { Alert } from './pcc/Feedback';
 import { loginStrings, type Lang } from './pcc/login-strings';
 
@@ -50,8 +51,11 @@ export default function SignInForm({
     <div className="flex min-h-dvh flex-col items-center justify-center bg-canvas px-4 py-10">
       <div className="w-full max-w-sm">
         <header className="mb-8 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-action text-lg font-semibold text-white">
-            LE
+          {/* The real mark, at the one moment the product introduces itself.
+              The heading below already names the company, so BrandMark renders
+              the logo alone rather than repeating it. */}
+          <div className="mb-4 flex justify-center">
+            <BrandMark size={52} />
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">{t.company}</h1>
           <p className="mt-1 text-sm text-muted">{t.product}</p>

@@ -327,7 +327,11 @@ function SettingsModule({
 
       <Panel title="Purchasing settings">
         <DataGrid>
-          <DataPoint label="Self-approval">{settings.allowSelfApproval ? 'Allowed' : 'Refused'}</DataPoint>
+          {/* BR-011: approval authority is granted per user, not by an
+              org-wide flag. Showing a "Self-approval: Refused" line here was
+              worse than showing nothing — it described a rule the system no
+              longer enforces, and an administrator would have believed it. */}
+          <DataPoint label="Approval authority">Per user — see Users</DataPoint>
           <DataPoint label="External email sending">Disabled (draft-only)</DataPoint>
           <DataPoint label="Email review before send">Required</DataPoint>
           <DataPoint label="PO template">{settings.poTemplateKey}</DataPoint>

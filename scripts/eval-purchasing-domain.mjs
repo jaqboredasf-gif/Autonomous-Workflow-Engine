@@ -39,7 +39,8 @@ const { ACTIVITY_ACTIONS, NOTIFICATION_EVENTS, buildTimeline, describeActivity }
 const { EMAIL_DRAFT_TRANSITIONS, EXTERNAL_SEND_ENABLED, composeDraft, draftGuard, renderStoredTemplate } =
   await import(join(DOMAIN, 'email.mjs'));
 const { validateRequestDraft, stripRequestorFields } = await import(join(DOMAIN, 'validation.mjs'));
-const { isOverdue, summarize } = await import(join(DOMAIN, 'dashboard.mjs'));
+const { isOverdue, summarize, purchasingStatus, receivingStatus, vendorActivity, recentPurchaseOrders } =
+  await import(join(DOMAIN, 'dashboard.mjs'));
 
 let pass = 0;
 let fail = 0;
@@ -269,18 +270,18 @@ eq(authorize(karen, 'review.decide', { request: queued }).reason, 'missing_permi
    'office cannot approve without an explicit grant');
 eq(authorize(tom, 'review.decide', { request: queued }).ok, true, 'office WITH the grant can approve');
 eq(authorize(mike, 'review.decide', { request: queued }).ok, true, 'the workshop approver can approve');
+// BR-011: approval authority supersedes requester identity. The person the
+// company authorized to buy may decide the request they raised — that is what
+// the authority is. A requestor still cannot, because they never held it.
 eq(
-  authorize(mike, 'review.decide', { request: { ...queued, requestorId: 'mike', createdBy: 'mike' } }).reason,
-  'self_approval',
-  'A REQUESTOR CANNOT APPROVE THEIR OWN REQUEST',
+  authorize(mike, 'review.decide', { request: { ...queued, requestorId: 'mike', createdBy: 'mike' } }).ok,
+  true,
+  'AN AUTHORIZED PURCHASER CAN APPROVE THEIR OWN REQUEST',
 );
 eq(
-  authorize(mike, 'review.decide', {
-    request: { ...queued, requestorId: 'mike', createdBy: 'mike' },
-    settings: { allowSelfApproval: true },
-  }).ok,
-  true,
-  'a one-approver shop can allow self-approval explicitly',
+  authorize(dave, 'review.decide', { request: { ...queued, requestorId: 'dave', createdBy: 'dave' } }).reason,
+  'missing_permission',
+  'a request-only user cannot approve their own request either',
 );
 eq(
   authorize(admin, 'review.decide', { request: { ...queued, orgId: 'other-org' } }).reason,
@@ -519,6 +520,67 @@ eq(cards.open_orders, 1, 'the open-order card counts open orders');
 eq(cards.overdue_orders, 1, 'the overdue card counts the late open order only');
 eq(cards.open_order_value_cents, 155_520, 'open order value sums the open orders');
 eq(cards.received_this_month, 1, 'received-this-month counts by the month it arrived');
+
+// --- the dashboard's operational panels ------------------------------------
+//
+// The rule these guard is "never fabricate analytics". Each function may only
+// count, sum or sort what it was handed, so the tests that matter most are the
+// EMPTY ones: given nothing, a panel must produce nothing rather than a
+// confident zero-shaped story.
+{
+  const NOW = '2026-08-06T12:00:00Z';
+  const fleet = [
+    { id: 'a', requestNumber: 'PR-1', jobNumber: '24-118', status: 'PENDING_WORKSHOP_REVIEW', estimatedTotalCents: 0 },
+    { id: 'b', requestNumber: 'PR-2', jobNumber: '24-118', status: 'APPROVED', estimatedTotalCents: 50_000 },
+    { id: 'c', requestNumber: 'PR-3', jobNumber: '25-007', status: 'ORDERED', poNumber: 'LE-00003',
+      vendorId: 'v-gray', vendorName: 'Graybar', estimatedTotalCents: 120_000,
+      orderedAt: '2026-08-03T09:00:00Z', needByDate: '2026-08-01', needByTime: '07:00' },
+    { id: 'd', requestNumber: 'PR-4', jobNumber: '25-007', status: 'PARTIALLY_RECEIVED', poNumber: 'LE-00004',
+      vendorId: 'v-gray', vendorName: 'Graybar', estimatedTotalCents: 30_000,
+      orderedAt: '2026-08-05T09:00:00Z', needByDate: '2026-08-20', needByTime: '07:00' },
+    { id: 'e', requestNumber: 'PR-5', jobNumber: '25-007', status: 'COMPLETED', poNumber: 'LE-00005',
+      vendorId: 'v-city', vendorName: 'City Electric', estimatedTotalCents: 9_000,
+      orderedAt: '2026-08-01T09:00:00Z', receivedAt: '2026-08-04T10:00:00Z' },
+    { id: 'f', requestNumber: 'PR-6', jobNumber: '25-007', status: 'DRAFT', estimatedTotalCents: 0 },
+  ];
+
+  const pipeline = purchasingStatus(fleet);
+  eq(pipeline.some((s) => s.key === 'CLOSED' || s.key === 'DRAFTS'), false,
+     'purchasing status shows work in flight, not the closed and drafted piles');
+  eq(pipeline.find((s) => s.key === 'NEEDS_REVIEW').count, 1, 'the needs-review stage counts the queue');
+  eq(pipeline.find((s) => s.key === 'READY_TO_ORDER').valueCents, 50_000,
+     'each stage sums the money sitting in it');
+  eq(Math.round(pipeline.reduce((t, s) => t + s.share, 0)), 1,
+     'the shares are of this panel\'s own total, so they add to one');
+  eq(purchasingStatus([]).every((s) => s.count === 0 && s.share === 0), true,
+     'an empty request list yields empty stages, not a divide-by-zero');
+
+  const rec = receivingStatus(fleet, NOW);
+  eq(rec.awaiting, 1, 'receiving counts what is on its way');
+  eq(rec.awaitingValueCents, 120_000, 'and what it is worth');
+  eq(rec.partiallyReceived, 1, 'receiving counts what arrived incomplete');
+  eq(rec.overdueArrivals, 1, 'a late arrival is ordered material whose need-by has passed');
+  eq(rec.receivedThisMonth, 1, 'received-this-month is counted by the month it landed');
+  eq(receivingStatus([], NOW).awaiting, 0, 'receiving status of nothing is zero, and says so');
+
+  const byVendor = vendorActivity(fleet, 5);
+  eq(byVendor.length, 2, 'only vendors that appear on a real request are listed');
+  eq(byVendor[0].vendorName, 'Graybar', 'the vendor with the most open work sorts first');
+  eq(byVendor[0].openOrders, 2, 'open orders counts the open ones');
+  eq(byVendor[0].openValueCents, 150_000, 'open value sums only the open ones');
+  eq(byVendor[0].lastOrderedAt, '2026-08-05T09:00:00Z', 'last ordered is the most recent order, not the first');
+  eq(vendorActivity([]).length, 0, 'no requests means no vendor rows — not a placeholder vendor');
+  eq(vendorActivity([{ id: 'x', status: 'DRAFT' }]).length, 0,
+     'a request with no vendor yet does not become a vendor called nothing');
+
+  const pos = recentPurchaseOrders(fleet, 6);
+  eq(pos.length, 3, 'recent POs are the ones actually placed with a vendor');
+  eq(pos[0].poNumber, 'LE-00004', 'most recently ordered first');
+  eq(pos.some((p) => p.poNumber === undefined || p.poNumber === null), false,
+     'nothing without a PO number reaches the recent-PO list');
+  eq(recentPurchaseOrders(fleet, 2).length, 2, 'the limit is honoured');
+  eq(recentPurchaseOrders([]).length, 0, 'no orders means an empty list, not a sample row');
+}
 
 console.log('');
 console.log(`domain checks: ${pass} passed, ${fail} failed`);

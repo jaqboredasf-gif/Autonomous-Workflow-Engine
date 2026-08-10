@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { BrandMark } from './BrandMark';
 
 export type NavGroup = { key: string; label: string; items: Array<{ key: string; label: string; path: string }> };
 export type ShellUser = { name: string; roles: string[]; canApprove: boolean; approvalByGrant: boolean };
@@ -52,12 +53,12 @@ export function ShellChrome({
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex h-14 items-center gap-2 border-b border-line px-4">
-          <Link href="/" className="flex items-center gap-2 text-sm font-semibold text-ink">
-            <span className="flex h-7 w-7 items-center justify-center rounded bg-action text-xs font-bold text-white">
-              LE
-            </span>
-            <span>Purchasing</span>
+        <div className="flex h-16 items-center gap-2 border-b border-line px-4">
+          <Link href="/" className="min-w-0 rounded focus-visible:outline-none">
+            {/* "Purchasing", not "Purchasing Control Center": the rail is 15rem
+                and the longer product name truncates to an ellipsis, which
+                reads as a bug rather than as a name. */}
+            <BrandMark variant="lockup" size={26} subtitle="Purchasing" />
           </Link>
           <button
             type="button"
@@ -71,11 +72,20 @@ export function ShellChrome({
           </button>
         </div>
 
-        <nav aria-label="Sections" className="flex-1 overflow-y-auto px-2 py-3">
-          {groups.map((group) => (
-            <div key={group.key} className="mb-4 last:mb-0">
-              <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">{group.label}</p>
-              <ul className="space-y-0.5">
+        {/*
+          Grouped, with a visible rule between groups rather than whitespace
+          alone. The sidebar is read dozens of times a day by people who know
+          exactly where they are going: the dividers let them aim at a region
+          instead of scanning a flat list of eleven links.
+        */}
+        <nav aria-label="Sections" className="flex-1 overflow-y-auto py-2">
+          {groups.map((group, index) => (
+            <div
+              key={group.key}
+              className={index > 0 ? 'mt-1 border-t border-line pt-3' : 'pt-1'}
+            >
+              <p className="px-5 pb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">{group.label}</p>
+              <ul>
                 {group.items.map((item) => {
                   const current = item.key === activeKey;
                   return (
@@ -83,8 +93,14 @@ export function ShellChrome({
                       <Link
                         href={item.path}
                         aria-current={current ? 'page' : undefined}
-                        className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${
-                          current ? 'bg-action-soft text-action' : 'text-ink-soft hover:bg-subtle hover:text-ink'
+                        // The active marker is a brand-blue rail on the edge,
+                        // not a filled pill: it survives being next to a
+                        // hovered sibling, and it reads at a glance from across
+                        // a desk.
+                        className={`flex items-center gap-2 border-l-[3px] py-2 pl-4 pr-3 text-sm transition ${
+                          current
+                            ? 'border-brand bg-brand-soft font-semibold text-brand-ink'
+                            : 'border-transparent font-medium text-ink-soft hover:bg-subtle hover:text-ink'
                         }`}
                       >
                         {item.label}
@@ -97,19 +113,35 @@ export function ShellChrome({
           ))}
         </nav>
 
-        <div className="border-t border-line px-4 py-3">
-          <p className="truncate text-sm font-medium text-ink">{user.name}</p>
-          <p className="mt-0.5 text-xs text-muted">
-            {user.roles.join(', ') || 'No role'}
-            {user.approvalByGrant ? ' · approval granted' : ''}
-          </p>
+        <div className="border-t border-line bg-canvas px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden="true"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-bold text-white"
+            >
+              {initials(user.name)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-ink">{user.name}</p>
+              <p className="truncate text-xs text-muted">{user.roles.join(', ') || 'No role'}</p>
+            </div>
+          </div>
+          {/* Approval authority is worth stating plainly in the chrome: after
+              BR-011 it is the thing that decides whether the Approve button
+              appears at all, and it is granted per person. */}
+          {user.canApprove ? (
+            <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-semibold text-brand-ink">
+              Approval authority
+              {user.approvalByGrant ? <span className="font-medium text-muted">· granted</span> : null}
+            </p>
+          ) : null}
           <div className="mt-2">{signOut}</div>
         </div>
       </aside>
 
       {/* --- Content column --------------------------------------------- */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="no-print sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-4">
+        <header className="no-print sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-line bg-surface px-4">
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
@@ -121,6 +153,11 @@ export function ShellChrome({
               <path d="M3 5h14M3 10h14M3 15h14" strokeLinecap="round" />
             </svg>
           </button>
+
+          {/* On a phone the sidebar is closed, so the topbar carries the brand. */}
+          <Link href="/" className="shrink-0 lg:hidden" aria-label="Lippolis Electric — Purchasing">
+            <BrandMark size={22} />
+          </Link>
 
           <form action={searchPath} method="get" className="min-w-0 flex-1 md:max-w-md">
             <label htmlFor="global-search" className="sr-only">
@@ -145,22 +182,24 @@ export function ShellChrome({
 
           <div className="ml-auto flex items-center gap-1">
             <Link
-              href="/requests/new"
-              className="hidden h-9 items-center rounded-md bg-action px-3 text-sm font-medium text-white shadow-sm transition hover:bg-action-hover sm:inline-flex"
-            >
-              New request
-            </Link>
-            <Link
               href="/notifications"
               className="relative inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-ink-soft hover:bg-subtle"
             >
               Alerts
+              {/* Unread work is the one place the accent orange earns its
+                  loudness: it is the colour of "somebody is waiting on you". */}
               {unread ? (
-                <span className="ml-1.5 inline-flex min-w-5 justify-center rounded-full bg-danger px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">
+                <span className="ml-1.5 inline-flex min-w-5 justify-center rounded-full bg-accent px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">
                   {unread}
                 </span>
               ) : null}
               <span className="sr-only">{unread ? `${unread} unread notifications` : 'no unread notifications'}</span>
+            </Link>
+            <Link
+              href="/requests/new"
+              className="hidden h-9 items-center rounded-md bg-brand px-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-hover sm:inline-flex"
+            >
+              New request
             </Link>
           </div>
         </header>
@@ -169,6 +208,13 @@ export function ShellChrome({
       </div>
     </div>
   );
+}
+
+/** Up to two initials, for the sidebar avatar. Names arrive as free text. */
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
 }
 
 function activeFor(groups: NavGroup[], pathname: string) {

@@ -167,6 +167,14 @@ export const CAPABILITIES = {
   'audit.view': ['admin.audit'],
 };
 
+/**
+ * BR-011's capability by name. The rule the business states is "a user with
+ * approval authority may approve", and this is the name of that authority. It
+ * resolves to `review.decide`, which is what authorize() actually enforces, so
+ * naming it here adds a label — never a second, drift-prone gate.
+ */
+export const APPROVE_PURCHASE = 'purchase.request.approve';
+
 /** Does this user hold a capability? True only if they hold ALL of its permissions. */
 export function hasCapability(user, capability) {
   const required = CAPABILITIES[capability];
@@ -302,6 +310,19 @@ export function isApprover(user) {
   return hasPermission(user, 'review.decide');
 }
 
+/**
+ * BR-011: is this decision being made by the person who raised the request?
+ *
+ * NOT an authorization question — authorize() no longer asks it. It is an AUDIT
+ * question: the approval record says so, the request detail can show it, and a
+ * reviewer reading the history can see that one person stood on both sides of
+ * it without having to compare two user ids by eye.
+ */
+export function isSelfApproval(user, request) {
+  if (!user || !user.id || !request) return false;
+  return request.requestorId === user.id || request.createdBy === user.id;
+}
+
 export function isAdmin(user) {
   return Boolean(user && Array.isArray(user.roles) && user.roles.includes('ADMIN'));
 }
@@ -314,7 +335,10 @@ export const DENY_REASONS = [
   'missing_permission',
   'cross_tenant',
   'not_owner',
-  'self_approval',
+  // 'self_approval' was removed by BR-011. Approval authority is a capability,
+  // not a function of who raised the request, so no denial can carry that
+  // reason any more. It is absent rather than unused on purpose: a reason left
+  // in a closed vocabulary invites someone to start emitting it again.
   'request_locked',
   'not_assigned',
 ];
@@ -372,16 +396,25 @@ export function authorize(user, permission, ctx = {}) {
     if (!owns) return deny('not_owner', 'not the requestor of this request');
   }
 
-  // Nobody decides on their own request unless the org explicitly allows it.
-  // Default is OFF: an approver who raised the request is not an independent
-  // reviewer of it. Configurable because a one-approver workshop may need it.
-  if (request && DECISION_PERMISSIONS.includes(permission)) {
-    const allowSelf = Boolean(ctx.settings && ctx.settings.allowSelfApproval);
-    const owns = request.requestorId === user.id || request.createdBy === user.id;
-    if (owns && !allowSelf) {
-      return deny('self_approval', 'a request cannot be decided by the person who raised it');
-    }
-  }
+  // BR-011: APPROVAL AUTHORITY SUPERSEDES REQUESTER IDENTITY.
+  //
+  // There is deliberately NO ownership test here. Whether a decision is allowed
+  // is decided by one thing — does this user hold the approval capability
+  // (`review.decide`, i.e. APPROVE_PURCHASE) — and the check above already
+  // answered it. A purchaser who raises a request is still a purchaser: in a
+  // contracting business the people holding purchasing authority are usually
+  // the same people who need the material.
+  //
+  // The rule that used to live here was `created_by == current_user -> deny`.
+  // It refused the ordinary case — a buyer ordering what the buyer needs — to
+  // prevent an abuse the capability grant already controls: a user who must not
+  // approve is not given `review.decide` in the first place — see the REQUESTER
+  // and FIELD_FOREMAN presets, which carry canApprove: false.
+  //
+  // Self-approval is not hidden, it is RECORDED: decisions.ts stamps
+  // `selfApproved` on the approval row (and the SQL RPC does the same), so the
+  // audit trail names the requester and the approver even when they are the
+  // same person. See isSelfApproval() below.
 
   // Job-site delivery confirmation is scoped to the caller's assigned jobs.
   // The assignment list comes from the server (never from the browser).
@@ -403,7 +436,6 @@ export function authorize(user, permission, ctx = {}) {
   return { ok: true, reason: null, message: null };
 }
 
-const DECISION_PERMISSIONS = ['review.decide'];
 const OWNER_EDIT_PERMISSIONS = ['request.update.own', 'request.submit'];
 const OWNERSHIP_REQUIRED = ['request.respond_clarification'];
 

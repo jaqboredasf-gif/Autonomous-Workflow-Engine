@@ -12,8 +12,11 @@
 //   2. THE MATRIX — every role against every capability, asserted both ways.
 //      Holding a capability is as much a claim as not holding one.
 //   3. THE BOUNDARIES — the specific refusals that matter to this business:
-//      self-approval, job-scoped receiving, cross-tenant, requestor edits after
-//      handover, accounting's total absence of write authority.
+//      job-scoped receiving, cross-tenant, requestor edits after handover,
+//      accounting's total absence of write authority.
+//   4. BR-011 — approval authority supersedes requester identity. Its five
+//      cases are asserted by name; the fifth (the audit record) needs a
+//      database and lives in eval-purchasing.mjs.
 //
 // Offline. Pure domain functions plus a source scan; no database, no server.
 // ---------------------------------------------------------------------------
@@ -211,14 +214,80 @@ console.log('--- the boundaries that matter ---------------------------------');
   check(!d2.ok && d2.reason === 'cross_tenant', 'an ADMIN is refused another organization\'s request', d2.reason);
 }
 
-// Self-approval: off by default, configurable on.
+// ===========================================================================
+// BR-011 — APPROVAL AUTHORITY SUPERSEDES REQUESTER IDENTITY.
+//
+// The five cases the business stated, checked against authorize() itself. The
+// question is never "did this person raise it"; it is only ever "does this
+// person hold approval authority". Case 5 (the audit record) is a write, so it
+// is asserted in eval-purchasing.mjs against a real database.
+console.log('--- BR-011: approval authority ---------------------------------');
 {
-  const manager = user({ id: 'u-1', roles: ['WORKSHOP_APPROVER'], canApprove: true });
-  const own = request({ requestorId: 'u-1', createdBy: 'u-1' });
-  check(!authorize(manager, 'review.decide', { request: own }).ok,
-    'nobody decides their own request by default');
-  check(authorize(manager, 'review.decide', { request: own, settings: { allowSelfApproval: true } }).ok,
-    'a one-approver shop may enable self-approval deliberately');
+  // A request-only user: raises and submits, holds no approval capability.
+  const requesterOnly = user({ id: 'u-req', roles: ['REQUESTOR'] });
+  // An authorized purchaser: the Mike/Rick role. Buys, and approves.
+  const purchaser = user({ id: 'u-buy', roles: ['WORKSHOP_APPROVER'], canApprove: true });
+  // Office staff handed approval authority as a grant, without the workshop
+  // role. Same authority, arrived at differently — BR-011 must not care which.
+  const grantedApprover = user({ id: 'u-off', roles: ['OFFICE'], canApprove: true });
+
+  const ownedBy = (id) => request({ requestorId: id, createdBy: id });
+
+  // 1. A request-only user cannot approve their OWN request.
+  const c1 = authorize(requesterOnly, 'review.decide', { request: ownedBy('u-req') });
+  check(!c1.ok && c1.reason === 'missing_permission',
+    'BR-011.1 a request-only user cannot approve their own request', c1.reason);
+
+  // 2. ...nor anyone else's. Same reason: they hold no approval capability.
+  const c2 = authorize(requesterOnly, 'review.decide', { request: ownedBy('u-other') });
+  check(!c2.ok && c2.reason === 'missing_permission',
+    "BR-011.2 a request-only user cannot approve another person's request", c2.reason);
+
+  // 3. An authorized purchaser approves someone else's request.
+  check(authorize(purchaser, 'review.decide', { request: ownedBy('u-other') }).ok,
+    "BR-011.3 an authorized purchaser can approve another person's request");
+
+  // 4. ...and their own. THIS is the rule that changed: the person authorized
+  //    to buy is usually the person who needs the material.
+  const c4 = authorize(purchaser, 'review.decide', { request: ownedBy('u-buy') });
+  check(c4.ok, 'BR-011.4 an authorized purchaser can approve their own request', c4.reason);
+
+  // The grant route reaches the same place. Approval authority is approval
+  // authority however it was granted.
+  check(authorize(grantedApprover, 'review.decide', { request: ownedBy('u-off') }).ok,
+    'BR-011.4b an office approver with the explicit grant can approve their own request');
+
+  // The rule the old code used is gone, in both directions: no org setting can
+  // restore it, and none is needed to lift it.
+  check(authorize(purchaser, 'review.decide', { request: ownedBy('u-buy'), settings: {} }).ok,
+    'BR-011 approval does not depend on an org-wide self-approval setting');
+  check(authorize(purchaser, 'review.decide', {
+      request: ownedBy('u-buy'), settings: { allowSelfApproval: false },
+    }).ok,
+    'BR-011 the deprecated allowSelfApproval flag no longer gates a capability holder');
+  check(!roles.DENY_REASONS.includes('self_approval'),
+    "BR-011 'self_approval' is gone from the denial vocabulary");
+
+  // The capability name the business uses resolves to the permission the code
+  // enforces — one gate, two names, no drift.
+  check(roles.APPROVE_PURCHASE === 'purchase.request.approve',
+    'BR-011 APPROVE_PURCHASE names the approval capability');
+  check(hasCapability(purchaser, roles.APPROVE_PURCHASE) && !hasCapability(requesterOnly, roles.APPROVE_PURCHASE),
+    'BR-011 the approval capability is held by the purchaser and not by the requester');
+
+  // Self-approval is still VISIBLE — it is recorded rather than refused.
+  check(roles.isSelfApproval(purchaser, ownedBy('u-buy')), 'BR-011 a self-decision is identified for the audit trail');
+  check(!roles.isSelfApproval(purchaser, ownedBy('u-other')), "BR-011 deciding someone else's request is not stamped as self-approval");
+
+  // What BR-011 did NOT loosen: everything else still applies to an approver.
+  const crossTenant = authorize(purchaser, 'review.decide', {
+    request: request({ orgId: 'org-B', requestorId: 'u-buy', createdBy: 'u-buy' }),
+  });
+  check(!crossTenant.ok && crossTenant.reason === 'cross_tenant',
+    'BR-011 does not let an approver reach another organization, even for their own request', crossTenant.reason);
+  const inactive = authorize({ ...purchaser, isActive: false }, 'review.decide', { request: ownedBy('u-buy') });
+  check(!inactive.ok && inactive.reason === 'inactive_user',
+    'BR-011 does not let a deactivated approver decide their own request', inactive.reason);
 }
 
 // Receiving is job-scoped for field users, and NOT for shop staff.

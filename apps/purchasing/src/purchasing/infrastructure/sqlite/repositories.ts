@@ -373,11 +373,11 @@ export function sqliteReviewRepository(db: DatabaseSync): WorkshopReviewReposito
 
 export function sqliteApprovalRepository(db: DatabaseSync): ApprovalRepository {
   return {
-    async record(requestId, approverId, decision, notes, reason, changes, now) {
+    async record(requestId, approverId, decision, notes, reason, changes, now, selfApproved = false) {
       db.prepare(
-        `insert into purchase_approvals (id, request_id, approver_id, decision, decided_at, notes, reason, changes_json, created_at)
-         values (?,?,?,?,?,?,?,?,?)`,
-      ).run(uuid(), requestId, approverId, decision, now, notes, reason, JSON.stringify(changes ?? []), now);
+        `insert into purchase_approvals (id, request_id, approver_id, decision, decided_at, notes, reason, changes_json, self_approved, created_at)
+         values (?,?,?,?,?,?,?,?,?,?)`,
+      ).run(uuid(), requestId, approverId, decision, now, notes, reason, JSON.stringify(changes ?? []), selfApproved ? 1 : 0, now);
     },
 
     async listForRequest(requestId) {
@@ -388,6 +388,8 @@ export function sqliteApprovalRepository(db: DatabaseSync): ApprovalRepository {
         notes: a.notes,
         reason: a.reason,
         changes: JSON.parse(a.changes_json ?? '[]'),
+        selfApproved: Boolean(a.self_approved),
+        approverId: a.approver_id,
         approverName: (db.prepare('select full_name from users where id = ?').get(a.approver_id) as any)?.full_name,
       }));
     },

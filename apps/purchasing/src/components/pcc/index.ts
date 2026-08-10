@@ -13,6 +13,8 @@ export {
   fieldStyle,
 } from './Input';
 export { Badge, StatusBadge, UrgencyBadge, CountPill } from './Badge';
+export { BrandMark } from './BrandMark';
+export type { BrandMarkProps } from './BrandMark';
 export { Card, Panel, KpiCard, DataPoint, DataGrid } from './Card';
 export { Money, Qty } from './Value';
 export { MaterialSearch } from './MaterialSearch';
@@ -41,6 +43,7 @@ export { FileUpload, PhotoUpload } from './Upload';
 export { ReceivingItem } from './ReceivingItem';
 export {
   displayStatus,
+  stageLabel,
   toneFor,
   urgencyOf,
   urgencyTone,

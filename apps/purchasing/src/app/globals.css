@@ -25,10 +25,40 @@
   --pcc-ink-strong: #1e293b;
   --pcc-ink: #0f172a;
 
-  /* Action */
-  --pcc-action-soft: #eff6ff;
-  --pcc-action: #2563eb;
-  --pcc-action-hover: #1d4ed8;
+  /*
+   * Brand — read out of the logo artwork itself (public/brand/lippolis-logo.svg),
+   * not chosen. Two colours, used at two very different volumes:
+   *
+   *   brand   the blue of the mark. The primary accent: active navigation,
+   *           primary buttons, links, focus. Dark enough (≈12:1 on white) to
+   *           carry small text and thin rules without straining.
+   *   accent  the orange of the mark. RESTRAINED — it means "attention here"
+   *           (overdue, exception, urgent) and appears in small quantities, so
+   *           it keeps that meaning. At 3.4:1 on white it is a fill and a
+   *           marker colour, never body text; accent-strong is the text-safe
+   *           darkening of it (≈5.7:1).
+   *
+   * The neutral surfaces below carry the interface. The brand punctuates it.
+   */
+  --pcc-brand: #0800d1;
+  --pcc-brand-hover: #0600a6;
+  --pcc-brand-ink: #05007a;
+  --pcc-brand-soft: #eef0ff;
+  --pcc-brand-line: #c7ccfa;
+
+  --pcc-accent: #ff3d00;
+  --pcc-accent-strong: #c22e00;
+  --pcc-accent-soft: #fff1ec;
+
+  /*
+   * Action == brand. The screens already reach for `bg-action` / `text-action`
+   * everywhere, so pointing that name at the brand blue rebrands the whole
+   * product from one line instead of a repo-wide find-and-replace — and leaves
+   * the two vocabularies unable to drift apart.
+   */
+  --pcc-action-soft: var(--pcc-brand-soft);
+  --pcc-action: var(--pcc-brand);
+  --pcc-action-hover: var(--pcc-brand-hover);
 
   /* Semantic */
   --pcc-success-bg: #f0fdf4;
@@ -69,6 +99,15 @@
   --color-action: var(--pcc-action);
   --color-action-hover: var(--pcc-action-hover);
   --color-action-soft: var(--pcc-action-soft);
+
+  --color-brand: var(--pcc-brand);
+  --color-brand-hover: var(--pcc-brand-hover);
+  --color-brand-ink: var(--pcc-brand-ink);
+  --color-brand-soft: var(--pcc-brand-soft);
+  --color-brand-line: var(--pcc-brand-line);
+  --color-accent: var(--pcc-accent);
+  --color-accent-strong: var(--pcc-accent-strong);
+  --color-accent-soft: var(--pcc-accent-soft);
 
   --color-success: var(--pcc-success-fg);
   --color-success-bg: var(--pcc-success-bg);

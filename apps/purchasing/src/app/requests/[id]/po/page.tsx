@@ -9,6 +9,7 @@ import { requireAccess, purchasingRequestContext } from '../../../../server/sess
 import * as S from '../../../../server/service.ts';
 import { formatMoney, formatQty } from '../../../../purchasing/domain/numbers.mjs';
 import { Empty, Section, buttonClass, secondaryButtonClass } from '../../../../components/ui';
+import { BrandMark } from '../../../../components/pcc';
 import { generateEmailDraftAction } from '../../../actions.ts';
 
 export const dynamic = 'force-dynamic';
@@ -67,10 +68,16 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
 
       <div className="print-sheet mx-auto max-w-3xl rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
         <div className="flex items-start justify-between">
-          <div>
-            <div className="text-lg font-semibold">{view.org.name}</div>
-            <div className="text-xs text-slate-600">{view.org.address}</div>
-            <div className="text-xs text-slate-600">{view.org.phone}</div>
+          {/* The vendor's copy carries the mark. This sheet leaves the building
+              — printed, or saved to PDF and attached to an email — so it is the
+              one place the logo is doing a job rather than decorating one. */}
+          <div className="flex items-start gap-3">
+            <BrandMark size={40} />
+            <div>
+              <div className="text-lg font-semibold">{view.org.name}</div>
+              <div className="text-xs text-slate-600">{view.org.address}</div>
+              <div className="text-xs text-slate-600">{view.org.phone}</div>
+            </div>
           </div>
           <div className="text-right">
             <div className="text-lg font-semibold tracking-wide">PURCHASE ORDER</div>

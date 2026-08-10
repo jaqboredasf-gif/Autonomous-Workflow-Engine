@@ -243,3 +243,126 @@ export function needsAttentionCount(requests = []) {
   const actionable = LIFECYCLE_STAGES.filter((s) => s.actionable).flatMap((s) => s.statuses);
   return requests.filter((r) => actionable.includes(r.status)).length;
 }
+
+// ---------------------------------------------------------------------------
+// THE OPERATIONAL PANELS — purchasing status, receiving status, vendor
+// activity, recent purchase orders.
+//
+// All four are DERIVED, here, from the request records the caller is already
+// allowed to see. That is the whole design rule for this section: a dashboard
+// panel may only count, sum or sort things that exist. There is no trend, no
+// forecast, no "vs last month", and no placeholder series — a number nobody can
+// click through to and reconcile is worse than an empty panel, because it gets
+// believed.
+//
+// Pure and total: an empty request list yields empty panels, never zeros
+// dressed up as data.
+// ---------------------------------------------------------------------------
+
+const ORDERED_ONWARD = ['ORDERED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'COMPLETED'];
+
+/**
+ * The purchasing pipeline: how much work sits in each stage a purchaser can
+ * act on, with the money committed alongside the count. Closed and draft
+ * stages are excluded — this panel answers "what is in flight".
+ */
+export function purchasingStatus(requests = []) {
+  const inFlight = LIFECYCLE_STAGES.filter((s) => !['CLOSED', 'DRAFTS'].includes(s.key));
+  const rows = inFlight.map((stage) => {
+    const inStage = requests.filter((r) => stage.statuses.includes(r.status));
+    return {
+      key: stage.key,
+      labelKey: stage.labelKey,
+      tone: stage.tone,
+      actionable: stage.actionable,
+      count: inStage.length,
+      valueCents: inStage.reduce((t, r) => t + Number(r.estimatedTotalCents ?? 0), 0),
+    };
+  });
+  const total = rows.reduce((t, r) => t + r.count, 0);
+  // The share is of what is in flight, so the bars in the UI add up to the
+  // panel's own total rather than to some other screen's denominator.
+  return rows.map((r) => ({ ...r, share: total === 0 ? 0 : r.count / total }));
+}
+
+/**
+ * Receiving, from the receiver's point of view: what is on its way, what
+ * arrived incomplete, and what landed recently. `overdueArrivals` counts
+ * ordered material whose need-by has passed — the reason someone walks to the
+ * shop counter to ask.
+ */
+export function receivingStatus(requests = [], now = '1970-01-01T00:00:00') {
+  const month = String(now).slice(0, 7);
+  const awaiting = requests.filter((r) => r.status === 'ORDERED');
+  const partial = requests.filter((r) => r.status === 'PARTIALLY_RECEIVED');
+  const receivedThisMonth = requests.filter(
+    (r) => ['RECEIVED', 'COMPLETED'].includes(r.status) && String(r.receivedAt ?? '').slice(0, 7) === month,
+  );
+  return {
+    awaiting: awaiting.length,
+    awaitingValueCents: awaiting.reduce((t, r) => t + Number(r.estimatedTotalCents ?? 0), 0),
+    partiallyReceived: partial.length,
+    receivedThisMonth: receivedThisMonth.length,
+    overdueArrivals: [...awaiting, ...partial].filter((r) => isOverdue(r, now)).length,
+    // Ready to close: everything received in full and not yet completed.
+    awaitingCompletion: requests.filter((r) => r.status === 'RECEIVED').length,
+  };
+}
+
+/**
+ * Who we are actually buying from. One row per vendor that appears on a real
+ * request, with open work, committed value and the last time an order went
+ * out. Requests with no vendor yet are not a vendor called "Unassigned" — they
+ * are simply not in this panel.
+ */
+export function vendorActivity(requests = [], limit = 5) {
+  const byVendor = new Map();
+  for (const r of requests) {
+    if (!r.vendorId && !r.vendorName) continue;
+    const key = r.vendorId ?? r.vendorName;
+    const row = byVendor.get(key) ?? {
+      vendorId: r.vendorId ?? null,
+      vendorName: r.vendorName ?? null,
+      requests: 0,
+      openOrders: 0,
+      openValueCents: 0,
+      lastOrderedAt: null,
+    };
+    row.requests += 1;
+    if (OPEN_ORDER_STATUSES.includes(r.status)) {
+      row.openOrders += 1;
+      row.openValueCents += Number(r.estimatedTotalCents ?? 0);
+    }
+    if (r.orderedAt && (!row.lastOrderedAt || r.orderedAt > row.lastOrderedAt)) row.lastOrderedAt = r.orderedAt;
+    byVendor.set(key, row);
+  }
+  // Busiest first, by open work then by total dealings — a vendor with three
+  // open orders outranks one with a bigger historical footprint and nothing
+  // outstanding, because the panel is about what is live.
+  return [...byVendor.values()]
+    .sort((a, b) => b.openOrders - a.openOrders || b.openValueCents - a.openValueCents || b.requests - a.requests)
+    .slice(0, limit);
+}
+
+/**
+ * The purchase orders most recently placed with a vendor. Ordered by when the
+ * order actually went out; a request that has a PO number but was never
+ * ordered has not happened yet as far as a vendor is concerned, so it sorts
+ * behind on its decision time rather than jumping the list.
+ */
+export function recentPurchaseOrders(requests = [], limit = 6) {
+  return requests
+    .filter((r) => r.poNumber && ORDERED_ONWARD.includes(r.status))
+    .map((r) => ({
+      id: r.id,
+      poNumber: r.poNumber,
+      requestNumber: r.requestNumber,
+      jobNumber: r.jobNumber,
+      vendorName: r.vendorName ?? null,
+      status: r.status,
+      orderedAt: r.orderedAt ?? null,
+      valueCents: Number(r.estimatedTotalCents ?? 0),
+    }))
+    .sort((a, b) => String(b.orderedAt ?? '').localeCompare(String(a.orderedAt ?? '')))
+    .slice(0, limit);
+}

@@ -204,7 +204,8 @@ if (!requestId) {
       'the lifecycle board did not render');
   }
 
-  // 3. The requester cannot approve their own request (Scenario D, inline).
+  // 3. BR-011.1: a request-only user cannot approve their own request. Not
+  //    because they raised it — because they hold no approval capability.
   {
     const res = await requester.go(`/requests/${requestId}/review`);
     const refused = res.status >= 300;

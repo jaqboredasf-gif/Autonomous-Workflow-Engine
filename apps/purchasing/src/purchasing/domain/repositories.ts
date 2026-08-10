@@ -131,7 +131,11 @@ export interface WorkshopReviewRepository {
 }
 
 export interface ApprovalRepository {
-  record(requestId: Id, approverId: Id, decision: string, notes: string | null, reason: string | null, changes: unknown, now: string): Promise<void>;
+  /**
+   * `selfApproved` is BR-011's audit stamp: the approver held the approval
+   * capability AND raised the request. It records a fact, it does not gate one.
+   */
+  record(requestId: Id, approverId: Id, decision: string, notes: string | null, reason: string | null, changes: unknown, now: string, selfApproved?: boolean): Promise<void>;
   listForRequest(requestId: Id): Promise<any[]>;
 }
 

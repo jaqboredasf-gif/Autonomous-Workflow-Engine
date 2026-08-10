@@ -12,8 +12,11 @@
 //                          recorded
 //   * authorization      — requestor cannot approve; office cannot approve
 //                          without the grant; office WITH the grant can; Rick
-//                          approves as the authorized backup; self-approval is
-//                          refused
+//                          approves as the authorized backup
+//   * BR-011             — approval authority supersedes requester identity: a
+//                          purchaser decides his own request and a colleague's,
+//                          a request-only user decides neither, and the audit
+//                          row names requester, approver, and which was which
 //   * quantity algebra   — suggested = approved - stock, never negative, the
 //                          override sticks, and the requested quantity is
 //                          unchanged by everything the workshop does
@@ -564,22 +567,69 @@ await S.decide(ctx(), officeApprover, officeReq.id, 'APPROVE', { notes: 'Granted
 eq(db.prepare('select status from purchase_requests where id = ?').get(officeReq.id).status, 'APPROVED',
    'an office user with an explicit grant can approve');
 
-console.log('--- self-approval ----------------------------------------------');
+console.log('--- BR-011: approval authority over requester identity ----------');
 
+// BR-011 case 4, end to end: the authorized purchaser raises a request and
+// decides it himself. This is the ORDINARY case at this company — the people
+// who hold purchasing authority are the people who need the material — and the
+// system must complete it, not refuse it.
 const mikesOwn = await S.createRequest(ctx(), mike, { ...baseDraft, reason: 'Workshop restock.' });
 await S.submitRequest(ctx(), mike, mikesOwn.id);
-await refuses(
-  async () => S.decide(ctx(), mike, mikesOwn.id, 'APPROVE'),
-  'self_approval',
-  'nobody decides on the request they raised',
-);
-await S.saveReview(ctx(), rick, mikesOwn.id, {
-  lines: [{ requestItemId: (await S.getRequestDetail(ctx(), rick, mikesOwn.id)).originalItems[0].id,
+await S.saveReview(ctx(), mike, mikesOwn.id, {
+  lines: [{ requestItemId: (await S.getRequestDetail(ctx(), mike, mikesOwn.id)).originalItems[0].id,
             usableStock: '0', approvedQty: '20', finalOrderQty: '20', vendorId: graybar.id, estimatedUnitCost: '5.00' }],
 });
-await S.decide(ctx(), rick, mikesOwn.id, 'APPROVE');
+await S.decide(ctx(), mike, mikesOwn.id, 'APPROVE', { notes: 'Shop stock, my own call.' });
 eq(db.prepare('select status from purchase_requests where id = ?').get(mikesOwn.id).status, 'APPROVED',
-   "but the other approver can decide on their colleague's request");
+   'BR-011.4 an authorized purchaser can approve the request he raised');
+
+// BR-011 case 5: the audit trail. Approving your own request must leave MORE
+// evidence than refusing it did, not less — both parties named, and the fact
+// that they are one person stated rather than left to be inferred.
+const selfRow = db.prepare(
+  `select r.requestor_id, a.approver_id, a.self_approved, a.decision, a.notes
+     from purchase_approvals a join purchase_requests r on r.id = a.request_id
+    where a.request_id = ?`).get(mikesOwn.id);
+eq(selfRow.requestor_id, mike.id, 'BR-011.5 the audit record keeps the requester');
+eq(selfRow.approver_id, mike.id, 'BR-011.5 the audit record keeps the approver');
+eq(selfRow.self_approved, 1, 'BR-011.5 a self-approval is stamped as one');
+eq(selfRow.decision, 'APPROVED', 'BR-011.5 the decision itself is recorded');
+eq(db.prepare('select approver_id from purchase_requests where id = ?').get(mikesOwn.id).approver_id, mike.id,
+   'BR-011.5 the request names who decided it');
+
+// BR-011 cases 1 and 2: a request-only user holds no approval authority, so
+// neither his own request nor anyone else's is decidable by him. Same refusal,
+// same reason — the refusal is about the missing capability, never about who
+// raised the request.
+const foremansOwn = await S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Field restock.' });
+await S.submitRequest(ctx(), foreman, foremansOwn.id);
+await refuses(
+  async () => S.decide(ctx(), foreman, foremansOwn.id, 'APPROVE'),
+  'missing_permission',
+  'BR-011.1 a request-only user cannot approve his own request',
+);
+await refuses(
+  async () => S.decide(ctx(), foreman, mikesOwn.id, 'APPROVE'),
+  'missing_permission',
+  "BR-011.2 a request-only user cannot approve someone else's request",
+);
+
+// BR-011 case 3, and the audit stamp's other half: a colleague's decision is
+// recorded as exactly that.
+await S.saveReview(ctx(), rick, foremansOwn.id, {
+  lines: [{ requestItemId: (await S.getRequestDetail(ctx(), rick, foremansOwn.id)).originalItems[0].id,
+            usableStock: '0', approvedQty: '20', finalOrderQty: '20', vendorId: graybar.id, estimatedUnitCost: '5.00' }],
+});
+await S.decide(ctx(), rick, foremansOwn.id, 'APPROVE');
+eq(db.prepare('select status from purchase_requests where id = ?').get(foremansOwn.id).status, 'APPROVED',
+   "BR-011.3 an authorized purchaser can approve a colleague's request");
+const colleagueRow = db.prepare(
+  `select r.requestor_id, a.approver_id, a.self_approved
+     from purchase_approvals a join purchase_requests r on r.id = a.request_id
+    where a.request_id = ?`).get(foremansOwn.id);
+eq(colleagueRow.requestor_id, foreman.id, 'BR-011.5 the requester is the foreman who raised it');
+eq(colleagueRow.approver_id, rick.id, 'BR-011.5 the approver is the purchaser who decided it');
+eq(colleagueRow.self_approved, 0, "BR-011.5 deciding a colleague's request is not stamped as self-approval");
 
 console.log('--- tenant isolation + unauthorized access ---------------------');
 

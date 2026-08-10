@@ -301,6 +301,10 @@ create table if not exists purchase_approvals (
   -- What the approver changed relative to the original request, frozen at the
   -- moment of decision. The approval refers to THESE numbers.
   changes_json  text not null default '[]',
+  -- BR-011: approval authority is a capability, so an approver MAY decide a
+  -- request they raised. That is recorded, not refused — this column is how the
+  -- audit trail says the requester and the approver were the same person.
+  self_approved integer not null default 0 check (self_approved in (0,1)),
   created_at    text not null,
   -- A rejection or a clarification must say why.
   check (decision = 'APPROVED' or (reason is not null and length(reason) > 0))

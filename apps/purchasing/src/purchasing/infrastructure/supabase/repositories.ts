@@ -371,11 +371,14 @@ export function supabaseReviewRepository(h: SupabaseHandles): WorkshopReviewRepo
 
 export function supabaseApprovalRepository(h: SupabaseHandles): ApprovalRepository {
   return {
-    async record(requestId, approverId, decision, notes, reason, changes, now) {
+    async record(requestId, approverId, decision, notes, reason, changes, now, selfApproved = false) {
       unwrap(
         await h.db.from(TABLES.approvals).insert({
           request_id: requestId, approver_id: approverId, decision,
           notes, reason, changes: changes ?? [], decided_at: now, created_at: now,
+          // BR-011 audit stamp. See 0028_purchasing_approval_authority.sql —
+          // the RPC path sets the same column, so both write paths agree.
+          self_approved: selfApproved,
         }),
         'record approval',
       );
@@ -394,6 +397,8 @@ export function supabaseApprovalRepository(h: SupabaseHandles): ApprovalReposito
         notes: a.notes,
         reason: a.reason,
         changes: a.changes ?? [],
+        selfApproved: Boolean(a.self_approved),
+        approverId: a.approver_id ?? null,
         approverName: a.approver?.full_name ?? null,
       }));
     },

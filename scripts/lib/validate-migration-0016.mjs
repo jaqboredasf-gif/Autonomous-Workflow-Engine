@@ -19,6 +19,9 @@
 //                                  (through the documented rename map)
 //   * no send capability         — no http/smtp/pg_net/graph anywhere in it
 //   * the send gate + no-delete guards are present
+//   * BR-011                     — the LATEST definition of the decision RPC
+//                                  gates on the review.decide capability, does
+//                                  not refuse self-approval, and stamps it
 //
 // Used by scripts/eval-purchasing.mjs; exits non-zero on its own if run directly.
 // ---------------------------------------------------------------------------
@@ -87,7 +90,8 @@ export async function validate() {
   const bad = (m) => problems.push(m);
 
   const { REQUEST_STATUSES, TRANSITIONS } = await import(join(APP, 'purchasing', 'domain', 'status.mjs'));
-  const { ROLE_PERMISSIONS, APPROVAL_GRANT_PERMISSIONS, ROLES } = await import(join(APP, 'purchasing', 'domain', 'roles.mjs'));
+  const { ROLE_PERMISSIONS, APPROVAL_GRANT_PERMISSIONS, ROLES, DENY_REASONS } =
+    await import(join(APP, 'purchasing', 'domain', 'roles.mjs'));
   const { EMAIL_TEMPLATE_TYPES, EMAIL_DRAFT_STATUSES } = await import(join(APP, 'purchasing', 'domain', 'email.mjs'));
   const { TABLES } = await import(join(APP, 'purchasing', 'infrastructure', 'sqlite', 'database.ts'));
 
@@ -140,11 +144,11 @@ export async function validate() {
   // divergence that the database does not actually have. Every migration is
   // scanned for deletes and they are applied to the seeded set, in the same
   // order Postgres would apply them.
-  const allMigrations = readdirSync(MIGRATIONS_DIR)
+  const migrationFiles = readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith('.sql'))
     .sort()
-    .map((f) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
-    .join('\n');
+    .map((f) => ({ name: f, text: readFileSync(join(MIGRATIONS_DIR, f), 'utf8') }));
+  const allMigrations = migrationFiles.map((f) => f.text).join('\n');
   for (const m of allMigrations.matchAll(
     /delete\s+from\s+purchasing_role_permissions\s+where([\s\S]*?);/gi,
   )) {
@@ -212,10 +216,37 @@ export async function validate() {
     ['guard_no_delete', 'append-only business records'],
     ['guard_receipt_quantities', 'the over-receipt guard'],
     ['guard_request_item_immutability', 'the original request is read-only after submission'],
-    ['a request cannot be decided by the person who raised it', 'the self-approval refusal'],
   ];
   for (const [needle, what] of required) {
     if (!sql.includes(needle)) bad(`migration 0016 is missing ${what} (${needle})`);
+  }
+
+  // --- BR-011: approval authority, not requester identity -------------------
+  //
+  // Migrations are append-only, so the rule the DATABASE enforces is whatever
+  // the LAST definition of record_purchase_decision() says. 0016's original
+  // definition still contains the old identity refusal and always will; that
+  // is history, not policy. This checks the definition that wins.
+  const decisionDefs = migrationFiles.filter((f) =>
+    f.text.includes('create or replace function record_purchase_decision'));
+  if (decisionDefs.length === 0) {
+    bad('no migration defines record_purchase_decision()');
+  } else {
+    const latest = decisionDefs[decisionDefs.length - 1];
+    const body = functionBody(latest.text, 'record_purchase_decision') ?? '';
+    if (!body.includes("purchasing_can(v_uid, 'review.decide')")) {
+      bad(`${latest.name}: record_purchase_decision() does not check the review.decide capability`);
+    }
+    if (body.includes('a request cannot be decided by the person who raised it')) {
+      bad(`${latest.name}: record_purchase_decision() still refuses self-approval — BR-011 makes approval a capability, not a function of who raised the request`);
+    }
+    if (!body.includes('self_approved')) {
+      bad(`${latest.name}: record_purchase_decision() does not stamp self_approved — BR-011 records self-approval instead of refusing it`);
+    }
+    // The domain must not carry a denial the database cannot produce.
+    if (DENY_REASONS.includes('self_approval')) {
+      bad("roles.mjs still lists 'self_approval' as a denial reason, which BR-011 removed");
+    }
   }
 
   return problems;

@@ -38,6 +38,28 @@ export function displayStatus(status: string): string {
   return LABELS[status] ?? statusLabel(status);
 }
 
+/**
+ * Lifecycle STAGE labels — the pile a status belongs to, in words. The stages
+ * themselves (and their `labelKey`) live in domain/dashboard.mjs; this is the
+ * English fallback, same arrangement as displayStatus() above. Screens that
+ * show a stage read it from here so the queue, the table and the dashboard
+ * cannot end up calling the same pile three different things.
+ */
+const STAGE_LABELS: Record<string, string> = {
+  NEEDS_REVIEW: 'Needs approval',
+  WAITING_ON_REQUESTOR: 'Waiting on requester',
+  READY_TO_ORDER: 'Ready to order',
+  AWAITING_DELIVERY: 'Awaiting delivery',
+  PARTIALLY_RECEIVED: 'Partly received',
+  RECEIVED: 'Received',
+  DRAFTS: 'Drafts',
+  CLOSED: 'Closed',
+};
+
+export function stageLabel(key: string): string {
+  return STAGE_LABELS[key] ?? key;
+}
+
 export type Tone = 'neutral' | 'attention' | 'warn' | 'good' | 'bad' | 'info';
 
 export function toneFor(status: string): Tone {
