@@ -20,8 +20,10 @@ import type {
 } from './ports.ts';
 import type { IntegrationProviders } from './integrations.ts';
 
+import { executeTransition } from '@awe/workflow';
+
 import { authorize } from '../domain/roles.mjs';
-import { transitionGuard } from '../domain/status.mjs';
+import { PURCHASING_WORKFLOW } from '../domain/purchasing-workflow.mjs';
 import { events } from '../domain/events.mjs';
 
 export type PurchasingContext = {
@@ -153,23 +155,76 @@ export async function loadRequest(ctx: PurchasingContext, actor: Actor, requestI
 }
 
 /**
- * 3. GUARD THE TRANSITION, then write. The guard's content preconditions are
- *    answered from repositories, so "can this move?" is one question with one
- *    answer wherever it is asked.
+ * 3. TAKE THE ACTION. Every state change in purchasing goes through here, and
+ *    from here through the AWE workflow engine.
+ *
+ * WHAT THE ENGINE DECIDES: whether the action exists, whether it is legal from
+ * this state, whether the actor holds its permission, whether its evidence is
+ * present, and what it must record. All of that is one row of
+ * PURCHASING_WORKFLOW rather than three fragments in three files.
+ *
+ * WHAT THIS FUNCTION STILL OWNS: the facts (five repository reads the engine
+ * must never make), the policy (roles.mjs, which the engine must never import),
+ * and the write itself. Those are the three boundaries that let the engine be
+ * reused by an application that stores nothing the way this one does.
+ *
+ * The engine calls `recordEvent` after the state write and cannot be made to
+ * skip it, which is the guarantee: a purchase request cannot reach a new state
+ * without the workflow event that says how it got there. The RICH domain event
+ * — with its payload, its notification target and its audit shape — is still
+ * emitted by the use case through emit(); this is the skeletal one the engine
+ * insists on, and the two are reconciled by a test asserting every workflow
+ * action's event kind is a known activity action.
  */
 export async function transitionTo(
-  ctx: PurchasingContext, actor: Actor, request: any, to: string, patch: Record<string, unknown> = {},
+  ctx: PurchasingContext, actor: Actor, request: any, action: string, patch: Record<string, unknown> = {},
 ) {
-  // The guard is pure; the FACTS it judges come from persistence.
-  const guard = transitionGuard(request.status, to, await transitionFacts(ctx, request));
-  if (!guard.ok) throw new PurchasingError(guard.reason ?? 'illegal_transition', guard.message ?? 'illegal transition');
-  await ctx.requests.update(request.id, request.version, {
-    status: to,
-    updated_at: ctx.clock.now(),
-    updated_by: actor.id,
-    ...patch,
+  const facts = {
+    ...(await transitionFacts(ctx, request)),
+    // Ownership is a FACT about the pairing of this actor and this record, so
+    // it travels with the other facts rather than being a second argument the
+    // engine would have to understand.
+    isOwner: request.requestorId === actor.id || request.createdBy === actor.id,
+  };
+  const result = await executeTransition({
+    workflow: PURCHASING_WORKFLOW,
+    action,
+    from: request.status,
+    facts,
+    // THE POLICY BOUNDARY. The engine asks a question and believes the answer;
+    // it never learns what a role is. Ownership-scoped permissions are resolved
+    // against this record, so cancelling your own request works exactly as it
+    // did — authorize() is still the only thing deciding.
+    can: (permission: string) => authorize(actor, permission, { request }).ok,
+    effects: {
+      applyState: async (to: string) => {
+        await ctx.requests.update(request.id, request.version, {
+          status: to,
+          updated_at: ctx.clock.now(),
+          updated_by: actor.id,
+          ...patch,
+        });
+      },
+      // The engine's own record that the transition happened. Written to the
+      // same append-only activity log every other event goes to.
+      recordEvent: async (event: any) => {
+        await ctx.audit.record(actor.orgId, actor, {
+          action: event.kind,
+          entityType: 'purchase_request',
+          entityId: request.id,
+          requestId: request.id,
+          before: { status: event.from },
+          after: { status: event.to },
+          payload: { workflowAction: event.action },
+        });
+      },
+    },
   });
-  return { ...request, status: to, version: request.version + 1 };
+
+  if (!result.ok) {
+    throw new PurchasingError(result.reason ?? 'illegal_transition', result.message ?? 'illegal transition');
+  }
+  return { ...request, status: result.to, version: request.version + 1 };
 }
 
 export async function transitionFacts(ctx: PurchasingContext, request: any) {

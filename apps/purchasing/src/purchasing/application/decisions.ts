@@ -113,7 +113,7 @@ async function approve(
     throw new PurchasingError('cost_required', 'every ordered line needs an estimated unit cost');
   }
 
-  await transitionTo(ctx, actor, request, 'APPROVED', { approver_id: actor.id, decided_at: now, decision_notes: notes });
+  await transitionTo(ctx, actor, request, 'approve', { approver_id: actor.id, decided_at: now, decision_notes: notes });
   // BR-011: an approver may decide their own request. The row records both
   // sides — requestor_id stays on the request, approver_id goes here — and the
   // stamp says explicitly when they are the same person.
@@ -147,7 +147,7 @@ async function reject(
   const why = reason.trim();
   if (!why) throw new PurchasingError('reason_required', 'a rejection must record a reason');
 
-  await transitionTo(ctx, actor, request, 'REJECTED', {
+  await transitionTo(ctx, actor, request, 'reject', {
     approver_id: actor.id, decided_at: now, decision_notes: notes, rejection_reason: why,
   });
   await ctx.approvals.record(request.id, actor.id, 'REJECTED', notes, why, changes, now, isSelfApproval(actor, request));
@@ -167,7 +167,7 @@ async function clarify(
   const asked = question.trim();
   if (!asked) throw new PurchasingError('reason_required', 'a clarification must ask something');
 
-  await transitionTo(ctx, actor, request, 'CLARIFICATION_REQUESTED', {
+  await transitionTo(ctx, actor, request, 'requestClarification', {
     approver_id: actor.id, clarification_question: asked, clarification_answer: null,
   });
   await ctx.approvals.record(request.id, actor.id, 'CLARIFICATION_REQUESTED', notes, asked, changes, now, isSelfApproval(actor, request));

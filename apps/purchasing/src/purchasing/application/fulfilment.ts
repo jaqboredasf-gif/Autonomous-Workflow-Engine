@@ -71,7 +71,7 @@ export async function generatePurchaseOrder(ctx: PurchasingContext, actor: Actor
       now,
     );
 
-    await transitionTo(ctx, actor, request, 'PO_GENERATED');
+    await transitionTo(ctx, actor, request, 'generatePo');
     const document = await renderAndStore(ctx, actor, saved.id, now);
 
     await emit(ctx, actor, actor.orgId, [
@@ -116,7 +116,7 @@ export async function generateVendorEmailDraft(ctx: PurchasingContext, actor: Ac
 
     const existing = await ctx.drafts.findByKey(actor.orgId, draftKey);
     if (existing) {
-      if (request.status === 'PO_GENERATED') await transitionTo(ctx, actor, request, 'EMAIL_DRAFTED');
+      if (request.status === 'PO_GENERATED') await transitionTo(ctx, actor, request, 'draftEmail');
       return { id: existing.id, reused: true };
     }
 
@@ -148,7 +148,7 @@ export async function generateVendorEmailDraft(ctx: PurchasingContext, actor: Ac
       now,
     );
 
-    await transitionTo(ctx, actor, request, 'EMAIL_DRAFTED');
+    await transitionTo(ctx, actor, request, 'draftEmail');
     await emit(ctx, actor, actor.orgId, [
       events.emailDraftGenerated(requestId, { id: saved.id, templateKey: 'VENDOR_PURCHASE_ORDER', to: composed.to }, order.poNumber),
     ]);
@@ -206,7 +206,7 @@ export async function markOrderPlaced(ctx: PurchasingContext, actor: Actor, requ
   const request = await loadRequest(ctx, actor, requestId);
   await must(ctx, actor, 'order.mark_ordered', request);
   return ctx.uow.run(async () => {
-    await transitionTo(ctx, actor, request, 'ORDERED', { ordered_at: input.orderedAt ?? ctx.clock.now() });
+    await transitionTo(ctx, actor, request, 'markOrdered', { ordered_at: input.orderedAt ?? ctx.clock.now() });
     await emit(ctx, actor, actor.orgId, [events.orderPlaced(request, input.notes ?? null)]);
     return { status: 'ORDERED' };
   });
@@ -366,11 +366,11 @@ export async function recordReceipt(
     const fresh = await loadRequest(ctx, actor, requestId);
 
     if (outstanding === 0) {
-      await transitionTo(ctx, actor, fresh, 'RECEIVED', { received_at: now });
+      await transitionTo(ctx, actor, fresh, 'recordFullReceipt', { received_at: now });
       await ctx.receipts.markFinal(receipt.id);
       emitted.push(events.receiptCompleted(requestId, receipt.id, input.receivedDate), events.materialReady(requestId));
     } else {
-      if (fresh.status !== 'PARTIALLY_RECEIVED') await transitionTo(ctx, actor, fresh, 'PARTIALLY_RECEIVED');
+      if (fresh.status !== 'PARTIALLY_RECEIVED') await transitionTo(ctx, actor, fresh, 'recordPartialReceipt');
       emitted.push(events.receiptPartial(requestId, receipt.id, outstanding));
     }
 
@@ -386,7 +386,7 @@ export async function completePurchaseRequest(ctx: PurchasingContext, actor: Act
   const request = await loadRequest(ctx, actor, requestId);
   await must(ctx, actor, 'request.complete', request);
   return ctx.uow.run(async () => {
-    await transitionTo(ctx, actor, request, 'COMPLETED', { completed_at: ctx.clock.now() });
+    await transitionTo(ctx, actor, request, 'complete', { completed_at: ctx.clock.now() });
 
     // THE HISTORY WRITE POINT. Inside the transition's unit of work and after
     // the transition, because `completed_at` is part of what history records.

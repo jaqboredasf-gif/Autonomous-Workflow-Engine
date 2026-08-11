@@ -120,13 +120,13 @@ export async function submitPurchaseRequest(ctx: PurchasingContext, actor: Actor
   if (!validation.ok) throw new PurchasingError('validation_failed', 'the request is incomplete', validation.errors);
 
   return ctx.uow.run(async () => {
-    const submitted = await transitionTo(ctx, actor, request, 'SUBMITTED', { submitted_at: ctx.clock.now() });
+    const submitted = await transitionTo(ctx, actor, request, 'submit', { submitted_at: ctx.clock.now() });
     await emit(ctx, actor, actor.orgId, [events.requestSubmitted(request)]);
 
     // A submitted request does not sit in SUBMITTED waiting for someone to
     // notice: it enters the workshop queue in the same transaction, so there is
     // no state in which a request is submitted and nobody owns it.
-    await transitionTo(ctx, actor, submitted, 'PENDING_WORKSHOP_REVIEW');
+    await transitionTo(ctx, actor, submitted, 'queue');
     await emit(ctx, actor, actor.orgId, [events.awaitingReview(request)]);
     return { status: 'PENDING_WORKSHOP_REVIEW' };
   });
@@ -141,11 +141,11 @@ export async function respondToClarification(ctx: PurchasingContext, actor: Acto
   if (!answer.trim()) throw new PurchasingError('validation_failed', 'an answer cannot be empty');
 
   return ctx.uow.run(async () => {
-    const resubmitted = await transitionTo(ctx, actor, request, 'RESUBMITTED', { clarification_answer: answer.trim() });
+    const resubmitted = await transitionTo(ctx, actor, request, 'answerClarification', { clarification_answer: answer.trim() });
     await emit(ctx, actor, actor.orgId, [events.clarificationAnswered(request, answer.trim())]);
     // Straight back into the queue: an answered question never waits for
     // someone to remember to re-queue it.
-    await transitionTo(ctx, actor, resubmitted, 'PENDING_WORKSHOP_REVIEW');
+    await transitionTo(ctx, actor, resubmitted, 'queue');
     return { status: 'PENDING_WORKSHOP_REVIEW' };
   });
 }
@@ -160,7 +160,7 @@ export async function cancelPurchaseRequest(ctx: PurchasingContext, actor: Actor
   if (!reason || !reason.trim()) throw new PurchasingError('reason_required', 'a cancellation must record a reason');
 
   return ctx.uow.run(async () => {
-    await transitionTo(ctx, actor, request, 'CANCELLED', { cancelled_at: ctx.clock.now(), cancel_reason: reason.trim() });
+    await transitionTo(ctx, actor, request, 'cancel', { cancelled_at: ctx.clock.now(), cancel_reason: reason.trim() });
 
     // A cancelled request is still part of what happened, and it is recorded
     // with its terminal state and reason. What it does NOT do is inform price
