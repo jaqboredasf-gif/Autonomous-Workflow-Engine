@@ -284,6 +284,39 @@ if (mike) {
   }
 }
 
+// ===========================================================================
+console.log('\n--- sign-in hardening: guessing is bounded ----------------------');
+
+{
+  // The app is about to be reachable from outside the shop, so a password must
+  // not be guessable as fast as the server answers. Uses an address nobody
+  // owns, so nothing real is locked out by running this.
+  const victim = `throttle-probe-${Date.now()}@lippolis.test`;
+  let sawThrottle = false;
+  let lastStatus = 0;
+  for (let i = 0; i < 12 && !sawThrottle; i++) {
+    const res = await fetch(`${BASE}/api/auth/sign-in`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: victim, password: `wrong-${i}` }), redirect: 'manual',
+    });
+    lastStatus = res.status;
+    if (res.status === 429) {
+      sawThrottle = true;
+      check(Boolean(res.headers.get('retry-after')), 'the refusal says when to come back (Retry-After)');
+      const body = await res.json().catch(() => ({}));
+      check(body.error === 'too_many_attempts', 'and names the reason');
+    }
+  }
+  check(sawThrottle, 'repeated wrong passwords are eventually refused outright', `last status ${lastStatus}`);
+
+  // A real account must still work: the throttle is per address, and locking a
+  // probe must not lock the shop out.
+  const mikeStill = browser();
+  const ok = await mikeStill.signIn('mike@lippolis.test');
+  check(ok.status === 200, 'a real account still signs in while another address is locked',
+    `status ${ok.status}`);
+}
+
 console.log('');
 console.log(`operability checks: ${pass} passed, ${failures.length} failed`);
 if (failures.length) {

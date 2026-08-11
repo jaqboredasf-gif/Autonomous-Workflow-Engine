@@ -7,6 +7,7 @@
 // to the server log.
 // ---------------------------------------------------------------------------
 
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { signIn, signOut, signInAsDemoUser, demoModeEnabled } from '../server/session.ts';
@@ -22,7 +23,13 @@ export async function signInAction(_prev: SignInState, formData: FormData): Prom
   const password = String(formData.get('password') ?? '');
   const next = String(formData.get('next') ?? '');
 
-  const result = await signIn(email, password, next || undefined);
+  // The browser form runs server-side, so the client address comes from the
+  // request headers rather than from anything the page could set.
+  const source = (await headers()).get('x-forwarded-for')?.split(',')[0].trim()
+    ?? (await headers()).get('x-real-ip')
+    ?? null;
+
+  const result = await signIn(email, password, next || undefined, source);
   if (result.ok) {
     log.info('auth.sign_in', { email, outcome: 'success' });
     redirect(result.redirectTo);
@@ -38,6 +45,11 @@ function messageFor(error: string): string {
       return 'Enter your email address and password.';
     case 'account_disabled':
       return 'This account has been disabled. Contact the office.';
+    case 'too_many_attempts':
+      // Deliberately does not say whether the address exists, and deliberately
+      // does not print the exact number of seconds — a countdown is a tool for
+      // whoever is guessing, and useless to somebody who mistyped.
+      return 'Too many sign-in attempts. Wait a few minutes and try again.';
     case 'unavailable':
       return 'Sign-in is temporarily unavailable. Try again in a moment.';
     default:

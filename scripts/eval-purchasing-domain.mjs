@@ -948,6 +948,52 @@ console.log("--- today's board and the by-day graph -------------------------");
   eq(A.activityRange('nonsense').key, '7d', 'an unknown range falls back to a week, not to nothing');
 }
 
+// ===========================================================================
+console.log('--- how many times somebody may guess ---------------------------');
+{
+  const T = await import(join(DOMAIN, 'throttle.mjs'));
+  const NOW = 1_800_000_000;
+  const fails = (n, at = NOW) => Array.from({ length: n }, () => at);
+
+  eq(T.attemptDecision([], NOW).allowed, true, 'a first attempt is allowed');
+  eq(T.attemptDecision(fails(T.MAX_FAILURES - 1), NOW).allowed, true, 'so is the last one under the limit');
+  eq(T.attemptDecision(fails(T.MAX_FAILURES), NOW).allowed, false, 'the limit locks the key');
+
+  // The lock runs from the NEWEST failure, so guessing while locked extends it.
+  const locked = T.attemptDecision(fails(T.MAX_FAILURES), NOW);
+  eq(locked.retryAfterSeconds, T.LOCK_SECONDS, 'and reports how long to wait');
+  const kept = T.attemptDecision([...fails(T.MAX_FAILURES), NOW + 60], NOW + 60);
+  check(kept.retryAfterSeconds === T.LOCK_SECONDS,
+    'guessing again while locked restarts the wait rather than running it down');
+
+  // Failures age out of the window.
+  const old = fails(T.MAX_FAILURES, NOW - T.WINDOW_SECONDS - 1);
+  eq(T.attemptDecision(old, NOW).allowed, true, 'failures older than the window do not count');
+  eq(T.withinWindow(old, NOW).length, 0, 'and are dropped from what the store keeps');
+
+  // The source budget is looser than the account budget — one office IP is
+  // shared — but still bounded.
+  check(T.MAX_SOURCE_FAILURES > T.MAX_FAILURES,
+    'a shared address gets more room than a single account');
+  eq(T.attemptDecision(fails(T.MAX_FAILURES + 1), NOW, T.MAX_SOURCE_FAILURES).allowed, true,
+    'a few bad attempts from an office do not lock the office out');
+  eq(T.attemptDecision(fails(T.MAX_SOURCE_FAILURES), NOW, T.MAX_SOURCE_FAILURES).allowed, false,
+    'but a spray from one address is stopped');
+
+  // Recording is bounded: an unbounded array is a memory leak with an attacker
+  // holding the pen.
+  let list = [];
+  for (let i = 0; i < 200; i++) list = T.recordFailure(list, NOW);
+  check(list.length <= 64, 'the failure list is capped', `${list.length}`);
+  eq(T.recordFailure([], NOW).length, 1, 'a failure is recorded');
+
+  // One account, however it is spelled.
+  const a = T.throttleKeys(' Mike@Lippolis.test ', '1.2.3.4');
+  const b = T.throttleKeys('mike@lippolis.test', '5.6.7.8');
+  eq(a.account, b.account, 'case and padding do not buy a second budget');
+  check(a.source !== b.source, 'but a different source is a different budget');
+}
+
 console.log('');
 console.log(`domain checks: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

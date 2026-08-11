@@ -23,13 +23,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
   }
 
-  const result = await signIn(String(body.email ?? ''), String(body.password ?? ''), body.next);
+  // The client address, as the proxy reports it. `x-forwarded-for` is
+  // spoofable by a direct caller, which is why it is only ever used to WIDEN a
+  // restriction (one more bucket to fill), never to lift one — a forged header
+  // buys an attacker a fresh source budget, not an exemption from the per-
+  // account limit, which is the one that protects a real person's password.
+  const source = request.headers.get('x-forwarded-for')?.split(',')[0].trim()
+    ?? request.headers.get('x-real-ip')
+    ?? null;
+
+  const result = await signIn(String(body.email ?? ''), String(body.password ?? ''), body.next, source);
   if (result.ok) {
     log.info('auth.sign_in', { email: body.email, channel: 'api', outcome: 'success' });
     return NextResponse.json({ ok: true, redirectTo: result.redirectTo });
   }
 
   log.warn('auth.sign_in_failed', { email: body.email, channel: 'api', reason: result.error });
+
+  if (result.error === 'too_many_attempts') {
+    const retryAfter = result.retryAfterSeconds ?? 900;
+    return NextResponse.json(
+      { ok: false, error: 'too_many_attempts', retryAfterSeconds: retryAfter },
+      { status: 429, headers: { 'retry-after': String(retryAfter) } },
+    );
+  }
+
   const status = result.error === 'account_disabled' ? 403 : result.error === 'unavailable' ? 503 : 401;
   return NextResponse.json({ ok: false, error: result.error }, { status });
 }

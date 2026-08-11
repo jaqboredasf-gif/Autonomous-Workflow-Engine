@@ -26,6 +26,8 @@ import { seed } from '../purchasing/infrastructure/seed.ts';
 import { purchasingContext } from '../purchasing/composition.ts';
 import { loadConfig } from '../purchasing/infrastructure/env.ts';
 import { authAdapter } from '../purchasing/infrastructure/auth/index.ts';
+import { log } from '../purchasing/infrastructure/logging.ts';
+import { checkSignInAllowed, clearSignInFailures, recordSignInFailure } from './sign-in-throttle.ts';
 import {
   SESSION_COOKIE, newSessionPayload, signSession, verifySession,
 } from '../purchasing/infrastructure/auth/session-token.ts';
@@ -171,7 +173,12 @@ export async function defaultWorkspace(): Promise<string> {
 
 export type SignInOutcome =
   | { ok: true; redirectTo: string }
-  | { ok: false; error: 'invalid_credentials' | 'account_disabled' | 'unavailable' | 'missing_fields' };
+  | {
+      ok: false;
+      error: 'invalid_credentials' | 'account_disabled' | 'unavailable' | 'missing_fields' | 'too_many_attempts';
+      /** Present only for 'too_many_attempts'. Seconds until another try is accepted. */
+      retryAfterSeconds?: number;
+    };
 
 /**
  * Verify credentials and start a session. The error vocabulary is deliberately
@@ -179,13 +186,27 @@ export type SignInOutcome =
  * `invalid_credentials`, because telling a stranger which addresses have
  * accounts is a favour to the wrong person.
  */
-export async function signIn(email: string, password: string, next?: string): Promise<SignInOutcome> {
+export async function signIn(
+  email: string, password: string, next?: string, source: string | null = null,
+): Promise<SignInOutcome> {
   if (!email?.trim() || !password) return { ok: false, error: 'missing_fields' };
+
+  // THROTTLE FIRST, before the credential is even checked. Checking it first
+  // and refusing afterwards would still let an attacker measure the difference
+  // between a right and a wrong password by how long the answer took.
+  const throttle = checkSignInAllowed(email, source);
+  if (!throttle.allowed) {
+    log.warn('auth.sign_in_throttled', { email, retryAfterSeconds: throttle.retryAfterSeconds });
+    return { ok: false, error: 'too_many_attempts', retryAfterSeconds: throttle.retryAfterSeconds };
+  }
 
   const config = loadConfig();
   const db = database();
   const result = await authAdapter(db, config).signIn(email, password);
-  if (!result.ok) return { ok: false, error: result.reason };
+  if (!result.ok) {
+    recordSignInFailure(email, source);
+    return { ok: false, error: result.reason };
+  }
 
   let actor: Actor | null;
   if (config.persistenceProvider === 'supabase') {
@@ -194,7 +215,14 @@ export async function signIn(email: string, password: string, next?: string): Pr
   } else {
     actor = await identityAdapter(db).load(result.userId);
   }
-  if (!actor || !actor.isActive) return { ok: false, error: 'account_disabled' };
+  if (!actor || !actor.isActive) {
+    // Counted too: an attacker must not get unlimited attempts against an
+    // address simply because it happens to be disabled.
+    recordSignInFailure(email, source);
+    return { ok: false, error: 'account_disabled' };
+  }
+
+  clearSignInFailures(email);
 
   const token = await signSession(
     newSessionPayload(actor.id, config.authProvider, config.sessionTtlSeconds),
@@ -258,6 +286,8 @@ export async function signInAsDemoUser(userId: string): Promise<SignInOutcome> {
   if (!demoModeEnabled()) return { ok: false, error: 'invalid_credentials' };
   const config = loadConfig();
   const actor = await identityAdapter(database()).load(userId);
+  // Not throttled: the demo picker guesses nothing — it takes a user id, not a
+  // password — and validateEnvironment() refuses demo mode in production.
   if (!actor || !actor.isActive) return { ok: false, error: 'account_disabled' };
 
   const token = await signSession(
