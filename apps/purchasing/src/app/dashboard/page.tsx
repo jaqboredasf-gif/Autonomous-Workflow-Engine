@@ -42,16 +42,11 @@ import {
   purchasingStatus,
   receivingStatus,
   recentPurchaseOrders,
-  spendTrend,
-  volumeTrend,
-  cycleTimes,
-  onTimeDelivery,
   todayBoard,
   dailyActivity,
   activityRange,
   ACTIVITY_RANGES,
 } from '../../purchasing/domain/dashboard.mjs';
-import { purchaseHistory } from '../../purchasing/application/history.ts';
 import { formatMoney } from '../../purchasing/domain/numbers.mjs';
 import { describeActivity } from '../../purchasing/domain/activity.mjs';
 import {
@@ -63,7 +58,6 @@ import {
   ButtonRow,
   EmptyState,
   KpiCard,
-  MetricStat,
   PageHeader,
   Panel,
   StatusBadge,
@@ -133,23 +127,6 @@ export default async function DashboardPage({
   // this screen already required. Like the activity feed, a refusal degrades the
   // panel rather than the page: analytics are the least important thing here and
   // must never be what takes the dashboard down.
-  let history: any[] = [];
-  try {
-    history = await purchaseHistory(ctx, actor, { limit: 5000 });
-  } catch {
-    history = [];
-  }
-  const endMonth = now.slice(0, 7);
-  const spend = spendTrend(history, { endMonth, months: 6 });
-  const volume = volumeTrend(history, { endMonth, months: 6 });
-  const cycles = cycleTimes(history);
-  // Need-by lives on the request, not on the history line, so it is looked up
-  // by request id rather than assumed. A line whose request is no longer in the
-  // filtered list simply cannot be measured — onTimeDelivery() counts only what
-  // it can answer for.
-  const needByByRequest = new Map(all.map((r: any) => [String(r.id), r.needByDate]));
-  const onTime = onTimeDelivery(history, (line: any) => needByByRequest.get(String(line.requestId)) ?? null);
-
   // TODAY. The pilot's finding: the dashboard led with three months of
   // aggregates and the purchaser arrives asking "what needs me right now".
   // These read the LIVE requests rather than the immutable history, because a

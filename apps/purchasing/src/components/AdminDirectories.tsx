@@ -1,4 +1,8 @@
 'use client';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// Directory rows arrive provider-shaped (snake_case, provider-specific extras)
+// and this is a table rendering them, not a domain model. Same convention as
+// every other screen that touches repository records directly.
 
 // ---------------------------------------------------------------------------
 // AdminDirectories.tsx — vendors and jobs, editable.

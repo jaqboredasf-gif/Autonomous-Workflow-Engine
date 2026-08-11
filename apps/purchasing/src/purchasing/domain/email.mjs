@@ -34,21 +34,13 @@ export const EMAIL_DRAFT_STATUSES = [
   'FAILED',
 ];
 
-export const EMAIL_DRAFT_TRANSITIONS = {
-  GENERATED: ['REVIEWED', 'CANCELLED', 'FAILED'],
-  REVIEWED: ['APPROVED_TO_SEND', 'CANCELLED', 'FAILED'],
-  APPROVED_TO_SEND: ['SENT', 'CANCELLED', 'FAILED'],
-  SENT: [],
-  CANCELLED: [],
-  FAILED: [],
-};
+// The draft's state machine used to live here as EMAIL_DRAFT_TRANSITIONS,
+// canTransitionDraft() and draftGuard() — a second hand-rolled graph beside the
+// purchasing one, with its own legality check and its own refusal vocabulary.
+// It now runs on the AWE workflow engine: see domain/email-workflow.mjs.
+// EMAIL_DRAFT_STATUSES stays here because it is what the database CHECK
+// constraint is written against.
 
-/**
- * Global kill switch. External sending stays disabled until an org explicitly
- * configures it AND a human approves each draft. The pilot ships `false` and
- * there is no code path that would use `true` — the flag exists so the
- * intention is inspectable, not so it can be flipped on quietly.
- */
 export const EXTERNAL_SEND_ENABLED = false;
 
 /** Recipient domain reserved for fixtures/tests. Nothing may leave to it. */
@@ -57,32 +49,6 @@ export const FIXTURE_EMAIL_DOMAIN = 'example.invalid';
 export function isFixtureRecipient(addr) {
   return String(addr ?? '').toLowerCase().endsWith(`@${FIXTURE_EMAIL_DOMAIN}`);
 }
-
-export function canTransitionDraft(from, to) {
-  return (EMAIL_DRAFT_TRANSITIONS[from] ?? []).includes(to);
-}
-
-/**
- * The send gate. Called before any status change on a draft.
- * @returns {{ok:boolean, reason:string|null, message:string|null}}
- */
-export function draftGuard(from, to, ctx = {}) {
-  if (!EMAIL_DRAFT_STATUSES.includes(from) || !EMAIL_DRAFT_STATUSES.includes(to)) {
-    return { ok: false, reason: 'unknown_status', message: `unknown draft status ${from} -> ${to}` };
-  }
-  if (!canTransitionDraft(from, to)) {
-    return { ok: false, reason: 'illegal_transition', message: `illegal draft transition ${from} -> ${to}` };
-  }
-  if (to === 'SENT' && !ctx.reviewedBy) {
-    return { ok: false, reason: 'unreviewed', message: 'a draft cannot be marked sent without a recorded human review' };
-  }
-  if (to === 'SENT' && !ctx.markedBy) {
-    return { ok: false, reason: 'no_actor', message: 'marking sent requires the human who sent it' };
-  }
-  return { ok: true, reason: null, message: null };
-}
-
-export const DRAFT_GUARD_REASONS = ['unknown_status', 'illegal_transition', 'unreviewed', 'no_actor'];
 
 // --- Templates -------------------------------------------------------------
 //

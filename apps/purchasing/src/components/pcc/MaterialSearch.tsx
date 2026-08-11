@@ -50,10 +50,9 @@ export function MaterialSearch({
   // description should not leave eight requests racing to answer.
   useEffect(() => {
     const query = value.trim();
-    if (query.length < 2) {
-      setItems([]);
-      return;
-    }
+    // Too short to search: nothing is fetched, and the list is DERIVED empty
+    // below rather than emptied by a synchronous setState in here.
+    if (query.length < 2) return;
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
@@ -89,7 +88,10 @@ export function MaterialSearch({
     onPick?.(suggestion);
   };
 
-  const visible = open && items.length > 0;
+  // Derived, not stored: a query too short to search shows nothing, and the
+  // previous results do not linger while somebody deletes back to one letter.
+  const suggestions = value.trim().length >= 2 ? items : [];
+  const visible = open && suggestions.length > 0;
 
   return (
     <div ref={boxRef} className="relative">
@@ -126,7 +128,7 @@ export function MaterialSearch({
           role="listbox"
           className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-line bg-surface py-1 shadow-pop"
         >
-          {items.map((item) => (
+          {suggestions.map((item) => (
             <li key={item.key} role="option" aria-selected={picked === item.key}>
               <button
                 type="button"

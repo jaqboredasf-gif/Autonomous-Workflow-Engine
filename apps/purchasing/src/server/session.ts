@@ -98,8 +98,11 @@ export async function purchasingRequestContext() {
     // Fail closed: no membership, no context. There is no fallback to a
     // privileged client, because that is how a tenant boundary quietly becomes
     // optional.
-    const err: any = new Error('no authenticated tenant context');
-    err.reason = resolved.reason;
+    // A typed carrier rather than `any`: the reason is part of this error's
+    // contract — callers switch on it — so it belongs in the type.
+    const err = Object.assign(new Error('no authenticated tenant context'), {
+      reason: resolved.reason,
+    });
     throw err;
   }
   return supabasePurchasingContext(config, { accessToken: token, orgId: resolved.orgId });

@@ -278,6 +278,182 @@ for (const action of Object.values(PURCHASING_WORKFLOW.actions)) {
     `${action.name} records a known activity action (${action.event})`);
 }
 
+// ===========================================================================
+console.log('--- the SECOND workflow: email drafts on the same engine --------');
+
+// The claim 4A could not make: an engine extracted from one state machine is a
+// refactor. An engine two unrelated state machines both fit, with no change to
+// the engine, is a platform capability. This is that test.
+{
+  const { EMAIL_DRAFT_WORKFLOW, emailDraftActionFor } = await import(join(APP, 'domain', 'email-workflow.mjs'));
+  const { EMAIL_DRAFT_STATUSES } = await import(join(APP, 'domain', 'email.mjs'));
+
+  eq([...EMAIL_DRAFT_WORKFLOW.states], [...EMAIL_DRAFT_STATUSES],
+    'the draft workflow uses the statuses the database CHECK constraint knows');
+
+  const d = (from, to, facts = {}, can = allow) =>
+    decide({ workflow: EMAIL_DRAFT_WORKFLOW, action: emailDraftActionFor(to), from, facts, can });
+
+  // The rule the whole draft machine exists for, preserved exactly.
+  eq(d('GENERATED', 'SENT').reason, 'illegal_transition', 'a draft cannot jump straight to sent');
+  eq(d('APPROVED_TO_SEND', 'SENT', { reviewedBy: null, markedBy: 'mike' }).reason, 'missing_evidence',
+    'a draft cannot be sent without a recorded human review');
+  eq(d('APPROVED_TO_SEND', 'SENT', { reviewedBy: 'mike', markedBy: null }).reason, 'missing_evidence',
+    'and not without naming the human who sent it');
+  check(d('APPROVED_TO_SEND', 'SENT', { reviewedBy: 'mike', markedBy: 'mike' }).ok,
+    'reviewed and attributed, it may be marked sent');
+
+  // The happy path, step by step.
+  check(d('GENERATED', 'REVIEWED').ok && d('REVIEWED', 'APPROVED_TO_SEND').ok, 'the review path is walkable');
+  eq(d('SENT', 'CANCELLED').reason, 'terminal_state', 'a sent draft is finished');
+  eq(d('GENERATED', 'REVIEWED', {}, deny).reason, 'missing_permission',
+    'a caller without email.review is refused');
+
+  // Every draft action must name a real permission and a known audit action.
+  for (const action of Object.values(EMAIL_DRAFT_WORKFLOW.actions)) {
+    check(PERMISSIONS.includes(action.permission), `draft ${action.name} names a real permission`);
+    check(ACTIVITY_ACTIONS.includes(action.event), `draft ${action.name} records a known activity action (${action.event})`);
+  }
+
+  // The target-state bridge must stay unambiguous, or advanceEmailDraft() would
+  // silently pick one of two actions.
+  for (const state of EMAIL_DRAFT_WORKFLOW.states) {
+    const reaching = Object.values(EMAIL_DRAFT_WORKFLOW.actions).filter((a) => a.to === state);
+    check(reaching.length <= 1, `at most one action reaches ${state}`, `${reaching.length} do`);
+  }
+
+  // AND THE SUPERSEDED MACHINE IS GONE. Two workflow systems is the thing this
+  // milestone exists to prevent; leaving the old one importable is how it comes
+  // back.
+  const emailSource = readFileSync(join(APP, 'domain', 'email.mjs'), 'utf8');
+  for (const symbol of ['export function draftGuard', 'export function canTransitionDraft',
+                        'export const EMAIL_DRAFT_TRANSITIONS', 'export const DRAFT_GUARD_REASONS']) {
+    check(!emailSource.includes(symbol), `the superseded ${symbol.split(' ').pop()} is gone from email.mjs`);
+  }
+
+  // No use case writes a draft status outside the engine path.
+  const fulfilment = readFileSync(join(APP, 'application', 'fulfilment.ts'), 'utf8');
+  check(/EMAIL_DRAFT_WORKFLOW/.test(fulfilment), 'the draft caller uses the workflow definition');
+  const rawDraftWrites = [...fulfilment.matchAll(/drafts\.updateStatus\(/g)].length;
+  const insideEffects = [...fulfilment.matchAll(/applyState[\s\S]{0,200}?drafts\.updateStatus\(/g)].length;
+  check(rawDraftWrites === insideEffects,
+    'every draft status write happens inside the engine\'s applyState effect',
+    `${rawDraftWrites} write(s), ${insideEffects} inside`);
+}
+
+// ===========================================================================
+console.log('--- available actions come from the workflow, not a switch ------');
+
+{
+  const { availableActions: uiActions, PERMISSIONS: PERMS } = await import(join(APP, 'domain', 'roles.mjs'));
+  const rolesSource = readFileSync(join(APP, 'domain', 'roles.mjs'), 'utf8');
+
+  check(/from '@awe\/workflow'/.test(rolesSource) && /PURCHASING_WORKFLOW/.test(rolesSource),
+    'the UI availability function derives from the authoritative workflow definition');
+  // The hand-maintained switch over statuses is the thing being removed. Its
+  // absence is what stops it growing back.
+  check(!/switch \(request\.status\)/.test(rolesSource),
+    'the hand-written switch over statuses is gone');
+
+  const mike = { id: 'm', orgId: 'o', roles: ['WORKSHOP_APPROVER'], canApprove: true, isActive: true, assignedJobNumbers: [] };
+  const dave = { id: 'd', orgId: 'o', roles: ['REQUESTOR'], canApprove: false, isActive: true, assignedJobNumbers: [] };
+  const req = (over = {}) => ({ id: 'r', orgId: 'o', status: 'PENDING_WORKSHOP_REVIEW', requestorId: 'x', createdBy: 'x', jobNumber: '1', ...over });
+
+  // THE PROPERTY THAT MATTERS: anything offered would actually be accepted.
+  const UI_TO_ACTION = {
+    submit: 'submit', approve: 'approve', reject: 'reject', request_clarification: 'requestClarification',
+    respond: 'answerClarification', generate_po: 'generatePo', draft_email: 'draftEmail',
+    mark_ordered: 'markOrdered', complete: 'complete', cancel: 'cancel', cancel_any: 'cancel',
+  };
+  const facts = { hasReview: true, hasPurchaseOrder: true, hasReviewedEmailDraft: true, hasReceipt: true, outstandingLines: 0 };
+  for (const status of PURCHASING_WORKFLOW.states) {
+    for (const offered of uiActions(mike, req({ status }), { facts })) {
+      const action = UI_TO_ACTION[offered];
+      if (!action) continue;   // a non-transition action; the workflow has no view
+      const verdict = decide({
+        workflow: PURCHASING_WORKFLOW, action, from: status, facts: { ...facts, isOwner: false },
+        can: (p) => uiActions.length >= 0 && PERMS.includes(p),
+      });
+      check(verdict.ok, `offered "${offered}" at ${status} is accepted by the workflow`, verdict.reason ?? '');
+    }
+  }
+
+  // Evidence is now respected by the menu. This is the defect it closes: the
+  // button used to be there whether or not a review had been saved.
+  check(!uiActions(mike, req(), { facts: { hasReview: false } }).includes('approve'),
+    'approve is NOT offered before a workshop review exists');
+  check(uiActions(mike, req(), { facts: { hasReview: true } }).includes('approve'),
+    'and IS offered once it does');
+
+  // Permission changes move both together.
+  check(!uiActions(dave, req(), { facts }).includes('approve'),
+    'a requestor is offered no approval');
+  check(uiActions(mike, req({ status: 'REJECTED' }), { facts }).length === 0,
+    'a terminal request offers nothing at all');
+  // `queue` is systemic and must never surface as a button.
+  for (const status of PURCHASING_WORKFLOW.states) {
+    check(!uiActions(mike, req({ status }), { facts }).includes('queue'),
+      `the systemic queueing step is not offered at ${status}`);
+  }
+}
+
+// ===========================================================================
+console.log('--- database parity: the duplication is deliberate, and checked --');
+
+// THE DECISION (Phase 4B, question C): the plpgsql transition guard is KEPT.
+//
+// It is not accidental duplication. It is the last fence for a client that is
+// not this application — a script, a future adapter, or somebody with the anon
+// key and their own JWT — and removing it would mean the only thing standing
+// between a forged request and a corrupted lifecycle is TypeScript nobody is
+// obliged to run. `record_purchase_decision()` is security-definer and does the
+// same job for the decision path specifically.
+//
+// What makes duplication safe is not restraint; it is a test that fails when
+// the copies disagree. validate-migration-0016.mjs already checks the SQL guard
+// against status.mjs in both directions. This closes the remaining link
+// DIRECTLY — the workflow definition, which is now what actually executes,
+// against the SQL — so the chain cannot be broken in the middle.
+{
+  const migrations = join(ROOT, 'supabase', 'migrations');
+  const sql = readdirSync(migrations).filter((f) => f.endsWith('.sql')).sort()
+    .map((f) => readFileSync(join(migrations, f), 'utf8')).join('\n');
+
+  const guardBody = /create or replace function guard_purchase_request_transition[\s\S]*?\$\$([\s\S]*?)\$\$/i.exec(sql)?.[1] ?? '';
+  check(guardBody.length > 0, 'the SQL transition guard is present in the migrations');
+
+  for (const action of Object.values(PURCHASING_WORKFLOW.actions)) {
+    for (const from of action.from) {
+      // The guard is written as one clause per source status listing its legal
+      // targets. An edge the engine can take that the database would refuse is
+      // a request that succeeds in tests and fails in production.
+      // One clause per source status, each on its own line:
+      //   (old.status = 'X' and new.status in ('A','B'))
+      const clause = guardBody.split('\n').find((l) => l.includes(`old.status = '${from}'`)) ?? '';
+      check(clause.includes(`'${action.to}'`),
+        `SQL parity: ${from} -> ${action.to} (${action.name}) is allowed by the database too`);
+    }
+  }
+
+  // And the decision RPC still gates on the capability rather than on identity
+  // — BR-011's SQL half, which the workflow definition assumes.
+  // Migrations are append-only, so the LAST definition is the live one. Split
+  // on the header rather than trying to balance $$ across the whole corpus.
+  const parts = sql.split(/create or replace function record_purchase_decision/i);
+  check(parts.length > 1, 'record_purchase_decision() is defined');
+  const latest = parts[parts.length - 1];
+  check(/review\.decide/.test(latest), 'the latest decision RPC gates on review.decide');
+  // BR-011 precisely: the RPC may COMPUTE whether this is a self-approval —
+  // that is the audit stamp, and it is required — but it must never REFUSE on
+  // it. So the test looks for a refusal guarded by that fact, not for the fact.
+  const selfRefusal = /if\s+v_self[\s\S]{0,200}?raise\s+exception/i.test(latest)
+    || /raise\s+exception[^;]{0,200}(self[- ]approv|own request)/i.test(latest);
+  check(!selfRefusal,
+    'the RPC never refuses a decision because of who raised the request (BR-011)');
+  check(/v_self/.test(latest) && /self_approved/.test(latest),
+    'and still STAMPS the self-approval, which is the fact the audit trail needs');
+}
+
 console.log('');
 console.log(`workflow engine checks: ${pass} passed, ${failures.length} failed`);
 process.exit(failures.length === 0 ? 0 : 1);

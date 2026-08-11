@@ -9,7 +9,7 @@
 // offer a button the server would refuse.
 // ---------------------------------------------------------------------------
 
-import { allowed, loadRequest, must, type PurchasingContext } from './context.ts';
+import { allowed, loadRequest, must, transitionFacts, type PurchasingContext } from './context.ts';
 import type { Actor } from './ports.ts';
 import { availableActions, isApprover, mayReceiveAt } from '../domain/roles.mjs';
 import { QUEUE_STATUSES } from '../domain/status.mjs';
@@ -71,7 +71,14 @@ export async function getRequestDetail(ctx: PurchasingContext, actor: Actor, req
     progress: await ctx.orders.progressFor(requestId),
     approvals: await ctx.approvals.listForRequest(requestId),
     timeline: await ctx.audit.timelineFor(requestId),
-    actions: availableActions(actor, authzView(request), { settings }),
+    // The SAME facts the server would judge a transition by, so an offered
+    // action is one that would actually succeed. Before this, availableActions()
+    // had no facts and offered `approve` on any queued request — including one
+    // with no saved workshop review, which the server then refused.
+    actions: availableActions(actor, authzView(request), {
+      settings,
+      facts: await transitionFacts(ctx, request),
+    }),
     viewer: { id: actor.id, name: actor.name, roles: actor.roles, isApprover: isApprover(actor) },
   };
 }

@@ -15,7 +15,10 @@
 // approve unless separately granted approval authority" — a grant, not a role.
 // ---------------------------------------------------------------------------
 
-import { OPEN_ORDER_STATUSES } from './status.mjs';
+import { availableActions as workflowActions } from '@awe/workflow';
+
+import { PURCHASING_WORKFLOW } from './purchasing-workflow.mjs';
+import { OPEN_ORDER_STATUSES, QUEUE_STATUSES, REQUESTOR_EDITABLE_STATUSES } from './status.mjs';
 
 export const ROLES = ['REQUESTOR', 'FOREMAN', 'OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'];
 
@@ -707,52 +710,84 @@ export function receivingAvailability(user, request, ctx = {}) {
  */
 export function availableActions(user, request, ctx = {}) {
   const settings = ctx.settings ?? {};
-  const out = [];
-  const allow = (action, permission) => {
-    if (authorize(user, permission, { request, settings }).ok) out.push(action);
-  };
+  if (!request) return [];
 
-  if (!request) return out;
-  switch (request.status) {
-    case 'DRAFT':
-      allow('edit', 'request.update.own');
-      allow('submit', 'request.submit');
-      allow('cancel', 'request.cancel.own');
-      break;
-    case 'PENDING_WORKSHOP_REVIEW':
-    case 'RESUBMITTED':
-      allow('review', 'review.record_stock');
-      allow('approve', 'review.decide');
-      allow('reject', 'review.decide');
-      allow('request_clarification', 'review.decide');
-      break;
-    case 'CLARIFICATION_REQUESTED':
-      allow('respond', 'request.respond_clarification');
-      allow('edit', 'request.update.own');
-      break;
-    case 'APPROVED':
-      allow('generate_po', 'po.generate');
-      break;
-    case 'PO_GENERATED':
-      allow('draft_email', 'email.draft');
-      break;
-    case 'EMAIL_DRAFTED':
-      allow('review_email', 'email.review');
-      allow('mark_ordered', 'order.mark_ordered');
-      break;
-    case 'ORDERED':
-    case 'PARTIALLY_RECEIVED':
-      allow('add_tracking', 'order.track');
-      allow('receive', 'receiving.record');
-      break;
-    case 'RECEIVED':
-      allow('complete', 'request.complete');
-      break;
-    default:
-      break;
+  const facts = ctx.facts ?? {};
+  const out = [];
+
+  // --- TRANSITIONS: the workflow definition decides, not this file ---------
+  //
+  // THE DEFECT THIS REMOVES. This function used to be a switch over statuses
+  // listing which actions each one offered — a second, hand-maintained copy of
+  // the transition graph. It could drift from the server in both directions,
+  // and it did in one: it offered `approve` on any queued request whether or
+  // not a workshop review had been saved, so the button was there and the
+  // server refused it with `review_incomplete`.
+  //
+  // Now the same PURCHASING_WORKFLOW that executes the transition decides
+  // whether to offer it, with the same permissions and the same evidence. An
+  // offered action is one that would succeed.
+  //
+  // The UI names are kept stable and mapped here: what to CALL an action is a
+  // presentation concern and has no business in the workflow definition.
+  const offered = workflowActions({
+    workflow: PURCHASING_WORKFLOW,
+    from: request.status,
+    facts: { ...facts, isOwner: request.requestorId === user?.id || request.createdBy === user?.id },
+    can: (permission) => authorize(user, permission, { request, settings }).ok,
+  });
+
+  for (const { action } of offered) {
+    // `queue` is systemic — it has no permission and no button, and offering it
+    // would put an action on screen that no human is meant to take.
+    if (action === 'queue') continue;
+    if (action === 'cancel') {
+      // One workflow action, two UI names, because the screens have always
+      // distinguished "withdraw mine" from "cancel somebody else's".
+      const owns = request.requestorId === user?.id || request.createdBy === user?.id;
+      out.push(owns ? 'cancel' : 'cancel_any');
+      continue;
+    }
+    const label = UI_ACTION_NAMES[action];
+    if (label && !out.includes(label)) out.push(label);
   }
-  if (!['COMPLETED', 'CANCELLED', 'REJECTED'].includes(request.status)) {
-    allow('cancel_any', 'request.cancel.any');
-  }
+
+  // --- NON-TRANSITION ACTIONS ----------------------------------------------
+  //
+  // These change no state, so the workflow has nothing to say about them and
+  // they stay listed here: editing a draft, opening the review screen, reading
+  // the vendor email, entering a tracking number. Each is still authorized.
+  const allow = (action, permission) => {
+    if (!out.includes(action) && authorize(user, permission, { request, settings }).ok) out.push(action);
+  };
+  if (REQUESTOR_EDITABLE_STATUSES.includes(request.status)) allow('edit', 'request.update.own');
+  if (QUEUE_STATUSES.includes(request.status)) allow('review', 'review.record_stock');
+  if (request.status === 'EMAIL_DRAFTED') allow('review_email', 'email.review');
+  if (OPEN_ORDER_STATUSES.includes(request.status)) allow('add_tracking', 'order.track');
+
   return out;
 }
+
+/**
+ * Workflow action -> the name the screens have always used for it.
+ *
+ * Presentation, deliberately kept out of the workflow definition: the engine
+ * should not know that this product calls `requestClarification` "request
+ * clarification", and a rename here must not be able to change what is legal.
+ */
+const UI_ACTION_NAMES = Object.freeze({
+  submit: 'submit',
+  approve: 'approve',
+  reject: 'reject',
+  requestClarification: 'request_clarification',
+  answerClarification: 'respond',
+  generatePo: 'generate_po',
+  draftEmail: 'draft_email',
+  markOrdered: 'mark_ordered',
+  // Both receipt actions are the same button; which one fires depends on the
+  // quantities, which the receiving screen decides after the counting.
+  recordPartialReceipt: 'receive',
+  recordFullReceipt: 'receive',
+  complete: 'complete',
+});
+

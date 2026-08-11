@@ -19,7 +19,10 @@ import { emit, loadRequest, must, PurchasingError, transitionTo, type Purchasing
 import { recordPurchaseHistory } from './history.ts';
 import type { Actor } from './ports.ts';
 import { events } from '../domain/events.mjs';
-import { draftGuard } from '../domain/email.mjs';
+import { executeTransition } from '@awe/workflow';
+
+import { authorize } from '../domain/roles.mjs';
+import { EMAIL_DRAFT_WORKFLOW, emailDraftActionFor } from '../domain/email-workflow.mjs';
 import { parseMoney, parseQty, receiptGuard } from '../domain/numbers.mjs';
 import { assertSingleVendor, purchaseOrderFromReview } from '../domain/entities.mjs';
 
@@ -179,14 +182,14 @@ export async function advanceVendorEmailDraft(
   const request = await loadRequest(ctx, actor, draft.requestId);
   await must(ctx, actor, 'email.review', request);
 
-  const guard = draftGuard(draft.status, to, {
-    reviewedBy: draft.reviewedBy,
-    markedBy: to === 'SENT' ? actor.id : null,
-  });
-  if (!guard.ok) throw new PurchasingError(guard.reason ?? 'illegal_transition', guard.message ?? 'illegal draft transition');
+  // THE SAME ENGINE the purchasing status machine runs on. The draft's own
+  // graph, its own legality check and its own refusal vocabulary are gone; this
+  // is one table in domain/email-workflow.mjs and one call.
+  const action = emailDraftActionFor(to);
+  if (!action) throw new PurchasingError('illegal_transition', `no draft action reaches ${to}`);
 
   const now = ctx.clock.now();
-  const columns: Record<string, unknown> = { status: to, updated_at: now };
+  const columns: Record<string, unknown> = { updated_at: now };
   if (to === 'REVIEWED') { columns.reviewed_at = now; columns.reviewed_by = actor.id; }
   if (to === 'APPROVED_TO_SEND') { columns.approved_to_send_at = now; columns.approved_to_send_by = actor.id; }
   // SENT means: a human copied this into their own mail client and sent it.
@@ -195,8 +198,31 @@ export async function advanceVendorEmailDraft(
   if (to === 'CANCELLED') columns.cancelled_at = now;
   if (to === 'FAILED') columns.failure_reason = notes ?? 'unspecified';
 
-  await ctx.drafts.updateStatus(draftId, columns);
-  await emit(ctx, actor, actor.orgId, [events.emailDraftAdvanced(draft.requestId, draftId, draft.status, to, notes ?? null)]);
+  const result = await executeTransition({
+    workflow: EMAIL_DRAFT_WORKFLOW,
+    action,
+    from: draft.status,
+    facts: {
+      reviewedBy: draft.reviewedBy,
+      // Only a SENT transition needs an attributable sender; asking for one on
+      // every step would refuse a review nobody has claimed to have sent.
+      markedBy: to === 'SENT' ? actor.id : null,
+    },
+    can: (permission: string) => authorize(actor, permission, { request }).ok,
+    effects: {
+      applyState: async (next: string) => {
+        await ctx.drafts.updateStatus(draftId, { ...columns, status: next });
+      },
+      recordEvent: async () => {
+        await emit(ctx, actor, actor.orgId, [
+          events.emailDraftAdvanced(draft.requestId, draftId, draft.status, to, notes ?? null),
+        ]);
+      },
+    },
+  });
+  if (!result.ok) {
+    throw new PurchasingError(result.reason ?? 'illegal_transition', result.message ?? 'illegal draft transition');
+  }
   return { status: to };
 }
 

@@ -36,8 +36,16 @@ const N = await import(join(DOMAIN, 'numbers.mjs'));
 const { domainEvent, events } = await import(join(DOMAIN, 'events.mjs'));
 const { ACTIVITY_ACTIONS, NOTIFICATION_EVENTS, buildTimeline, describeActivity } =
   await import(join(DOMAIN, 'activity.mjs'));
-const { EMAIL_DRAFT_TRANSITIONS, EXTERNAL_SEND_ENABLED, composeDraft, draftGuard, renderStoredTemplate } =
+const { EXTERNAL_SEND_ENABLED, composeDraft, renderStoredTemplate } =
   await import(join(DOMAIN, 'email.mjs'));
+// The draft state machine now runs on the AWE engine; its rules are asserted
+// through the engine's own decide() rather than a second guard function.
+const { EMAIL_DRAFT_WORKFLOW } = await import(join(DOMAIN, 'email-workflow.mjs'));
+const { decide: decideDraft } = await import(join(HERE, '..', 'packages', 'workflow', 'src', 'index.mjs'));
+const draftDecide = (from, to, facts = {}) => {
+  const action = Object.values(EMAIL_DRAFT_WORKFLOW.actions).find((a) => a.to === to)?.name ?? to;
+  return decideDraft({ workflow: EMAIL_DRAFT_WORKFLOW, action, from, facts, can: () => true });
+};
 const { validateRequestDraft, stripRequestorFields } = await import(join(DOMAIN, 'validation.mjs'));
 const { isOverdue, summarize, purchasingStatus, receivingStatus, vendorActivity, recentPurchaseOrders } =
   await import(join(DOMAIN, 'dashboard.mjs'));
@@ -300,11 +308,13 @@ check(permissionsFor(admin).length === PERMISSIONS.length, 'an admin holds every
 check(!permissionsFor(dave).includes('po.generate'), 'a requestor cannot generate a purchase order');
 check(new Set(DENY_REASONS).size === DENY_REASONS.length, 'the denial vocabulary has no duplicates');
 
-const offered = availableActions(mike, queued, {});
+// Facts now travel with the question: approving needs a saved workshop review,
+// and the screen must not offer what the server would refuse.
+const offered = availableActions(mike, queued, { facts: { hasReview: true } });
 check(offered.includes('approve') && offered.includes('review'), 'the queue offers the workshop what it may do');
-check(!availableActions(dave, queued, {}).includes('approve'), 'the UI offers a requestor nothing it would refuse');
-check(availableActions(mike, { ...queued, status: 'APPROVED' }, {}).includes('generate_po'), 'an approved request offers the PO');
-check(!availableActions(mike, { ...queued, status: 'REJECTED' }, {}).includes('generate_po'),
+check(!availableActions(dave, queued, { facts: { hasReview: true } }).includes('approve'), 'the UI offers a requestor nothing it would refuse');
+check(availableActions(mike, { ...queued, status: 'APPROVED' }, { facts: {} }).includes('generate_po'), 'an approved request offers the PO');
+check(!availableActions(mike, { ...queued, status: 'REJECTED' }, { facts: {} }).includes('generate_po'),
       'A REJECTED REQUEST NEVER OFFERS A PO');
 
 console.log('--- domain events ----------------------------------------------');
@@ -349,14 +359,14 @@ check(describeActivity({ action: 'po.generated', actorName: 'Mike', details: { p
 console.log('--- email: draft-only ------------------------------------------');
 
 check(EXTERNAL_SEND_ENABLED === false, 'external sending is off at the source');
-eq(draftGuard('GENERATED', 'SENT', {}).reason, 'illegal_transition', 'a draft cannot jump to sent');
-eq(draftGuard('APPROVED_TO_SEND', 'SENT', { reviewedBy: null, markedBy: 'mike' }).reason, 'unreviewed',
+eq(draftDecide('GENERATED', 'SENT', {}).reason, 'illegal_transition', 'a draft cannot jump to sent');
+eq(draftDecide('APPROVED_TO_SEND', 'SENT', { reviewedBy: null, markedBy: 'mike' }).reason, 'missing_evidence',
    'sending is unreachable without a recorded review');
-eq(draftGuard('APPROVED_TO_SEND', 'SENT', { reviewedBy: 'mike', markedBy: null }).reason, 'no_actor',
+eq(draftDecide('APPROVED_TO_SEND', 'SENT', { reviewedBy: 'mike', markedBy: null }).reason, 'missing_evidence',
    'marking sent requires the human who sent it');
-eq(draftGuard('APPROVED_TO_SEND', 'SENT', { reviewedBy: 'mike', markedBy: 'mike' }).ok, true,
+eq(draftDecide('APPROVED_TO_SEND', 'SENT', { reviewedBy: 'mike', markedBy: 'mike' }).ok, true,
    'a reviewed, approved draft can be recorded as sent by hand');
-eq(EMAIL_DRAFT_TRANSITIONS.SENT, [], 'sent is terminal');
+eq(EMAIL_DRAFT_WORKFLOW.actionsFrom('SENT').map((a) => a.name), [], 'sent is terminal');
 check(!('send' in composeDraft), 'composition has no send path');
 
 const draft = composeDraft('VENDOR_PURCHASE_ORDER', {

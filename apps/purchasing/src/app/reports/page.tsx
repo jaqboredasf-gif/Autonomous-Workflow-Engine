@@ -126,7 +126,7 @@ export default async function ReportsPage() {
       </div>
 
       <Alert tone="info" title="What these numbers are">
-        Amounts are the workshop's ESTIMATED totals, which is what the records hold for most orders — an actual cost
+        Amounts are the workshop&rsquo;s ESTIMATED totals, which is what the records hold for most orders — an actual cost
         is only known once an invoice is reconciled. A report that silently mixed the two would be worse than no
         report.
       </Alert>

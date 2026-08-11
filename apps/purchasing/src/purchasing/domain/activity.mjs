@@ -38,6 +38,11 @@ export const ACTIVITY_ACTIONS = [
   'email.draft_reviewed',
   'email.draft_approved_to_send',
   'email.marked_sent',
+  // A draft can also end without being sent. Both endings were reachable in the
+  // state machine and neither had a name in the audit vocabulary, so a
+  // cancelled or failed draft recorded nothing describing what became of it.
+  'email.draft_cancelled',
+  'email.draft_failed',
   'order.placed',
   'order.tracking_updated',
   'receipt.recorded',

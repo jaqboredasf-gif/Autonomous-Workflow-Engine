@@ -10,9 +10,12 @@
 // `requireTyping` is for the genuinely destructive end (cancelling an order a
 // vendor has already been told about). BR-009 means nothing here ever hard
 // deletes; the strongest thing this guards is a cancel.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { buttonStyle, type ButtonSize, type ButtonVariant } from './Button';
+
+/** Whether we are on the client never changes after hydration, so nothing subscribes. */
+const subscribeToNothing = () => () => {};
 
 export function ConfirmSubmit({
   label,
@@ -45,11 +48,13 @@ export function ConfirmSubmit({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [typed, setTyped] = useState('');
-  const [enhanced, setEnhanced] = useState(false);
-
   // Only take over the button once the client is running. Before that the
   // button is an ordinary submit and the action is reachable without JS.
-  useEffect(() => setEnhanced(true), []);
+  //
+  // useSyncExternalStore rather than a set-a-flag effect: the server snapshot
+  // is false and the client snapshot is true, which is exactly this question,
+  // and it answers it without a second render or a synchronous setState.
+  const enhanced = useSyncExternalStore(subscribeToNothing, () => true, () => false);
 
   const ready = !requireTyping || typed.trim().toUpperCase() === requireTyping.toUpperCase();
 

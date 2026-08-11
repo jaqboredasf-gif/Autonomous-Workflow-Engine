@@ -6,7 +6,7 @@
 // drawer on navigation. Everything it renders is handed to it by the server,
 // including which destinations this person may see: the browser is never asked
 // to work out what somebody is allowed to open.
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { BrandMark } from './BrandMark';
@@ -42,7 +42,12 @@ export function ShellChrome({
 
   // Any navigation closes the drawer. Without this it stays open over the page
   // the user just asked for, which on a phone reads as "the tap did nothing".
-  useEffect(() => setDrawerOpen(false), [pathname]);
+  //
+  // Done where the tap happens rather than in an effect keyed on the pathname:
+  // adjusting state in response to an event is the event handler's job, and an
+  // effect that calls setState synchronously on every navigation is a second
+  // render nobody asked for.
+  const closeDrawer = () => setDrawerOpen(false);
 
   const activeKey = activeFor(groups, pathname);
 
@@ -99,6 +104,7 @@ export function ShellChrome({
                   return (
                     <li key={item.key}>
                       <Link
+                        onClick={closeDrawer}
                         href={item.path}
                         aria-current={current ? 'page' : undefined}
                         // The active marker is a brand-blue rail on the edge,
