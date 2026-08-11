@@ -14,7 +14,8 @@
     "test:web": "bash ../../scripts/eval-purchasing-web.sh",
     "test:providers": "bash ../../scripts/eval-purchasing-providers.sh",
     "test:isolation": "bash ../../scripts/eval-purchasing-isolation.sh",
-    "test:workflow": "node ../../scripts/eval-workflow-engine.mjs"
+    "test:workflow": "node ../../scripts/eval-workflow-engine.mjs",
+    "test:operability": "node ../../scripts/eval-pcc-operability.mjs"
   },
   "dependencies": {
     "next": "16.2.10",

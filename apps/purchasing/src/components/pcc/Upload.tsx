@@ -45,6 +45,11 @@ export function FileUpload({
         accept={accept}
         capture={capture}
         multiple={multiple}
+        // VISUALLY HIDDEN, WHICH IS EXACTLY WHY IT NEEDS A NAME. The visible
+        // control is the styled button beside it; a screen reader lands on this
+        // input, and without a label it announces "file upload button" with no
+        // idea what is being uploaded.
+        aria-label={label}
         className="sr-only"
         onChange={(event) => {
           const chosen = Array.from(event.target.files ?? []);

@@ -9,7 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "pcc:dev": "npm run dev -w purchasing",
+    "pcc:dev": "bash scripts/pcc-dev.sh",
     "pcc:dev-user": "node scripts/provision-local-tenants.mjs",
     "pcc:e2e": "node scripts/eval-purchasing-e2e.mjs"
   },
