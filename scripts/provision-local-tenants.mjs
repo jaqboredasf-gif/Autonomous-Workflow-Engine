@@ -115,6 +115,13 @@ const lippolis = out.find((t) => t.org === 'Lippolis Electric');
 
 const PEOPLE = [
   { email: 'purchasing@lippolis.test', name: 'Purchasing Manager', roles: ['WORKSHOP_APPROVER'], canApprove: true, jobs: [] },
+  // The pilot purchaser's own account, so the pilot is driven by a real named
+  // person rather than by a shared fixture login and the audit trail says who
+  // actually did each thing. PURCHASING_MANAGER preset exactly — the workshop
+  // role plus approval authority, and nothing wider. No job assignment: a
+  // shop-counter role is unscoped for receiving already, so assigning one
+  // would grant nothing and imply a limit that is not there.
+  { email: 'mike@lippolis.test', name: 'Mike (Purchasing)', roles: ['WORKSHOP_APPROVER'], canApprove: true, jobs: [] },
   { email: 'foreman@lippolis.test',    name: 'Site Foreman',       roles: ['FOREMAN'],           canApprove: false, jobs: ['24-118'] },
   { email: 'requester@lippolis.test',  name: 'Shop Requester',     roles: ['REQUESTOR'],         canApprove: false, jobs: [] },
   { email: 'accounting@lippolis.test', name: 'Accounting Clerk',   roles: ['ACCOUNTING'],        canApprove: false, jobs: [] },
@@ -204,17 +211,26 @@ for (const [jobNumber, name] of [['24-118', 'Harrison Gym'], ['25-007', 'Riversi
   console.log(`  job ${jobNumber} — ${name}`);
 }
 
-{
+// Delivery destinations. The WORKSHOP one is not decoration: `purchase_location_kind`
+// has carried WORKSHOP since migration 0016 and migration 0034 scopes receiving
+// authority by the destination's KIND, but no organization had a workshop row —
+// so "deliver it to the shop" was not selectable on the request form and the
+// whole workshop path was unreachable through the UI.
+const LOCATIONS = [
+  { name: 'Harrison Gym site', kind: 'JOBSITE', address: 'Harrison Gym site address' },
+  { name: 'Lippolis workshop', kind: 'WORKSHOP', address: 'The shop counter' },
+];
+
+for (const location of LOCATIONS) {
   const { data: loc } = await admin.from('purchase_delivery_locations')
-    .select('id').eq('org_id', lippolis.orgId).eq('name', 'Harrison Gym site').maybeSingle();
+    .select('id').eq('org_id', lippolis.orgId).eq('name', location.name).maybeSingle();
   if (!loc) {
     const { error } = await admin.from('purchase_delivery_locations').insert({
-      org_id: lippolis.orgId, name: 'Harrison Gym site', kind: 'JOBSITE',
-      address: 'Harrison Gym site address', is_active: true,
+      org_id: lippolis.orgId, ...location, is_active: true,
     });
-    if (error) throw new Error(`could not create a delivery location: ${error.message}`);
+    if (error) throw new Error(`could not create delivery location ${location.name}: ${error.message}`);
   }
-  console.log('  delivery location Harrison Gym site');
+  console.log(`  delivery location ${location.name} (${location.kind})`);
 }
 
 console.log('\nFIXTURE READY');

@@ -70,7 +70,7 @@ workshop PC, deterministic output).
 | 3.2 | Multiple locations per user — admin UI | **DONE** — relabelled "Receiving locations", workshop offered first, existence validated |
 | 3.3 | Scope enforced server-side, never from the browser | **DONE** — `assignedJobNumbers` resolved in `session.ts` |
 | 3.4 | Scope enforced at the database | **DONE** — `purchasing_may_receive()` (migration 0029) |
-| 3.5 | **Workshop as a first-class location** | **DONE in the application; migration 0034 written, NOT APPLIED** |
+| 3.5 | **Workshop as a first-class location** | **DONE and APPLIED** — 0034 live on the pilot stack, proven in Postgres 5/5 |
 | 3.6 | **Permission-aware filtering includes the workshop** | **DONE** — both indexes call `mayReceiveAt()`; scope copy via `describeLocations()` |
 | 3.7 | Admin assignment UI shows the workshop | **DONE** |
 
@@ -158,7 +158,7 @@ than the feature appearing complete.
 | 7.3 | Live RLS suite + negative control | **DONE locally**, not on a hosted project |
 | 7.4 | Tenant isolation, static and live | **DONE** |
 | 7.5 | Immutable history, four fences | **DONE** |
-| 7.6 | **`npm run lint` cannot run** | **BLOCKER, PRE-EXISTING** — `eslint-config-next` requires `next/dist/compiled/babel/eslint-parser`, absent from the installed Next 16 tree. Repo-wide, affects `apps/web` identically. The milestone asks for lint; it cannot pass until the dependency is fixed, which is a dependency change, not a polish change. |
+| 7.6 | **`npm run lint` cannot run** | **DIAGNOSED, DEFERRED (non-blocking)** — see below |
 | 7.7 | Supabase Storage for attachments | **DEFERRED** — attachments are inline in the pilot database. Gap register. |
 | 7.8 | Sign-in rate limiting | **DEFERRED, SECURITY-RELEVANT** — a password can be guessed as fast as the server answers. Named here because a pilot with real credentials makes it real. |
 | 7.9 | Password reset redemption screen | **DEFERRED** — admin hands over a temporary password today |
@@ -184,6 +184,28 @@ Dependencies first, so nothing is built twice:
 8. **Dashboard screen** — wire the series in; correct the header comment.
 9. **Verification** — full suite chain, production build.
 10. **Documentation** — this file, `PCC_UI_PROGRESS.md`, gap register, handoff.
+
+## Lint — root cause, found on pilot day
+
+Not a missing file. `next@16.2.10` and `eslint-config-next@16.2.10` are the same
+version, and the parser **exists**, at
+`apps/purchasing/node_modules/next/dist/compiled/babel/eslint-parser.js`.
+
+The failure is **module resolution under npm workspaces**. `eslint-config-next`
+is hoisted to the repository root; `next` is not (it is installed per workspace).
+`node_modules/eslint-config-next/dist/parser.js` does
+`require("next/dist/compiled/babel/eslint-parser")`, which resolves from the root
+`node_modules`, where `next` is absent. Every workspace fails identically, which
+is why `apps/web` fails the same way.
+
+**The fix** is to make `next` resolvable at the root — add it to the root
+`devDependencies` at the same version and reinstall. One line plus an install.
+
+**Deferred deliberately, on pilot day.** It requires `npm install` at the root,
+which relinks `node_modules` underneath a dev server serving the live pilot. The
+risk is to the pilot, and the reward is a lint run. Do it the morning after.
+Type safety is meanwhile covered by `tsc --noEmit` and the production build,
+both green.
 
 ## Out of scope, stated so it is not mistaken for oversight
 
