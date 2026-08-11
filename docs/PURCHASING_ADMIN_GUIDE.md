@@ -17,6 +17,30 @@ Two authorities are deliberately separate: **approving a purchase** and **confir
 delivery**. A foreman who signs for material has not been given permission to approve spending.
 Granting approval to an office user is a separate switch from their role.
 
+### Presets
+
+/admin → **Roles** lists seven starting points. A preset expands to roles and a grant that
+already exist; the system neither remembers nor cares which one you picked, and you can adjust
+roles individually afterwards.
+
+| Preset | Role | Approval grant |
+| --- | --- | --- |
+| `ORGANIZATION_ADMIN` | ADMIN | yes |
+| `PURCHASING_MANAGER` | WORKSHOP_APPROVER | yes |
+| `OFFICE_COORDINATOR` | OFFICE | **no** |
+| `APPROVER` | OFFICE | yes |
+| `REQUESTER` | REQUESTOR | no |
+| `FIELD_FOREMAN` | FOREMAN | no |
+| `ACCOUNTING_READ_ONLY` | ACCOUNTING | no |
+
+Pick `OFFICE_COORDINATOR` for office staff who should **not** approve, and `APPROVER` for those
+who should. Both are the OFFICE role; the grant is the only difference, and picking the right
+preset means you cannot forget to remove it.
+
+The full capability vocabulary — the twenty-three coarse names each role holds, and the
+permissions each resolves to — is in `PCC_PERMISSION_MATRIX.md` §1a and on /admin →
+**Permissions**.
+
 ## Inviting someone
 
 /admin → **Invite someone**. Name, company email, at least one role, and a temporary password
@@ -46,9 +70,14 @@ Approval is a **grant**, not a role. An OFFICE user with the grant can approve; 
 without it cannot. Mike and Rick hold WORKSHOP_APPROVER, which carries it. The primary/backup
 distinction decides who the queue nags first, not who is allowed to act.
 
-Self-approval is refused: nobody decides on a request they raised. A one-approver shop can
-enable `allow_self_approval` in settings, and the refusal disappears — that is a real loosening
-of control, and it is recorded.
+**Whoever holds approval authority may approve any request in the organization, including one
+they raised themselves** (BR-011). Who raised it is *recorded* — the approval row is stamped
+`self_approved` — and never *consulted*. A purchasing manager who needs a part and orders it is
+doing their job, and refusing them would stop a one-approver shop working.
+
+The `allow_self_approval` setting is **deprecated and gates nothing** (migration 0028). The
+column remains only so organizations that set it keep their history; no authorization path in
+the application or the database reads it.
 
 ## PO numbering
 

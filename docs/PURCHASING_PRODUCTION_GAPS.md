@@ -206,8 +206,9 @@ the storage bucket. See `PURCHASING_ASYNC_REFACTOR_HANDOFF.md`.
 
 Each of these is asserted by a test that fails if it stops being true:
 
-- authorization decisions, including tenant-before-role ordering, self-approval refusal, and
-  the field firewall on requestor payloads (domain unit suite)
+- authorization decisions, including tenant-before-role ordering, capability-based approval
+  (BR-011: authority decides, identity is only recorded), and the field firewall on requestor
+  payloads (domain unit suite)
 - the six quantities never overwriting each other; the suggestion never negative (unit)
 - the closed status graph, checked over all 14 × 14 transitions in both directions (unit)
 - PO number uniqueness under eight concurrent worker threads (integration)

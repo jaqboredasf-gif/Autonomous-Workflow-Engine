@@ -150,23 +150,88 @@ const ADMIN_PERMISSIONS = [...PERMISSIONS];
 // This is a MAP, not a second system. Every capability resolves to permissions
 // that authorize() already checks. Nothing is enforced against a capability
 // name directly, so the two cannot drift into disagreeing.
+//
+// THE CROSSWALK IS TOTAL, AND A TEST SAYS SO.
+// Every permission in PERMISSIONS is reachable from at least one capability.
+// A partial vocabulary is worse than none: it reads as the complete list of what
+// the system can do, so the eighteen permissions it omitted — cancelling,
+// answering a clarification, the whole workshop review, completing a request,
+// adjusting inventory, signing for a delivery, the accounting packet, and every
+// configuration screen — were authority nobody could name in a contract, a role
+// description or an admin screen. `capability_crosswalk_total` in
+// eval-purchasing-authorization.mjs fails the build if a permission is added
+// without a capability that reaches it.
+//
+// A CAPABILITY NAME IS NEVER A PERMISSION NAME. The two namespaces are kept
+// disjoint (also asserted) so that passing one where the other is expected
+// fails closed at `authorize()` — which refuses an unknown permission — rather
+// than silently authorizing.
+//
+// GRANULARITY RULE: a capability bundles permissions that are always held
+// together by the same job. `hasCapability` requires ALL of them, so a bundle
+// that mixes two jobs would report "no" for somebody who genuinely does one of
+// them. That is why review and decide are separate, and why cancelling your own
+// is separate from cancelling anybody's.
 // ---------------------------------------------------------------------------
 
 export const CAPABILITIES = {
+  // --- raising and tracking a request --------------------------------------
   'purchase.request.create': ['request.create', 'request.submit'],
   'purchase.request.view': ['request.read.own'],
   'purchase.request.view.all': ['request.read.all'],
   'purchase.request.edit': ['request.update.own'],
+  /** Attach evidence, leave a note, answer a question addressed to you. */
+  'purchase.request.collaborate': ['request.attach', 'request.note', 'request.respond_clarification'],
+  /** Withdraw your OWN request. Widened by ownership, never subtracted by it. */
+  'purchase.request.cancel': ['request.cancel.own'],
+  /** Cancel anybody's request in the organization. A purchasing authority. */
+  'purchase.request.cancel.any': ['request.cancel.any'],
+
+  // --- the workshop's work on a request ------------------------------------
+  /**
+   * Working the queue: reading it, recording usable stock, and setting the
+   * quantities, vendor and cost a decision will be made against. Deliberately
+   * NOT the decision itself — an office approver holds both through the grant,
+   * but they are different jobs and a future role may hold only this one.
+   */
+  'purchase.request.review': [
+    'review.read_queue', 'review.record_stock', 'review.set_quantities',
+    'review.set_vendor', 'review.set_cost',
+  ],
   'purchase.request.approve': ['review.decide'],
+  /** Closing a request out once everything has arrived and been accounted for. */
+  'purchase.request.complete': ['request.complete'],
+
+  // --- ordering -------------------------------------------------------------
   'purchase.order.create': ['po.generate'],
   'purchase.order.manage': ['order.track', 'email.draft', 'email.review'],
   'purchase.order.mark_ordered': ['order.mark_ordered'],
+
+  // --- what physically arrives ----------------------------------------------
+  /** Recording a receipt: what actually turned up, and in what condition. */
   'receiving.confirm': ['receiving.record'],
+  /** A foreman signing for a delivery on a job site. Scoped by assignment. */
+  'delivery.sign_off': ['deliveries.confirm'],
+  /** Correcting what the shop believes it holds. */
+  'inventory.manage': ['inventory.adjust'],
+
+  // --- money ----------------------------------------------------------------
+  'accounting.view': ['accounting.read'],
+  /** Assembling the evidence packet accounts payable pays an invoice against. */
+  'accounting.export': ['accounting.packet'],
+
+  // --- administration -------------------------------------------------------
   'vendor.manage': ['admin.vendors'],
   'job.manage': ['admin.assignments'],
   'user.manage': ['admin.users', 'admin.invite'],
-  'accounting.view': ['accounting.read'],
   'audit.view': ['admin.audit'],
+  /**
+   * The organization's own configuration: email templates, PO numbering and
+   * layout, delivery locations, and the purchasing settings. One capability,
+   * because an administrator trusted with one of these is trusted with all of
+   * them, and no role in ROLE_PERMISSIONS holds a strict subset.
+   */
+  'configuration.manage': ['admin.templates', 'admin.po_config', 'admin.locations', 'admin.settings'],
 };
 
 /**
@@ -224,6 +289,21 @@ export const ROLE_PRESETS = [
     roles: ['WORKSHOP_APPROVER'],
     canApprove: true,
     description: 'Reviews and decides requests, generates POs and vendor emails, marks orders placed.',
+  },
+  {
+    /**
+     * Office staff WITHOUT approval authority. The preset list had no way to
+     * set one up: the only OFFICE preset carried the approval grant, so every
+     * administrator provisioning a coordinator had to pick APPROVER and then
+     * remember to take the grant away. A preset that hands out more authority
+     * than intended unless a second step is remembered is a defect, not a
+     * shortcut.
+     */
+    key: 'OFFICE_COORDINATOR',
+    labelKey: 'purchasing.preset.office_coordinator',
+    roles: ['OFFICE'],
+    canApprove: false,
+    description: 'Sees every request, tracks orders and receives at the counter. Cannot approve.',
   },
   {
     key: 'APPROVER',

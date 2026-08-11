@@ -229,7 +229,10 @@ Nothing here deploys automatically. The remaining steps, in order:
 
 1. One job per request, one vendor per purchase order. A request needing two vendors is split.
 2. The workshop approves what the field asked for by default; Mike or Rick edit it.
-3. Nobody decides on a request they raised, unless an admin enables `allow_self_approval`.
+3. Approval authority is a per-user capability, not an identity test: whoever holds it may
+   decide on any request in their organization, **including one they raised** (BR-011). Who
+   raised it is recorded on the approval row, never consulted. `allow_self_approval` is
+   deprecated and gates nothing (migration 0028).
 4. Office staff may record receiving (signing for a delivery is clerical) but may not make
    purchasing decisions without an explicit grant.
 5. A foreman confirms deliveries only for job sites assigned to them.

@@ -212,11 +212,109 @@ for (const c of REQUIRED_CAPABILITIES) {
   check(c in CAPABILITIES, `the capability model includes ${c}`);
 }
 
+// THE VOCABULARY, LOCKED. The full list, so adding or renaming a capability is
+// a deliberate act that updates this line — the capability names are what a
+// contract, a role description and the admin screen quote, and one of them
+// changing spelling between releases is a support call.
+const CAPABILITY_VOCABULARY = [
+  'accounting.export', 'accounting.view', 'audit.view', 'configuration.manage',
+  'delivery.sign_off', 'inventory.manage', 'job.manage', 'purchase.order.create',
+  'purchase.order.manage', 'purchase.order.mark_ordered', 'purchase.request.approve',
+  'purchase.request.cancel', 'purchase.request.cancel.any', 'purchase.request.collaborate',
+  'purchase.request.complete', 'purchase.request.create', 'purchase.request.edit',
+  'purchase.request.review', 'purchase.request.view', 'purchase.request.view.all',
+  'receiving.confirm', 'user.manage', 'vendor.manage',
+];
+{
+  const actual = Object.keys(CAPABILITIES).sort();
+  const expected = [...CAPABILITY_VOCABULARY].sort();
+  check(JSON.stringify(actual) === JSON.stringify(expected),
+    'the capability vocabulary is exactly the documented list',
+    `extra: [${actual.filter((c) => !expected.includes(c)).join(', ')}] `
+    + `missing: [${expected.filter((c) => !actual.includes(c)).join(', ')}]`);
+}
+
+// TOTALITY. Every permission the server enforces is reachable by at least one
+// capability name.
+//
+// THE DEFECT THIS EXISTS TO CATCH: a partial crosswalk reads as the complete
+// list of what the system can do. Eighteen permissions — cancelling, answering
+// a clarification, the whole workshop review, completing a request, adjusting
+// inventory, signing for a delivery, the accounting packet and every
+// configuration screen — were enforced but unnameable, so no contract, role
+// description or admin screen could refer to them.
+{
+  const reachable = new Set(Object.values(CAPABILITIES).flat());
+  const orphans = PERMISSIONS.filter((p) => !reachable.has(p));
+  check(orphans.length === 0,
+    'capability_crosswalk_total: every permission is reachable from a capability',
+    `unreachable: ${orphans.join(', ')}`);
+}
+
+// DISJOINT NAMESPACES. No capability is spelled like a permission.
+//
+// authorize() refuses an unknown permission, so a capability name passed where a
+// permission belongs fails closed — but only while the two namespaces cannot
+// collide. A capability named `inventory.adjust` would be indistinguishable
+// from the permission of that name at a call site, and would authorize.
+{
+  const collisions = Object.keys(CAPABILITIES).filter((c) => PERMISSIONS.includes(c));
+  check(collisions.length === 0,
+    'no capability name is also a permission name',
+    `collides: ${collisions.join(', ')}`);
+}
+
+// Nothing is enforced against a capability name. The map is a label; authorize()
+// takes permissions. A capability reaching a call site would be a second gate.
+{
+  const ENFORCEMENT_FILES = [
+    ['application', 'requests.ts'], ['application', 'review.ts'], ['application', 'decisions.ts'],
+    ['application', 'fulfilment.ts'], ['application', 'administration.ts'], ['application', 'history.ts'],
+    ['application', 'queries.ts'], ['application', 'integrations.ts'], ['application', 'context.ts'],
+    ['domain', 'workspaces.mjs'], ['domain', 'navigation.mjs'],
+  ];
+  const capabilityNames = Object.keys(CAPABILITIES).filter((c) => !PERMISSIONS.includes(c));
+  for (const parts of ENFORCEMENT_FILES) {
+    const src = readFileSync(join(APP, ...parts), 'utf8');
+    const used = capabilityNames.filter((c) => src.includes(`'${c}'`) || src.includes(`"${c}"`));
+    check(used.length === 0,
+      `${parts.join('/')} enforces on permissions, never on a capability name`,
+      `mentions ${used.join(', ')}`);
+  }
+}
+
 for (const preset of ROLE_PRESETS) {
   for (const r of preset.roles) {
     check(ROLES.includes(r), `preset ${preset.key} uses only real roles`, `${r} is not a role`);
   }
   check(presetByKey(preset.key) === preset, `preset ${preset.key} is findable by key`);
+}
+
+// Preset keys are unique — presetByKey() returns the first match, so a duplicate
+// would make one of them unreachable and silently mis-provision people.
+{
+  const keys = ROLE_PRESETS.map((p) => p.key);
+  check(new Set(keys).size === keys.length, 'preset keys are unique', keys.join(', '));
+}
+
+// EVERY ROLE IS PROVISIONABLE. A role with no preset can only be assigned by
+// hand, which is how OFFICE-without-approval used to be set up: the only OFFICE
+// preset carried the approval grant, so an administrator provisioning a
+// coordinator had to pick APPROVER and remember to remove the grant afterwards.
+{
+  const covered = new Set(ROLE_PRESETS.flatMap((p) => p.roles));
+  const orphanRoles = ROLES.filter((r) => !covered.has(r));
+  check(orphanRoles.length === 0,
+    'every role is reachable from at least one preset',
+    `no preset offers: ${orphanRoles.join(', ')}`);
+}
+
+// A preset never grants approval authority the administrator did not ask for.
+for (const preset of ROLE_PRESETS) {
+  const u = user({ roles: preset.roles, canApprove: preset.canApprove });
+  check(hasCapability(u, roles.APPROVE_PURCHASE) === Boolean(
+    preset.canApprove || preset.roles.some((r) => ROLE_PERMISSIONS[r].includes('review.decide'))),
+    `preset ${preset.key} confers approval authority only as declared`);
 }
 
 // ===========================================================================
@@ -227,34 +325,67 @@ console.log('--- the matrix: who holds what ---------------------------------');
 // keeps the system usable. A model that fails either is wrong.
 const EXPECTED = {
   ORGANIZATION_ADMIN: {
-    yes: REQUIRED_CAPABILITIES,
+    // Every capability, not just the brief's minimum: ADMIN_PERMISSIONS is
+    // PERMISSIONS, so a capability an admin does NOT hold is a broken bundle.
+    yes: CAPABILITY_VOCABULARY,
     no: [],
   },
   PURCHASING_MANAGER: {
-    yes: ['purchase.request.create', 'purchase.request.approve', 'purchase.order.create',
-          'purchase.order.manage', 'purchase.order.mark_ordered', 'receiving.confirm'],
-    no: ['vendor.manage', 'job.manage', 'user.manage', 'audit.view'],
+    yes: ['purchase.request.create', 'purchase.request.approve', 'purchase.request.review',
+          'purchase.request.complete', 'purchase.request.cancel', 'purchase.request.cancel.any',
+          'purchase.order.create', 'purchase.order.manage', 'purchase.order.mark_ordered',
+          'receiving.confirm', 'inventory.manage'],
+    no: ['vendor.manage', 'job.manage', 'user.manage', 'audit.view',
+         'configuration.manage', 'accounting.export'],
+  },
+  OFFICE_COORDINATOR: {
+    yes: ['purchase.request.create', 'purchase.request.view', 'purchase.request.view.all',
+          'purchase.request.edit', 'purchase.request.collaborate', 'purchase.request.cancel',
+          'receiving.confirm'],
+    // The whole point of this preset: office authority WITHOUT approval.
+    no: ['purchase.request.approve', 'purchase.request.review', 'purchase.request.complete',
+         'purchase.request.cancel.any', 'purchase.order.create', 'purchase.order.manage',
+         'purchase.order.mark_ordered', 'inventory.manage', 'accounting.view',
+         'user.manage', 'vendor.manage', 'audit.view', 'configuration.manage'],
   },
   APPROVER: {
-    yes: ['purchase.request.approve', 'purchase.order.create'],
-    no: ['user.manage', 'vendor.manage', 'audit.view'],
+    yes: ['purchase.request.approve', 'purchase.request.review', 'purchase.order.create',
+          'purchase.order.manage', 'purchase.order.mark_ordered', 'receiving.confirm'],
+    no: ['user.manage', 'vendor.manage', 'audit.view', 'configuration.manage',
+         // The grant confers purchasing authority, not closing or cancelling
+         // authority: those stay with the workshop role.
+         'purchase.request.complete', 'purchase.request.cancel.any', 'inventory.manage'],
   },
   REQUESTER: {
-    yes: ['purchase.request.create', 'purchase.request.view', 'purchase.request.edit'],
-    no: ['purchase.request.approve', 'purchase.order.create', 'purchase.order.mark_ordered',
-         'receiving.confirm', 'accounting.view', 'user.manage', 'vendor.manage', 'audit.view'],
+    yes: ['purchase.request.create', 'purchase.request.view', 'purchase.request.edit',
+          'purchase.request.collaborate', 'purchase.request.cancel'],
+    no: ['purchase.request.approve', 'purchase.request.review', 'purchase.request.view.all',
+         'purchase.request.cancel.any', 'purchase.order.create', 'purchase.order.mark_ordered',
+         'receiving.confirm', 'delivery.sign_off', 'inventory.manage', 'accounting.view',
+         'accounting.export', 'user.manage', 'vendor.manage', 'audit.view', 'configuration.manage'],
   },
   FIELD_FOREMAN: {
-    yes: ['purchase.request.create', 'receiving.confirm'],
-    no: ['purchase.request.approve', 'purchase.order.create', 'purchase.order.mark_ordered',
-         'user.manage', 'vendor.manage', 'audit.view'],
+    yes: ['purchase.request.create', 'purchase.request.collaborate', 'purchase.request.cancel',
+          'receiving.confirm', 'delivery.sign_off'],
+    no: ['purchase.request.approve', 'purchase.request.review', 'purchase.request.view.all',
+         'purchase.order.create', 'purchase.order.mark_ordered', 'inventory.manage',
+         'user.manage', 'vendor.manage', 'audit.view', 'configuration.manage'],
   },
   ACCOUNTING_READ_ONLY: {
-    yes: ['accounting.view', 'purchase.request.view'],
-    no: ['purchase.request.create', 'purchase.request.approve', 'purchase.order.create',
-         'purchase.order.mark_ordered', 'receiving.confirm', 'user.manage', 'vendor.manage'],
+    yes: ['accounting.view', 'accounting.export', 'purchase.request.view',
+          'purchase.request.view.all'],
+    no: ['purchase.request.create', 'purchase.request.approve', 'purchase.request.review',
+         'purchase.request.collaborate', 'purchase.request.cancel', 'purchase.order.create',
+         'purchase.order.mark_ordered', 'receiving.confirm', 'delivery.sign_off',
+         'inventory.manage', 'user.manage', 'vendor.manage', 'configuration.manage'],
   },
 };
+
+// Every preset appears above. A preset added without expectations would be
+// provisioned by administrators and asserted by nobody.
+for (const preset of ROLE_PRESETS) {
+  check(preset.key in EXPECTED, `preset ${preset.key} has capability expectations in this suite`);
+}
 
 for (const [key, expect] of Object.entries(EXPECTED)) {
   const preset = presetByKey(key);

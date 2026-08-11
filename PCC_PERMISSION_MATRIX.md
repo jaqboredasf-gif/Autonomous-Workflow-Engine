@@ -43,13 +43,88 @@ and by the deliveries index. It used to be three copies.
 
 ---
 
+## 1a. The capability vocabulary
+
+Twenty-three coarse names, covering **all thirty-six** permissions. The crosswalk
+is total: `capability_crosswalk_total` in the authorization suite fails the build
+if a permission is added without a capability that reaches it. A partial
+vocabulary is worse than none — it reads as the complete list of what the system
+can do, and the eighteen permissions it used to omit were authority nobody could
+name in a contract, a role description or on the admin screen.
+
+| Capability | Resolves to |
+|---|---|
+| `purchase.request.create` | `request.create`, `request.submit` |
+| `purchase.request.view` | `request.read.own` |
+| `purchase.request.view.all` | `request.read.all` |
+| `purchase.request.edit` | `request.update.own` |
+| `purchase.request.collaborate` | `request.attach`, `request.note`, `request.respond_clarification` |
+| `purchase.request.cancel` | `request.cancel.own` |
+| `purchase.request.cancel.any` | `request.cancel.any` |
+| `purchase.request.review` | `review.read_queue`, `review.record_stock`, `review.set_quantities`, `review.set_vendor`, `review.set_cost` |
+| `purchase.request.approve` | `review.decide` — **APPROVE_PURCHASE** |
+| `purchase.request.complete` | `request.complete` |
+| `purchase.order.create` | `po.generate` |
+| `purchase.order.manage` | `order.track`, `email.draft`, `email.review` |
+| `purchase.order.mark_ordered` | `order.mark_ordered` |
+| `receiving.confirm` | `receiving.record` — **RECORD_RECEIPT** |
+| `delivery.sign_off` | `deliveries.confirm` |
+| `inventory.manage` | `inventory.adjust` |
+| `accounting.view` | `accounting.read` |
+| `accounting.export` | `accounting.packet` |
+| `vendor.manage` | `admin.vendors` |
+| `job.manage` | `admin.assignments` |
+| `user.manage` | `admin.users`, `admin.invite` |
+| `audit.view` | `admin.audit` |
+| `configuration.manage` | `admin.templates`, `admin.po_config`, `admin.locations`, `admin.settings` |
+
+Three invariants, each asserted:
+
+1. **Total** — every permission is reachable from at least one capability.
+2. **Disjoint** — no capability is spelled like a permission. `authorize()` refuses
+   an unknown permission, so a capability passed where a permission belongs fails
+   closed; that only holds while the namespaces cannot collide.
+3. **Never enforced** — no application use case, route guard or navigation rule
+   mentions a capability name. The map is a label; `authorize()` takes permissions.
+   A capability reaching a call site would be a second, drift-prone gate.
+
+`hasCapability` requires **all** of a bundle's permissions, which is why review
+and approve are separate capabilities, and why cancelling your own is separate
+from cancelling anybody's — bundling two jobs would report "no" for somebody who
+genuinely does one of them.
+
+### Role presets
+
+Seven. Every role in `ROLES` is reachable from at least one, asserted — a role
+with no preset can only be assigned by hand.
+
+| Preset | Roles | Approval grant |
+|---|---|---|
+| `ORGANIZATION_ADMIN` | ADMIN | yes |
+| `PURCHASING_MANAGER` | WORKSHOP_APPROVER | yes |
+| `OFFICE_COORDINATOR` | OFFICE | **no** |
+| `APPROVER` | OFFICE | yes |
+| `REQUESTER` | REQUESTOR | no |
+| `FIELD_FOREMAN` | FOREMAN | no |
+| `ACCOUNTING_READ_ONLY` | ACCOUNTING | no |
+
+`OFFICE_COORDINATOR` closes a real hole: the only OFFICE preset carried the
+approval grant, so an administrator setting up a coordinator had to pick
+`APPROVER` and then remember to take the grant away. A preset that hands out more
+authority than intended unless a second step is remembered is a defect, not a
+shortcut. A test now asserts each preset confers approval authority **only** as
+declared.
+
+---
+
 ## 2. The matrix
 
 ### REQUESTER (`REQUESTOR`)
 
 | | |
 |---|---|
-| **Capabilities** | `purchase.request.create`, `purchase.request.view`, `purchase.request.edit`. **Neither APPROVE_PURCHASE nor RECORD_RECEIPT.** |
+| **Preset** | `REQUESTER` |
+| **Capabilities** | `purchase.request.create`, `purchase.request.view`, `purchase.request.edit`, `purchase.request.collaborate`, `purchase.request.cancel`. **Neither APPROVE_PURCHASE nor RECORD_RECEIPT.** |
 | **Permissions** | `request.create`, `request.read.own`, `request.update.own`, `request.submit`, `request.cancel.own`, `request.respond_clarification`, `request.attach`, `request.note` |
 | **Scope** | Their own requests. Editing stops when the workshop takes over (`request_locked`). |
 | **Server enforcement** | `authorize()` (`missing_permission` for approval and receiving alike) → `must()` in `requests.ts` → server actions in `app/actions.ts` → route guards in `workspaces.mjs` → RLS `purchase_requests_*`; `purchasing_can()` in every write policy |
@@ -60,7 +135,8 @@ and by the deliveries index. It used to be three copies.
 
 | | |
 |---|---|
-| **Capabilities** | Requester's, **plus RECORD_RECEIPT**. Not APPROVE_PURCHASE. |
+| **Preset** | `FIELD_FOREMAN` |
+| **Capabilities** | Requester's, **plus RECORD_RECEIPT** (`receiving.confirm`) and `delivery.sign_off`. Not APPROVE_PURCHASE. The two receiving capabilities are distinct: `receiving.confirm` records what arrived, `delivery.sign_off` is the job-site signature. |
 | **Permissions** | Requester's + `deliveries.confirm`, `receiving.record` |
 | **Scope** | **Assigned job sites only.** `assignedJobNumbers` is resolved server-side from `user_job_assignments` / `purchasing_job_assignments` — never read from the browser. |
 | **Server enforcement** | `authorize()` → `ASSIGNMENT_SCOPED` + `isFieldOnly()` → `not_assigned`; `recordReceipt()` in `fulfilment.ts`; RLS `purchase_receipts_write`, `purchase_receipt_items_write`, `purchase_receipt_attachments_write`, all via `purchasing_may_receive()`; RPC `record_purchase_receipt` re-checks it |
@@ -71,7 +147,8 @@ and by the deliveries index. It used to be three copies.
 
 | | |
 |---|---|
-| **Capabilities** | **APPROVE_PURCHASE and RECORD_RECEIPT**, plus `purchase.order.create`, `purchase.order.manage`, `purchase.order.mark_ordered` |
+| **Preset** | `PURCHASING_MANAGER` |
+| **Capabilities** | **APPROVE_PURCHASE and RECORD_RECEIPT**, plus `purchase.request.review`, `purchase.request.complete`, `purchase.request.cancel.any`, `purchase.order.create`, `purchase.order.manage`, `purchase.order.mark_ordered`, `inventory.manage`, and the requester's five. **Not** `configuration.manage`, `accounting.export`, `delivery.sign_off`, or any administration capability. |
 | **Permissions** | Office's + `review.read_queue`, `review.record_stock`, `review.set_quantities`, `review.set_vendor`, `review.set_cost`, `review.decide`, `po.generate`, `email.draft`, `email.review`, `order.mark_ordered`, `inventory.adjust`, `request.complete`, `request.cancel.any` |
 | **Scope** | Organization-wide. **Unscoped for receiving** — they receive at the shop counter, on any job. |
 | **Server enforcement** | `authorize()` with **no ownership test on `review.decide` or `receiving.record`**; `decidePurchaseRequest()`; `recordReceipt()`; RPC `record_purchase_decision` (0028) and `record_purchase_receipt`; RLS via `purchasing_can()` / `purchasing_may_receive()` |
@@ -82,18 +159,32 @@ and by the deliveries index. It used to be three copies.
 
 | | |
 |---|---|
-| **Capabilities** | Requester's + `purchase.request.view.all` + **RECORD_RECEIPT**. **APPROVE_PURCHASE only with the explicit grant** (`users.can_approve`). |
+| **Presets** | `OFFICE_COORDINATOR` (no grant) and `APPROVER` (with the grant). Two presets, one role — the grant is the only difference, and it is declared rather than remembered. |
+| **Capabilities** | Requester's + `purchase.request.view.all` + **RECORD_RECEIPT**. With the grant, additionally `purchase.request.review`, **APPROVE_PURCHASE**, `purchase.order.create`, `purchase.order.manage`, `purchase.order.mark_ordered`. The grant confers purchasing authority, **not** `purchase.request.complete`, `purchase.request.cancel.any` or `inventory.manage` — those stay with the workshop role. |
 | **Permissions** | Requester's + `request.read.all`, `order.track`, `receiving.record`; with the grant, `APPROVAL_GRANT_PERMISSIONS` (review.*, `review.decide`, `po.generate`, `email.draft`, `email.review`, `order.mark_ordered`) |
 | **Scope** | Organization-wide. Unscoped for receiving. |
 | **Server enforcement** | Same path. The grant is a column, applied in `permissionsFor()`, mirrored by `purchasing_grant_permissions` in SQL and checked for parity by the migration lint |
 | **UI exposure** | WORK ▸ Office, Receiving; DIRECTORY; RECORDS. Approval controls appear **only** with the grant. The sidebar states "Approval authority · granted". |
 | **Tests** | "office cannot approve without an explicit grant" / "office WITH the grant can" (domain + integration); BR-011.4b (granted approver approves their own); BR-014.4 (office receives at the counter with no assignment) |
 
+### ACCOUNTING (`ACCOUNTING`)
+
+| | |
+|---|---|
+| **Preset** | `ACCOUNTING_READ_ONLY` |
+| **Capabilities** | `purchase.request.view`, `purchase.request.view.all`, `accounting.view`, `accounting.export`. **Four, all reads.** Neither APPROVE_PURCHASE nor RECORD_RECEIPT, and not `purchase.request.collaborate` — accounting may leave a note but may not attach evidence or answer a clarification, so the bundle correctly reports "no". |
+| **Permissions** | `request.read.own`, `request.read.all`, `request.note`, `accounting.read`, `accounting.packet` |
+| **Scope** | Organization-wide, read-only. |
+| **Server enforcement** | `authorize()` → `must()` in `queries.ts` and `integrations.ts`; every write path refuses with `missing_permission`. `order.track` is deliberately **absent** — it reads like a view permission and is not one: the only thing that checks it writes a carrier and tracking number onto a shipment accounting is supposed to be auditing. |
+| **UI exposure** | RECORDS ▸ Accounting and Reports. No approve, order, receive or configure control is ever offered. |
+| **Tests** | "ACCOUNTING holds no write permission" — asserted as a **property** over `PERMISSIONS`, not a list, so a permission added later cannot quietly land in it; matrix `ACCOUNTING_READ_ONLY` yes/no lists |
+
 ### ADMIN (`ADMIN`)
 
 | | |
 |---|---|
-| **Capabilities** | All of them, including `user.manage`, `vendor.manage`, `job.manage`, `audit.view` |
+| **Preset** | `ORGANIZATION_ADMIN` |
+| **Capabilities** | **All twenty-three**, including `user.manage`, `vendor.manage`, `job.manage`, `audit.view` and `configuration.manage`. Asserted against the full vocabulary rather than a sample: `ADMIN_PERMISSIONS` is `PERMISSIONS`, so a capability an admin does **not** hold is a broken bundle, and the test says so. |
 | **Scope** | **Their own organization only.** Admin is not a cross-tenant role — the tenant check fires *before* the role check, so an admin of org A is refused org B's records with `cross_tenant`, not with a permission error. |
 | **Server enforcement** | Same `authorize()` path; `administration.ts` for user/role/vendor/job writes; RLS `current_org_id()` on every policy; privileged Supabase client used **only after** the application has authorized the caller |
 | **UI exposure** | Everything, plus CONFIGURE ▸ Administration. Approval and receiving follow configured authority like anyone else — an admin who receives is recorded as the receiver. |
@@ -125,7 +216,7 @@ recording another receipt, never by editing one.
 
 | Suite | Command | Covers |
 |---|---|---|
-| Authorization | `bash scripts/eval-purchasing-authorization.sh` | The matrix both ways, BR-011 and BR-014 case by case, the ownership-annotation guard, use-case coverage |
+| Authorization | `bash scripts/eval-purchasing-authorization.sh` | The matrix both ways, BR-011 and BR-014 case by case, the ownership-annotation guard, use-case coverage, and the four capability invariants (§5.5) |
 | Domain | `bash scripts/eval-purchasing-domain.sh` | `authorize()` decisions, denial vocabulary, capability model |
 | Integration | `bash scripts/eval-purchasing.sh` | The same rules against a real database, including the audit rows |
 | Isolation | `bash scripts/eval-purchasing-isolation.sh` | Effective RLS policy set across **all** migrations, receiving-write scope, tenant boundaries |
@@ -170,3 +261,18 @@ Documentation rots; these do not.
    migrations said.
 4. **Negative controls.** Each of the three was verified by introducing the
    defect and confirming the guard fails.
+5. **The capability invariants** (`eval-purchasing-authorization.mjs`). Four,
+   each of which failed silently before it existed:
+   - `capability_crosswalk_total` — every permission is reachable from a
+     capability. Adding a permission without one fails the build.
+   - **disjoint namespaces** — no capability is spelled like a permission, so a
+     capability passed where a permission belongs still fails closed at
+     `authorize()`.
+   - **never enforced** — no use case, route guard or navigation rule mentions a
+     capability name. The map is a label, not a second gate.
+   - **every role is provisionable** — each role in `ROLES` is reachable from at
+     least one preset, and each preset confers approval authority only as
+     declared. This is what `OFFICE_COORDINATOR` closed.
+
+   The vocabulary itself is locked to an explicit list, so adding or renaming a
+   capability updates a test line rather than drifting between releases.

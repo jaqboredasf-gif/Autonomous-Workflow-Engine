@@ -89,7 +89,11 @@ It asserts the rules that must hold however anything is stored or displayed:
 - **the transition graph is closed** — the guard is checked against every one of
   the 14 × 14 status pairs, in both directions, plus each content precondition
 - **authorization denies for the right reason and in the right order** — tenant
-  before role, self-approval refused, ownership on clarification answers
+  before role, approval decided by capability rather than by who raised the
+  request (BR-011), ownership on clarification answers
+- **the capability vocabulary is total, disjoint and never enforced** — every
+  permission is reachable from a capability name, no capability is spelled like
+  a permission, and no use case checks one
 - **every domain event names a known action** and a known notification event
 - **the email draft cannot reach `SENT`** without a recorded review and a human
 - **money and quantity arithmetic is exact** — no float, no silent rounding
@@ -121,7 +125,9 @@ Exit 0 iff every gate passes. 177 assertions, roughly 15 seconds.
   directions, so the SQL cannot allow an edge the app forbids. It also asserts the migration
   contains no send path (`pg_net`, `http_post`, `smtp`, …) and still carries the send gate, the
   permanent-PO-number guard, the forward-only sequence, the row lock, the no-delete triggers,
-  the over-receipt guard, the read-only original request and the self-approval refusal.
+  the over-receipt guard and the read-only original request. It also asserts that the latest
+  definition of `record_purchase_decision()` gates on `review.decide`, does **not** refuse
+  self-approval, and stamps `self_approved` — the SQL half of BR-011.
 
 ### Intake (spec §3)
 Job number required · need-by date required · need-by time required · a bogus time rejected ·
