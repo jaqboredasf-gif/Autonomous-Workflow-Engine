@@ -17,6 +17,7 @@ export { BrandMark } from './BrandMark';
 export type { BrandMarkProps } from './BrandMark';
 export { Card, Panel, KpiCard, DataPoint, DataGrid } from './Card';
 export { BarSeries, MetricStat } from './Chart';
+export { PrintButton, CopyEmailButton, MailtoLink } from './PaperActions';
 export type { SeriesPoint } from './Chart';
 export { Money, Qty } from './Value';
 export { MaterialSearch } from './MaterialSearch';

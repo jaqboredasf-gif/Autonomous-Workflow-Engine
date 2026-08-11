@@ -103,6 +103,15 @@ export const decide = (
 
 // --- fulfilment use cases ---------------------------------------------------
 
+/**
+ * The purchaser's one action: stock check -> approve -> purchase order.
+ * Composed in decisions.ts so every step keeps its own authorization check and
+ * its own audit rows; the screen simply stops asking for three.
+ */
+export const reviewApproveAndCreatePo = (
+  ctx: PurchasingContext, actor: Actor, requestId: string, input: any, decisionInput: any = {},
+) => decisions.reviewApproveAndCreatePo(ctx, actor, requestId, input, decisionInput);
+
 export const generatePurchaseOrder = (ctx: PurchasingContext, actor: Actor, requestId: string) =>
   fulfilment.generatePurchaseOrder(ctx, actor, requestId);
 

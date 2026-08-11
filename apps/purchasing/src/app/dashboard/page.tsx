@@ -10,7 +10,7 @@
 //   3. what is WRONG                    — exceptions, or an explicit all-clear
 //   4. what should I touch next         — the queue, soonest need-by first
 //   5. where is everything sitting      — purchasing and receiving status
-//   6. who and what has been moving     — vendors, recent POs, recent activity
+//   6. what went out and what happened  — recent POs, recent activity
 //
 //   7. how is purchasing TRENDING       — spend, volume, cycle time, on time
 //
@@ -41,12 +41,15 @@ import {
   applyFilters,
   purchasingStatus,
   receivingStatus,
-  vendorActivity,
   recentPurchaseOrders,
   spendTrend,
   volumeTrend,
   cycleTimes,
   onTimeDelivery,
+  todayBoard,
+  dailyActivity,
+  activityRange,
+  ACTIVITY_RANGES,
 } from '../../purchasing/domain/dashboard.mjs';
 import { purchaseHistory } from '../../purchasing/application/history.ts';
 import { formatMoney } from '../../purchasing/domain/numbers.mjs';
@@ -147,6 +150,14 @@ export default async function DashboardPage({
   const needByByRequest = new Map(all.map((r: any) => [String(r.id), r.needByDate]));
   const onTime = onTimeDelivery(history, (line: any) => needByByRequest.get(String(line.requestId)) ?? null);
 
+  // TODAY. The pilot's finding: the dashboard led with three months of
+  // aggregates and the purchaser arrives asking "what needs me right now".
+  // These read the LIVE requests rather than the immutable history, because a
+  // request raised ninety seconds ago has not ended and has no history row.
+  const board = todayBoard(all, now);
+  const range = activityRange(one('range'));
+  const activityByDay = dailyActivity(all, now, range.days);
+
   // The four KPIs the handoff names, expressed in this domain's statuses.
   const pendingApproval = counts.pending_workshop_review;
   const waitingToOrder = counts.approved_no_po + counts.po_not_ordered;
@@ -176,7 +187,6 @@ export default async function DashboardPage({
   // header comment: counting, summing and sorting only.
   const pipeline = purchasingStatus(requests);
   const receiving = receivingStatus(requests, now);
-  const vendors = vendorActivity(requests, 5);
   const recentPos = recentPurchaseOrders(requests, 6);
 
   // Filter options come from the UNFILTERED list, so narrowing to one job does
@@ -304,6 +314,68 @@ export default async function DashboardPage({
             Nothing is overdue, nothing is part-received, and nobody is waiting on an answer.
           </Alert>
         ) : null}
+      </section>
+
+      {/* --- TODAY: what needs attention right now ----------------------- */}
+      <section className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
+          {/* `waiting` is deliberately not time-boxed: a request submitted on
+              Friday still needs him on Monday, and a "today only" queue would
+              hide it. Today-ness applies to what ARRIVED and what FINISHED. */}
+          <Link href={queueHref} className="rounded-lg border border-accent/30 bg-accent/5 p-4 transition hover:border-accent">
+            <span className="block text-3xl font-semibold tabular-nums text-ink">{board.counts.waiting}</span>
+            <span className="mt-0.5 block text-sm font-medium text-ink">Waiting for you</span>
+            <span className="text-xs text-muted">Open the queue →</span>
+          </Link>
+          <div className="rounded-lg border border-line bg-surface p-4">
+            <span className="block text-3xl font-semibold tabular-nums text-ink">{board.counts.arrivedToday}</span>
+            <span className="mt-0.5 block text-sm font-medium text-ink">Came in today</span>
+          </div>
+          <div className="rounded-lg border border-line bg-surface p-4">
+            <span className="block text-3xl font-semibold tabular-nums text-ink">{board.counts.dueToday}</span>
+            <span className="mt-0.5 block text-sm font-medium text-ink">Due today or late</span>
+          </div>
+          <div className="rounded-lg border border-line bg-surface p-4">
+            <span className="block text-3xl font-semibold tabular-nums text-ink">{board.counts.finishedToday}</span>
+            <span className="mt-0.5 block text-sm font-medium text-ink">Finished today</span>
+          </div>
+        </div>
+
+        <Panel
+          title="Requests by day"
+          subtitle={range.label}
+          bodyClassName="p-4"
+          headingLevel={3}
+          actions={
+            <span className="flex gap-1">
+              {ACTIVITY_RANGES.map((r: any) => (
+                <Link
+                  key={r.key}
+                  href={`/dashboard?range=${r.key}`}
+                  className={`rounded px-2 py-0.5 text-xs ${
+                    r.key === range.key ? 'bg-accent/15 font-medium text-ink' : 'text-muted hover:text-ink'
+                  }`}
+                >
+                  {r.label}
+                </Link>
+              ))}
+            </span>
+          }
+        >
+          {/* A quiet day is a real zero here, unlike the spend trend: "nobody
+              asked for anything on Sunday" is a fact, where "we have no price
+              for this line" is an absence. Same primitive, opposite meaning. */}
+          <BarSeries
+            caption={`Material requests raised per day, ${range.label.toLowerCase()}`}
+            points={activityByDay.map((d: any) => ({
+              label: d.isToday ? 'today' : d.day.slice(5),
+              value: d.raised,
+              display: String(d.raised),
+              hasData: true,
+            }))}
+            emptyMessage="No requests in this period."
+          />
+        </Panel>
       </section>
 
       {/* --- Queue preview + activity ------------------------------------ */}
@@ -451,122 +523,15 @@ export default async function DashboardPage({
         </div>
       </div>
 
-      {/* --- Trends: the same records, over time -------------------------
-          Read from purchase_history_lines, so nothing here moves when somebody
-          renames a vendor. The panel renders only when there is history to
-          render: an empty chart frame implies the data exists and is flat,
-          which for a new deployment is the opposite of the truth. --------- */}
-      {history.length > 0 ? (
-        <div className="grid gap-4 xl:grid-cols-3">
-          <Panel
-            title="Spend"
-            subtitle="Ordered lines, last six months"
-            bodyClassName="p-4"
-            headingLevel={3}
-          >
-            <BarSeries
-              caption="Purchasing spend by month, from completed purchasing history"
-              points={spend.map((m: any) => ({
-                label: m.month.slice(5),
-                value: m.totalCents,
-                display: formatMoney(m.totalCents),
-                hasData: m.hasData,
-              }))}
-              emptyMessage="No purchases recorded in the last six months."
-            />
-            {spend.some((m: any) => m.unpriced > 0) ? (
-              // Stated, not hidden: a month whose lines carried no price is a
-              // month this chart understates, and the reader has to know.
-              <p className="mt-3 text-[11px] text-muted">
-                {spend.reduce((n: number, m: any) => n + m.unpriced, 0)} ordered lines carried no
-                price and are not included in these totals.
-              </p>
-            ) : null}
-          </Panel>
-
-          <Panel
-            title="Volume"
-            subtitle="Lines ordered, last six months"
-            bodyClassName="p-4"
-            headingLevel={3}
-          >
-            <BarSeries
-              caption="Lines ordered by month, from completed purchasing history"
-              points={volume.map((m: any) => ({
-                label: m.month.slice(5),
-                value: m.lines,
-                display: String(m.lines),
-                hasData: m.hasData,
-              }))}
-              emptyMessage="No purchases recorded in the last six months."
-            />
-          </Panel>
-
-          <Panel
-            title="How long it takes"
-            subtitle="Median days, from completed history"
-            bodyClassName="p-4"
-            headingLevel={3}
-          >
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-              <MetricStat
-                label="Request to order"
-                value={cycles.requestToOrder.medianDays}
-                unit="days"
-                samples={cycles.requestToOrder.samples}
-              />
-              <MetricStat
-                label="Order to delivery"
-                value={cycles.orderToDelivery.medianDays}
-                unit="days"
-                samples={cycles.orderToDelivery.samples}
-              />
-              <MetricStat
-                label="Arrived by the need-by date"
-                value={onTime.rate === null ? null : `${Math.round(onTime.rate * 100)}%`}
-                samples={onTime.measured}
-                hint={
-                  onTime.measured
-                    ? `${onTime.late} of ${onTime.measured} arrived late`
-                    : 'Measured once orders with a need-by date have been received'
-                }
-              />
-            </div>
-          </Panel>
-        </div>
-      ) : null}
-
+      {/* Spend, volume and cycle-time trends used to sit here. They are
+          reporting, not operations — the pilot was explicit that historical
+          analytics should not dominate the screen he opens every morning — so
+          they moved to /reports, computed by the same domain functions. */}
       {/* --- Secondary: who we buy from, what went out, what happened ---- */}
       <div className="grid gap-4 xl:grid-cols-3">
-        <Panel title="Vendor activity" subtitle="Busiest first, by open orders" bodyClassName="" headingLevel={3}>
-          {vendors.length === 0 ? (
-            <EmptyState
-              title="No vendor on any request yet"
-              description="A vendor is chosen during purchasing review; this fills in from there."
-            />
-          ) : (
-            <ul className="divide-y divide-line">
-              {vendors.map((v: any) => (
-                <li key={v.vendorId ?? v.vendorName} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink">{v.vendorName ?? 'Unnamed vendor'}</p>
-                    <p className="text-xs text-muted">
-                      {v.requests} request{v.requests === 1 ? '' : 's'}
-                      {v.lastOrderedAt ? ` · last ordered ${String(v.lastOrderedAt).slice(0, 10)}` : ''}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-sm font-semibold tabular-nums text-ink">{v.openOrders} open</p>
-                    {v.openValueCents > 0 ? (
-                      <p className="text-xs tabular-nums text-muted">{formatMoney(v.openValueCents)}</p>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-
+        {/* Vendor activity was removed after the pilot: he knows his vendors,
+            picks them himself, and the panel never changed a decision. It is
+            still on the vendor screens, where somebody is actually asking. */}
         <Panel title="Recent purchase orders" subtitle="Most recently placed" bodyClassName="" headingLevel={3}>
           {recentPos.length === 0 ? (
             <EmptyState

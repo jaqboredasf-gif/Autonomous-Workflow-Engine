@@ -1,15 +1,22 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { requireAccess, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
+import StockCheckForm from '../../../../components/StockCheckForm';
 import ReviewForm from '../../../../components/ReviewForm';
 import { Empty, Section } from '../../../../components/ui';
 import { hasPermission } from '../../../../purchasing/domain/roles.mjs';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ReviewPage({
+  params, searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
   const actor = await requireAccess('/requests');
 
@@ -39,17 +46,49 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     name: String(v.name),
   }));
 
+  // THE SIMPLE PATH IS THE DEFAULT. StockCheckForm asks for one number per line
+  // and ends in one button. The full nine-field review is still here, one link
+  // away, because the office genuinely uses vendor, cost and arrival — and
+  // because rejecting or asking a question needs somewhere to live.
+  const params2 = await searchParams;
+  const full = params2?.view === 'full';
+
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">
-        Review {detail.request.requestNumber} · job {detail.request.jobNumber}
-      </h1>
-      <ReviewForm
-        request={detail.request}
-        originalItems={detail.originalItems}
-        reviewLines={detail.reviewLines}
-        vendors={vendors}
-      />
+      <div>
+        <h1 className="text-xl font-semibold text-ink">
+          {detail.request.requestNumber} · job {detail.request.jobNumber}
+        </h1>
+        <p className="text-sm text-muted">
+          {detail.request.requestorName} · needed {detail.request.needByDate}
+        </p>
+      </div>
+
+      {full ? (
+        <>
+          <Link href={`/requests/${id}/review`} className="inline-block text-sm text-accent underline">
+            ← Back to the simple view
+          </Link>
+          <ReviewForm
+            request={detail.request}
+            originalItems={detail.originalItems}
+            reviewLines={detail.reviewLines}
+            vendors={vendors}
+          />
+        </>
+      ) : (
+        <>
+          <StockCheckForm
+            request={detail.request}
+            items={detail.originalItems}
+            reviewLines={detail.reviewLines}
+            vendors={vendors}
+          />
+          <Link href={`/requests/${id}/review?view=full`} className="inline-block text-sm text-muted underline">
+            Reject, ask a question, or use the full review form
+          </Link>
+        </>
+      )}
     </div>
   );
 }

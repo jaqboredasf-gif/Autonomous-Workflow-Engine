@@ -216,40 +216,55 @@ if (!requestId) {
   {
     const page = await purchasing.go(`/requests/${requestId}/review`);
     check('purchasing can open the review screen', page.status === 200, `status ${page.status}`);
-    const res = await submit(purchasing, `/requests/${requestId}/review`, 'Approve', [
-      ['intent', 'APPROVE'],
+    // POST-PILOT: the default review screen is the stock check. One number per
+    // line, one button, and that button approves AND creates the purchase
+    // order — see reviewApproveAndCreatePo(). The old nine-field form is still
+    // reachable at ?view=full and still tested by the offline suites.
+    check('the review screen asks for the shelf count', /In the shop|Check the shelf/i.test(page.body),
+      'the simplified stock check is not the default view');
+    // Approval requires a vendor and an estimated cost on every ordered line
+    // (application/decisions.ts), so the simplified screen shows both on any
+    // line it is actually buying. Take the vendor from the page's own select
+    // rather than hard-coding an id.
+    const vendorId = /<option value="([0-9a-f-]{36})"/.exec(page.body)?.[1] ?? '';
+    check('the stock check offers a vendor to buy from', Boolean(vendorId), 'no vendor option on the review page');
+    const res = await submit(purchasing, `/requests/${requestId}/review`, 'Approve and print PO', [
       ['lineUsableStock', '0'],
-      ['lineApprovedQty', '10'],
       ['lineFinalOrderQty', '10'],
-      // Approval requires a vendor and an estimated cost on every ordered
-      // line (application/decisions.ts). The vendor rides in as a hidden
-      // field; the cost is typed.
+      ['lineVendorId', vendorId],
       ['lineUnitCost', '12.50'],
-      ['decisionNotes', 'Approved for the Harrison Gym rough-in.'],
+      ['notes', 'Approved for the Harrison Gym rough-in.'],
     ]);
     const after = await purchasing.go(`/requests/${requestId}`);
     // "Approved by" is a LABEL on the page, so matching /Approved/ anywhere
     // passes on a request nobody approved. Assert the status badge instead.
-    check('the request is APPROVED', /Status Approved|>Approved</.test(after.body) || /Generate purchase order/.test(after.body),
+    check('the request is APPROVED', /Status Approved|>Approved</.test(after.body) || /PO generated|>PO Generated</i.test(after.body),
       `decision post ${res.status} -> ${res.location ?? 'no redirect'}`);
     check('the decision records who acted', /Purchasing Manager/.test(text(after.body)),
       'the approver is not shown on the request');
   }
 
   // 5. A purchase order.
+  //
+  // POST-PILOT: approving now PRODUCES the purchase order. The purchaser used
+  // to approve on one screen and then press "Generate purchase order" on
+  // another — two deliberate acts for one physical decision, which is exactly
+  // the ceremony the pilot asked us to remove. reviewApproveAndCreatePo()
+  // composes them, each step still running its own authorization check, so the
+  // separate button is legitimately gone and the PO already exists here.
   {
-    await submit(purchasing, `/requests/${requestId}`, 'Generate purchase order');
     const po = await purchasing.go(`/requests/${requestId}/po`);
-    check('a purchase order is generated', po.status === 200, `status ${po.status}`);
+    check('approving produced the purchase order, with no second step', po.status === 200, `status ${po.status}`);
     check('the PO carries a PO number', /LE-\d+/.test(text(po.body)), 'no organization PO number found');
+    check('the PO sheet offers PRINT as a first-class action', /Print PO/.test(text(po.body)),
+      'the purchaser keeps paper; printing must not be hidden behind a download link');
 
-    // Idempotence: pressing it twice must not mint a second PO.
+    // Idempotence still matters: the composed action must not mint a second
+    // number if it runs again.
     const before = /LE-(\d+)/.exec(text(po.body))?.[1];
-    await submit(purchasing, `/requests/${requestId}`, 'Generate purchase order').catch(() => {});
     const again = await purchasing.go(`/requests/${requestId}/po`);
     const after = /LE-(\d+)/.exec(text(again.body))?.[1];
-    check('generating a PO twice does not mint a second number', before === after,
-      `${before} then ${after}`);
+    check('the PO number is permanent', before === after, `${before} then ${after}`);
   }
 
   // 6. THE VENDOR EMAIL, FROM THE PO PAGE. The brief's critical UX requirement:
@@ -274,7 +289,7 @@ if (!requestId) {
   //    transitionGuard refuses ORDERED without a reviewed draft, so a purchase
   //    cannot be recorded as placed before anybody looked at what was sent.
   {
-    await submit(purchasing, `/requests/${requestId}`, 'Draft vendor email');
+    await submit(purchasing, `/requests/${requestId}/email`, 'Create vendor email draft');
     await submit(purchasing, `/requests/${requestId}/email`, 'Mark reviewed');
     await submit(purchasing, `/requests/${requestId}/email`, 'Approve to send');
     await submit(purchasing, `/requests/${requestId}/email`, 'I sent it — mark sent');
@@ -357,13 +372,16 @@ console.log('\nSCENARIO B — a partial receipt stays visibly incomplete');
   check('scenario B request created', Boolean(id));
 
   if (id) {
-    await submit(purchasing, `/requests/${id}/review`, 'Approve', [
-      ['intent', 'APPROVE'], ['decisionNotes', 'ok'],
-      ['lineUsableStock', '0'], ['lineApprovedQty', '10'], ['lineFinalOrderQty', '10'],
-      ['lineUnitCost', '12.50'],
+    // Same simplified path as scenario A: one button approves and creates the
+    // purchase order.
+    const bPage = await purchasing.go(`/requests/${id}/review`);
+    const bVendor = /<option value="([0-9a-f-]{36})"/.exec(bPage.body)?.[1] ?? '';
+    await submit(purchasing, `/requests/${id}/review`, 'Approve and print PO', [
+      ['notes', 'ok'],
+      ['lineUsableStock', '0'], ['lineFinalOrderQty', '10'],
+      ['lineVendorId', bVendor], ['lineUnitCost', '12.50'],
     ]);
-    await submit(purchasing, `/requests/${id}`, 'Generate purchase order');
-    await submit(purchasing, `/requests/${id}`, 'Draft vendor email');
+    await submit(purchasing, `/requests/${id}/email`, 'Create vendor email draft');
     await submit(purchasing, `/requests/${id}/email`, 'Mark reviewed');
     await submit(purchasing, `/requests/${id}/email`, 'Approve to send');
     await submit(purchasing, `/requests/${id}/email`, 'I sent it — mark sent');
@@ -420,7 +438,11 @@ console.log('\nSCENARIO C — a rejection reaches the person who asked');
 
   if (id) {
     const REASON = 'We already have these in the workshop.';
-    await submit(purchasing, `/requests/${id}/review`, 'Reject', [
+    // Rejecting, asking a question and the full nine-field review all live on
+    // ?view=full. The simplified default screen is for the common case — count
+    // the shelf and buy the difference — and deliberately does not carry three
+    // decisions the purchaser makes a few times a month.
+    await submit(purchasing, `/requests/${id}/review?view=full`, 'Reject', [
       ['intent', 'REJECT'],
       ['reason', REASON],
       ['decisionNotes', REASON],
@@ -444,7 +466,7 @@ console.log('\nSCENARIO D — the refusals');
   // checking whether a button was rendered.
   if (requestId) {
     const before = await foreman.go(`/requests/${requestId}`);
-    const hasButton = /Generate purchase order/.test(before.body);
+    const hasButton = /Generate purchase order|Approve and print PO/.test(before.body);
     check('the field user is not offered PO generation', !hasButton, 'a dead button is offered');
 
     // And the server refuses even when the request is made anyway.

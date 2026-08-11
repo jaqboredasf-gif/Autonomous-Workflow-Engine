@@ -8,11 +8,14 @@
 // forecast; there is no data behind either.
 import { requireAccess, purchasingRequestContext } from '../../server/session.ts';
 import * as S from '../../server/service.ts';
-import { summarize } from '../../purchasing/domain/dashboard.mjs';
+import { summarize, spendTrend, volumeTrend, cycleTimes, onTimeDelivery } from '../../purchasing/domain/dashboard.mjs';
+import { purchaseHistory } from '../../purchasing/application/history.ts';
 import { formatMoney } from '../../purchasing/domain/numbers.mjs';
 import {
   Alert,
+  BarSeries,
   EmptyState,
+  MetricStat,
   KpiCard,
   PageHeader,
   Panel,
@@ -41,6 +44,23 @@ export default async function ReportsPage() {
     (r) => r.vendorName as string,
   );
 
+  // The trends used to sit on the dashboard. They are reporting, not
+  // operations — the pilot was explicit that historical analytics should not
+  // dominate the screen he opens every morning — so they live here, computed by
+  // the same domain functions, from the immutable history.
+  let history: any[] = [];
+  try {
+    history = await purchaseHistory(ctx, actor, { limit: 5000 });
+  } catch {
+    history = [];
+  }
+  const endMonth = now.slice(0, 7);
+  const spend = spendTrend(history, { endMonth, months: 6 });
+  const volume = volumeTrend(history, { endMonth, months: 6 });
+  const cycles = cycleTimes(history);
+  const needByByRequest = new Map(requests.map((r: any) => [String(r.id), r.needByDate]));
+  const onTime = onTimeDelivery(history, (line: any) => needByByRequest.get(String(line.requestId)) ?? null);
+
   const month = now.slice(0, 7);
   const raisedThisMonth = requests.filter((r) => String(r.createdAt ?? '').slice(0, 7) === month).length;
 
@@ -54,6 +74,47 @@ export default async function ReportsPage() {
         <KpiCard label="Received this month" value={counts.received_this_month} tone="good" />
         <KpiCard label="Committed on open orders" value={formatMoney(counts.open_order_value_cents)} tone="info" />
       </section>
+
+      {history.length > 0 ? (
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Panel title="Spend" subtitle="Ordered lines, last six months" bodyClassName="p-4" headingLevel={3}>
+            <BarSeries
+              caption="Purchasing spend by month, from completed purchasing history"
+              points={spend.map((m: any) => ({
+                label: m.month.slice(5), value: m.totalCents, display: formatMoney(m.totalCents), hasData: m.hasData,
+              }))}
+              emptyMessage="No purchases recorded in the last six months."
+            />
+            {spend.some((m: any) => m.unpriced > 0) ? (
+              <p className="mt-3 text-[11px] text-muted">
+                {spend.reduce((n: number, m: any) => n + m.unpriced, 0)} ordered lines carried no price and
+                are not included in these totals.
+              </p>
+            ) : null}
+          </Panel>
+          <Panel title="Volume" subtitle="Lines ordered, last six months" bodyClassName="p-4" headingLevel={3}>
+            <BarSeries
+              caption="Lines ordered by month, from completed purchasing history"
+              points={volume.map((m: any) => ({
+                label: m.month.slice(5), value: m.lines, display: String(m.lines), hasData: m.hasData,
+              }))}
+              emptyMessage="No purchases recorded in the last six months."
+            />
+          </Panel>
+          <Panel title="How long it takes" subtitle="Median days" bodyClassName="p-4" headingLevel={3}>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+              <MetricStat label="Request to order" value={cycles.requestToOrder.medianDays} unit="days" samples={cycles.requestToOrder.samples} />
+              <MetricStat label="Order to delivery" value={cycles.orderToDelivery.medianDays} unit="days" samples={cycles.orderToDelivery.samples} />
+              <MetricStat
+                label="Arrived by the need-by date"
+                value={onTime.rate === null ? null : `${Math.round(onTime.rate * 100)}%`}
+                samples={onTime.measured}
+                hint={onTime.measured ? `${onTime.late} of ${onTime.measured} arrived late` : null}
+              />
+            </div>
+          </Panel>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="By job" subtitle="Estimated value of everything raised against each job" bodyClassName="">

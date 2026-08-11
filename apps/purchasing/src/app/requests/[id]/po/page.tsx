@@ -9,7 +9,7 @@ import { requireAccess, purchasingRequestContext } from '../../../../server/sess
 import * as S from '../../../../server/service.ts';
 import { formatMoney, formatQty } from '../../../../purchasing/domain/numbers.mjs';
 import { Empty, Section, buttonClass, secondaryButtonClass } from '../../../../components/ui';
-import { BrandMark } from '../../../../components/pcc';
+import { BrandMark, PrintButton } from '../../../../components/pcc';
 import { generateEmailDraftAction } from '../../../actions.ts';
 
 export const dynamic = 'force-dynamic';
@@ -36,11 +36,26 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
   const view = await S.purchaseOrderView(ctx, detail.purchaseOrder.id);
   const doc = detail.purchaseOrder.documents[0];
 
+  // Print the money columns only when somebody actually recorded money. A
+  // column of "$0.00" is not information; it is three inches of paper telling
+  // the reader nothing, on a sheet whose whole job is to be scannable.
+  const showCosts = view.items.some((i: any) => Number(i.estimatedUnitCostCents ?? 0) > 0);
+
+  // Job name and address, when the job is in the directory. The job NUMBER is
+  // what the record carries and what the vendor sees; the name and address are
+  // what makes the paper useful to a person holding it.
+  const job = await S.listJobs(ctx, actor)
+    .then((js: any[]) => js.find((j) => String(j.job_number ?? j.jobNumber) === String(view.request.jobNumber)) ?? null)
+    .catch(() => null);
+
   return (
     <div className="space-y-4">
       <div className="no-print flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold text-slate-900">Purchase order {view.purchaseOrder.poNumber}</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {/* FIRST-CLASS, and first in the row: he prints every PO and files the
+              vendor's receipt against the paper. */}
+          <PrintButton />
           {doc ? (
             <a href={`/api/documents/${doc.id}`} className={secondaryButtonClass}>
               Download PDF
@@ -89,7 +104,15 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
         <div className="mt-6 grid grid-cols-2 gap-6 text-sm">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Vendor</div>
-            <div>{view.vendor.name}</div>
+            {/* He chooses the vendor himself, often at the counter or on the
+                phone. When the record does not name one, the sheet prints a
+                RULED LINE to write on rather than the word "none" — the paper
+                has to work whether or not the database was told. */}
+            {view.vendor?.name ? (
+              <div>{view.vendor.name}</div>
+            ) : (
+              <div className="mt-4 border-b border-slate-400" style={{ minWidth: '14rem' }} aria-label="Vendor (write in)" />
+            )}
             {view.vendorContact ? <div>Attn: {view.vendorContact.name}</div> : null}
             {view.vendorContact ? <div className="text-slate-600">{view.vendorContact.email}</div> : null}
             <div className="text-slate-600">{view.vendor.phone}</div>
@@ -109,10 +132,17 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
           </div>
         </div>
 
-        <div className="mt-6 flex justify-between border-t border-slate-200 pt-3 text-sm">
-          <div className="font-medium">Job number: {view.request.jobNumber}</div>
-          <div className="text-slate-600">Request {view.request.requestNumber}</div>
-          <div className="text-slate-600">Approved by {view.approver.name}</div>
+        <div className="mt-6 border-t border-slate-200 pt-3 text-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="font-medium">
+              Job {view.request.jobNumber}
+              {job?.name ? ` — ${job.name}` : ''}
+            </div>
+            <div className="text-slate-600">Request {view.request.requestNumber}</div>
+          </div>
+          {job?.site_address ?? job?.siteAddress ? (
+            <div className="text-slate-600">{job.site_address ?? job.siteAddress}</div>
+          ) : null}
         </div>
 
         <table className="mt-4 min-w-full text-left text-sm">
@@ -122,8 +152,8 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
               <th className="py-2 pr-2">Description</th>
               <th className="py-2 pr-2 text-right">Qty</th>
               <th className="py-2 pr-2">Unit</th>
-              <th className="py-2 pr-2 text-right">Unit cost</th>
-              <th className="py-2 text-right">Line total</th>
+              {showCosts ? <th className="py-2 pr-2 text-right">Unit cost</th> : null}
+              {showCosts ? <th className="py-2 text-right">Line total</th> : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -141,21 +171,23 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
                 </td>
                 <td className="py-2 pr-2 text-right tabular-nums">{formatQty(i.finalOrderQty)}</td>
                 <td className="py-2 pr-2">{i.unit}</td>
-                <td className="py-2 pr-2 text-right tabular-nums">{formatMoney(i.estimatedUnitCostCents)}</td>
-                <td className="py-2 text-right tabular-nums">{formatMoney(i.lineTotalCents)}</td>
+                {showCosts ? <td className="py-2 pr-2 text-right tabular-nums">{formatMoney(i.estimatedUnitCostCents)}</td> : null}
+                {showCosts ? <td className="py-2 text-right tabular-nums">{formatMoney(i.lineTotalCents)}</td> : null}
               </tr>
             ))}
           </tbody>
-          <tfoot>
-            <tr className="border-t border-slate-300">
-              <td colSpan={5} className="py-2 pr-2 text-right font-semibold">
-                Estimated total
-              </td>
-              <td className="py-2 text-right font-semibold tabular-nums">
-                {formatMoney(view.purchaseOrder.estimatedTotalCents)}
-              </td>
-            </tr>
-          </tfoot>
+          {showCosts ? (
+            <tfoot>
+              <tr className="border-t border-slate-300">
+                <td colSpan={5} className="py-2 pr-2 text-right font-semibold">
+                  Estimated total
+                </td>
+                <td className="py-2 text-right font-semibold tabular-nums">
+                  {formatMoney(view.purchaseOrder.estimatedTotalCents)}
+                </td>
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
 
         {view.purchaseOrder.notes ? (
@@ -165,10 +197,29 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
           </div>
         ) : null}
 
-        <p className="mt-8 border-t border-slate-200 pt-3 text-xs text-slate-600">
-          Confirm price and delivery date on receipt of this order. Reference the PO number on all packing slips and
-          invoices.
-        </p>
+        {/* THE FILING BLOCK. The vendor's receipt gets stapled to this sheet and
+            the pair goes in the office file, so the paper needs somewhere to
+            write what happened. This is the part of the workflow the software
+            is not replacing, and designing for it is the point. */}
+        <div className="mt-8 border-t border-slate-200 pt-3">
+          <div className="grid grid-cols-3 gap-6 text-xs text-slate-600">
+            <div>
+              <div className="mb-5">Ordered by</div>
+              <div className="border-b border-slate-400" />
+            </div>
+            <div>
+              <div className="mb-5">Date ordered</div>
+              <div className="border-b border-slate-400" />
+            </div>
+            <div>
+              <div className="mb-5">Receipt attached</div>
+              <div className="border-b border-slate-400" />
+            </div>
+          </div>
+          <p className="mt-4 text-xs text-slate-600">
+            Reference the PO number on all packing slips and invoices.
+          </p>
+        </div>
       </div>
     </div>
   );

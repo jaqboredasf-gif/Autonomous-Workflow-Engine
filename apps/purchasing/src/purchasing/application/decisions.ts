@@ -13,6 +13,7 @@
 import { emit, loadRequest, must, PurchasingError, transitionTo, type PurchasingContext } from './context.ts';
 import type { Actor } from './ports.ts';
 import { changesFromOriginal, saveWorkshopReview } from './review.ts';
+import { generatePurchaseOrder } from './fulfilment.ts';
 import { recordPurchaseHistory } from './history.ts';
 import { events } from '../domain/events.mjs';
 import { isSelfApproval } from '../domain/roles.mjs';
@@ -172,4 +173,55 @@ async function clarify(
   await ctx.approvals.record(request.id, actor.id, 'CLARIFICATION_REQUESTED', notes, asked, changes, now, isSelfApproval(actor, request));
   await emit(ctx, actor, actor.orgId, [events.clarificationRequested(request, asked)]);
   return { status: 'CLARIFICATION_REQUESTED' };
+}
+
+/**
+ * ONE PURCHASER ACTION: record the stock check, approve, and produce the
+ * purchase order.
+ *
+ * WHY THIS EXISTS. The pilot found the workflow, not the rules, to be the
+ * problem: the purchaser had to save a review, then choose a decision, then
+ * navigate to another screen and press "generate PO" — three deliberate
+ * operations to express one physical act ("I have counted the shelf, order the
+ * difference, give me the paper"). The state machine was leaking into his
+ * hands.
+ *
+ * So the composition moves DOWN here, where it can be tested and where each
+ * step still runs its own authorization check, its own transition guard and
+ * its own audit rows. Nothing is skipped and nothing is relaxed:
+ *
+ *   saveWorkshopReview  -> review.record_stock + review.set_quantities
+ *   decidePurchaseRequest(APPROVE) -> review.decide, BR-011, transition guard
+ *   generatePurchaseOrder -> po.generate, PO number allocation, the PDF
+ *
+ * A caller lacking any one of the three permissions is refused at that step,
+ * exactly as before. The purchaser simply stops having to know there are three.
+ *
+ * IDEMPOTENT where it matters: generatePurchaseOrder() already returns the
+ * existing order rather than burning a sequence value, so a double-click
+ * produces one purchase order and one PO number.
+ *
+ * NOT INCLUDED, deliberately: marking the order placed with the vendor.
+ * Printing paper is not ordering, and the moment the order actually goes to a
+ * vendor is a distinct fact that drives receiving and every lead-time figure.
+ * Folding it in here would record a purchase that had not happened yet.
+ */
+export async function reviewApproveAndCreatePo(
+  ctx: PurchasingContext, actor: Actor, requestId: string,
+  input: { workshopNotes?: string | null; lines: any[] },
+  decisionInput: { notes?: string } = {},
+) {
+  // AUTHORIZE BEFORE ACTING, not only inside each step. Each of the three does
+  // check its own permission, so this is redundant for security — and it is not
+  // redundant for BEHAVIOUR: without it, somebody holding review.record_stock
+  // but not review.decide would have their stock check written and then be
+  // refused at the decision, leaving half the act done. Refusing first means
+  // the request is untouched.
+  const request = await loadRequest(ctx, actor, requestId);
+  await must(ctx, actor, 'review.decide', request);
+  await must(ctx, actor, 'po.generate', request);
+
+  const decided = await saveReviewAndDecide(ctx, actor, requestId, input, 'APPROVE', decisionInput);
+  const po = await generatePurchaseOrder(ctx, actor, requestId);
+  return { ...decided, poNumber: po.poNumber, purchaseOrderId: po.purchaseOrderId, reusedPo: Boolean(po.reused) };
 }

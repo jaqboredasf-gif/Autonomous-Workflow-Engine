@@ -5,6 +5,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
+import { CopyEmailButton, MailtoLink } from '../../../../components/pcc';
 import { requireAccess, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import { Empty, Section, buttonClass, inputClass, secondaryButtonClass } from '../../../../components/ui';
@@ -66,6 +67,23 @@ export default async function EmailDraftPage({ params }: { params: Promise<{ id:
           title={`${d.templateKey.replace(/_/g, ' ').toLowerCase()} · ${d.status}`}
           subtitle={`To ${d.to.join(', ') || '(no recipient on file)'}`}
         >
+          {/* THE TWO THINGS HE ACTUALLY DOES, first and largest. He sends from
+              his own mailbox — his signature, his sent-items, his relationship
+              with the vendor — so the useful act is getting the text out of
+              here, not marching a draft through a review state machine. */}
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-line bg-canvas p-3">
+            <CopyEmailButton subject={d.subject} body={d.body} />
+            {/* A draft with no vendor address is normal and expected — he
+                often picks the vendor at the counter. `to` may be absent
+                entirely, so it is never dereferenced without a default. */}
+            <MailtoLink to={(d.to ?? []).join(',')} subject={d.subject} body={d.body} />
+            {!(d.to ?? []).length ? (
+              <span className="text-xs text-muted">
+                No vendor address on file — paste it into a new message and pick the vendor yourself.
+              </span>
+            ) : null}
+          </div>
+
           {d.status === 'GENERATED' ? (
             <form action={updateEmailDraftAction} className="space-y-2">
               <input type="hidden" name="requestId" value={id} />

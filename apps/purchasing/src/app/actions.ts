@@ -239,6 +239,34 @@ export async function reviewAndDecideAction(_prev: unknown, formData: FormData):
   redirect(`/requests/${requestId}`);
 }
 
+/**
+ * THE PURCHASER'S ONE BUTTON: record the stock check, approve, produce the PO,
+ * and land on the printable sheet.
+ *
+ * Everything it does was already possible; it took three screens. The
+ * composition lives in the application layer (reviewApproveAndCreatePo), not
+ * here — this only unpacks the form and decides where the person ends up,
+ * which is the printable purchase order, because that is what he came for.
+ */
+export async function approveAndCreatePoAction(_prev: unknown, formData: FormData): Promise<Result> {
+  const requestId = String(formData.get('requestId'));
+  const result = await run(async (ctx, actor) =>
+    await S.reviewApproveAndCreatePo(
+      ctx,
+      actor,
+      requestId,
+      { workshopNotes: String(formData.get('workshopNotes') ?? ''), lines: parseReviewLines(formData) },
+      { notes: String(formData.get('notes') ?? '') },
+    ),
+  );
+  if (!result.ok) return result;
+
+  revalidatePath(`/requests/${requestId}`);
+  revalidatePath('/dashboard');
+  revalidatePath('/workshop');
+  redirect(`/requests/${requestId}/po?printed=1`);
+}
+
 export async function decideAction(_prev: unknown, formData: FormData): Promise<Result> {
   const id = String(formData.get('requestId'));
   const decision = String(formData.get('decision')) as 'APPROVE' | 'REJECT' | 'CLARIFY';

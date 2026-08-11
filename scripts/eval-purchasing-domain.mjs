@@ -894,6 +894,50 @@ console.log('--- trends and analytics, from the immutable record ------------');
      'nothing measured is null, not a perfect score');
 }
 
+// ===========================================================================
+console.log("--- today's board and the by-day graph -------------------------");
+{
+  const A = await import(join(DOMAIN, 'dashboard.mjs'));
+  const NOW = '2026-08-11T12:00:00Z';
+  const r = (over = {}) => ({ status: 'SUBMITTED', submittedAt: '2026-08-11T09:00:00Z', needByDate: '2026-08-30', ...over });
+
+  const board = A.todayBoard([
+    r(),
+    r({ status: 'PENDING_WORKSHOP_REVIEW', submittedAt: '2026-08-04T09:00:00Z' }),
+    r({ status: 'ORDERED', needByDate: '2026-08-11' }),
+    r({ status: 'ORDERED', needByDate: '2026-08-01' }),
+    r({ status: 'COMPLETED', completedAt: '2026-08-11T11:00:00Z' }),
+    r({ status: 'COMPLETED', completedAt: '2026-08-01T11:00:00Z' }),
+  ], NOW);
+
+  // Waiting is NOT time-boxed: Friday's request still needs him on Monday.
+  eq(board.counts.waiting, 2, "last week's unanswered request still counts as waiting");
+  eq(board.counts.arrivedToday, 5, 'arrived-today counts everything that came in today, whatever its status now');
+  eq(board.counts.dueToday, 2, 'due-today includes the already-late one — later is more urgent, not less');
+  eq(board.counts.finishedToday, 1, 'finished-today excludes what finished last week');
+  eq(board.waiting.length, 2, 'the board carries the rows, not only the counts');
+  eq(A.todayBoard([], NOW).counts, { waiting: 0, arrivedToday: 0, finishedToday: 0, dueToday: 0 },
+     'an empty shop reports zeros rather than throwing');
+
+  const days = A.dailyActivity([
+    r(),
+    r({ submittedAt: '2026-08-09T09:00:00Z', orderedAt: '2026-08-11T10:00:00Z' }),
+  ], NOW, 3);
+  eq(days.length, 3, 'the window is the requested number of days');
+  eq(days.map((d) => d.day), ['2026-08-09', '2026-08-10', '2026-08-11'], 'oldest first, today last');
+  eq(days[2].isToday, true, 'today is marked so the chart can weight it');
+  eq(days[0].raised, 1, 'a request counts on the day it was raised');
+  // Unlike the spend trend, a quiet day here is a real zero: "nobody asked for
+  // anything" is a fact, where "no price recorded" is an absence.
+  eq(days[1].raised, 0, 'a day with no requests is a genuine zero, not a gap');
+  eq(days[2].ordered, 1, 'orders placed are counted on their own day');
+  eq(A.dailyActivity([], 'not-a-date', 7), [], 'an unparseable clock yields no window rather than today');
+
+  eq(A.ACTIVITY_RANGES.map((x) => x.key), ['today', '7d', '30d'], 'the ranges are today-first');
+  eq(A.activityRange('today').days, 1, 'today is one day');
+  eq(A.activityRange('nonsense').key, '7d', 'an unknown range falls back to a week, not to nothing');
+}
+
 console.log('');
 console.log(`domain checks: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

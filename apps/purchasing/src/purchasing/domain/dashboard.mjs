@@ -534,3 +534,110 @@ export function onTimeDelivery(historyLines = [], needByFor = (_line) => null) {
 
   return { measured, onTime, late: measured - onTime, rate: measured ? onTime / measured : null };
 }
+
+// ---------------------------------------------------------------------------
+// TODAY — the operational view.
+//
+// The pilot's finding, in one sentence: a dashboard that leads with three
+// months of aggregates answers a question the purchaser is not asking. He
+// arrives in the morning wanting "what needs me right now", and everything
+// else is a report he will open once a quarter.
+//
+// So these read the LIVE requests rather than the immutable history. That is
+// the opposite choice from spendTrend() above, and deliberately: a trend must
+// not move when somebody edits a vendor, and a work queue must show exactly
+// what is true this second, including the request raised ninety seconds ago
+// that has not ended and therefore has no history row at all.
+// ---------------------------------------------------------------------------
+
+/** The statuses that are waiting on the purchaser specifically. */
+export const WAITING_ON_PURCHASER = ['SUBMITTED', 'PENDING_WORKSHOP_REVIEW', 'RESUBMITTED'];
+
+/** Ordered but not yet fully received — the purchaser's open commitments. */
+const IN_FLIGHT = ['ORDERED', 'PARTIALLY_RECEIVED'];
+
+const dayOf = (timestamp) => String(timestamp ?? '').slice(0, 10);
+
+/**
+ * What needs attention right now, as four honest counts plus the rows behind
+ * them.
+ *
+ * `waiting` is the number that matters and it is deliberately NOT time-boxed:
+ * a request submitted on Friday still needs Mike on Monday, and a "today only"
+ * queue would hide it. Today-ness applies to what ARRIVED and what FINISHED,
+ * which are the two questions where the day is the point.
+ */
+export function todayBoard(requests = [], now = '1970-01-01T00:00:00') {
+  const today = dayOf(now);
+
+  const waiting = requests.filter((r) => WAITING_ON_PURCHASER.includes(r.status));
+  const arrivedToday = requests.filter((r) => dayOf(r.submittedAt ?? r.createdAt) === today);
+  const finishedToday = requests.filter(
+    (r) => ['RECEIVED', 'COMPLETED'].includes(r.status)
+      && (dayOf(r.completedAt) === today || dayOf(r.receivedAt) === today),
+  );
+  // Due today or already past — the ones where waiting another day costs
+  // something. Overdue is included because an overdue line is more urgent than
+  // a due-today one, not less, and a board that separated them would bury it.
+  const dueToday = requests.filter(
+    (r) => IN_FLIGHT.includes(r.status) && String(r.needByDate ?? '') <= today,
+  );
+
+  return {
+    waiting, arrivedToday, finishedToday, dueToday,
+    counts: {
+      waiting: waiting.length,
+      arrivedToday: arrivedToday.length,
+      finishedToday: finishedToday.length,
+      dueToday: dueToday.length,
+    },
+  };
+}
+
+/**
+ * Requests raised per day, most recent last — the by-day graph.
+ *
+ * Counted on the day the request was RAISED, because that is the arrival rate
+ * the shop feels. A day with no requests is a real zero here, unlike the spend
+ * trend: "nobody asked for anything on Sunday" is a fact, where "we have no
+ * price for this line" is an absence. Same chart primitive, opposite meaning,
+ * so `hasData` is true throughout and the reader sees the quiet days.
+ */
+export function dailyActivity(requests = [], now = '1970-01-01T00:00:00', days = 7) {
+  const end = dayOf(now);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end) || days < 1) return [];
+
+  const window = [];
+  const cursor = new Date(`${end}T00:00:00Z`);
+  for (let i = 0; i < days; i++) {
+    window.unshift(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+
+  const raised = new Map(window.map((d) => [d, 0]));
+  const ordered = new Map(window.map((d) => [d, 0]));
+  for (const r of requests) {
+    const day = dayOf(r.submittedAt ?? r.createdAt);
+    if (raised.has(day)) raised.set(day, raised.get(day) + 1);
+    const orderedDay = dayOf(r.orderedAt);
+    if (ordered.has(orderedDay)) ordered.set(orderedDay, ordered.get(orderedDay) + 1);
+  }
+
+  return window.map((day) => ({
+    day,
+    raised: raised.get(day),
+    ordered: ordered.get(day),
+    isToday: day === end,
+  }));
+}
+
+/** The ranges the by-day graph offers. Today first — that is the default view. */
+export const ACTIVITY_RANGES = Object.freeze([
+  { key: 'today', label: 'Today', days: 1 },
+  { key: '7d', label: '7 days', days: 7 },
+  { key: '30d', label: '30 days', days: 30 },
+]);
+
+export function activityRange(key) {
+  return ACTIVITY_RANGES.find((r) => r.key === key) ?? ACTIVITY_RANGES[1];
+}
