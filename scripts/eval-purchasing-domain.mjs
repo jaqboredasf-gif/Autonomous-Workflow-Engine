@@ -834,6 +834,66 @@ eq(cards.received_this_month, 1, 'received-this-month counts by the month it arr
   eq(recentPurchaseOrders([]).length, 0, 'no orders means an empty list, not a sample row');
 }
 
+// ===========================================================================
+console.log('--- trends and analytics, from the immutable record ------------');
+{
+  const A = await import(join(DOMAIN, 'dashboard.mjs'));
+
+  eq(A.monthsEnding('2026-01', 3), ['2025-11', '2025-12', '2026-01'], 'the window rolls back over a year boundary');
+  eq(A.monthsEnding('bad', 3), [], 'an unparseable month yields no window rather than today');
+  eq(A.median([3, 1, 2]), 2, 'the median is the middle value');
+  eq(A.median([1, 2, 3, 4]), 2.5 === 2.5 ? 3 : 0, 'an even sample rounds the midpoint');
+  eq(A.median([]), null, 'no samples is null, never zero — zero would read as instant');
+
+  const line = (over = {}) => ({
+    orderedAt: '2026-01-05T10:00:00Z', orderedQty: 2, requestedAt: '2026-01-01T10:00:00Z',
+    estimatedLineTotalCents: 1000, ...over,
+  });
+
+  // RULE 1 — a month with nothing in it is not a zero.
+  const trend = A.spendTrend([line()], { endMonth: '2026-02', months: 3 });
+  eq(trend.length, 3, 'the trend covers the whole window');
+  eq(trend.map((m) => m.month), ['2025-12', '2026-01', '2026-02'], 'oldest first');
+  eq(trend[1].hasData, true, 'the month with purchases has data');
+  eq(trend[0].hasData, false, 'a month with no purchases reports no data...');
+  eq(trend[0].totalCents, 0, '...and a zero total the chart must not draw as a value');
+
+  // RULE 2 — unknown is not zero.
+  const unpriced = A.spendTrend([line({ estimatedLineTotalCents: null, actualLineTotalCents: null })],
+    { endMonth: '2026-01', months: 1 });
+  eq(unpriced[0].unpriced, 1, 'a line with no price is counted as unpriced');
+  eq(unpriced[0].totalCents, 0, 'and contributes nothing to spend rather than a zero price');
+  eq(A.spendTrend([line({ actualLineTotalCents: 5000 })], { endMonth: '2026-01', months: 1 })[0].totalCents, 5000,
+     'the invoice wins over the estimate when there is one');
+
+  // RULE 3 — only what was actually ordered is a purchase.
+  eq(A.spendTrend([line({ orderedAt: null })], { endMonth: '2026-01', months: 1 })[0].hasData, false,
+     'a line that never reached a vendor is not spend');
+  eq(A.spendTrend([line({ orderedQty: 0 })], { endMonth: '2026-01', months: 1 })[0].hasData, false,
+     'nor is a line ordered in zero quantity');
+
+  eq(A.volumeTrend([line()], { endMonth: '2026-01', months: 1 })[0].lines, 1, 'volume counts ordered lines');
+
+  // Cycle time: a stage with no completed examples reports null.
+  const cycles = A.cycleTimes([line({ receivedAt: '2026-01-09T10:00:00Z' })]);
+  eq(cycles.requestToOrder.medianDays, 4, 'request to order is measured in whole days');
+  eq(cycles.orderToDelivery.medianDays, 4, 'order to delivery likewise');
+  eq(cycles.requestToDelivery.samples, 1, 'the sample size travels with the median');
+  eq(A.cycleTimes([line()]).orderToDelivery.medianDays, null,
+     'a line that never arrived reports no delivery time — not a zero');
+
+  // On-time: only finished, dated lines can answer.
+  const delivered = line({ receivedAt: '2026-01-09T18:00:00Z' });
+  eq(A.onTimeDelivery([delivered], () => '2026-01-09').onTime, 1,
+     'arriving on the day it was needed is on time, whatever the hour');
+  eq(A.onTimeDelivery([delivered], () => '2026-01-08').late, 1, 'arriving the day after is late');
+  eq(A.onTimeDelivery([delivered], () => null).measured, 0, 'a line with no need-by cannot be measured');
+  eq(A.onTimeDelivery([line()], () => '2026-01-09').measured, 0,
+     'a line still outstanding is not counted late — it has not finished');
+  eq(A.onTimeDelivery([], () => '2026-01-09').rate, null,
+     'nothing measured is null, not a perfect score');
+}
+
 console.log('');
 console.log(`domain checks: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -55,7 +55,18 @@ Per person, under **Manage**:
 
 - **Roles** — tick and save. You cannot remove your own ADMIN role.
 - **Delivery receiver** — designates them as someone who signs for material.
-- **Job sites** — assign and unassign. A foreman sees deliveries for these jobs and no others.
+- **Receiving locations** — assign and unassign, as many as the person covers. A job number
+  scopes them to that site; `WORKSHOP` lets them sign at the shop counter. A foreman sees
+  deliveries for their locations and no others.
+
+  The job must already exist in the job directory — a typo is refused rather than accepted
+  into an assignment that quietly shows the person nothing. Unassigning always works, so a
+  bad row from before this check can still be removed.
+
+  **The workshop is a location, not a role.** Previously the only way to let a foreman sign
+  at the counter was to give them an OFFICE or WORKSHOP_APPROVER role, which also lets them
+  approve purchases and read every request in the company. Assign `WORKSHOP` instead: it
+  grants shop receiving and nothing else.
 - **Reset access** — sets a new temporary password through the credential provider.
 - **Disable / re-enable** — a disabled account cannot sign in, and existing sessions stop
   working on their next request, because every request re-reads the person from the database.

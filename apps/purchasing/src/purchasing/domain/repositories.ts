@@ -33,6 +33,12 @@ export type PurchaseRequestRecord = {
   needByTime: string;
   deliveryLocationId: Id;
   deliveryLocationName?: string;
+  /**
+   * `purchase_location_kind` for the destination — JOBSITE, WORKSHOP, OFFICE or
+   * VENDOR_PICKUP. Receiving authority is scoped by WHERE the material lands
+   * (see mayReceiveAt), so the destination's kind has to reach the domain.
+   */
+  deliveryLocationKind?: string | null;
   deliveryAddress?: string;
   deliveryMethod: string;
   reason: string | null;

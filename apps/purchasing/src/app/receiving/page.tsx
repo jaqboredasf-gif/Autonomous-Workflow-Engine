@@ -6,6 +6,7 @@
 // a shape. Each card carries the identity a receiver checks (PO, job, vendor)
 // and what is still owed.
 import { requireAccess, purchasingRequestContext } from '../../server/session.ts';
+import { describeLocations } from '../../purchasing/domain/navigation.mjs';
 import { receivableForActor } from '../../purchasing/application/queries.ts';
 import { formatQty } from '../../purchasing/domain/numbers.mjs';
 import { isOverdue } from '../../purchasing/domain/dashboard.mjs';
@@ -35,7 +36,7 @@ export default async function ReceivingPage() {
         title="Receiving"
         description={
           actor.assignedJobNumbers.length
-            ? `Your job sites: ${actor.assignedJobNumbers.join(', ')}`
+            ? `You sign for: ${describeLocations(actor.assignedJobNumbers)}`
             : 'Orders on their way in. Open one when the truck arrives.'
         }
         meta={partial.length ? <Badge tone="warn">{partial.length} partly received</Badge> : null}

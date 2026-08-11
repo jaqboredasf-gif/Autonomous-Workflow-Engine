@@ -140,6 +140,7 @@ export function toRequest(row: any): any {
     needByTime: typeof row.need_by_time === 'string' ? row.need_by_time.slice(0, 5) : row.need_by_time,
     deliveryLocationId: row.delivery_location_id,
     deliveryLocationName: row.delivery_location?.name ?? undefined,
+    deliveryLocationKind: row.delivery_location?.kind ?? null,
     deliveryAddress: row.delivery_location?.address ?? undefined,
     deliveryMethod: row.delivery_method,
     reason: row.reason ?? null,

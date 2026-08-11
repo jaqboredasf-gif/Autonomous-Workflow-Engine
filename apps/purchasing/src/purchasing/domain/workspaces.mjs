@@ -82,6 +82,29 @@ export function defaultWorkspaceFor(user) {
   return available[0].path;
 }
 
+/**
+ * WHERE "HOME" IS — what the brand mark returns you to.
+ *
+ * The logo used to link to `/`, which redirects to the DEFAULT WORKSPACE: an
+ * admin landed on Administration, a foreman on My requests. Nobody ever reached
+ * the dashboard by clicking the logo, which is the one thing a logo in the top
+ * left is universally expected to do.
+ *
+ * It is not a constant, because `/dashboard` aggregates the whole
+ * organization's purchasing and is guarded by `request.read.all`. Pointing a
+ * requester's logo at it would send them to /unauthorized every time they
+ * clicked it — a broken affordance in the most-clicked spot on the screen. So
+ * home is the dashboard for whoever may open it, and their own landing place
+ * otherwise.
+ *
+ * Deliberately NOT the same thing as defaultWorkspaceFor(): where sign-in sends
+ * you is a question about your job, and it stays as it is. This is only where
+ * "back to the start" goes.
+ */
+export function homeFor(user) {
+  return hasPermission(user, 'request.read.all') ? '/dashboard' : defaultWorkspaceFor(user);
+}
+
 export function workspaceForPath(pathname) {
   return WORKSPACES.find((w) => pathname === w.path || pathname.startsWith(`${w.path}/`)) ?? null;
 }

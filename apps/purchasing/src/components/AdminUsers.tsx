@@ -1,7 +1,8 @@
 'use client';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // User administration: invite, disable, reset access, set roles, assign a
-// foreman to a job site, designate a delivery receiver.
+// somebody to a receiving location — a job site or the workshop — designate a
+// delivery receiver.
 //
 // Every one of these posts to a server action that re-checks the permission —
 // this component decides what to SHOW, never what is allowed.
@@ -11,7 +12,7 @@ import {
   inviteUserAction, resetUserAccessAction, setDeliveryReceiverAction,
   setJobAssignmentAction, setUserDisabledAction, setUserRolesAction,
 } from '../app/actions.ts';
-import { ROLES } from '../purchasing/domain/roles.mjs';
+import { ROLES, WORKSHOP_LOCATION } from '../purchasing/domain/roles.mjs';
 import { Field, Section, buttonClass, inputClass, secondaryButtonClass } from './ui';
 
 export default function AdminUsers({ users, jobs }: { users: any[]; jobs: string[] }) {
@@ -32,9 +33,16 @@ export default function AdminUsers({ users, jobs }: { users: any[]; jobs: string
           <Field label="Temporary password" required hint="At least 10 characters. They should change it.">
             <input name="temporaryPassword" className={inputClass} required minLength={10} />
           </Field>
-          <Field label="Job sites" hint="Comma separated. Only needed for a foreman who signs for deliveries.">
-            <input name="jobNumbers" className={inputClass} placeholder="24-118, 25-007" list="admin-job-numbers" />
+          <Field
+            label="Receiving locations"
+            hint="Comma separated. Where this person may sign for deliveries — job numbers, and WORKSHOP for the shop counter. As many as they cover."
+          >
+            <input name="jobNumbers" className={inputClass} placeholder="24-118, 25-007, WORKSHOP" list="admin-job-numbers" />
             <datalist id="admin-job-numbers">
+              {/* The workshop is a location like any other, so it is offered
+                  like any other. It is listed first because it is the one an
+                  administrator will not think to type. */}
+              <option value={WORKSHOP_LOCATION}>The workshop / shop counter</option>
               {jobs.map((j) => (
                 <option key={j} value={j} />
               ))}
@@ -85,7 +93,7 @@ export default function AdminUsers({ users, jobs }: { users: any[]; jobs: string
                 <th className="py-2 pr-3">Name</th>
                 <th className="py-2 pr-3">Roles</th>
                 <th className="py-2 pr-3">Approval</th>
-                <th className="py-2 pr-3">Job sites</th>
+                <th className="py-2 pr-3">Receiving locations</th>
                 <th className="py-2 pr-3">Status</th>
                 <th className="py-2 pr-3">Manage</th>
               </tr>
@@ -163,7 +171,10 @@ function ManagePanel({
 
       <form action={setJobAssignmentAction} className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="userId" value={user.id} />
-        <Field label="Assign to job site">
+        <Field
+          label="Assign a receiving location"
+          hint={`A job number, or ${WORKSHOP_LOCATION} for the shop counter. The job must already be in the directory.`}
+        >
           <input name="jobNumber" className={inputClass} list="admin-job-numbers" placeholder="24-118" />
         </Field>
         <input type="hidden" name="assigned" value="true" />
@@ -177,8 +188,18 @@ function ManagePanel({
               <input type="hidden" name="userId" value={user.id} />
               <input type="hidden" name="jobNumber" value={job} />
               <input type="hidden" name="assigned" value="false" />
-              <button className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700">
-                {job} ✕
+              {/* The workshop reads differently from a job number, so it looks
+                  different: an administrator scanning a row of chips should not
+                  have to know that one of these strings is reserved. */}
+              <button
+                className={`rounded-full border px-3 py-1 text-xs ${
+                  job === WORKSHOP_LOCATION
+                    ? 'border-accent/40 bg-accent/10 font-medium text-ink'
+                    : 'border-slate-300 bg-white text-slate-700'
+                }`}
+                title={job === WORKSHOP_LOCATION ? 'Signs for deliveries at the shop counter' : `Signs for deliveries on job ${job}`}
+              >
+                {job === WORKSHOP_LOCATION ? 'Workshop' : job} ✕
               </button>
             </form>
           ))}

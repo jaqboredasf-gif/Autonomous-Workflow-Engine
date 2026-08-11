@@ -12,12 +12,22 @@
 //   5. where is everything sitting      — purchasing and receiving status
 //   6. who and what has been moving     — vendors, recent POs, recent activity
 //
+//   7. how is purchasing TRENDING       — spend, volume, cycle time, on time
+//
 // EVERY NUMBER ON THIS PAGE IS DERIVED FROM RECORDS THIS USER MAY SEE. The
 // counts come from the domain's summarize(); the panels from purchasingStatus(),
 // receivingStatus(), vendorActivity() and recentPurchaseOrders(), which only
-// count, sum and sort. There is no trend line, no comparison to last month and
-// no sample series anywhere on this screen, because a purchasing dashboard that
-// invents one figure cannot be trusted about the rest.
+// count, sum and sort.
+//
+// THE TRENDS (added in production-readiness milestone 2) come from
+// purchase_history_lines — the IMMUTABLE record — through spendTrend(),
+// volumeTrend(), cycleTimes() and onTimeDelivery(). They are computed, never
+// sampled and never extrapolated, and three rules hold throughout: a month with
+// no purchases renders as a GAP rather than a zero, an unknown price is
+// reported as unpriced rather than counted as nothing, and only lines that
+// actually reached a vendor count as spend. A purchasing dashboard that invents
+// one figure cannot be trusted about the rest, which is why the domain reports
+// `hasData` and sample sizes and this screen shows them.
 // ---------------------------------------------------------------------------
 import Link from 'next/link';
 
@@ -33,17 +43,24 @@ import {
   receivingStatus,
   vendorActivity,
   recentPurchaseOrders,
+  spendTrend,
+  volumeTrend,
+  cycleTimes,
+  onTimeDelivery,
 } from '../../purchasing/domain/dashboard.mjs';
+import { purchaseHistory } from '../../purchasing/application/history.ts';
 import { formatMoney } from '../../purchasing/domain/numbers.mjs';
 import { describeActivity } from '../../purchasing/domain/activity.mjs';
 import {
   ActivityFeed,
   ActivityItem,
   Alert,
+  BarSeries,
   ButtonLink,
   ButtonRow,
   EmptyState,
   KpiCard,
+  MetricStat,
   PageHeader,
   Panel,
   StatusBadge,
@@ -108,6 +125,27 @@ export default async function DashboardPage({
   } catch {
     activity = [];
   }
+
+  // Trends read the immutable history, which is the same permission the rest of
+  // this screen already required. Like the activity feed, a refusal degrades the
+  // panel rather than the page: analytics are the least important thing here and
+  // must never be what takes the dashboard down.
+  let history: any[] = [];
+  try {
+    history = await purchaseHistory(ctx, actor, { limit: 5000 });
+  } catch {
+    history = [];
+  }
+  const endMonth = now.slice(0, 7);
+  const spend = spendTrend(history, { endMonth, months: 6 });
+  const volume = volumeTrend(history, { endMonth, months: 6 });
+  const cycles = cycleTimes(history);
+  // Need-by lives on the request, not on the history line, so it is looked up
+  // by request id rather than assumed. A line whose request is no longer in the
+  // filtered list simply cannot be measured — onTimeDelivery() counts only what
+  // it can answer for.
+  const needByByRequest = new Map(all.map((r: any) => [String(r.id), r.needByDate]));
+  const onTime = onTimeDelivery(history, (line: any) => needByByRequest.get(String(line.requestId)) ?? null);
 
   // The four KPIs the handoff names, expressed in this domain's statuses.
   const pendingApproval = counts.pending_workshop_review;
@@ -412,6 +450,91 @@ export default async function DashboardPage({
           </Panel>
         </div>
       </div>
+
+      {/* --- Trends: the same records, over time -------------------------
+          Read from purchase_history_lines, so nothing here moves when somebody
+          renames a vendor. The panel renders only when there is history to
+          render: an empty chart frame implies the data exists and is flat,
+          which for a new deployment is the opposite of the truth. --------- */}
+      {history.length > 0 ? (
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Panel
+            title="Spend"
+            subtitle="Ordered lines, last six months"
+            bodyClassName="p-4"
+            headingLevel={3}
+          >
+            <BarSeries
+              caption="Purchasing spend by month, from completed purchasing history"
+              points={spend.map((m: any) => ({
+                label: m.month.slice(5),
+                value: m.totalCents,
+                display: formatMoney(m.totalCents),
+                hasData: m.hasData,
+              }))}
+              emptyMessage="No purchases recorded in the last six months."
+            />
+            {spend.some((m: any) => m.unpriced > 0) ? (
+              // Stated, not hidden: a month whose lines carried no price is a
+              // month this chart understates, and the reader has to know.
+              <p className="mt-3 text-[11px] text-muted">
+                {spend.reduce((n: number, m: any) => n + m.unpriced, 0)} ordered lines carried no
+                price and are not included in these totals.
+              </p>
+            ) : null}
+          </Panel>
+
+          <Panel
+            title="Volume"
+            subtitle="Lines ordered, last six months"
+            bodyClassName="p-4"
+            headingLevel={3}
+          >
+            <BarSeries
+              caption="Lines ordered by month, from completed purchasing history"
+              points={volume.map((m: any) => ({
+                label: m.month.slice(5),
+                value: m.lines,
+                display: String(m.lines),
+                hasData: m.hasData,
+              }))}
+              emptyMessage="No purchases recorded in the last six months."
+            />
+          </Panel>
+
+          <Panel
+            title="How long it takes"
+            subtitle="Median days, from completed history"
+            bodyClassName="p-4"
+            headingLevel={3}
+          >
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+              <MetricStat
+                label="Request to order"
+                value={cycles.requestToOrder.medianDays}
+                unit="days"
+                samples={cycles.requestToOrder.samples}
+              />
+              <MetricStat
+                label="Order to delivery"
+                value={cycles.orderToDelivery.medianDays}
+                unit="days"
+                samples={cycles.orderToDelivery.samples}
+              />
+              <MetricStat
+                label="Arrived by the need-by date"
+                value={onTime.rate === null ? null : `${Math.round(onTime.rate * 100)}%`}
+                samples={onTime.measured}
+                hint={
+                  onTime.measured
+                    ? `${onTime.late} of ${onTime.measured} arrived late`
+                    : 'Measured once orders with a need-by date have been received'
+                }
+              />
+            </div>
+          </Panel>
+        </div>
+      ) : null}
 
       {/* --- Secondary: who we buy from, what went out, what happened ---- */}
       <div className="grid gap-4 xl:grid-cols-3">

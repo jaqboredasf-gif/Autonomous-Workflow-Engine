@@ -13,7 +13,7 @@
 // where everybody lands after sign-in.
 // ---------------------------------------------------------------------------
 
-import { hasPermission } from './roles.mjs';
+import { hasPermission, WORKSHOP_LOCATION } from './roles.mjs';
 
 /**
  * The sidebar, in groups. `permission` is what the destination requires and
@@ -86,4 +86,22 @@ export function activeNavKey(pathname) {
   const matches = all.filter((item) => pathname === item.path || pathname.startsWith(`${item.path}/`));
   if (matches.length === 0) return null;
   return matches.reduce((best, item) => (item.path.length > best.path.length ? item : best)).key;
+}
+
+/**
+ * A person's receiving locations, as a sentence fragment they would recognise.
+ *
+ * The workshop travels as the reserved key `WORKSHOP` (see roles.mjs), which is
+ * the right thing for a scope check and the wrong thing to print at somebody:
+ * "Your job sites: 24-118, WORKSHOP" reads as a data error. Both indexes say
+ * this the same way because they call the same function.
+ */
+export function describeLocations(locations = []) {
+  const names = locations
+    .map((l) => String(l).trim())
+    .filter(Boolean)
+    .map((l) => (l === WORKSHOP_LOCATION ? 'the workshop' : `job ${l}`));
+  if (names.length === 0) return 'nothing yet';
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }

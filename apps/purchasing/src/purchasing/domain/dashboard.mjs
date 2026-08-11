@@ -366,3 +366,171 @@ export function recentPurchaseOrders(requests = [], limit = 6) {
     .sort((a, b) => String(b.orderedAt ?? '').localeCompare(String(a.orderedAt ?? '')))
     .slice(0, limit);
 }
+
+// ---------------------------------------------------------------------------
+// TRENDS AND ANALYTICS
+//
+// Every function below reads `purchase_history_lines` — the IMMUTABLE record,
+// one row per request line, written once when the request ended. Not the live
+// requests: a trend assembled from records that can still change is a trend
+// that rewrites its own past when somebody edits a vendor.
+//
+// THREE RULES, AND THEY ARE THE WHOLE REASON THIS IS IN THE DOMAIN.
+//
+//   1. NOTHING IS INVENTED. A month with no purchases is a month with no
+//      purchases. It is not zero-filled into a line that dips to the axis and
+//      reads as "we spent nothing" — `hasData` distinguishes the two, and the
+//      chart renders the difference.
+//   2. UNKNOWN IS NOT ZERO. A line with no price is excluded from spend and
+//      counted in `unpriced`, which is reported. Averaging an unknown as zero
+//      is how a dashboard quietly understates a year.
+//   3. ONLY WHAT WAS ACTUALLY ORDERED counts as a purchase. domain/history.mjs
+//      already decides this (`wasActuallyOrdered`); these read the same fields
+//      rather than inventing a second rule, so a rejected request cannot
+//      inflate a spend line.
+//
+// Medians, not means. One emergency order that took 40 days moves a mean and
+// tells you nothing about the typical week.
+// ---------------------------------------------------------------------------
+
+/** `2026-08-11T…` -> `2026-08`. Null for anything unparseable — never today. */
+function monthOf(timestamp) {
+  const text = String(timestamp ?? '');
+  return /^\d{4}-\d{2}/.test(text) ? text.slice(0, 7) : null;
+}
+
+/** The last `count` months ending at `endMonth`, oldest first. Calendar maths, no Date. */
+export function monthsEnding(endMonth, count = 6) {
+  const match = /^(\d{4})-(\d{2})$/.exec(String(endMonth ?? ''));
+  if (!match || count < 1) return [];
+  let year = Number(match[1]);
+  let month = Number(match[2]);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    out.unshift(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`);
+    month -= 1;
+    if (month === 0) { month = 12; year -= 1; }
+  }
+  return out;
+}
+
+/** Whole days between two ISO timestamps, or null if either is missing. */
+function daysBetween(from, to) {
+  const a = Date.parse(String(from ?? ''));
+  const b = Date.parse(String(to ?? ''));
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return null;
+  return Math.round((b - a) / 86_400_000);
+}
+
+/** The middle value. Null for an empty set — never 0, which would read as "instant". */
+export function median(values = []) {
+  const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+/** Was this history line actually placed with a vendor? The basis of every money figure. */
+function ordered(line) {
+  return Boolean(line?.orderedAt) && Number(line?.actualLineTotalCents ?? line?.estimatedLineTotalCents ?? 0) >= 0
+    && Number(line?.orderedQty ?? 0) > 0;
+}
+
+/** What a line is evidence of having cost. The invoice where there is one. NULL is unknown. */
+function lineTotalCents(line) {
+  const actual = line?.actualLineTotalCents;
+  if (actual !== null && actual !== undefined) return Number(actual);
+  const estimated = line?.estimatedLineTotalCents;
+  if (estimated !== null && estimated !== undefined) return Number(estimated);
+  return null;
+}
+
+/**
+ * Spend per month, from ordered history lines.
+ *
+ * `hasData` is the field that keeps this honest: a month in the window with no
+ * ordered lines reports `hasData: false` and `totalCents: 0`, and the chart
+ * must draw the first, not the second.
+ */
+export function spendTrend(historyLines = [], { endMonth = '', months = 6 } = {}) {
+  const window = monthsEnding(endMonth, months);
+  const buckets = new Map(window.map((m) => [m, { month: m, totalCents: 0, lines: 0, unpriced: 0, hasData: false }]));
+
+  for (const line of historyLines) {
+    if (!ordered(line)) continue;
+    const month = monthOf(line.orderedAt);
+    const bucket = month && buckets.get(month);
+    if (!bucket) continue;
+    bucket.hasData = true;
+    bucket.lines += 1;
+    const total = lineTotalCents(line);
+    if (total === null) bucket.unpriced += 1;
+    else bucket.totalCents += total;
+  }
+
+  return window.map((m) => buckets.get(m));
+}
+
+/**
+ * Lines ordered per month — activity, which is a different question from spend.
+ * A quiet month of expensive gear and a busy month of consumables look the same
+ * on a spend chart and nothing alike on this one.
+ */
+export function volumeTrend(historyLines = [], { endMonth = '', months = 6 } = {}) {
+  return spendTrend(historyLines, { endMonth, months })
+    .map(({ month, lines, hasData }) => ({ month, lines, hasData }));
+}
+
+/**
+ * How long purchasing actually takes, in days, as medians.
+ *
+ * Each stage reports its own sample size, because "14 days" from two lines is
+ * an anecdote and the reader is entitled to know which they are looking at.
+ * A stage with no completed examples reports null — never zero.
+ */
+export function cycleTimes(historyLines = []) {
+  const toOrder = [];
+  const toReceive = [];
+  const endToEnd = [];
+
+  for (const line of historyLines) {
+    if (!ordered(line)) continue;
+    const requestedToOrdered = daysBetween(line.requestedAt, line.orderedAt);
+    if (requestedToOrdered !== null) toOrder.push(requestedToOrdered);
+    const orderedToReceived = daysBetween(line.orderedAt, line.receivedAt);
+    if (orderedToReceived !== null) toReceive.push(orderedToReceived);
+    const whole = daysBetween(line.requestedAt, line.receivedAt);
+    if (whole !== null) endToEnd.push(whole);
+  }
+
+  return {
+    requestToOrder: { medianDays: median(toOrder), samples: toOrder.length },
+    orderToDelivery: { medianDays: median(toReceive), samples: toReceive.length },
+    requestToDelivery: { medianDays: median(endToEnd), samples: endToEnd.length },
+  };
+}
+
+/**
+ * Did the material arrive by the day it was needed?
+ *
+ * Only lines that were ordered AND received AND carried a need-by date can
+ * answer, so `measured` is reported beside the rate. A line still outstanding
+ * is not late here — it has not finished, and counting it either way would be
+ * a guess. `rate` is null rather than 100 when nothing can be measured.
+ */
+export function onTimeDelivery(historyLines = [], needByFor = (_line) => null) {
+  let measured = 0;
+  let onTime = 0;
+
+  for (const line of historyLines) {
+    if (!ordered(line) || !line.receivedAt) continue;
+    const needBy = needByFor(line);
+    if (!needBy) continue;
+    measured += 1;
+    // Compared by DAY: material that arrived on the afternoon of the day it
+    // was needed arrived on time, whatever the timestamps say.
+    if (String(line.receivedAt).slice(0, 10) <= String(needBy).slice(0, 10)) onTime += 1;
+  }
+
+  return { measured, onTime, late: measured - onTime, rate: measured ? onTime / measured : null };
+}

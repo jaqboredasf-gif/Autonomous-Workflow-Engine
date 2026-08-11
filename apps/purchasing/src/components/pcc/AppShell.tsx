@@ -7,6 +7,7 @@
 // full-page centred layouts without the shell fighting them.
 import { currentActor, purchasingRequestContext } from '../../server/session.ts';
 import { navigationFor } from '../../purchasing/domain/navigation.mjs';
+import { homeFor } from '../../purchasing/domain/workspaces.mjs';
 import { hasPermission } from '../../purchasing/domain/roles.mjs';
 import { signOutAction } from '../../app/auth-actions.ts';
 import { ShellChrome } from './ShellChrome';
@@ -51,6 +52,7 @@ export default async function AppShell({ children }: { children: React.ReactNode
       }}
       unread={unread}
       searchPath={searchPath}
+      homePath={homeFor(actor)}
       signOut={
         <form action={signOutAction}>
           <button

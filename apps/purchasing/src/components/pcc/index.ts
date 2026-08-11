@@ -16,6 +16,8 @@ export { Badge, StatusBadge, UrgencyBadge, CountPill } from './Badge';
 export { BrandMark } from './BrandMark';
 export type { BrandMarkProps } from './BrandMark';
 export { Card, Panel, KpiCard, DataPoint, DataGrid } from './Card';
+export { BarSeries, MetricStat } from './Chart';
+export type { SeriesPoint } from './Chart';
 export { Money, Qty } from './Value';
 export { MaterialSearch } from './MaterialSearch';
 export { PurchasingQueue } from './PurchasingQueue';

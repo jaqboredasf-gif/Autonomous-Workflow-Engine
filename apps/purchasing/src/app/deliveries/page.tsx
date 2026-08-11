@@ -5,6 +5,7 @@
 import Link from 'next/link';
 
 import { requireAccess, purchasingRequestContext } from '../../server/session.ts';
+import { describeLocations } from '../../purchasing/domain/navigation.mjs';
 import { deliveriesForActor } from '../../purchasing/application/queries.ts';
 import { Empty, StatusBadge } from '../../components/ui';
 import { formatQty } from '../../purchasing/domain/numbers.mjs';
@@ -31,8 +32,8 @@ export default async function DeliveriesPage() {
         <h1 className="text-xl font-semibold text-slate-900">Deliveries</h1>
         <p className="mt-1 text-sm text-slate-600">
           {actor.assignedJobNumbers.length
-            ? `Your job sites: ${actor.assignedJobNumbers.join(', ')}`
-            : 'You are not assigned to a job site yet. The office can assign you.'}
+            ? `You sign for: ${describeLocations(actor.assignedJobNumbers)}`
+            : 'You are not assigned to a location yet. The office can assign you.'}
         </p>
       </div>
 

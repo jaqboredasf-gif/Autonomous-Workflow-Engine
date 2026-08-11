@@ -455,13 +455,94 @@ const ASSIGNMENT_SCOPED = ['deliveries.confirm', 'receiving.record'];
 export const SHOP_COUNTER_ROLES = ['OFFICE', 'ACCOUNTING', 'WORKSHOP_APPROVER', 'ADMIN'];
 
 /**
- * Is this user field-only — does their receiving authority stop at the job
- * sites they are assigned to? Shop staff are not scoped: the counter is not a
- * job site.
+ * Is this user field-only — does their receiving authority stop at the
+ * locations they are assigned to? Shop staff are not scoped: the counter is
+ * their post.
  */
 export function isFieldOnly(user) {
   const roles = user?.roles ?? [];
   return !roles.some((r) => SHOP_COUNTER_ROLES.includes(r));
+}
+
+/**
+ * THE WORKSHOP, AS A PLACE SOMEBODY CAN BE ASSIGNED TO.
+ *
+ * A receiving assignment names a location. Job sites are named by their job
+ * number; the workshop is named by this reserved key, and it travels through
+ * exactly the same assignment mechanism — `purchasing_job_assignments`, one row
+ * per person per location, which has always been a join table.
+ *
+ * WHY THIS EXISTS. Receiving scope used to be inferred entirely from ROLE:
+ * office, accounting, workshop-approver and admin were unscoped, everybody else
+ * was job-scoped. So a foreman who also works the shop counter could only be
+ * given shop receiving authority by handing him an OFFICE or WORKSHOP_APPROVER
+ * role — which carries approving, ordering and reading every request in the
+ * company. Authority that should be DECLARED was being INFERRED, and the only
+ * way to grant it was to grant far too much.
+ *
+ * With this, an administrator assigns the workshop the same way they assign
+ * 24-118, and the foreman gains shop receiving and nothing else.
+ *
+ * IT IS RESERVED. No job may be numbered `WORKSHOP` — `isReservedLocation()`
+ * below is what the admin write path checks, so a job number can never collide
+ * with the key and silently confer shop authority.
+ */
+export const WORKSHOP_LOCATION = 'WORKSHOP';
+
+/** Every location key that is not a job number. One place, so a second one is a change here. */
+export const RESERVED_LOCATIONS = [WORKSHOP_LOCATION];
+
+/** May this string be used as a job number? No, if it is a reserved location key. */
+export function isReservedLocation(value) {
+  return RESERVED_LOCATIONS.includes(String(value ?? '').trim().toUpperCase());
+}
+
+/**
+ * What this person may sign for, as one answer.
+ *
+ * `unscoped` means every location in the organization — the shop-counter roles.
+ * `locations` is what a field user was explicitly assigned: job numbers, and
+ * possibly WORKSHOP_LOCATION.
+ */
+export function receivingScopeFor(user) {
+  const assigned = user?.assignedJobNumbers ?? [];
+  return {
+    unscoped: !isFieldOnly(user),
+    locations: [...new Set(assigned.map((l) => String(l).trim()).filter(Boolean))],
+  };
+}
+
+/**
+ * MAY THIS PERSON SIGN FOR SOMETHING ARRIVING HERE?
+ *
+ * The single predicate. `authorize()` asks it per record, the receiving index
+ * asks it per row, and the deliveries index asks it per row — three call sites
+ * that must agree, which is the same reason SHOP_COUNTER_ROLES was extracted.
+ * They were re-deriving `isFieldOnly(user) && assigned.includes(jobNumber)`
+ * separately, and the day the rule gained the workshop, two of the three would
+ * have kept the old answer.
+ *
+ * @param {object} user
+ * @param {{jobNumber?: string|null, locationKind?: string|null}} destination
+ *        `locationKind` is `purchase_location_kind` — JOBSITE, WORKSHOP, OFFICE
+ *        or VENDOR_PICKUP. When it is absent the destination is treated as the
+ *        job site, which is what every record meant before this existed.
+ */
+export function mayReceiveAt(user, destination = {}) {
+  const scope = receivingScopeFor(user);
+  if (scope.unscoped) return true;
+
+  const kind = destination?.locationKind ?? null;
+  // Material delivered to the shop — or collected from a vendor and brought
+  // back to it — is signed for by whoever holds the workshop assignment. It is
+  // NOT signed for by a foreman assigned only to a job site, even the job the
+  // material is destined for: he is not standing there.
+  if (kind === 'WORKSHOP' || kind === 'OFFICE' || kind === 'VENDOR_PICKUP') {
+    return scope.locations.includes(WORKSHOP_LOCATION);
+  }
+
+  const jobNumber = destination?.jobNumber ?? null;
+  return Boolean(jobNumber) && scope.locations.includes(jobNumber);
 }
 
 /**
@@ -543,10 +624,18 @@ export function authorize(user, permission, ctx = {}) {
   // they are assigned to. Shop staff are not scoped, because receiving at the
   // shop counter is their job and the counter is not a job site. The assignment
   // list comes from the server (never from the browser).
-  if (request && ASSIGNMENT_SCOPED.includes(permission) && isFieldOnly(user)) {
-    const assigned = ctx.assignedJobNumbers ?? user.assignedJobNumbers ?? [];
-    if (!assigned.includes(request.jobNumber)) {
-      return deny('not_assigned', `job ${request.jobNumber} is not assigned to you`);
+  // The workshop is one of those locations, assigned explicitly rather than
+  // inferred from a role — see WORKSHOP_LOCATION. mayReceiveAt() is the only
+  // place the rule is written; this passes it the record's destination.
+  if (request && ASSIGNMENT_SCOPED.includes(permission)) {
+    const scoped = ctx.assignedJobNumbers
+      ? { ...user, assignedJobNumbers: ctx.assignedJobNumbers }
+      : user;
+    const destination = { jobNumber: request.jobNumber, locationKind: request.deliveryLocationKind ?? null };
+    if (!mayReceiveAt(scoped, destination)) {
+      return deny('not_assigned', destination.locationKind === 'WORKSHOP'
+        ? 'the workshop is not assigned to you'
+        : `job ${request.jobNumber} is not assigned to you`);
     }
   }
 

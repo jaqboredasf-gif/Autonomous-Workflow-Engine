@@ -12,7 +12,7 @@ import { emit, must, PurchasingError, type PurchasingContext } from './context.t
 import type { Actor } from './ports.ts';
 import { events } from '../domain/events.mjs';
 import { validatePoConfig } from '../domain/po-number.mjs';
-import { ROLES } from '../domain/roles.mjs';
+import { isReservedLocation, ROLES, WORKSHOP_LOCATION } from '../domain/roles.mjs';
 
 export async function poConfig(ctx: PurchasingContext, actor: Actor) {
   return await ctx.reference.poConfig(actor.orgId);
@@ -173,7 +173,15 @@ export async function setUserRoles(ctx: PurchasingContext, actor: Actor, userId:
   return { ok: true };
 }
 
-/** Assign or unassign a foreman to a job site. */
+/**
+ * Assign or unassign somebody to a LOCATION they may sign for deliveries at:
+ * a job number, or the workshop (`WORKSHOP_LOCATION`).
+ *
+ * The location is CHECKED TO EXIST. It used to be free text, so a typo — `24-18`
+ * for `24-118` — was accepted silently, and the foreman then saw an empty
+ * deliveries list with nothing anywhere saying why. An assignment to a job
+ * nobody has is not an assignment; it is a support call three weeks later.
+ */
 export async function setJobAssignment(
   ctx: PurchasingContext, actor: Actor, userId: string, jobNumber: string, assigned: boolean,
 ) {
@@ -182,8 +190,24 @@ export async function setJobAssignment(
   if (!target || target.orgId !== actor.orgId) throw new PurchasingError('not_found', 'user not found');
   if (!jobNumber?.trim()) throw new PurchasingError('validation_failed', 'a job number is required');
 
-  if (assigned) await ctx.identity.assignJob(userId, jobNumber.trim(), actor.id, ctx.clock.now());
-  else await ctx.identity.unassignJob(userId, jobNumber.trim());
+  const location = jobNumber.trim();
+  const isWorkshop = isReservedLocation(location);
+  if (isWorkshop) {
+    // Normalized so 'workshop' and 'Workshop' cannot become two different
+    // assignments, only one of which the scope check would recognise.
+    jobNumber = WORKSHOP_LOCATION;
+  } else if (assigned) {
+    // Only on the way IN. Unassigning must always work, including for a bad row
+    // written before this check existed — otherwise the mistake is permanent.
+    const job = await ctx.reference.jobByNumber(actor.orgId, location);
+    if (!job) {
+      throw new PurchasingError('validation_failed',
+        `there is no job ${location} in this organization — add it to the job directory first`);
+    }
+  }
+
+  if (assigned) await ctx.identity.assignJob(userId, isWorkshop ? WORKSHOP_LOCATION : location, actor.id, ctx.clock.now());
+  else await ctx.identity.unassignJob(userId, isWorkshop ? WORKSHOP_LOCATION : location);
 
   await emit(ctx, actor, actor.orgId, [
     events.approvalAuthorityChanged(
@@ -373,6 +397,15 @@ function cleanJob(input: JobInput) {
 export async function createJob(ctx: PurchasingContext, actor: Actor, input: JobInput) {
   await must(ctx, actor, 'admin.assignments');
   const j = cleanJob(input);
+
+  // A job numbered WORKSHOP would confer shop receiving authority on everybody
+  // assigned to it — the reserved key means "the shop counter" to the scope
+  // check, and it cannot tell the two apart. Migration 0034 states the same
+  // refusal as a CHECK constraint, for every client that is not this one.
+  if (isReservedLocation(j.jobNumber)) {
+    throw new PurchasingError('validation_failed',
+      `${j.jobNumber} is a reserved location name and cannot be used as a job number`);
+  }
 
   const existing = await ctx.reference.jobByNumber(actor.orgId, j.jobNumber);
   if (existing) {

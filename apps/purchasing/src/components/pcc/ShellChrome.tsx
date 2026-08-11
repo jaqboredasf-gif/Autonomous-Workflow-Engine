@@ -19,6 +19,13 @@ export function ShellChrome({
   user,
   unread,
   searchPath,
+  /**
+   * Where the brand mark returns you to. Resolved on the SERVER by homeFor() —
+   * the dashboard for whoever may open it, their own landing place otherwise.
+   * A fixed `/` sent an admin to Administration and a requester to a page they
+   * are not allowed to see.
+   */
+  homePath,
   signOut,
   children,
 }: {
@@ -26,6 +33,7 @@ export function ShellChrome({
   user: ShellUser;
   unread: number;
   searchPath: string;
+  homePath: string;
   signOut: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -54,7 +62,7 @@ export function ShellChrome({
         }`}
       >
         <div className="flex h-16 items-center gap-2 border-b border-line px-4">
-          <Link href="/" className="min-w-0 rounded focus-visible:outline-none">
+          <Link href={homePath} className="min-w-0 rounded focus-visible:outline-none">
             {/* "Purchasing", not "Purchasing Control Center": the rail is 15rem
                 and the longer product name truncates to an ellipsis, which
                 reads as a bug rather than as a name. */}
@@ -155,7 +163,7 @@ export function ShellChrome({
           </button>
 
           {/* On a phone the sidebar is closed, so the topbar carries the brand. */}
-          <Link href="/" className="shrink-0 lg:hidden" aria-label="Lippolis Electric — Purchasing">
+          <Link href={homePath} className="shrink-0 lg:hidden" aria-label="Lippolis Electric — Purchasing">
             <BrandMark size={22} />
           </Link>
 

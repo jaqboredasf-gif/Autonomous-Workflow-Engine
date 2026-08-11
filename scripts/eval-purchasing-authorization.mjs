@@ -634,6 +634,83 @@ console.log('--- BR-014: receipt authority ----------------------------------');
     'BR-014 the capability resolves to the permission authorize() actually enforces');
 }
 
+// ===========================================================================
+console.log('--- the workshop is a location, not a role ---------------------');
+
+// Receiving scope used to be inferred from ROLE. A foreman who also worked the
+// shop counter could only be given shop receiving authority by handing him an
+// OFFICE or WORKSHOP_APPROVER role — approving, ordering and every request in
+// the company, to let him sign for a box. The workshop is now a LOCATION,
+// assigned through the same mechanism as a job site.
+{
+  const { WORKSHOP_LOCATION, mayReceiveAt, receivingScopeFor, isReservedLocation } = roles;
+  const at = (jobNumber, locationKind = 'JOBSITE') => ({ jobNumber, locationKind });
+  const foreman = (locations) => user({ id: 'u-fm', roles: ['FOREMAN'], assignedJobNumbers: locations });
+
+  check(WORKSHOP_LOCATION === 'WORKSHOP', 'the reserved location key is WORKSHOP');
+
+  // --- no regression: shop-counter roles stay unscoped ---------------------
+  for (const role of roles.SHOP_COUNTER_ROLES) {
+    const shopStaff = user({ roles: [role], assignedJobNumbers: [] });
+    check(receivingScopeFor(shopStaff).unscoped, `${role} is unscoped for receiving`);
+    check(mayReceiveAt(shopStaff, at('24-999')) && mayReceiveAt(shopStaff, at(null, 'WORKSHOP')),
+      `${role} signs anywhere without an assignment — the counter is their post`);
+  }
+
+  // --- a field user is scoped to what they were ASSIGNED -------------------
+  const site = foreman(['24-118']);
+  check(mayReceiveAt(site, at('24-118')), 'a foreman signs for his own job site');
+  check(!mayReceiveAt(site, at('24-999')), 'a foreman does not sign for a site he is not on');
+
+  // THE POINT OF THE CHANGE, in both directions.
+  check(!mayReceiveAt(site, at('24-118', 'WORKSHOP')),
+    'a job-site foreman does NOT sign for a workshop delivery — he is not standing there, '
+    + 'even when the material is destined for his job');
+  const shopForeman = foreman([WORKSHOP_LOCATION]);
+  check(mayReceiveAt(shopForeman, at('24-118', 'WORKSHOP')),
+    'a foreman assigned the workshop signs for a workshop delivery');
+  check(!mayReceiveAt(shopForeman, at('24-118')),
+    'and gains nothing on a job site he was not assigned — the assignment is the whole grant');
+
+  // Both, because assignment has always been a join table.
+  const both = foreman(['24-118', '24-203', WORKSHOP_LOCATION]);
+  check(mayReceiveAt(both, at('24-118')) && mayReceiveAt(both, at('24-203'))
+     && mayReceiveAt(both, at('24-118', 'WORKSHOP')),
+    'a person may hold several job sites and the workshop at once');
+  check(!mayReceiveAt(both, at('24-999')), 'and still nothing they were not given');
+
+  // Collected from the vendor, or dropped at the office: not a job site, so it
+  // is the shop assignment that answers.
+  for (const kind of ['OFFICE', 'VENDOR_PICKUP']) {
+    check(mayReceiveAt(shopForeman, at('24-118', kind)) && !mayReceiveAt(site, at('24-118', kind)),
+      `${kind} follows the workshop assignment, not the job assignment`);
+  }
+
+  // An unknown or absent kind means what every record meant before this
+  // existed: the job site. No record changes meaning.
+  check(mayReceiveAt(site, { jobNumber: '24-118' }) && mayReceiveAt(site, at('24-118', null)),
+    'a destination with no kind is the job site — existing records are unchanged');
+
+  // --- the key cannot be counterfeited by a job number ---------------------
+  check(isReservedLocation('WORKSHOP') && isReservedLocation('workshop') && isReservedLocation(' Workshop '),
+    'the reserved key is recognised whatever the casing or padding');
+  check(!isReservedLocation('24-118') && !isReservedLocation('') && !isReservedLocation(null),
+    'an ordinary job number is not reserved');
+
+  // --- and authorize() asks the same question ------------------------------
+  const ordered = (over = {}) => request({ status: 'ORDERED', jobNumber: '24-118', ...over });
+  check(authorize(shopForeman, 'receiving.record', { request: ordered({ deliveryLocationKind: 'WORKSHOP' }) }).ok,
+    'authorize() lets the shop-assigned foreman record a workshop receipt');
+  const refused = authorize(site, 'receiving.record', { request: ordered({ deliveryLocationKind: 'WORKSHOP' }) });
+  check(!refused.ok && refused.reason === 'not_assigned',
+    'authorize() refuses the job-site foreman the same receipt', refused.reason);
+  check(/workshop/i.test(refused.message ?? ''),
+    'and the refusal names the WORKSHOP rather than a job number the reader would go looking for',
+    refused.message);
+  check(authorize(site, 'receiving.record', { request: ordered() }).ok,
+    'while his own job site still works exactly as before');
+}
+
 // A requestor's edit window closes when the workshop takes over.
 {
   const requester = user({ id: 'u-1', roles: ['REQUESTOR'] });
@@ -668,6 +745,45 @@ console.log('--- BR-014: receipt authority ----------------------------------');
   const admin = user({ roles: ['ADMIN'], canApprove: true });
   const d = authorize(admin, 'request.aprove');
   check(!d.ok && d.reason === 'unknown_permission', 'a misspelled permission is refused, not allowed', d.reason);
+}
+
+// ===========================================================================
+console.log('--- home is a permission decision, not a constant ---------------');
+
+// The brand mark used to link to `/`, which redirects to the DEFAULT WORKSPACE:
+// clicking the logo took an admin to Administration and never took anybody to
+// the dashboard. Pointing it at /dashboard unconditionally would be worse — a
+// requester holds no `request.read.all`, so the most-clicked control on the
+// screen would redirect them to /unauthorized every time.
+{
+  const { homeFor, defaultWorkspaceFor, guardFor } = await import(join(APP, 'domain', 'workspaces.mjs'));
+
+  check(guardFor('/dashboard')?.permission === 'request.read.all',
+    'the dashboard is guarded by request.read.all — the permission home must respect');
+
+  for (const key of ['ORGANIZATION_ADMIN', 'PURCHASING_MANAGER', 'OFFICE_COORDINATOR',
+                     'APPROVER', 'ACCOUNTING_READ_ONLY']) {
+    const preset = presetByKey(key);
+    const u = user({ roles: preset.roles, canApprove: preset.canApprove });
+    check(homeFor(u) === '/dashboard', `${key} goes home to the dashboard`);
+  }
+
+  for (const key of ['REQUESTER', 'FIELD_FOREMAN']) {
+    const preset = presetByKey(key);
+    const u = user({ roles: preset.roles, canApprove: preset.canApprove });
+    const home = homeFor(u);
+    check(home !== '/dashboard', `${key} is not sent to a dashboard they cannot open`);
+    check(home === defaultWorkspaceFor(u), `${key} goes home to their own workspace instead`);
+    // The whole point: home must be a page they can actually open.
+    const guard = guardFor(home);
+    check(!guard || permissionsFor(u).includes(guard.permission),
+      `${key}'s home passes its own route guard`, `${home} needs ${guard?.permission}`);
+  }
+
+  // Signing in is a different question and must not have moved.
+  check(defaultWorkspaceFor(user({ roles: ['ADMIN'], canApprove: true })) === '/admin'
+     && defaultWorkspaceFor(user({ roles: ['FOREMAN'] })) === '/my-requests',
+    'where sign-in lands is unchanged — home is only where "back to the start" goes');
 }
 
 // No individual is named in authorization logic.

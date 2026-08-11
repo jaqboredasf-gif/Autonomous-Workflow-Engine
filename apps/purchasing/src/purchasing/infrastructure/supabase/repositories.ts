@@ -46,7 +46,7 @@ const REQUEST_SELECT = `
   *,
   requestor:users!purchase_requests_requestor_id_fkey(full_name),
   approver:users!purchase_requests_approver_id_fkey(full_name),
-  delivery_location:purchase_delivery_locations(name,address),
+  delivery_location:purchase_delivery_locations(name,address,kind),
   vendor:purchase_vendors(name),
   purchase_order:purchase_orders(po_number)
 `;

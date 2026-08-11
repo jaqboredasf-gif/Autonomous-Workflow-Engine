@@ -73,6 +73,7 @@ function toRequest(row: any): PurchaseRequestRecord {
     needByTime: row.need_by_time,
     deliveryLocationId: row.delivery_location_id,
     deliveryLocationName: row.delivery_location_name ?? undefined,
+    deliveryLocationKind: row.delivery_location_kind ?? null,
     deliveryAddress: row.delivery_address ?? undefined,
     deliveryMethod: row.delivery_method,
     reason: row.reason ?? null,
@@ -187,6 +188,7 @@ export function sqliteRequestRepository(db: DatabaseSync): PurchaseRequestReposi
         .prepare(
           `select r.*, u.full_name as requestor_name, a.full_name as approver_name,
                   l.name as delivery_location_name, l.address as delivery_address,
+                  l.kind as delivery_location_kind,
                   v.name as vendor_name, p.po_number
              from purchase_requests r
              join users u on u.id = r.requestor_id

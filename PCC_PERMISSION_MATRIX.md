@@ -35,11 +35,41 @@ implies the other, and a test asserts that in both directions.
 
 | Who | Receiving scope |
 |---|---|
-| Field-only users (FOREMAN, REQUESTOR+receiving grant) | The job sites they are assigned to |
-| Shop-counter roles (`SHOP_COUNTER_ROLES`: OFFICE, ACCOUNTING, WORKSHOP_APPROVER, ADMIN) | Unscoped — the counter is not a job site |
+| Field-only users (FOREMAN, REQUESTOR+receiving grant) | The **locations** they are assigned to — job numbers, and `WORKSHOP` |
+| Shop-counter roles (`SHOP_COUNTER_ROLES`: OFFICE, ACCOUNTING, WORKSHOP_APPROVER, ADMIN) | Unscoped — the counter is their post |
 
 One definition, in `roles.mjs`, used by `authorize()`, by the receiving index
 and by the deliveries index. It used to be three copies.
+
+### The workshop is a location, not a role
+
+Scope used to be inferred **entirely from role**: a foreman who also worked the
+shop counter could be given shop receiving authority only by being handed OFFICE
+or WORKSHOP_APPROVER — approving, ordering and every request in the company, so
+that he could sign for a box. The smallest available grant was most of purchasing.
+
+`WORKSHOP_LOCATION` (`'WORKSHOP'`) is now an assignable location travelling
+through `purchasing_job_assignments`, which has always been one row per person
+per location. `mayReceiveAt(user, {jobNumber, locationKind})` is the single
+predicate; `authorize()`, `receivableForActor()` and `deliveriesForActor()` all
+ask it rather than re-deriving `isFieldOnly && assigned.includes(jobNumber)`.
+
+| Destination `purchase_location_kind` | Who may sign |
+|---|---|
+| `JOBSITE`, or none recorded | assignment to that job number — unchanged meaning for every existing record |
+| `WORKSHOP`, `OFFICE`, `VENDOR_PICKUP` | assignment to `WORKSHOP` |
+
+Guarded: the key is reserved, so no job may be numbered `WORKSHOP`
+(`isReservedLocation()` in the application, a CHECK constraint in migration
+0034); a job-site assignment confers nothing at the shop and a shop assignment
+confers nothing on a job site; shop-counter roles are unchanged. 25 checks in
+the authorization suite, including both negative directions.
+
+> **Migration 0034 is written and NOT APPLIED.** `purchasing_may_receive()` in
+> Postgres still assumes every delivery lands on a job site. Until it is applied,
+> workshop assignment works on the pilot's SQLite provider and is refused by the
+> database on the Supabase provider. Apply it before using workshop assignment
+> on Supabase.
 
 ---
 
