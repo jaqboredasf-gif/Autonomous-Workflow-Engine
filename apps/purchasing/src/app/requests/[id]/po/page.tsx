@@ -201,7 +201,7 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
             the pair goes in the office file, so the paper needs somewhere to
             write what happened. This is the part of the workflow the software
             is not replacing, and designing for it is the point. */}
-        <div className="mt-8 border-t border-slate-200 pt-3">
+        <div className="print-keep-together mt-8 border-t border-slate-200 pt-3">
           <div className="grid grid-cols-3 gap-6 text-xs text-slate-600">
             <div>
               <div className="mb-5">Ordered by</div>

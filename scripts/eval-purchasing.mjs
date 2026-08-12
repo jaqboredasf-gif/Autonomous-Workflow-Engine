@@ -938,6 +938,69 @@ await throws(
   'the database itself refuses a duplicate PO number',
 );
 
+console.log('--- the PO sequence is the office\'s to set, and only forward ---');
+
+// LINING PCC UP WITH THE PAPER BOOK. The office has been issuing purchase
+// orders on paper for years; PCC has to continue that sequence rather than
+// start a second one beside it. Somebody therefore has to be able to set the
+// next number — and the same act, done carelessly or twice, is how a number
+// that is already on a vendor's invoice gets issued again.
+{
+  const before = await S.poConfig(ctx(), mike);
+  const start = Number(before.next_value);
+
+  // Only an administrator. A purchaser who may generate purchase orders may
+  // not decide what they are called.
+  await refuses(
+    async () => S.updatePoConfig(ctx(), foreman, { nextValue: start + 5000 }),
+    'missing_permission',
+    'a field user cannot change the PO sequence',
+  );
+
+  await S.updatePoConfig(ctx(), admin, { prefix: 'LE-', padding: 5, suffix: '', nextValue: start + 5000 });
+  const moved = await S.poConfig(ctx(), admin);
+  eq(Number(moved.next_value), start + 5000, 'an administrator can set the next PO number');
+
+  // THE RULE THAT MATTERS. Winding back would re-issue numbers that vendors,
+  // invoices and the office's own file already reference.
+  await refuses(
+    async () => S.updatePoConfig(ctx(), admin, { nextValue: start + 1 }),
+    'sequence_rewind',
+    'the sequence cannot be wound backwards',
+  );
+  eq(Number((await S.poConfig(ctx(), admin)).next_value), start + 5000, 'and the refusal left it untouched');
+
+  // Setting it to where it already is must be allowed — an administrator
+  // correcting the prefix should not have to move the number to do it.
+  await S.updatePoConfig(ctx(), admin, { prefix: 'LE-', padding: 5, suffix: '', nextValue: start + 5000 });
+  eq(Number((await S.poConfig(ctx(), admin)).next_value), start + 5000, 're-saving the same number is allowed');
+
+  // Nonsense is refused rather than stored.
+  await refuses(
+    async () => S.updatePoConfig(ctx(), admin, { nextValue: 0 }),
+    'validation_failed',
+    'zero is not a purchase order number',
+  );
+  await refuses(
+    async () => S.updatePoConfig(ctx(), admin, { padding: 99 }),
+    'validation_failed',
+    'an absurd padding is refused',
+  );
+
+  // AND IT IS ON THE RECORD. Changing the company's purchase order sequence is
+  // exactly the kind of act somebody has to be able to ask about later.
+  const audit = db
+    .prepare("select * from purchase_activity_log where action like '%po_config%' order by at desc")
+    .all();
+  check(audit.length > 0, 'changing the PO sequence is written to the activity log');
+  check(audit.every((row) => row.actor_id), 'and every such entry names who did it');
+
+  // The next number actually issued is the one that was configured.
+  const allocated = await ctx().uow.run(() => S.allocatePoNumber(ctx(), DEMO_ORG_ID));
+  eq(allocated.poNumber, `LE-${String(start + 5000).padStart(5, '0')}`,
+    'the next purchase order takes the number the office set');
+}
+
 console.log('--- email cannot outrun the purchase order ---------------------');
 
 const noPo = await S.createRequest(ctx(), foreman, { ...baseDraft, reason: 'Third run.' });

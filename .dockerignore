@@ -1,0 +1,64 @@
+# ---------------------------------------------------------------------------
+# What never enters the build context.
+#
+# The first entry is the important one. `apps/purchasing/.data/` is the
+# developer's SQLite database, and Next's standalone build copies the
+# application directory wholesale — so without this line the image ships with a
+# real pilot database inside it, and that is the database the container opens.
+# The company's purchasing system would come up holding somebody else's records
+# and lose the real ones on the next redeploy, with nothing in any log to say
+# so. scripts/check-deployable.mjs is the second line of defence; this is the
+# first.
+# ---------------------------------------------------------------------------
+
+# Databases, journals, and anything that looks like one.
+**/.data/
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.sqlite
+**/*.sqlite3
+
+# Secrets. The image takes configuration at RUNTIME, never baked in.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.p12
+id_rsa*
+
+# Build outputs and dependencies — the image builds its own.
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Version control and CI.
+.git
+.gitignore
+.github
+
+# Local tooling and editor noise.
+.DS_Store
+.vscode
+.idea
+.mcp.json
+*.log
+
+# Things that are not the application: the other apps in this monorepo, the
+# Supabase stack, fixtures, and the documentation. The purchasing app and the
+# workspace packages it imports are all the runtime needs.
+apps/mobile
+apps/web
+supabase
+fixtures
+docs
+PCC_*.md
+SESSION_*.md

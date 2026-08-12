@@ -26,24 +26,92 @@
 // ---------------------------------------------------------------------------
 
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+
+import { resolveDatabaseLocation, type LocationProbe } from './database-location.ts';
 
 const DEFAULT_PATH = join(process.cwd(), '.data', 'purchasing.db');
 
 let instance: DatabaseSync | null = null;
 
+const REAL_FILESYSTEM: LocationProbe = {
+  fileExists: (path) => existsSync(path),
+  directoryExists: (path) => {
+    try {
+      return statSync(path).isDirectory();
+    } catch {
+      return false;
+    }
+  },
+};
+
+/**
+ * Where the records are, decided by database-location.ts. Exported so the
+ * startup preflight can ask the same question the application will ask, and
+ * fail before the server is listening rather than on the first page load.
+ */
+export function databaseLocation(env: NodeJS.ProcessEnv = process.env) {
+  return resolveDatabaseLocation(env, REAL_FILESYSTEM, DEFAULT_PATH);
+}
+
+/**
+ * ROWS MUST BE PLAIN OBJECTS.
+ *
+ * `node:sqlite` returns each row with a NULL PROTOTYPE. That is a sensible
+ * choice for a database driver — a column called `constructor` cannot collide
+ * with anything — and it is fatal one layer up: React refuses to serialize a
+ * null-prototype object across the server/client boundary, with
+ *
+ *   Only plain objects, and a few built-ins, can be passed to Client
+ *   Components from Server Components. Classes or null prototypes are not
+ *   supported.
+ *
+ * So every screen that hands rows to a client component threw a 500 as soon as
+ * there was a row to hand it. `/admin?module=vendors` worked on an empty
+ * installation and broke the moment somebody added their first vendor — which
+ * is to say it worked in every test and would have broken on Mike's first
+ * afternoon. It went unseen because the development server runs on the
+ * Supabase provider, whose rows arrive as JSON.
+ *
+ * Fixed HERE, once, rather than at each of the several dozen call sites: a
+ * repository that has to remember to reshape its rows is a repository that
+ * will forget. The wrapper is applied to every connection this module opens,
+ * so the test harness and the server cannot differ.
+ */
+function withPlainRows(db: DatabaseSync): DatabaseSync {
+  const plain = (row: unknown) =>
+    row && typeof row === 'object' ? { ...(row as Record<string, unknown>) } : row;
+  const prepare = db.prepare.bind(db);
+  (db as unknown as { prepare: unknown }).prepare = (sql: string) => {
+    const statement = prepare(sql);
+    const get = statement.get.bind(statement);
+    const all = statement.all.bind(statement);
+    (statement as unknown as { get: unknown }).get = (...args: unknown[]) => plain(get(...(args as [])));
+    (statement as unknown as { all: unknown }).all = (...args: unknown[]) =>
+      (all(...(args as [])) as unknown[]).map(plain);
+    return statement;
+  };
+  return db;
+}
+
 export function getDb(): DatabaseSync {
   if (instance) return instance;
-  const path = process.env.PURCHASING_DB_PATH ?? DEFAULT_PATH;
-  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
+  const decision = databaseLocation();
+  if (!decision.ok) {
+    // Loud, and naming the variable to change. A misconfigured path is the one
+    // failure that otherwise looks like success.
+    throw new Error(`purchasing database: ${decision.variable} — ${decision.message}`);
+  }
+  const path = decision.path;
+  if (decision.createDirectory && path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec('pragma journal_mode = WAL');
   db.exec('pragma foreign_keys = ON');
   db.exec('pragma busy_timeout = 5000');
   migrate(db);
-  instance = db;
-  return db;
+  instance = withPlainRows(db);
+  return instance;
 }
 
 /** Test hook: run against a throwaway database. */
@@ -55,7 +123,7 @@ export function openDatabase(path: string): DatabaseSync {
   db.exec('pragma foreign_keys = ON');
   db.exec('pragma busy_timeout = 5000');
   migrate(db);
-  return db;
+  return withPlainRows(db);
 }
 
 export function resetInstance() {

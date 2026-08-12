@@ -1,0 +1,72 @@
+# ---------------------------------------------------------------------------
+# Purchasing Control Center — a worked example, not a deployment.
+#
+# This file exists so an IT administrator can start PCC on a server in one
+# command and see it work, and so the same person can read exactly what it
+# needs: a port, a persistent directory, and a handful of environment
+# variables. It deliberately does NOT include a reverse proxy, a certificate,
+# a domain or a backup schedule — those belong to Lippolis's infrastructure and
+# guessing at them here would be advice dressed up as configuration.
+#
+#   cp .env.example .env      and fill it in — .env is gitignored
+#   docker compose up -d --build
+#   curl -fsS http://localhost:3000/api/health
+#
+# See docs/deployment/PCC_IT_DEPLOYMENT_HANDOFF.md.
+# ---------------------------------------------------------------------------
+
+services:
+  pcc:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pcc:local
+    restart: unless-stopped
+
+    # Bound to localhost on purpose. PCC expects to sit behind a reverse proxy
+    # that terminates TLS; publishing it on 0.0.0.0 would put a plain-HTTP
+    # sign-in form on the network. Change the left-hand side, not the right.
+    ports:
+      - "127.0.0.1:3000:3000"
+
+    # THE DATABASE LIVES HERE AND ONLY HERE. Everything inside the container is
+    # disposable; this directory is the company's purchasing record. A named
+    # volume survives `docker compose down` and image rebuilds. Replace it with
+    # a host path (e.g. /srv/pcc/data:/data) when IT's backup system works on
+    # directories rather than volumes.
+    volumes:
+      - pcc-data:/data
+
+    environment:
+      # Where the records are. Must be inside the mounted volume.
+      PCC_DATABASE_PATH: /data/pcc.sqlite
+      # Set to 1 for the FIRST start only, then remove it. While it is unset,
+      # a start that finds no database refuses rather than creating one — which
+      # is what makes a wrong or unmounted volume loud instead of silent.
+      # PCC_DATABASE_ALLOW_CREATE: "1"
+
+    # Everything else — the session secret above all — comes from a file that
+    # is not in the repository. There is no default and no fallback: the
+    # container refuses to start in production without a real SESSION_SECRET.
+    env_file:
+      - .env
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  pcc-data:

@@ -27,7 +27,7 @@
 // ---------------------------------------------------------------------------
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,14 +61,54 @@ const ACCOUNTS = {
   disabled: 'former@example.invalid',
 };
 
-// --- server -----------------------------------------------------------------
+// --- the database, made before the server ------------------------------------
+//
+// This suite drives the pilot cast, and a PRODUCTION server no longer creates
+// them: bootstrap.ts refuses to install the documented demo password on a
+// production database, which is the point of it. So the fixture is built here,
+// explicitly, the way a real installation's database exists before the process
+// that serves it does.
+//
+// That is a better test than it was. The server now starts against an EXISTING
+// database and has to open it, migrate it idempotently and serve it — which is
+// what every start after the first one does in production, and what was
+// previously never exercised.
+{
+  const { openDatabase } = await import(join(APP_DIR, 'src', 'purchasing', 'infrastructure', 'sqlite', 'database.ts'));
+  const { seed } = await import(join(APP_DIR, 'src', 'purchasing', 'infrastructure', 'seed.ts'));
+  const db = openDatabase(DB_PATH);
+  seed(db);
+  db.close();
+}
 
-const server = spawn('npm', ['run', 'start', '-w', 'purchasing', '--', '--port', String(PORT)], {
-  cwd: ROOT,
+// --- server -----------------------------------------------------------------
+//
+// THE STANDALONE SERVER, not `next start`. The application is packaged with
+// `output: 'standalone'` so the deployable image can be the server and nothing
+// else, and `next start` refuses to run such a build. Driving the same
+// artifact the container runs is the whole reason this suite is worth having;
+// testing a second start path would prove something nobody ships.
+//
+// `static` and `public` are copied beside the server for the same reason the
+// Dockerfile copies them: Next does not fold them into the standalone output,
+// and without them every page renders unstyled.
+const STANDALONE = join(APP_DIR, '.next', 'standalone');
+const SERVER_DIR = join(STANDALONE, 'apps', 'purchasing');
+if (!existsSync(join(SERVER_DIR, 'server.js'))) {
+  console.log(`FAIL  harness error: no standalone build at ${SERVER_DIR}. Run the build first.`);
+  process.exit(1);
+}
+cpSync(join(APP_DIR, '.next', 'static'), join(SERVER_DIR, '.next', 'static'), { recursive: true });
+cpSync(join(APP_DIR, 'public'), join(SERVER_DIR, 'public'), { recursive: true });
+
+const server = spawn(process.execPath, ['server.js'], {
+  cwd: SERVER_DIR,
   env: {
     ...process.env,
     NODE_ENV: 'production',
     PORT: String(PORT),
+    HOSTNAME: '127.0.0.1',
+    PCC_DATABASE_PATH: DB_PATH,
     PURCHASING_DB_PATH: DB_PATH,
     SESSION_SECRET,
     APP_BASE_URL: BASE,

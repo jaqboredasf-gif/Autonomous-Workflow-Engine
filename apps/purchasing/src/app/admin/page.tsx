@@ -32,6 +32,7 @@ import {
   Alert,
   Badge,
   Button,
+  ConfirmSubmit,
   DataGrid,
   DataPoint,
   EmptyState,
@@ -312,15 +313,60 @@ function SettingsModule({
     <div className="space-y-4">
       <Panel
         title="PO numbering"
-        subtitle="The sequence is database-controlled and can only move forward — a number is never reused"
+        subtitle="The number the next purchase order will carry. Setting this is how PCC is lined up with the office's paper book."
       >
-        <form action={updatePoConfigAction} className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {/* WHAT THIS CHANGES, before the fields that change it. The office runs
+            a paper sequence; PCC has to continue it rather than start a second
+            one, and the person doing that needs to know three things: it
+            affects future orders only, it cannot be wound back, and this is
+            the number the NEXT order gets — not the last one issued. */}
+        <Alert tone="warning" title="Changing this affects every purchase order issued from now on">
+          <ul className="ml-4 list-disc space-y-1">
+            <li>
+              <strong>Next number</strong> is the number the NEXT purchase order will carry — not the last one the
+              office issued. If the last paper PO was {po.prefix}
+              {String(Math.max(0, Number(po.next_value) - 1)).padStart(Number(po.padding), '0')}, enter{' '}
+              {String(po.next_value)}.
+            </li>
+            <li>
+              The sequence can only move <strong>forward</strong>. Winding it back is refused, because a number already
+              on a vendor&apos;s invoice must never be issued twice.
+            </li>
+            <li>Purchase orders already issued keep their numbers. Nothing is renumbered.</li>
+            <li>Every change is recorded in the audit log with who made it.</li>
+          </ul>
+        </Alert>
+
+        <form action={updatePoConfigAction} className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
           <TextInput label="Prefix" name="prefix" defaultValue={po.prefix} />
           <TextInput label="Digits" name="padding" defaultValue={po.padding} inputMode="numeric" />
           <TextInput label="Suffix" name="suffix" defaultValue={po.suffix} />
-          <TextInput label="Next number" name="nextValue" defaultValue={po.next_value} inputMode="numeric" />
+          <TextInput
+            label="Next number"
+            name="nextValue"
+            defaultValue={po.next_value}
+            inputMode="numeric"
+            hint={`The next PO will be ${po.prefix}${String(po.next_value).padStart(Number(po.padding), '0')}${po.suffix ?? ''}`}
+          />
           <div className="flex items-end">
-            <Button type="submit">Save</Button>
+            <ConfirmSubmit
+              variant="primary"
+              label="Save PO numbering"
+              title="Change the purchase order sequence?"
+              body={
+                <>
+                  <p>
+                    The next purchase order raised will take the number you entered, and the sequence continues from
+                    there. Orders already issued are untouched.
+                  </p>
+                  <p className="mt-2">
+                    Check the number against the office&apos;s paper book before confirming. It cannot be wound back
+                    afterwards, and a gap is much easier to live with than a duplicate.
+                  </p>
+                </>
+              }
+              confirmLabel="Change the sequence"
+            />
           </div>
         </form>
       </Panel>

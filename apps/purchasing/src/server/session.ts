@@ -22,7 +22,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { getDb } from '../purchasing/infrastructure/sqlite/database.ts';
-import { seed } from '../purchasing/infrastructure/seed.ts';
+import { bootstrapDatabase } from '../purchasing/infrastructure/bootstrap.ts';
 import { purchasingContext } from '../purchasing/composition.ts';
 import { loadConfig } from '../purchasing/infrastructure/env.ts';
 import { authAdapter } from '../purchasing/infrastructure/auth/index.ts';
@@ -41,7 +41,11 @@ export type { Actor };
 
 function database() {
   const db = getDb();
-  seed(db);
+  // Development seeds the pilot cast; production creates the company's own
+  // empty system and at most one configured administrator. The difference is
+  // not cosmetic — see bootstrap.ts for the published-password defect that
+  // splitting them closes.
+  bootstrapDatabase(db);
   return db;
 }
 

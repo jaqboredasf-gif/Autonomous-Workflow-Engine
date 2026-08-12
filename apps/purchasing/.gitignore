@@ -17,6 +17,10 @@ npm-debug.log*
 
 # env files
 .env*
+# ...except the example, which is names and explanations and no values. It was
+# ignored along with everything else, so the file the README and the deployment
+# handoff both point at existed on one laptop and in no checkout.
+!.env.example
 
 # typescript
 *.tsbuildinfo

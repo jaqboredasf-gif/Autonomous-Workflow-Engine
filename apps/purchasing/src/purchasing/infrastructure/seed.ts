@@ -50,7 +50,7 @@ export const DEMO_USERS = [
   { key: 'disabled', name: 'Former Employee', email: 'former@example.invalid', roles: ['REQUESTOR'], primary: false, backup: false, canApprove: false, jobs: [], disabled: true },
 ];
 
-const ROLE_ROWS = [
+export const ROLE_ROWS = [
   ['REQUESTOR', 'Requestor', 'Field workers and anyone raising a material request.'],
   ['FOREMAN', 'Foreman', 'Raises requests and signs for deliveries on assigned job sites.'],
   ['ACCOUNTING', 'Accounting', 'Reads receipt evidence and produces the AP packet. No purchasing authority.'],
@@ -262,7 +262,7 @@ function backfillPilotCredentials(db: DatabaseSync, now: string) {
  * {{placeholders}}. Rendering a known sample and substituting the sample values
  * back out keeps the two in sync without maintaining the wording twice.
  */
-const SAMPLE_CONTEXT: any = {
+export const SAMPLE_CONTEXT: any = {
   org: { name: '@@org.name@@', phone: '@@org.phone@@' },
   request: {
     requestNumber: '@@request.requestNumber@@', jobNumber: '@@request.jobNumber@@',
@@ -285,6 +285,6 @@ const SAMPLE_CONTEXT: any = {
   links: { review: '@@links.review@@' },
 };
 
-function toPlaceholders(text: string): string {
+export function toPlaceholders(text: string): string {
   return String(text).replace(/@@([\w.]+)@@/g, '{{$1}}');
 }

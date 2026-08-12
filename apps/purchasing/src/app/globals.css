@@ -153,6 +153,19 @@ body {
     background: #fff;
   }
 
+  /* The sheet is the page. The application shell around it is hidden, but its
+     layout is not — `main` carries horizontal padding and the sidebar column
+     leaves the content indented, so the printed PO came out shifted right with
+     a ragged margin. Neutralized here rather than by changing the screen
+     layout, which is correct on screen. */
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    display: block !important;
+  }
+
   .print-sheet {
     margin: 0 !important;
     padding: 0 !important;
@@ -161,10 +174,49 @@ body {
     border: none !important;
   }
 
+  /* BLACK AND WHITE IS THE TARGET. This is printed on a shared office laser
+     printer and filed with the vendor's receipt stapled to it, so every
+     printed value is black and every rule is a grey dark enough to survive
+     toner saving. Colour is a screen affordance; on paper it is a photocopy
+     that loses the difference. */
+  .print-sheet,
+  .print-sheet * {
+    color: #000 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .print-sheet [class*='border'] {
+    border-color: #4a4a4a !important;
+  }
+
+  /* A MULTI-PAGE ORDER MUST STILL BE READABLE. A long list of material runs
+     past one sheet; without this, page two is a column of numbers with no
+     headings and the estimated total can land alone on page three. */
+  thead {
+    display: table-header-group;
+  }
+  tfoot {
+    display: table-footer-group;
+  }
+
   /* Keep the material table from splitting a row across pages. */
   tr,
   td,
   th {
+    break-inside: avoid;
+  }
+
+  /* A heading at the foot of a page, with its content overleaf, reads as an
+     empty section. */
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+
+  /* The filing block — where somebody writes who ordered it and when — must
+     not be separated from the order it belongs to. */
+  .print-keep-together {
     break-inside: avoid;
   }
 }
