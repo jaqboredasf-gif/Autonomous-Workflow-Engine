@@ -31,7 +31,7 @@ const REFUSALS: Record<string, { title: string; body: string }> = {
   },
   not_receivable: {
     title: 'This order is not awaiting delivery',
-    body: 'It has either already been received in full, or it has not been ordered yet. Your access is not the problem — open the order to see where it stands.',
+    body: 'It has not been ordered yet, or it has already been closed. Your access is not the problem — open the order to see where it stands.',
   },
   cross_tenant: {
     title: 'That order belongs to another organization',
@@ -60,15 +60,33 @@ export default async function ReceivePage({ params }: { params: Promise<{ id: st
   });
 
   if (!availability.ok) {
-    const refusal = REFUSALS[availability.reason ?? ''] ?? {
-      title: 'Receiving is not available for this order',
-      body: availability.message ?? 'Open the order to see where it stands.',
-    };
+    // FINISHING THE JOB IS NOT A REFUSAL. Recording the last delivery moves the
+    // order to RECEIVED, and the very next render of this page found it no
+    // longer receivable — so the reward for signing for the pallet correctly
+    // was a page headed "Not available" saying the order is not awaiting
+    // delivery. A person standing at the tailgate reads that as "it did not
+    // save" and records it again.
+    //
+    // The status already distinguishes the two cases. An order that has been
+    // received is finished, and this says so.
+    const done = ['RECEIVED', 'COMPLETED'].includes(detail.request.status);
+    const refusal = done
+      ? {
+          title: 'Everything on this order has been received',
+          body: 'Nothing is outstanding — there is nothing left to sign for. The receipts are on the order.',
+        }
+      : REFUSALS[availability.reason ?? ''] ?? {
+          title: 'Receiving is not available for this order',
+          body: availability.message ?? 'Open the order to see where it stands.',
+        };
     return (
       <div className="mx-auto max-w-2xl space-y-4">
-        <PageHeader title="Receiving" breadcrumb={[{ label: 'Receiving', href: '/receiving' }, { label: 'Not available' }]} />
+        <PageHeader
+          title="Receiving"
+          breadcrumb={[{ label: 'Receiving', href: '/receiving' }, { label: done ? 'Complete' : 'Not available' }]}
+        />
         {/* A wrong status is information, not a warning about the person. */}
-        <Alert tone={availability.reason === 'not_receivable' ? 'info' : 'warning'} title={refusal.title}>
+        <Alert tone={done ? 'success' : availability.reason === 'not_receivable' ? 'info' : 'warning'} title={refusal.title}>
           {refusal.body}
         </Alert>
         <ButtonLink href={`/requests/${id}`} variant="secondary">

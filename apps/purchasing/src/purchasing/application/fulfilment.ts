@@ -287,6 +287,29 @@ export async function recordReceipt(
   }
   if (!input.receivedDate) throw new PurchasingError('validation_failed', 'a receipt needs the date it arrived');
 
+  // A RECEIPT RECORDS SOMETHING ARRIVING. Both write paths skip a line whose
+  // four quantities are all zero, but neither refused a receipt where EVERY
+  // line was zero — so pressing "Record receipt" with nothing filled in wrote
+  // a receipt header with no lines under it, reported success, and left a row
+  // on the order saying a delivery had been signed for that had not happened.
+  // On the shop counter that is worse than an error message: the next person
+  // to look sees a receipt and believes it.
+  //
+  // Checked HERE, before the provider branch, so the local and the atomic path
+  // cannot disagree about what an empty receipt means.
+  const total = input.lines.reduce(
+    (sum, line) =>
+      sum + optional(line.receivedQty) + optional(line.damagedQty)
+          + optional(line.backorderedQty) + optional(line.writtenOffQty),
+    0,
+  );
+  if (total === 0) {
+    throw new PurchasingError(
+      'nothing_recorded',
+      'enter how many arrived — a receipt with no quantities on it records nothing',
+    );
+  }
+
   // A provider that can do the whole receipt in one transaction server-side
   // does so. The local provider has no `atomic` — its unit of work IS a
   // transaction, so composing the steps below is already atomic there.

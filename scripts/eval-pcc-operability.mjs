@@ -61,7 +61,14 @@ function browser() {
      * no-JavaScript path: if the workflow only works with hydration, it does
      * not work on a phone with one bar in a basement.
      */
-    async submit(path, needle, fields) {
+    /**
+     * The HTML of the form containing `needle`. Separate from posting it so a
+     * form can be lifted from ONE person's page and posted with ANOTHER
+     * person's cookies — which is how the permission scenario asks the
+     * question it has to ask: not "is the button hidden" but "is the action
+     * refused when it is called anyway".
+     */
+    async formOn(path, needle) {
       const page = await this.go(path);
       const allForms = [...page.body.matchAll(/<form[\s\S]*?<\/form>/g)].map((m) => m[0]);
       const form = allForms.find((f) => f.includes(needle));
@@ -69,6 +76,12 @@ function browser() {
         const seen = [...page.body.matchAll(/<button[^>]*>([^<]{2,40})</g)].map((m) => m[1].trim());
         throw new Error(`no form containing "${needle}" on ${path} (status ${page.status}); buttons: ${seen.join(' | ')}`);
       }
+      return form;
+    },
+    async submit(path, needle, fields) {
+      return await this.postForm(path, await this.formOn(path, needle), fields);
+    },
+    async postForm(path, form, fields) {
       const provided = new Set(fields.map(([name]) => name));
       // HTML-DECODE the names and values. Next's server-action id travels in a
       // hidden field whose name contains characters the renderer escapes; post
@@ -247,6 +260,273 @@ if (mike && workerRequestId) {
 
   const home = await mike.go('/dashboard');
   check(home.status === 200, 'and he can get back to the dashboard');
+}
+
+// ===========================================================================
+// What the page tells its reader has to happen next. The detail page renders
+// exactly one "Next: …" line, from the same status the domain holds, so it is
+// both a stable assertion and the sentence the pilot user actually reads.
+// Read from the raw markup rather than the flattened text: the label lives in
+// its own element, and flattening runs it into the sentence underneath.
+const nextOn = async (session, id) =>
+  /Next: ([^<]*)</.exec((await session.go(`/requests/${id}`)).body)?.[1]?.trim() ?? '(no next line)';
+
+/** A fresh, separately-authenticated browser — a new phone, not a new tab. */
+async function signedIn(email) {
+  const b = browser();
+  const res = await b.signIn(email);
+  return res.status === 200 && b.jar.has('purchasing_at') ? b : null;
+}
+
+/**
+ * Drive one request from a submitted state all the way to COMPLETED, and
+ * report every step. Called twice: once for a job site delivery received by
+ * the foreman, once for a workshop delivery received at the counter — because
+ * the workshop is a destination this business uses constantly and a path that
+ * only works when the material goes to a job site is half a product.
+ */
+async function orderThroughToCompletion({ label, requestId, receiver, receiverName }) {
+  const purchaser = sessions['mike@lippolis.test'];
+  if (!purchaser || !requestId) return null;
+
+  // --- the purchaser: from the printed PO to a placed order -----------------
+  const emailFirst = await purchaser.go(`/requests/${requestId}/email`);
+  check(emailFirst.status === 200, `${label}: the vendor email page opens`, `status ${emailFirst.status}`);
+  const drafted = await purchaser.submit(`/requests/${requestId}/email`, 'Create vendor email draft', []);
+  check(drafted.status >= 200 && drafted.status < 400, `${label}: the vendor email draft is created`,
+    `status ${drafted.status}`);
+
+  const draft = await purchaser.go(`/requests/${requestId}/email`);
+  const draftText = text(draft.body);
+  check(/Copy email/.test(draftText), `${label}: the drafted order can be copied into his own mail client`);
+  check(/mailto:/.test(draft.body), `${label}: and opened in it directly`);
+  check(/does not send email/i.test(draftText), `${label}: the page is honest that nothing is sent for him`);
+
+  const reviewed = await purchaser.submit(`/requests/${requestId}/email`, 'Mark reviewed', []);
+  check(reviewed.status >= 200 && reviewed.status < 400, `${label}: he can mark the draft read`,
+    `status ${reviewed.status}`);
+
+  // MARKING IT ORDERED HAS TO BE REACHABLE WHERE HE JUST SENT IT. Sending the
+  // email and recording that it was sent are one act to him; if the second
+  // half lives on a screen he has to remember to visit, an order goes to a
+  // vendor that receiving is never told to expect.
+  const afterReview = await purchaser.go(`/requests/${requestId}/email`);
+  check(/Mark ordered/.test(text(afterReview.body)),
+    `${label}: "mark ordered" is offered on the page where the email was sent`);
+
+  const ordered = await purchaser.submit(`/requests/${requestId}/email`, 'Mark ordered', []);
+  check(ordered.status >= 200 && ordered.status < 400, `${label}: the order is marked placed`,
+    `status ${ordered.status}`);
+  check((await nextOn(purchaser, requestId)) === 'Waiting on the vendor',
+    `${label}: and the request is now waiting on the vendor`);
+
+  // --- the receiver: it turns up ------------------------------------------
+  if (!receiver) return null;
+  const deliveries = await receiver.go('/receiving');
+  check(deliveries.status === 200, `${label}: ${receiverName} can open receiving`, `status ${deliveries.status}`);
+  check(deliveries.body.includes(requestId), `${label}: the delivery he is expecting is listed for him`);
+
+  const sheet = await receiver.go(`/requests/${requestId}/receive`);
+  check(sheet.status === 200 && !/not available/i.test(text(sheet.body)),
+    `${label}: he can open it to sign for it`, `status ${sheet.status}`);
+
+  // A RECEIPT WITH NOTHING ON IT IS NOT A RECEIPT. Pressing the button without
+  // counting anything used to record one anyway, and the next person to look
+  // saw a delivery that had not arrived.
+  const empty = await receiver.submit(`/requests/${requestId}/receive`, 'Record receipt', [
+    ['receivedDate', new Date().toISOString().slice(0, 10)],
+    ['receiptReceivedQty', ''],
+  ]);
+  check(/records nothing|how many arrived/i.test(text(empty.body)),
+    `${label}: a receipt with no quantities on it is refused, in words`);
+  check((await nextOn(receiver, requestId)) === 'Waiting on the vendor',
+    `${label}: and the order is untouched by the refusal`);
+
+  const receipt = await receiver.submit(`/requests/${requestId}/receive`, 'Record receipt', [
+    ['receivedDate', new Date().toISOString().slice(0, 10)],
+    ['packingSlipNumber', `PS-${label.replace(/\W/g, '')}`],
+    ['receiptNotes', 'Signed for on the operability run.'],
+    ['receiptReceivedQty', '6'],
+  ]);
+  check(receipt.status >= 200 && receipt.status < 400, `${label}: he signs for what arrived`,
+    `status ${receipt.status}`);
+  check((await nextOn(receiver, requestId)) === 'Complete the request',
+    `${label}: the order reads as received, with nothing outstanding`);
+
+  // WHO SIGNED, AND WHEN. The receipt is only evidence if it names a person.
+  const afterReceipt = await receiver.go(`/requests/${requestId}`);
+  const receiptText = text(afterReceipt.body);
+  check(receiptText.includes(`PS-${label.replace(/\W/g, '')}`), `${label}: the packing slip number is on the record`);
+  check(/Every line is accounted for/i.test(receiptText), `${label}: and every line is accounted for`);
+
+  // THE RECEIVER CAN READ THE TRAIL HE IS PART OF. He could write to it and
+  // not read it, so his own page said "nothing recorded yet" about an order
+  // with a dozen events on it.
+  check(!/Nothing recorded yet/.test(receiptText),
+    `${label}: ${receiverName} can read the history of what he just signed for`);
+  check(new RegExp(`${receiverName}`).test(receiptText),
+    `${label}: and his own name is on it`);
+
+  // --- closing it out -------------------------------------------------------
+  const completed = await purchaser.submit(`/requests/${requestId}`, 'Complete request', []);
+  check(completed.status >= 200 && completed.status < 400, `${label}: purchasing closes the request`,
+    `status ${completed.status}`);
+  check((await nextOn(purchaser, requestId)) === 'Closed', `${label}: and it reads as closed`);
+
+  return requestId;
+}
+
+// ===========================================================================
+console.log('\n--- ORDERED -> RECEIVED -> COMPLETED, on a job site -------------');
+
+const foreman = await signedIn('foreman@lippolis.test');
+check(Boolean(foreman), 'the site foreman signs in');
+const jobsiteRequestId = await orderThroughToCompletion({
+  label: 'job site',
+  requestId: workerRequestId,
+  receiver: foreman,
+  receiverName: 'Site Foreman',
+});
+
+// ===========================================================================
+console.log('\n--- the same journey, delivered to the WORKSHOP -----------------');
+
+// The workshop is where most of this material actually lands. It is a delivery
+// LOCATION, not a job number and not a role, so the whole path has to work
+// with it chosen exactly as a person would choose it from the form.
+let workshopRequestId = null;
+if (worker && mike) {
+  const form = await worker.go('/requests/new');
+  const select = /<select[^>]*name="deliveryLocationId"[^>]*>([\s\S]*?)<\/select>/.exec(form.body)?.[1] ?? '';
+  const options = [...select.matchAll(/<option[^>]*value="([^"]+)"[^>]*>([^<]*)/g)];
+  const workshop = options.find((o) => /workshop/i.test(o[2]));
+  check(Boolean(workshop), 'the workshop is offered as a destination on the request form',
+    `options: ${options.map((o) => o[2]).join(' | ') || 'none'}`);
+
+  if (workshop) {
+    const res = await worker.submit('/requests/new', 'Submit to workshop', [
+      ['jobNumber', '24-118'],
+      ['needByDate', new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10)],
+      ['needByTime', '08:00'],
+      ['deliveryMethod', 'DELIVERY'],
+      ['deliveryLocationId', workshop[1]],
+      ['itemDescription', 'Operability test — 3/4" EMT, to the shop'],
+      ['itemQty', '10'],
+      ['itemUnit', 'EA'],
+      ['reason', 'Shop stock for the second floor.'],
+      ['submit', 'now'],
+    ]);
+    workshopRequestId = /\/requests\/([\w-]+)/.exec(res.location ?? '')?.[1] ?? null;
+    check(Boolean(workshopRequestId), 'a request destined for the workshop submits',
+      `status ${res.status} -> ${res.location ?? 'no redirect'}`);
+  }
+
+  if (workshopRequestId) {
+    const detail = await worker.go(`/requests/${workshopRequestId}`);
+    check(/workshop/i.test(text(detail.body)), 'and the record says where it is going');
+
+    const queue = await mike.go('/workshop');
+    check(queue.body.includes(workshopRequestId), 'it reaches the purchasing queue like any other');
+
+    const review = await mike.go(`/requests/${workshopRequestId}/review`);
+    const vendorId = /<option value="([0-9a-f-]{36})"/.exec(review.body)?.[1] ?? '';
+    const done = await mike.submit(`/requests/${workshopRequestId}/review`, 'Approve and print PO', [
+      ['lineUsableStock', '4'],
+      ['lineFinalOrderQty', '6'],
+      ['lineVendorId', vendorId],
+      ['lineUnitCost', '2.10'],
+      ['notes', 'Shop delivery.'],
+    ]);
+    check((done.location ?? '').includes('/po'), 'one button still approves and prints',
+      `status ${done.status} -> ${done.location ?? 'no redirect'}`);
+
+    // Received at the counter by the person who works there, not by a foreman
+    // standing on a job site somewhere else.
+    await orderThroughToCompletion({
+      label: 'workshop',
+      requestId: workshopRequestId,
+      receiver: mike,
+      receiverName: 'Mike \\(Purchasing\\)',
+    });
+  }
+}
+
+// ===========================================================================
+console.log('\n--- it is still true after signing in again ---------------------');
+
+// Nothing here is about the browser. It is about whether the record lives in
+// the database or in a warm server: a new session, new cookies, a page never
+// rendered before.
+if (jobsiteRequestId) {
+  const later = await signedIn('mike@lippolis.test');
+  if (check(Boolean(later), 'a fresh sign-in works')) {
+    const again = await later.go(`/requests/${jobsiteRequestId}`);
+    const body = text(again.body);
+    check(again.status === 200, 'the completed order opens in a session that never saw it');
+    check(/Next: Closed/.test(body), 'and it is still closed');
+    check(/Every line is accounted for/i.test(body), 'still fully received');
+    check(/Site Foreman/.test(body), 'still recording who signed for it');
+    check(/Mike \(Purchasing\)/.test(body), 'and who approved it');
+    check(!/Nothing recorded yet/.test(body), 'with its history intact');
+  }
+}
+
+// ===========================================================================
+console.log('\n--- the refusals, called directly rather than merely hidden -----');
+
+// The question is not whether a button is hidden. It is whether the ACTION is
+// refused when somebody posts it anyway — which is what a shared phone, a
+// bookmarked URL, or a browser with a saved form actually does.
+if (mike && worker && jobsiteRequestId) {
+  // A request nobody has decided yet, so the purchaser's screens still offer
+  // the actions worth stealing.
+  const bait = await worker.submit('/requests/new', 'Submit to workshop', [
+    ['jobNumber', '24-118'],
+    ['needByDate', new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10)],
+    ['needByTime', '08:00'],
+    ['deliveryMethod', 'DELIVERY'],
+    ['itemDescription', 'Operability test — permission probe'],
+    ['itemQty', '5'],
+    ['itemUnit', 'EA'],
+    ['reason', 'Left undecided on purpose.'],
+    ['submit', 'now'],
+  ]);
+  const baitId = /\/requests\/([\w-]+)/.exec(bait.location ?? '')?.[1] ?? null;
+
+  if (check(Boolean(baitId), 'an undecided request exists to try the refusals against')) {
+    // The purchaser's own approve form, lifted from his page and replayed with
+    // the requester's cookies. This is the real question: not whether the
+    // button is hidden, but whether the server refuses the call.
+    let approveForm = null;
+    try { approveForm = await mike.formOn(`/requests/${baitId}/review`, 'Approve and print PO'); }
+    catch { approveForm = null; }
+
+    if (check(Boolean(approveForm), 'the approve form can be lifted from the purchaser page')) {
+      const attempt = await worker.postForm(`/requests/${baitId}/review`, approveForm, [
+        ['lineUsableStock', '0'], ['lineFinalOrderQty', '99'], ['lineUnitCost', '1.00'],
+      ]);
+      // Whatever the refusal LOOKS like — a redirect to sign-in, a 403, an
+      // error page — the fact that matters is that the request did not move.
+      const still = await nextOn(mike, baitId);
+      check(still === 'Review and decide',
+        'a requester posting the purchaser\'s own approve form does not approve anything',
+        `status ${attempt.status}, request now reads "${still}"`);
+      const po = await mike.go(`/requests/${baitId}/po`);
+      check(/No purchase order/i.test(text(po.body)), 'and no purchase order was created by it');
+    }
+  }
+
+  // And the plain fact: the requester still cannot reach the purchasing
+  // screens at all.
+  for (const forbidden of ['/workshop', '/admin', '/reports', '/vendors']) {
+    const res = await worker.go(forbidden);
+    check(res.status >= 300, `a requester is still refused ${forbidden}`, `status ${res.status}`);
+  }
+  // A requester may not sign for deliveries either — receiving is granted per
+  // person, and he does not hold it.
+  const receiving = await worker.go(`/requests/${jobsiteRequestId}/receive`);
+  check(receiving.status >= 300 || !/Record receipt/.test(receiving.body),
+    'a requester is not given a receiving sheet to sign', `status ${receiving.status}`);
 }
 
 // ===========================================================================

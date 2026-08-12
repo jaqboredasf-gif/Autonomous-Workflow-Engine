@@ -5,11 +5,16 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
-import { CopyEmailButton, MailtoLink } from '../../../../components/pcc';
+import { ConfirmSubmit, CopyEmailButton, MailtoLink } from '../../../../components/pcc';
 import { requireAccess, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import { Empty, Section, buttonClass, inputClass, secondaryButtonClass } from '../../../../components/ui';
-import { advanceEmailDraftAction, generateEmailDraftAction, updateEmailDraftAction } from '../../../actions.ts';
+import {
+  advanceEmailDraftAction,
+  generateEmailDraftAction,
+  markOrderedAction,
+  updateEmailDraftAction,
+} from '../../../actions.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -154,6 +159,35 @@ export default async function EmailDraftPage({ params }: { params: Promise<{ id:
           </div>
         </Section>
       ))}
+
+      {/* THE NEXT THING HE ACTUALLY DOES, on the page where he does it.
+          Sending the order to the vendor is the last act of this screen, and
+          "mark it ordered" was only offered back on the request — so the
+          purchaser sent the email, then had to remember a second screen and
+          navigate to it to record the fact. Forgetting that leaves an order
+          placed with a vendor that the system still shows as unsent, which is
+          how receiving stops matching the yard.
+
+          `detail.actions` is computed from the same authorize() the server
+          enforces with, so this button appears exactly when it would work — it
+          is not offered before a human has read the draft. */}
+      {detail.actions.includes('mark_ordered') ? (
+        <Section
+          title="Once it has gone to the vendor"
+          subtitle="Record it here, so receiving knows to expect the delivery."
+        >
+          <form action={markOrderedAction}>
+            <input type="hidden" name="requestId" value={id} />
+            <ConfirmSubmit
+              variant="primary"
+              label="Mark ordered"
+              title="Mark this order as placed?"
+              body="Only do this once the vendor has actually been sent the order. It moves the request into the awaiting-delivery pile and stays on the record."
+              confirmLabel="Yes, it has been placed"
+            />
+          </form>
+        </Section>
+      ) : null}
     </div>
   );
 }

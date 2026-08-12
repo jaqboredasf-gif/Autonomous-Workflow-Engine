@@ -5,16 +5,27 @@ not a shared system.
 
 ## 1. Before real people touch it
 
-- [ ] Supabase project created; migrations `0001`…`0017` applied and verified in
+Three of these are DONE in the code and are ticked as such. The rest are things somebody has to
+do to a hosted environment, and none of them can be ticked from a laptop.
+
+- [x] **Supabase repositories implemented.** The async repository refactor landed; the whole
+      workflow runs on Supabase persistence locally, proven by
+      `scripts/eval-purchasing-supabase-web.sh` and `scripts/eval-purchasing-e2e.mjs`.
+- [x] **Sign-in rate limiting implemented.** Five failures per address in fifteen minutes,
+      thirty per source; `apps/purchasing/src/purchasing/domain/throttle.mjs`. The counters live
+      in the server process, so on a multi-instance host the effective limit multiplies by the
+      number of warm instances — `supabase/migrations/0035_purchasing_sign_in_throttle.sql`
+      defines the shared store that fixes that, and nothing calls it yet.
+- [x] **The chain runs unaided, locally.** `PILOT_PASSWORD=… node scripts/eval-pcc-operability.mjs`
+      drives request → review → printed PO → vendor email → ordered → received → completed as
+      four different people, for a job site delivery and for a workshop delivery.
+- [ ] Supabase project created; every migration in `supabase/migrations` applied and verified in
       `supabase_migrations.schema_migrations`
-- [ ] **Supabase repositories implemented** — blocked on the async repository refactor
-      (`PURCHASING_PRODUCTION_GAPS.md` §2). Until this is done, data lives on one machine.
 - [ ] `AUTH_PROVIDER=supabase`, and a real sign-in performed end to end
 - [ ] `SESSION_SECRET` set to 32+ random characters, stored in the host's secret store
 - [ ] `PURCHASING_DEMO_MODE` unset; `/api/health` returns `ok`
 - [ ] TLS on a private hostname; the URL is not indexed or shared outside the company
 - [ ] Backup verified by **restoring** it somewhere, not by taking it
-- [ ] Sign-in rate limiting implemented (currently absent)
 
 ## 2. Configure the company
 
