@@ -994,6 +994,116 @@ console.log('--- how many times somebody may guess ---------------------------')
   check(a.source !== b.source, 'but a different source is a different budget');
 }
 
+// ===========================================================================
+console.log('--- the attention queue: ranked by rule, not by feeling ---------');
+{
+  const A = await import(join(DOMAIN, 'dashboard.mjs'));
+  const NOW = '2026-08-11T12:00:00Z';
+  const r = (over = {}) => ({
+    id: over.id ?? Math.random().toString(36).slice(2),
+    requestNumber: 'PR-00001',
+    status: 'SUBMITTED',
+    submittedAt: '2026-08-11T09:00:00Z',
+    needByDate: '2026-08-30',
+    ...over,
+  });
+
+  // --- which band, and only one band ---------------------------------------
+  eq(A.attentionBand(r({ status: 'ORDERED', needByDate: '2026-08-01' }), NOW), 'OVERDUE',
+     'an ordered request past its need-by is overdue, not merely on order');
+  eq(A.attentionBand(r({ needByDate: '2026-08-11' }), NOW), 'DUE_TODAY',
+     'due today and not ordered is the purchaser\'s to fix today');
+  eq(A.attentionBand(r({ status: 'ORDERED', needByDate: '2026-08-11' }), NOW), 'ARRIVING',
+     'due today but ALREADY ordered is the vendor\'s to deliver, so it ranks lower');
+  eq(A.attentionBand(r(), NOW), 'NEW', 'an unanswered request is new work');
+  eq(A.attentionBand(r({ status: 'PARTIALLY_RECEIVED' }), NOW), 'PART_RECEIVED',
+     'a part-received order is its own kind of open');
+  eq(A.attentionBand(r({ status: 'PO_GENERATED' }), NOW), 'IN_FLIGHT', 'everything else in flight');
+  for (const status of ['COMPLETED', 'CANCELLED', 'REJECTED', 'DRAFT']) {
+    eq(A.attentionBand(r({ status }), NOW), null, `a ${status} request needs nobody's attention`);
+  }
+
+  // --- the ordering ---------------------------------------------------------
+  const queue = A.attentionQueue([
+    r({ id: 'inflight', status: 'PO_GENERATED' }),
+    r({ id: 'new-late', submittedAt: '2026-08-04T09:00:00Z' }),
+    r({ id: 'overdue', status: 'ORDERED', needByDate: '2026-08-01' }),
+    r({ id: 'arriving', status: 'ORDERED', needByDate: '2026-08-20' }),
+    r({ id: 'due', needByDate: '2026-08-11' }),
+    r({ id: 'part', status: 'PARTIALLY_RECEIVED', needByDate: '2026-08-25' }),
+    r({ id: 'done', status: 'COMPLETED' }),
+  ], NOW, { limit: 10 });
+
+  eq(queue.items.map((i) => i.request.id), ['overdue', 'due', 'new-late', 'arriving', 'part', 'inflight'],
+     'the bands rank in the documented order and terminal work is absent');
+  eq(queue.total, 6, 'the total counts what is open, not what is shown');
+  eq(A.attentionQueue([], NOW).items.length, 0, 'an empty shop produces an empty list rather than throwing');
+
+  // Within a band: soonest need-by, then longest wait. Determinism is the
+  // point — two renders must not disagree about what to do first.
+  const sameBand = A.attentionQueue([
+    r({ id: 'later', needByDate: '2026-08-20' }),
+    r({ id: 'sooner', needByDate: '2026-08-12' }),
+    r({ id: 'sooner-older', needByDate: '2026-08-12', submittedAt: '2026-08-01T09:00:00Z' }),
+    r({ id: 'undated', needByDate: null }),
+  ], NOW, { limit: 10 });
+  eq(sameBand.items.map((i) => i.request.id), ['sooner-older', 'sooner', 'later', 'undated'],
+     'soonest first, oldest wins a tie, and an undated request sorts last rather than first');
+
+  // The list is bounded but honest about it.
+  const many = A.attentionQueue(Array.from({ length: 20 }, (_, i) => r({ id: `x${i}` })), NOW, { limit: 3 });
+  eq(many.items.length, 3, 'the dashboard renders a bounded list');
+  eq(many.total, 20, 'and reports how much it is not showing');
+
+  // --- the verb -------------------------------------------------------------
+  const asPurchaser = { canReview: true, canReceive: true };
+  eq(A.attentionAction(r({ id: 'a', status: 'PENDING_WORKSHOP_REVIEW' }), asPurchaser).label, 'Review request',
+     'a new request offers the review');
+  eq(A.attentionAction(r({ id: 'a', status: 'EMAIL_DRAFTED' }), asPurchaser).label, 'Mark ordered',
+     'a drafted email offers the ordering');
+  eq(A.attentionAction(r({ id: 'a', status: 'ORDERED' }), asPurchaser).label, 'Confirm receipt',
+     'an ordered request offers the receipt');
+  eq(A.attentionAction(r({ id: 'a', status: 'ORDERED' }), { canReceive: false }).label, 'View order',
+     'somebody who may not receive is offered the record instead of a button that would be refused');
+  eq(A.attentionAction(r({ id: 'a', status: 'PENDING_WORKSHOP_REVIEW' }), {}).label, 'Open',
+     'and a reader with no purchasing rights is simply shown it');
+  eq(A.attentionAction(r({ id: 'a', status: 'ORDERED' }), asPurchaser).href, '/requests/a/receive',
+     'the action carries where it goes');
+}
+
+// ===========================================================================
+console.log("--- today's workload, as the donut's slices ---------------------");
+{
+  const A = await import(join(DOMAIN, 'dashboard.mjs'));
+  const NOW = '2026-08-11T12:00:00Z';
+  const r = (over = {}) => ({ status: 'SUBMITTED', needByDate: '2026-08-30', ...over });
+
+  const w = A.workloadToday([
+    r(), r({ status: 'PENDING_WORKSHOP_REVIEW' }),
+    r({ status: 'APPROVED' }), r({ status: 'PO_GENERATED' }), r({ status: 'EMAIL_DRAFTED' }),
+    r({ status: 'ORDERED' }),
+    r({ status: 'PARTIALLY_RECEIVED' }),
+    r({ status: 'RECEIVED', receivedAt: '2026-08-11T10:00:00Z' }),
+    r({ status: 'COMPLETED', completedAt: '2026-08-01T10:00:00Z' }),
+  ], NOW);
+
+  const by = Object.fromEntries(w.slices.map((s) => [s.key, s.count]));
+  eq(by.NEW, 2, 'new requests are the ones awaiting a decision');
+  eq(by.TO_ORDER, 3, 'approved, PO generated and email drafted are all still to order');
+  eq(by.ORDERED, 1, 'on order');
+  eq(by.PART_RECEIVED, 1, 'part received');
+  eq(by.RECEIVED_TODAY, 1, "received TODAY excludes what was received a fortnight ago");
+  eq(w.total, 8, 'the total is the sum of the slices, and excludes older completions');
+
+  // A category with nothing in it is a zero, not a missing slice: "none today"
+  // and "no such thing" are different statements.
+  const quiet = A.workloadToday([], NOW);
+  eq(quiet.total, 0, 'a quiet morning totals zero');
+  eq(quiet.slices.length, 5, 'and still names all five categories');
+  check(quiet.slices.every((s) => s.count === 0), 'each at zero');
+  check(quiet.slices.every((s) => typeof s.href === 'string'), 'every slice can be opened');
+}
+
 console.log('');
 console.log(`domain checks: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

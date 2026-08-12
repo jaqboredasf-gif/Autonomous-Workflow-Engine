@@ -163,3 +163,147 @@ export function MetricStat({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// The one chart on the dashboard that answers "how much of what, right now".
+// ---------------------------------------------------------------------------
+
+export type DonutSlice = {
+  key: string;
+  label: string;
+  count: number;
+  /** Where clicking this slice's legend row goes. */
+  href?: string | null;
+};
+
+/**
+ * Today's workload, as a donut with a legend that is the real control.
+ *
+ * A DONUT RATHER THAN A PIE, for a plain reason: the middle is where the total
+ * goes, and the total is the number the purchaser actually reads first. A pie
+ * spends that space on ink.
+ *
+ * THE LEGEND IS THE INTERFACE. Arc segments are small, awkward targets and
+ * unreadable when a slice is two percent, so every category is a row with its
+ * name, its count and a link — the drawing is the summary and the legend is
+ * how you act on it. That also means nothing is conveyed by colour alone.
+ *
+ * A workload of nothing draws no ring and says so in words. An empty circle
+ * would be a picture of a quiet morning that looks exactly like a broken one.
+ */
+export function WorkloadDonut({
+  slices,
+  total,
+  caption,
+  emptyMessage = 'No active purchasing work today.',
+}: {
+  slices: DonutSlice[];
+  total: number;
+  caption: string;
+  emptyMessage?: string;
+}) {
+  if (!total) {
+    return (
+      <div className="py-6 text-center">
+        <p className="text-sm font-medium text-ink">{emptyMessage}</p>
+        <p className="mt-0.5 text-xs text-muted">New requests appear here as soon as they are submitted.</p>
+      </div>
+    );
+  }
+
+  // Stroke-dasharray on one circle per slice: no path arithmetic, no library,
+  // and it degrades to a plain ring if the browser is ancient.
+  const RADIUS = 42;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+  let offset = 0;
+
+  return (
+    <figure className="m-0 flex flex-wrap items-center gap-4">
+      <div aria-hidden className="relative shrink-0" style={{ width: 128, height: 128 }}>
+        <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
+          <circle cx="50" cy="50" r={RADIUS} fill="none" strokeWidth="14" className="stroke-subtle" />
+          {slices.map((slice, index) => {
+            if (!slice.count) return null;
+            const length = (slice.count / total) * CIRCUMFERENCE;
+            const circle = (
+              <circle
+                key={slice.key}
+                cx="50"
+                cy="50"
+                r={RADIUS}
+                fill="none"
+                strokeWidth="14"
+                className={DONUT_STROKES[index % DONUT_STROKES.length]}
+                strokeDasharray={`${length} ${CIRCUMFERENCE - length}`}
+                strokeDashoffset={-offset}
+              />
+            );
+            offset += length;
+            return circle;
+          })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-2xl font-semibold tabular-nums text-ink">{total}</span>
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted">active</span>
+        </div>
+      </div>
+
+      <ul className="min-w-40 flex-1 space-y-1">
+        {slices.map((slice, index) => {
+          const row = (
+            <span className="flex items-baseline gap-2">
+              <span
+                aria-hidden
+                className={`mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-sm ${DONUT_FILLS[index % DONUT_FILLS.length]}`}
+              />
+              <span className="min-w-0 flex-1 truncate text-sm text-ink-soft">{slice.label}</span>
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-ink">{slice.count}</span>
+            </span>
+          );
+          return (
+            <li key={slice.key}>
+              {slice.href ? (
+                <a href={slice.href} className="block rounded px-1 py-0.5 hover:bg-subtle">
+                  {row}
+                </a>
+              ) : (
+                <span className="block px-1 py-0.5">{row}</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* The same numbers, for anybody the drawing does not serve. */}
+      <table className="sr-only">
+        <caption>{caption}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Category</th>
+            <th scope="col">Requests</th>
+          </tr>
+        </thead>
+        <tbody>
+          {slices.map((slice) => (
+            <tr key={`${slice.key}-row`}>
+              <th scope="row">{slice.label}</th>
+              <td>{slice.count}</td>
+            </tr>
+          ))}
+          <tr>
+            <th scope="row">Total</th>
+            <td>{total}</td>
+          </tr>
+        </tbody>
+      </table>
+    </figure>
+  );
+}
+
+/**
+ * Five separable tones. Brand blue leads because the first slice is the one
+ * needing a decision; the rest step away from it in lightness as well as hue,
+ * so the ring survives a black-and-white screenshot and a colour-blind reader.
+ */
+const DONUT_STROKES = ['stroke-brand', 'stroke-accent', 'stroke-info', 'stroke-success', 'stroke-line-strong'];
+const DONUT_FILLS = ['bg-brand', 'bg-accent', 'bg-info', 'bg-success', 'bg-line-strong'];

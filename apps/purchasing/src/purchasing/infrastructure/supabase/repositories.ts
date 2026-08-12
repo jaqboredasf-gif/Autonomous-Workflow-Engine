@@ -35,6 +35,7 @@ import type {
 // two products. Only the read differs between providers.
 import { byCatalogUsefulness, matchCatalog, normalizeDescription } from '../../domain/catalog.mjs';
 import { lineOutstandingQty } from '../../domain/numbers.mjs';
+import { summarizeItems } from '../../domain/entities.mjs';
 import type { SupabaseHandles } from './client.ts';
 import { unwrap } from './client.ts';
 import {
@@ -214,7 +215,11 @@ async function withAggregates(h: SupabaseHandles, rows: any[]): Promise<any[]> {
   const ids = mapped.map((r) => r.id);
 
   const [items, reviews] = await Promise.all([
-    h.db.from(TABLES.requestItems).select('request_id,requested_qty').in('request_id', ids),
+    // `description` and `line_no` join the aggregate so a list row can say WHAT
+    // was asked for. A queue that shows a request number and a job number and
+    // not the material makes the reader open every row to find the one about
+    // cable — and it is what "search for MC cable" has to match against.
+    h.db.from(TABLES.requestItems).select('request_id,requested_qty,description,line_no').in('request_id', ids),
     h.db.from(TABLES.reviews)
       .select(`request_id, ${TABLES.reviewItems}(usable_stock_qty,final_order_qty)`)
       .in('request_id', ids),
@@ -222,9 +227,13 @@ async function withAggregates(h: SupabaseHandles, rows: any[]): Promise<any[]> {
 
   const requested = new Map<string, number>();
   const lineCount = new Map<string, number>();
+  const descriptions = new Map<string, Array<{ lineNo: number; description: string }>>();
   for (const row of (items.data ?? []) as any[]) {
     requested.set(row.request_id, (requested.get(row.request_id) ?? 0) + qty.read(row.requested_qty));
     lineCount.set(row.request_id, (lineCount.get(row.request_id) ?? 0) + 1);
+    const list = descriptions.get(row.request_id) ?? [];
+    list.push({ lineNo: Number(row.line_no ?? 0), description: String(row.description ?? '') });
+    descriptions.set(row.request_id, list);
   }
   const stock = new Map<string, number>();
   const ordering = new Map<string, number>();
@@ -241,6 +250,7 @@ async function withAggregates(h: SupabaseHandles, rows: any[]): Promise<any[]> {
     itemCount: lineCount.get(r.id) ?? 0,
     workshopStockQty: stock.get(r.id) ?? 0,
     finalOrderQty: ordering.get(r.id) ?? 0,
+    itemSummary: summarizeItems(descriptions.get(r.id) ?? []),
   }));
 }
 
@@ -528,10 +538,10 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
           org:orgs(id,name),
           vendor:purchase_vendors(id,name,account_number,phone,address),
           contact:purchase_vendor_contacts(name,email,phone),
-          location:purchase_delivery_locations(name,address),
+          location:purchase_delivery_locations(name,address,kind),
           approver:users!purchase_orders_approver_id_fkey(id,full_name),
           request:purchase_requests(*, requestor:users!purchase_requests_requestor_id_fkey(full_name)),
-          ${TABLES.orderItems}(*)
+          ${TABLES.orderItems}(*, request_item:purchase_request_items(stock_number), receipts:purchase_receipt_items(received_qty))
         `).eq('id', purchaseOrderId).eq('org_id', h.orgId).maybeSingle(),
         'purchase order view',
       ) as any;
@@ -554,13 +564,16 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
           id: request?.id, requestNumber: request?.request_number, jobNumber: order.job_number,
           needByDate: order.need_by_date, needByTime: String(order.need_by_time ?? '').slice(0, 5),
           deliveryMethod: order.delivery_method, deliveryLocationName: order.location?.name ?? '',
+          deliveryLocationKind: order.location?.kind ?? null,
           deliveryAddress: order.location?.address ?? '', requestorName: request?.requestor?.full_name ?? '',
           reason: request?.reason ?? '', notes: request?.notes ?? '',
         },
         approver: { id: order.approver?.id, name: order.approver?.full_name ?? '' },
         items: ((order[TABLES.orderItems] ?? []) as any[]).map((i) => ({
           lineNo: i.line_no, description: i.description, substituteFor: i.substitute_description,
+          stockNumber: i.request_item?.stock_number ?? null,
           finalOrderQty: qty.read(i.order_qty), unit: i.unit,
+          receivedQty: ((i.receipts ?? []) as any[]).reduce((sum, r) => sum + qty.read(r.received_qty), 0),
           estimatedUnitCostCents: money.read(i.unit_cost), lineTotalCents: money.read(i.line_total),
           expectedArrivalDate: i.expected_arrival_date,
         })),

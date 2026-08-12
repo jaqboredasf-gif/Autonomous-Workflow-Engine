@@ -641,3 +641,181 @@ export const ACTIVITY_RANGES = Object.freeze([
 export function activityRange(key) {
   return ACTIVITY_RANGES.find((r) => r.key === key) ?? ACTIVITY_RANGES[1];
 }
+
+// ---------------------------------------------------------------------------
+// NEEDS YOUR ATTENTION — one ranked list, decided by rules, not by a model.
+//
+// The dashboard already showed counts, a queue sorted by need-by, and a set of
+// exception banners. Between them they said what EXISTS; none of them said
+// what to do first. A purchaser opening this at seven in the morning was left
+// to work that out by comparing three panels, and the answer was usually
+// "whichever one is red".
+//
+// So this is the one ordered list, and the ordering is a table anybody can
+// read and argue with:
+//
+//   1  overdue                  the material was needed and is not here
+//   2  due today, not ordered   ordering it later today is already late
+//   3  new, awaiting purchasing an unanswered request is a blocked person
+//   4  ordered, due in          somebody should chase the vendor
+//   5  part received            an open line nobody is counting
+//   6  everything else in flight
+//
+// WITHIN a band, soonest need-by first, then oldest request first — so two
+// items that are equally urgent are resolved by who has waited longer, and the
+// order never depends on the order the rows came out of the database.
+//
+// DETERMINISTIC on purpose. No scoring, no weighting, no learning. Two people
+// looking at this list see the same list, and a purchaser who disagrees with
+// the order can be shown the rule that produced it.
+// ---------------------------------------------------------------------------
+
+/** The bands, most urgent first. Exported so tests and the UI name them once. */
+export const ATTENTION_BANDS = [
+  { key: 'OVERDUE', label: 'Overdue', tone: 'danger', why: 'Needed before now and not in hand' },
+  { key: 'DUE_TODAY', label: 'Due today', tone: 'warn', why: 'Needed today and not yet ordered' },
+  { key: 'NEW', label: 'New request', tone: 'action', why: 'Waiting on a purchasing decision' },
+  { key: 'ARRIVING', label: 'On order', tone: 'info', why: 'Placed with a vendor, not yet received' },
+  { key: 'PART_RECEIVED', label: 'Part received', tone: 'warn', why: 'Some lines are still outstanding' },
+  { key: 'IN_FLIGHT', label: 'In progress', tone: 'neutral', why: 'Moving through purchasing' },
+];
+
+const BAND_ORDER = ATTENTION_BANDS.reduce((acc, band, i) => ({ ...acc, [band.key]: i }), {});
+
+/** Which band a request belongs in. One request is in exactly one band. */
+export function attentionBand(request, now) {
+  const today = dayOf(now);
+  const status = request.status;
+  if (['COMPLETED', 'CANCELLED', 'REJECTED', 'DRAFT'].includes(status)) return null;
+
+  if (isOverdue(request, now)) return 'OVERDUE';
+  if (status === 'PARTIALLY_RECEIVED') return 'PART_RECEIVED';
+  // "Due today but not ordered" is the band the purchaser can still do
+  // something about. Once it is ordered, being due today is the vendor's
+  // problem to be chased, which is a different (and lower) kind of urgent.
+  if (String(request.needByDate ?? '') === today && !IN_FLIGHT.includes(status)) return 'DUE_TODAY';
+  if (WAITING_ON_PURCHASER.includes(status)) return 'NEW';
+  if (status === 'ORDERED') return 'ARRIVING';
+  return 'IN_FLIGHT';
+}
+
+/**
+ * The primary action for a request, as a verb and a destination.
+ *
+ * Deliberately ONE action per row. A row offering four things is a row that
+ * has to be read; a row offering one is a row that can be pressed. What is
+ * offered here is presentational — the server still authorizes it, and a
+ * viewer without the permission is given the neutral "Open" instead.
+ */
+export function attentionAction(request, { canReview = false, canReceive = false } = {}) {
+  const id = request.id;
+  const open = { label: 'Open', href: `/requests/${id}` };
+  switch (request.status) {
+    case 'SUBMITTED':
+    case 'PENDING_WORKSHOP_REVIEW':
+    case 'RESUBMITTED':
+      return canReview ? { label: 'Review request', href: `/requests/${id}/review` } : open;
+    case 'APPROVED':
+      return canReview ? { label: 'Prepare PO', href: `/requests/${id}` } : open;
+    case 'PO_GENERATED':
+      return canReview ? { label: 'Send to vendor', href: `/requests/${id}/email` } : open;
+    case 'EMAIL_DRAFTED':
+      return canReview ? { label: 'Mark ordered', href: `/requests/${id}/email` } : open;
+    case 'ORDERED':
+    case 'PARTIALLY_RECEIVED':
+      return canReceive ? { label: 'Confirm receipt', href: `/requests/${id}/receive` } : { label: 'View order', href: `/requests/${id}` };
+    case 'RECEIVED':
+      return canReview ? { label: 'Complete', href: `/requests/${id}` } : open;
+    case 'CLARIFICATION_REQUESTED':
+      return { label: 'Awaiting answer', href: `/requests/${id}` };
+    default:
+      return open;
+  }
+}
+
+/**
+ * The ranked list. `limit` bounds what the dashboard renders; the total is
+ * returned separately so the screen can say how much it is not showing rather
+ * than quietly truncating.
+ */
+export function attentionQueue(requests = [], now = '1970-01-01T00:00:00', { limit = 8, canReview = false, canReceive = false } = {}) {
+  const banded = [];
+  for (const request of requests) {
+    const band = attentionBand(request, now);
+    if (!band) continue;
+    banded.push({
+      request,
+      band,
+      bandLabel: ATTENTION_BANDS[BAND_ORDER[band]].label,
+      tone: ATTENTION_BANDS[BAND_ORDER[band]].tone,
+      why: ATTENTION_BANDS[BAND_ORDER[band]].why,
+      action: attentionAction(request, { canReview, canReceive }),
+    });
+  }
+
+  banded.sort((a, b) => {
+    if (BAND_ORDER[a.band] !== BAND_ORDER[b.band]) return BAND_ORDER[a.band] - BAND_ORDER[b.band];
+    // Soonest need-by first. A request with no need-by sorts last rather than
+    // first: an absent date is not an urgent one.
+    const aNeed = `${a.request.needByDate ?? '9999-12-31'}${a.request.needByTime ?? '23:59'}`;
+    const bNeed = `${b.request.needByDate ?? '9999-12-31'}${b.request.needByTime ?? '23:59'}`;
+    if (aNeed !== bNeed) return aNeed < bNeed ? -1 : 1;
+    // Then whoever has waited longest. This is what makes the order total: two
+    // rows can no longer swap places between renders.
+    const aAt = String(a.request.submittedAt ?? a.request.createdAt ?? '');
+    const bAt = String(b.request.submittedAt ?? b.request.createdAt ?? '');
+    if (aAt !== bAt) return aAt < bAt ? -1 : 1;
+    return String(a.request.requestNumber ?? '').localeCompare(String(b.request.requestNumber ?? ''));
+  });
+
+  return { items: banded.slice(0, limit), total: banded.length };
+}
+
+/**
+ * TODAY'S WORKLOAD, as the slices of one chart.
+ *
+ * Every category is a real domain state, counted from the same live requests
+ * the rest of the screen reads. Nothing is bucketed for the sake of a prettier
+ * chart, and a category with nothing in it is returned with a zero rather than
+ * dropped — a missing slice reads as "no such thing", which is not the same as
+ * "none today".
+ */
+export function workloadToday(requests = [], now = '1970-01-01T00:00:00') {
+  const today = dayOf(now);
+  const slices = [
+    {
+      key: 'NEW',
+      label: 'New requests',
+      count: requests.filter((r) => WAITING_ON_PURCHASER.includes(r.status)).length,
+      href: '/workshop?stage=NEEDS_REVIEW',
+    },
+    {
+      key: 'TO_ORDER',
+      label: 'To order',
+      count: requests.filter((r) => ['APPROVED', 'PO_GENERATED', 'EMAIL_DRAFTED'].includes(r.status)).length,
+      href: '/workshop?stage=READY_TO_ORDER',
+    },
+    {
+      key: 'ORDERED',
+      label: 'On order',
+      count: requests.filter((r) => r.status === 'ORDERED').length,
+      href: '/workshop?stage=AWAITING_DELIVERY',
+    },
+    {
+      key: 'PART_RECEIVED',
+      label: 'Part received',
+      count: requests.filter((r) => r.status === 'PARTIALLY_RECEIVED').length,
+      href: '/workshop?stage=PARTIALLY_RECEIVED',
+    },
+    {
+      key: 'RECEIVED_TODAY',
+      label: 'Received today',
+      count: requests.filter(
+        (r) => ['RECEIVED', 'COMPLETED'].includes(r.status)
+          && (dayOf(r.receivedAt) === today || dayOf(r.completedAt) === today),
+      ).length,
+      href: '/workshop?stage=RECEIVED',
+    },
+  ];
+  return { slices, total: slices.reduce((sum, s) => sum + s.count, 0) };
+}

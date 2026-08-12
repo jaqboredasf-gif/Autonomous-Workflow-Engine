@@ -301,3 +301,36 @@ export function assertFullyResolved(progress) {
     throw new DomainError('lines_outstanding', `${open.length} line(s) are not fully resolved`);
   }
 }
+
+// --- how a request describes itself in one line -------------------------------
+
+/**
+ * The material, in a phrase — for a list row, a queue entry, and the text a
+ * search matches against.
+ *
+ * WHY IT EXISTS. A list row carried a request number, a job number and a
+ * status, and nothing about what was actually asked for. Reading the queue
+ * meant opening every row to find the one about cable, and searching for "MC
+ * cable" matched nothing at all, because no field on the row held the words.
+ *
+ * The first line plus a count of the rest, because that is what fits and
+ * because the first line is what the requester typed first.
+ *
+ * TWO ENTRY POINTS, one rule. A provider that has the lines passes them; one
+ * that has only the first description and a count passes those. Both end here,
+ * so a row means the same thing whichever provider loaded it.
+ */
+export function itemSummary(firstDescription, itemCount = 1) {
+  const first = String(firstDescription ?? '').trim();
+  if (!first) return '';
+  const extra = Math.max(0, Number(itemCount ?? 1) - 1);
+  return extra > 0 ? `${first} +${extra} more` : first;
+}
+
+export function summarizeItems(items = []) {
+  const lines = [...items]
+    .filter((i) => String(i?.description ?? '').trim())
+    .sort((a, b) => Number(a.lineNo ?? 0) - Number(b.lineNo ?? 0));
+  if (!lines.length) return '';
+  return itemSummary(lines[0].description, lines.length);
+}

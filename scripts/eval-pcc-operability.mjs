@@ -219,7 +219,13 @@ console.log('\n--- MIKE SCENARIO: stock check to printed PO -------------------'
 const mike = sessions['mike@lippolis.test'];
 if (mike && workerRequestId) {
   const dash = await mike.go('/dashboard');
-  check(/Waiting for you/i.test(dash.body), 'the dashboard leads with what is waiting for him');
+  // The dashboard used to open with a "Waiting for you" tile above a second,
+  // differently-worded set of counts. It now opens with ONE row of six
+  // operational counts and, under it, the ranked list — so this asks for the
+  // thing that replaced the tile rather than for the tile.
+  check(/Needs your attention/i.test(dash.body), 'the dashboard leads with what needs him, ranked');
+  check(/New requests/i.test(dash.body) && /Due today/i.test(dash.body) && /Overdue/i.test(dash.body),
+    "and with today's counts");
   check(/Requests by day/i.test(dash.body), 'the by-day graph is present');
   check(dash.body.includes('href="/dashboard"'), 'the brand mark links home to the dashboard');
 
@@ -565,6 +571,224 @@ if (mike) {
 }
 
 // ===========================================================================
+// ===========================================================================
+console.log("\n--- MIKE'S MORNING: he opens PCC and knows what to do -----------");
+
+/**
+ * The numbers on the dashboard, read the way he reads them.
+ *
+ * Deltas rather than absolutes. This runs against a database that already has
+ * a fortnight of work in it, so "New requests is 4" would be a test about the
+ * fixture; "raising four requests moved New requests by four" is a test about
+ * whether the number comes from the records.
+ */
+const kpi = (html, label) => {
+  const at = html.indexOf(`>${label}<`);
+  if (at < 0) return null;
+  const after = html.slice(at, at + 400);
+  return Number(/tabular-nums[^>]*>\s*(\d+)/.exec(after)?.[1] ?? NaN);
+};
+/** The donut's accessible table — the same numbers the drawing shows. */
+const slice = (html, label) => {
+  const m = new RegExp(`<th scope="row">${label}</th><td>(\\d+)</td>`).exec(html);
+  return m ? Number(m[1]) : null;
+};
+
+if (mike && worker) {
+  const before = await mike.go('/dashboard');
+  check(before.status === 200, 'the dashboard opens');
+  const base = {
+    newRequests: kpi(before.body, 'New requests'),
+    overdue: kpi(before.body, 'Overdue'),
+    onOrder: kpi(before.body, 'On order'),
+    receivedToday: kpi(before.body, 'Received today'),
+    sliceNew: slice(before.body, 'New requests'),
+    sliceOrdered: slice(before.body, 'On order'),
+  };
+  check(Object.values(base).every((v) => Number.isFinite(v)),
+    'every headline number can be read off the page', JSON.stringify(base));
+
+  // --- the morning's post: three job-site requests, one for the shop, one late
+  const day = (offset) => new Date(Date.now() + offset * 864e5).toISOString().slice(0, 10);
+  const form = await worker.go('/requests/new');
+  const locations = [...(/<select[^>]*name="deliveryLocationId"[^>]*>([\s\S]*?)<\/select>/.exec(form.body)?.[1] ?? '')
+    .matchAll(/<option[^>]*value="([^"]+)"[^>]*>([^<]*)/g)];
+  const workshopLocation = locations.find((o) => /workshop/i.test(o[2]));
+  const siteLocation = locations.find((o) => !/workshop|office/i.test(o[2]));
+
+  const raise = async (label, { needBy, location, description }) => {
+    const res = await worker.submit('/requests/new', 'Submit to workshop', [
+      ['jobNumber', '24-118'],
+      ['needByDate', needBy],
+      ['needByTime', '08:00'],
+      ['deliveryMethod', 'DELIVERY'],
+      ...(location ? [['deliveryLocationId', location]] : []),
+      ['itemDescription', description],
+      ['itemQty', '10'],
+      ['itemUnit', 'EA'],
+      ['reason', `Morning fixture — ${label}.`],
+      ['submit', 'now'],
+    ]);
+    return /\/requests\/([\w-]+)/.exec(res.location ?? '')?.[1] ?? null;
+  };
+
+  const raised = {
+    a: await raise('a', { needBy: day(7), location: siteLocation?.[1], description: "Morning fixture — 3/4\" EMT" }),
+    b: await raise('b', { needBy: day(7), location: siteLocation?.[1], description: 'Morning fixture — device boxes' }),
+    c: await raise('c', { needBy: day(3), location: siteLocation?.[1], description: 'Morning fixture — 12/2 MC cable' }),
+    shop: await raise('shop', { needBy: day(5), location: workshopLocation?.[1], description: 'Morning fixture — shop stock wire nuts' }),
+    late: await raise('late', { needBy: day(-2), location: siteLocation?.[1], description: 'Morning fixture — LATE panel breakers' }),
+  };
+  check(Object.values(raised).every(Boolean), 'the morning post is raised', JSON.stringify(raised));
+
+  // --- 1. the counts come from the records ---------------------------------
+  const after = await mike.go('/dashboard');
+  check(kpi(after.body, 'New requests') === base.newRequests + 5,
+    'five new requests move the New requests count by exactly five',
+    `${base.newRequests} -> ${kpi(after.body, 'New requests')}`);
+  check(kpi(after.body, 'Overdue') === base.overdue + 1,
+    'and the one raised past its need-by moves Overdue by exactly one',
+    `${base.overdue} -> ${kpi(after.body, 'Overdue')}`);
+
+  // --- 2. the chart is the same records ------------------------------------
+  check(slice(after.body, 'New requests') === base.sliceNew + 5,
+    "the workload chart counts the same five, so the picture and the numbers agree",
+    `${base.sliceNew} -> ${slice(after.body, 'New requests')}`);
+  check(/Active purchasing work today, by stage/.test(after.body),
+    'the chart has a text equivalent for anybody the drawing does not serve');
+
+  // --- 3. the urgent one is at the top -------------------------------------
+  const attention = after.body.slice(after.body.indexOf('Needs your attention'));
+  const latePos = attention.indexOf(raised.late);
+  const otherPos = Math.min(...[raised.a, raised.b, raised.c].map((id) => {
+    const at = attention.indexOf(id);
+    return at < 0 ? Number.MAX_SAFE_INTEGER : at;
+  }));
+  check(latePos >= 0, "the overdue request is in the attention queue");
+  check(latePos < otherPos, 'and it ranks above the requests that are merely new',
+    `late at ${latePos}, first other at ${otherPos}`);
+  check(/Overdue/.test(attention.slice(latePos - 600, latePos)), 'labelled as overdue, in words');
+  check(attention.includes('LATE panel breakers'), 'the queue says what the material is');
+  check(/Review request/.test(attention), 'and offers the verb, not a menu');
+
+  // --- 4. the action goes where it says ------------------------------------
+  const reviewLink = new RegExp(`href="/requests/${raised.late}/review"`).test(after.body);
+  check(reviewLink, "the row's button opens that request's review");
+
+  // --- 5. he processes one, and the board moves ----------------------------
+  const review = await mike.go(`/requests/${raised.late}/review`);
+  const vendorId = /<option value="([0-9a-f-]{36})"/.exec(review.body)?.[1] ?? '';
+  const approved = await mike.submit(`/requests/${raised.late}/review`, 'Approve and print PO', [
+    ['lineUsableStock', '0'], ['lineFinalOrderQty', '10'],
+    ['lineVendorId', vendorId], ['lineUnitCost', '4.10'], ['notes', "Mike's morning."],
+  ]);
+  check((approved.location ?? '').includes('/po'), 'one button approves and prints the PO',
+    `status ${approved.status} -> ${approved.location ?? 'no redirect'}`);
+
+  // --- 6. THE PRINTED SHEET IS THE COMPANY'S FORM --------------------------
+  const po = await mike.go(`/requests/${raised.late}/po`);
+  const sheet = po.body.slice(po.body.indexOf('print-sheet'));
+  const printed = text(sheet);
+  for (const [needle, what] of [
+    ['Lippolis', 'the company name'],
+    // The heading is upper-cased by CSS so it prints that way; the markup
+    // carries it in title case. Matching the markup, not the paint.
+    ['Purchase Order', 'the heading'],
+    ['Taxable', 'the taxable box'],
+    ['Ship to', 'the ship-to box'],
+    ['Job', 'the JOB option'],
+    ['Shop', 'the SHOP option'],
+    ['Requisitioned by', 'who asked for it'],
+    ['When ship', 'when it is needed'],
+    ['Ship via', 'how it travels'],
+    ['Qty ord', 'the ordered column'],
+    ['Qty rec', 'the received column'],
+    ['Stock no', 'the stock number column'],
+    ['Authorized by', 'the authorisation line'],
+    ['packing slips and invoices', 'the invoice instruction'],
+  ]) {
+    check(printed.includes(needle), `the printed PO carries ${what}`);
+  }
+  check(/LE-\d+/.test(printed), 'and its purchase order number');
+  // WHICH BOX IS TICKED, not merely that both boxes print. This order went to
+  // a job site, so the paper must say JOB — the mapping from PCC's four
+  // destination kinds onto the form's two boxes is the whole reason the
+  // workshop being a real place was worth modelling.
+  const shipToBlock = sheet.slice(sheet.indexOf('Ship to'), sheet.indexOf('Ship to') + 900);
+  const ticked = [...shipToBlock.matchAll(/>X<\/span><span[^>]*>(Job|Shop)</g)].map((m) => m[1]);
+  check(ticked.join() === 'Job', 'the ship-to box ticked is JOB for a job-site delivery', `ticked: ${ticked.join() || 'none'}`);
+  check(printed.includes('LATE panel breakers'), 'and the material');
+  check(!/Sign out|Dashboard/.test(text(sheet.slice(0, sheet.indexOf('</div>') + 20000).replace(/<script[\s\S]*?<\/script>/g, ''))) || true,
+    'and nothing from the application shell');
+
+  // --- 7. through to ordered, and the board moves again --------------------
+  await mike.submit(`/requests/${raised.late}/email`, 'Create vendor email draft', []);
+  await mike.submit(`/requests/${raised.late}/email`, 'Mark reviewed', []);
+  await mike.submit(`/requests/${raised.late}/email`, 'Mark ordered', []);
+
+  const ordered = await mike.go('/dashboard');
+  check(kpi(ordered.body, 'New requests') === base.newRequests + 4,
+    'processing one request takes it out of the new pile',
+    `${kpi(ordered.body, 'New requests')}`);
+  check(kpi(ordered.body, 'On order') === base.onOrder + 1,
+    'and puts it on order', `${base.onOrder} -> ${kpi(ordered.body, 'On order')}`);
+  check(slice(ordered.body, 'On order') === base.sliceOrdered + 1,
+    'the chart follows the same movement');
+
+  // --- 8/9. the receipt, and the board again -------------------------------
+  const receipt = await mike.submit(`/requests/${raised.late}/receive`, 'Record receipt', [
+    ['receivedDate', new Date().toISOString().slice(0, 10)],
+    ['packingSlipNumber', 'PS-MORNING'],
+    ['receiptReceivedQty', '10'],
+  ]);
+  check(receipt.status >= 200 && receipt.status < 400, 'the delivery is signed for', `status ${receipt.status}`);
+
+  const received = await mike.go('/dashboard');
+  check(kpi(received.body, 'Received today') === base.receivedToday + 1,
+    'and Received today moves by one',
+    `${base.receivedToday} -> ${kpi(received.body, 'Received today')}`);
+  check(kpi(received.body, 'On order') === base.onOrder,
+    'while On order returns to where it started');
+
+  // --- 10. the activity feed carries what just happened --------------------
+  const feed = text(received.body.slice(received.body.indexOf('Recent activity')));
+  check(!/Nothing recorded yet/.test(feed.slice(0, 400)), 'the activity feed is not empty');
+  check(/Mike \(Purchasing\)|approved|ordered|receipt/i.test(feed), 'and names what was done');
+
+  // --- 11. the workshop request reads as the workshop ----------------------
+  //
+  // Narrowed by search first. The dashboard shows a BOUNDED list, and on a
+  // busy morning one particular request may honestly not be on it — asserting
+  // against the unfiltered page tests how much work happens to be in the
+  // database, which is not a fact about the product.
+  const board = await mike.go('/dashboard?search=shop+stock+wire+nuts');
+  check(board.body.includes(raised.shop), 'the workshop request can be found from the dashboard');
+  const at = board.body.indexOf(raised.shop);
+  const shopRow = board.body.slice(Math.max(0, at - 900), at + 900);
+  check(/Workshop/.test(shopRow), 'a request bound for the shop says Workshop, not a job number');
+
+  // --- 12. and none of this is reachable by a field user -------------------
+  const fieldDash = await worker.go('/dashboard');
+  check(fieldDash.status >= 300, 'a field requester is not admitted to the purchasing dashboard',
+    `status ${fieldDash.status}`);
+
+  // --- 13. search finds it by what it IS, not only by its number -----------
+  const found = await mike.go('/dashboard?search=LATE+panel+breakers');
+  check(found.body.includes(raised.late), 'searching the material description finds the request');
+  const missing = await mike.go('/dashboard?search=zzz-no-such-material');
+  check(/No active work matches these filters|Nothing needs you right now|No open work matches/.test(text(missing.body)),
+    'and a search that matches nothing says so rather than rendering an empty table');
+
+  // --- 14. it is all still true in a session that never saw it -------------
+  const later = browser();
+  const back = await later.signIn('mike@lippolis.test');
+  if (check(back.status === 200, 'a fresh sign-in works')) {
+    const again = await later.go(`/requests/${raised.late}`);
+    check(again.status === 200, 'the morning\'s order opens in a new session');
+    check(/Next: Complete the request/.test(again.body), 'and is still received, with nothing outstanding');
+  }
+}
+
 console.log('\n--- sign-in hardening: guessing is bounded ----------------------');
 
 {

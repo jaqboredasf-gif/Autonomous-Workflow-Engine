@@ -1,33 +1,35 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // ---------------------------------------------------------------------------
-// Screen 02 — Dashboard. The operational command centre.
+// Screen 02 — Dashboard. Mike and Rick's workbench.
 //
-// The question this screen answers is "what is the state of purchasing, and
-// what is waiting on me", in about five seconds. Reading order is deliberate:
+// The question this screen answers is "what do I do first", in about five
+// seconds, and everything on it is arranged around that. Reading order:
 //
 //   1. what can I narrow this to        — search and filters, in the URL
-//   2. how much work is in each pile    — four counts
-//   3. what is WRONG                    — exceptions, or an explicit all-clear
-//   4. what should I touch next         — the queue, soonest need-by first
-//   5. where is everything sitting      — purchasing and receiving status
-//   6. what went out and what happened  — recent POs, recent activity
+//   2. how much work is in each pile    — six counts, every one a link
+//   3. WHAT TO DO FIRST                 — the ranked list, with one verb a row
+//   4. how much of what, right now      — the workload donut
+//   5. what else is open                — everything active, soonest first
+//   6. where is it sitting              — purchasing and receiving status
+//   7. what went out and what happened  — recent POs, recent activity
 //
-//   7. how is purchasing TRENDING       — spend, volume, cycle time, on time
+// EVERY NUMBER ON THIS PAGE IS DERIVED FROM RECORDS THIS USER MAY SEE, and
+// from the SAME filtered list, so a narrowed view's counts describe the
+// narrowed view. The counts come from summarize() and todayBoard(); the order
+// of the ranked list from attentionQueue(); the chart from workloadToday();
+// the panels from purchasingStatus(), receivingStatus() and
+// recentPurchaseOrders() — all of them pure, all of them in the domain, all of
+// them tested without a browser.
 //
-// EVERY NUMBER ON THIS PAGE IS DERIVED FROM RECORDS THIS USER MAY SEE. The
-// counts come from the domain's summarize(); the panels from purchasingStatus(),
-// receivingStatus(), vendorActivity() and recentPurchaseOrders(), which only
-// count, sum and sort.
+// WHAT THIS SCREEN NO LONGER DOES, and why:
 //
-// THE TRENDS (added in production-readiness milestone 2) come from
-// purchase_history_lines — the IMMUTABLE record — through spendTrend(),
-// volumeTrend(), cycleTimes() and onTimeDelivery(). They are computed, never
-// sampled and never extrapolated, and three rules hold throughout: a month with
-// no purchases renders as a GAP rather than a zero, an unknown price is
-// reported as unpriced rather than counted as nothing, and only lines that
-// actually reached a vendor count as spend. A purchasing dashboard that invents
-// one figure cannot be trusted about the rest, which is why the domain reports
-// `hasData` and sample sizes and this screen shows them.
+//   * two rows of counts. It carried four KPI cards AND four "today" tiles,
+//     two different answers to "how much work is there", and seven of the
+//     eight were not clickable.
+//   * three exception banners. Overdue, part-received and awaiting-answer are
+//     bands IN the ranked list now, with the rows rather than a count of them.
+//   * spend and cycle-time trends. They are reporting, not operations, and
+//     they moved to /reports where somebody is actually asking.
 // ---------------------------------------------------------------------------
 import Link from 'next/link';
 
@@ -39,6 +41,8 @@ import {
   summarize,
   isOverdue,
   applyFilters,
+  attentionQueue,
+  workloadToday,
   purchasingStatus,
   receivingStatus,
   recentPurchaseOrders,
@@ -52,7 +56,7 @@ import { describeActivity } from '../../purchasing/domain/activity.mjs';
 import {
   ActivityFeed,
   ActivityItem,
-  Alert,
+  Badge,
   BarSeries,
   ButtonLink,
   ButtonRow,
@@ -71,6 +75,7 @@ import {
   THead,
   TR,
   UrgencyBadge,
+  WorkloadDonut,
   nextActionFor,
   stageLabel,
 } from '../../components/pcc';
@@ -80,6 +85,15 @@ export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Dashboard — Lippolis Purchasing' };
 
 const QUEUE_PREVIEW_LIMIT = 8;
+
+/** The domain names a band's urgency; this maps it onto the badge vocabulary. */
+const BAND_TONE: Record<string, 'bad' | 'warn' | 'info' | 'good' | 'neutral'> = {
+  danger: 'bad',
+  warn: 'warn',
+  action: 'info',
+  info: 'info',
+  neutral: 'neutral',
+};
 
 export default async function DashboardPage({
   searchParams,
@@ -131,9 +145,26 @@ export default async function DashboardPage({
   // aggregates and the purchaser arrives asking "what needs me right now".
   // These read the LIVE requests rather than the immutable history, because a
   // request raised ninety seconds ago has not ended and has no history row.
-  const board = todayBoard(all, now);
+  // FROM THE FILTERED LIST, like everything else on the page. These two read
+  // `all` before, so narrowing the view to one job left five counts at zero
+  // and "Received today" reading twenty-five — the page describing two
+  // different sets of records at once, which is how a reader stops trusting
+  // any of the numbers.
+  const board = todayBoard(requests, now);
   const range = activityRange(one('range'));
-  const activityByDay = dailyActivity(all, now, range.days);
+  const activityByDay = dailyActivity(requests, now, range.days);
+
+  // THE RANKED LIST. Computed from the same filtered requests everything else
+  // on this page reads, by a rule table in the domain rather than by a sort
+  // somebody will tune later — see attentionQueue()'s header for the bands and
+  // why they are in that order. The permissions passed in only decide which
+  // VERB each row offers; the server authorizes the action either way.
+  const attention = attentionQueue(requests, now, {
+    limit: QUEUE_PREVIEW_LIMIT,
+    canReview: hasPermission(actor, 'review.decide'),
+    canReceive: hasPermission(actor, 'receiving.record'),
+  });
+  const workload = workloadToday(requests, now);
 
   // The four KPIs the handoff names, expressed in this domain's statuses.
   const pendingApproval = counts.pending_workshop_review;
@@ -141,11 +172,22 @@ export default async function DashboardPage({
   const ordered = requests.filter((r: any) => r.status === 'ORDERED').length;
   const awaitingReceipt = counts.open_orders;
 
-  // Exceptions: the things that are actually wrong, each with the count and a
-  // way in. An empty exceptions block is a good day, and it says so.
+  // The two urgencies the headline row reports. Both are read from the same
+  // filtered list as everything else, so a filtered view's numbers describe
+  // the filtered view.
   const overdue = requests.filter((r: any) => isOverdue(r, now));
-  const partiallyReceived = requests.filter((r: any) => r.status === 'PARTIALLY_RECEIVED');
-  const awaitingAnswer = requests.filter((r: any) => r.status === 'CLARIFICATION_REQUESTED');
+  // DUE TODAY AND OVERDUE ARE DIFFERENT CARDS, so they count different rows.
+  // Sitting side by side, "due today or late: 1" beside "overdue: 2" reads as
+  // an arithmetic error — it was not one (the first counted only ORDERED work)
+  // but a reader cannot know that, and a dashboard that has to be explained
+  // has failed. Today's is today's; late is the card next to it.
+  const today = now.slice(0, 10);
+  const dueToday = requests.filter(
+    (r: any) =>
+      !['COMPLETED', 'CANCELLED', 'REJECTED', 'DRAFT'].includes(r.status)
+      && String(r.needByDate ?? '') === today
+      && !isOverdue(r, now),
+  ).length;
 
   // The preview: active work only, soonest need-by first. Drafted and ordered
   // entries are in here on purpose (BR-006) — a transition is not a vanishing.
@@ -216,109 +258,142 @@ export default async function DashboardPage({
         vendors={vendorOptions}
       />
 
-      {/* --- KPIs ------------------------------------------------------- */}
-      <section aria-label="Purchasing workload" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* --- TODAY, in six numbers -------------------------------------------
+          One row, not two. This screen used to carry four KPI cards AND four
+          "today" tiles, which meant two different answers to "how much work is
+          there" sitting one above the other, and only one of the eight was
+          clickable. These are the six piles the day is actually made of, every
+          one of them a link into the records behind it. */}
+      <section aria-label="Today's purchasing workload" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <KpiCard
-          label="Pending approval"
+          label="New requests"
           value={pendingApproval}
           tone={pendingApproval > 0 ? 'attention' : 'neutral'}
           hint="Waiting on a purchasing decision"
           href={`${queueHref}?stage=NEEDS_REVIEW`}
         />
         <KpiCard
-          label="Waiting to order"
+          label="To order"
           value={waitingToOrder}
           tone={waitingToOrder > 0 ? 'attention' : 'neutral'}
-          hint="Approved, PO generated or email drafted"
+          hint="Approved or PO ready, not yet placed"
           href={`${queueHref}?stage=READY_TO_ORDER`}
         />
         <KpiCard
-          label="Ordered"
+          label="Due today"
+          value={dueToday}
+          tone={dueToday > 0 ? 'warn' : 'neutral'}
+          hint="Needed on site today, still in hand here"
+          href={`${queueHref}?stage=NEEDS_REVIEW`}
+        />
+        <KpiCard
+          label="On order"
           value={ordered}
           tone="info"
           hint="Placed with a vendor, nothing received"
           href={`${queueHref}?stage=AWAITING_DELIVERY`}
         />
         <KpiCard
-          label="Awaiting receipt"
-          value={awaitingReceipt}
-          tone={counts.partially_received > 0 ? 'warn' : 'neutral'}
-          hint={`${counts.partially_received} partly received`}
-          href={`${queueHref}?stage=PARTIALLY_RECEIVED`}
+          label="Overdue"
+          value={overdue.length}
+          tone={overdue.length > 0 ? 'bad' : 'neutral'}
+          hint="Need-by has passed, material not in hand"
+          href={`${queueHref}?overdue=1`}
+        />
+        <KpiCard
+          label="Received today"
+          value={board.counts.finishedToday}
+          tone="neutral"
+          hint={`${awaitingReceipt} still awaiting delivery`}
+          href={`${queueHref}?stage=RECEIVED`}
         />
       </section>
 
-      {/* --- Exceptions -------------------------------------------------- */}
-      <section aria-label="Exceptions" className="space-y-3">
-        {overdue.length ? (
-          <Alert
-            tone="danger"
-            title={`${overdue.length} request${overdue.length === 1 ? ' is' : 's are'} past their need-by date`}
-            actions={
-              <ButtonLink href={`${queueHref}?overdue=1`} variant="danger">
-                Show overdue
-              </ButtonLink>
-            }
-          >
-            The material was needed on site and is not in hand yet.
-          </Alert>
-        ) : null}
+      {/* THE EXCEPTIONS BANNERS USED TO BE HERE — three alerts counting the
+          overdue, the part-received and the requests waiting on an answer.
+          Every one of those is now a BAND in the ranked list below, with the
+          rows themselves rather than a count of them, so the banners were a
+          third statement of the same facts sitting between the reader and the
+          list that could be acted on. Removed rather than restyled. */}
 
-        {partiallyReceived.length ? (
-          <Alert
-            tone="warning"
-            title={`${partiallyReceived.length} order${partiallyReceived.length === 1 ? '' : 's'} partly received`}
-            actions={
-              canReceive ? (
-                <ButtonLink href="/receiving" variant="secondary">
-                  Finish receiving
-                </ButtonLink>
-              ) : undefined
-            }
-          >
-            Some lines are still outstanding. These stay open until every line is accounted for.
-          </Alert>
-        ) : null}
-
-        {awaitingAnswer.length ? (
-          <Alert tone="info" title={`${awaitingAnswer.length} waiting on the requester`}>
-            The workshop has asked a question and cannot proceed until it is answered.
-          </Alert>
-        ) : null}
-
-        {!overdue.length && !partiallyReceived.length && !awaitingAnswer.length ? (
-          <Alert tone="success" title="No exceptions">
-            Nothing is overdue, nothing is part-received, and nobody is waiting on an answer.
-          </Alert>
-        ) : null}
-      </section>
-
-      {/* --- TODAY: what needs attention right now ----------------------- */}
-      <section className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
-          {/* `waiting` is deliberately not time-boxed: a request submitted on
-              Friday still needs him on Monday, and a "today only" queue would
-              hide it. Today-ness applies to what ARRIVED and what FINISHED. */}
-          <Link href={queueHref} className="rounded-lg border border-accent/30 bg-accent/5 p-4 transition hover:border-accent">
-            <span className="block text-3xl font-semibold tabular-nums text-ink">{board.counts.waiting}</span>
-            <span className="mt-0.5 block text-sm font-medium text-ink">Waiting for you</span>
-            <span className="text-xs text-muted">Open the queue →</span>
-          </Link>
-          <div className="rounded-lg border border-line bg-surface p-4">
-            <span className="block text-3xl font-semibold tabular-nums text-ink">{board.counts.arrivedToday}</span>
-            <span className="mt-0.5 block text-sm font-medium text-ink">Came in today</span>
-          </div>
-          <div className="rounded-lg border border-line bg-surface p-4">
-            <span className="block text-3xl font-semibold tabular-nums text-ink">{board.counts.dueToday}</span>
-            <span className="mt-0.5 block text-sm font-medium text-ink">Due today or late</span>
-          </div>
-          <div className="rounded-lg border border-line bg-surface p-4">
-            <span className="block text-3xl font-semibold tabular-nums text-ink">{board.counts.finishedToday}</span>
-            <span className="mt-0.5 block text-sm font-medium text-ink">Finished today</span>
-          </div>
-        </div>
-
+      {/* --- NEEDS YOUR ATTENTION ---------------------------------------------
+          The one ranked list, and the first thing on the page that can be
+          acted on. Ordering is the domain's — see attentionQueue() for the six
+          bands and why they are in that order. Every row carries one verb,
+          because a row offering four things has to be read and a row offering
+          one can be pressed. */}
+      <section className="grid gap-4 xl:grid-cols-[2fr_1fr]">
         <Panel
+          title="Needs your attention"
+          subtitle={
+            attention.total > 0
+              ? `${attention.total} open item${attention.total === 1 ? '' : 's'}, most urgent first`
+              : 'Nothing is waiting on you'
+          }
+          bodyClassName=""
+          actions={
+            attention.total > attention.items.length ? (
+              <Link href={queueHref} className="text-sm font-medium text-action hover:underline">
+                See all {attention.total}
+              </Link>
+            ) : undefined
+          }
+        >
+          {attention.items.length === 0 ? (
+            <EmptyState
+              title="Nothing needs you right now"
+              description={
+                isFiltered
+                  ? 'No open work matches these filters. Clear them to see the whole queue.'
+                  : 'No request is overdue, waiting for a decision, or missing a delivery. New requests appear here the moment they are submitted.'
+              }
+            />
+          ) : (
+            <ul className="divide-y divide-line">
+              {attention.items.map(({ request: r, bandLabel, tone, why, action }: any) => (
+                <li key={r.id} className="flex flex-wrap items-start gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={BAND_TONE[tone] ?? 'neutral'}>
+                        {bandLabel}
+                      </Badge>
+                      <Link href={`/requests/${r.id}`} className="font-semibold text-brand hover:underline">
+                        {r.poNumber ?? r.requestNumber}
+                      </Link>
+                      <StatusBadge status={r.status} />
+                    </div>
+                    {/* What it is FOR, in one line, so he does not open the
+                        record to find out whether this is the cable one. */}
+                    <p className="mt-1 truncate text-sm text-ink-soft">
+                      {r.itemSummary || 'No items recorded'}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted">
+                      {r.deliveryLocationKind === 'WORKSHOP' ? 'Workshop' : `Job ${r.jobNumber}`}
+                      {r.requestorName ? ` · ${r.requestorName}` : ''}
+                      {r.needByDate ? ` · needed ${r.needByDate}${r.needByTime ? ` ${r.needByTime}` : ''}` : ''}
+                      {` · ${why}`}
+                    </p>
+                  </div>
+                  <ButtonLink href={action.href} variant={tone === 'danger' ? 'danger' : 'primary'} className="shrink-0">
+                    {action.label}
+                  </ButtonLink>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        <div className="space-y-4">
+          <Panel title="Today's workload" subtitle="Active requests, by where they are" bodyClassName="p-4" headingLevel={3}>
+            <WorkloadDonut
+              slices={workload.slices}
+              total={workload.total}
+              caption="Active purchasing work today, by stage"
+              emptyMessage="No active purchasing work today."
+            />
+          </Panel>
+
+          <Panel
           title="Requests by day"
           subtitle={range.label}
           bodyClassName="p-4"
@@ -352,16 +427,22 @@ export default async function DashboardPage({
             }))}
             emptyMessage="No requests in this period."
           />
-        </Panel>
+          </Panel>
+        </div>
       </section>
 
-      {/* --- Queue preview + activity ------------------------------------ */}
+      {/* --- The full active queue, and where everything is sitting -------
+          The ranked list above answers "what first". This answers "what else",
+          in the order the material is needed. It used to be the only queue on
+          the page and was doing both jobs badly: a table sorted by date cannot
+          say that an overdue job-site delivery outranks a request raised an
+          hour ago. */}
       <div className="grid gap-4 xl:grid-cols-3">
         <Panel
           className="xl:col-span-2"
           bodyClassName=""
-          title="Queue — soonest first"
-          subtitle="Active work, ordered by when the material is needed on site"
+          title="Everything active — soonest first"
+          subtitle="All open work, ordered by when the material is needed on site"
           actions={
             <Link href={queueHref} className="text-sm font-medium text-action hover:underline">
               Open the full queue
@@ -373,8 +454,8 @@ export default async function DashboardPage({
               <THead>
                 <tr>
                   <TH>Request</TH>
+                  <TH>Material</TH>
                   <TH>Job</TH>
-                  <TH className="hidden md:table-cell">Vendor</TH>
                   <TH>Need by</TH>
                   <TH className="hidden sm:table-cell">Priority</TH>
                   <TH>Status</TH>
@@ -387,8 +468,8 @@ export default async function DashboardPage({
                   return (
                     <TR key={r.id} highlight={isOverdue(r, now)}>
                       <TDLink href={`/requests/${r.id}`}>{r.poNumber ?? r.requestNumber}</TDLink>
-                      <TD>{r.jobNumber}</TD>
-                      <TD className="hidden md:table-cell">{r.vendorName ?? '—'}</TD>
+                      <TD className="max-w-56 truncate text-ink">{r.itemSummary || '—'}</TD>
+                      <TD>{r.deliveryLocationKind === 'WORKSHOP' ? 'Workshop' : r.jobNumber}</TD>
                       <TD className="whitespace-nowrap">
                         {r.needByDate ?? '—'}
                         {isOverdue(r, now) ? <span className="ml-1 font-medium text-danger">overdue</span> : null}
@@ -405,7 +486,9 @@ export default async function DashboardPage({
                 })}
                 {preview.length === 0 ? (
                   <TableEmpty colSpan={7}>
-                    Nothing active. New requests appear here the moment they are submitted.
+                    {isFiltered
+                      ? 'No active work matches these filters. Clear them to see everything.'
+                      : 'Nothing active. New requests appear here the moment they are submitted.'}
                   </TableEmpty>
                 ) : null}
               </TBody>

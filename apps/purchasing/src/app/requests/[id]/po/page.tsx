@@ -48,6 +48,12 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
     .then((js: any[]) => js.find((j) => String(j.job_number ?? j.jobNumber) === String(view.request.jobNumber)) ?? null)
     .catch(() => null);
 
+  // WORKSHOP -> SHOP, everything else -> JOB. The company's form has exactly
+  // two boxes and PCC has four destination kinds, so the mapping is stated
+  // once, here, rather than implied by a ternary in the markup.
+  const kind = String(view.request.deliveryLocationKind ?? '');
+  const shipTo = kind === 'WORKSHOP' || kind === 'OFFICE' ? 'SHOP' : 'JOB';
+
   return (
     <div className="space-y-4">
       <div className="no-print flex flex-wrap items-center justify-between gap-2">
@@ -81,108 +87,164 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
         </div>
       </div>
 
-      <div className="print-sheet mx-auto max-w-3xl rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="flex items-start justify-between">
-          {/* The vendor's copy carries the mark. This sheet leaves the building
-              — printed, or saved to PDF and attached to an email — so it is the
-              one place the logo is doing a job rather than decorating one. */}
+      {/* ------------------------------------------------------------------
+          THE LIPPOLIS PURCHASE ORDER.
+
+          Laid out from the company's own paper form, because the paper form is
+          the business reference: Mike prints this, writes on it, staples the
+          vendor's receipt to it and files the pair. A sheet that rearranged
+          his fields would make the filing cabinet inconsistent for no gain.
+
+          Reproduced as HTML and CSS — NOT as text positioned over a photograph
+          of the form. A scanned background prints grey, cannot reflow when an
+          order runs to two pages, and would carry somebody's handwriting from
+          2019 onto every purchase order this company issues.
+
+          THE RULE FOR EVERY FIELD: print what PCC knows, and leave a RULED
+          LINE where it does not. A blank line is an invitation to write; an
+          invented value is a lie on a document that goes to a supplier. Three
+          fields are deliberately blank, and each is marked below.
+      ------------------------------------------------------------------ */}
+      <div className="print-sheet mx-auto max-w-3xl border border-slate-300 bg-white p-8">
+        {/* --- header ------------------------------------------------------ */}
+        <div className="flex items-start justify-between border-b-2 border-slate-800 pb-3">
           <div className="flex items-start gap-3">
-            <BrandMark size={40} />
+            <BrandMark size={44} />
             <div>
-              <div className="text-lg font-semibold">{view.org.name}</div>
-              <div className="text-xs text-slate-600">{view.org.address}</div>
-              <div className="text-xs text-slate-600">{view.org.phone}</div>
+              <div className="text-xl font-bold tracking-tight">{view.org.name}</div>
+              {view.org.address ? <div className="text-xs text-slate-700">{view.org.address}</div> : null}
+              {view.org.phone ? <div className="text-xs text-slate-700">{view.org.phone}</div> : null}
             </div>
           </div>
           <div className="text-right">
-            <div className="text-lg font-semibold tracking-wide">PURCHASE ORDER</div>
-            <div className="text-sm font-medium">{view.purchaseOrder.poNumber}</div>
-            <div className="text-xs text-slate-600">Issued {String(view.purchaseOrder.generatedAt).slice(0, 10)}</div>
+            <div className="text-xl font-bold uppercase tracking-widest">Purchase Order</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums">{view.purchaseOrder.poNumber}</div>
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-2 gap-6 text-sm">
+        {/* --- vendor / date / job ------------------------------------------
+            The form's top block, in the order it appears on the paper. */}
+        <div className="mt-4 grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
+          <Field label="Vendor" value={view.vendor?.name} wide>
+            {view.vendorContact?.name ? <div className="text-xs text-slate-700">Attn: {view.vendorContact.name}</div> : null}
+            {view.vendor?.address ? <div className="text-xs text-slate-700">{view.vendor.address}</div> : null}
+            {view.vendor?.phone ? <div className="text-xs text-slate-700">{view.vendor.phone}</div> : null}
+            {view.vendor?.accountNumber ? (
+              <div className="text-xs text-slate-700">Account {view.vendor.accountNumber}</div>
+            ) : null}
+          </Field>
+          <div className="space-y-3">
+            <Field label="Date" value={String(view.purchaseOrder.generatedAt).slice(0, 10)} />
+            <Field label="Requisitioned by" value={view.request.requestorName} />
+          </div>
+
+          <Field label="Job name" value={job?.name ?? null} />
+          <Field label="Job number" value={view.request.jobNumber} />
+          <Field
+            label="Job address"
+            value={job?.site_address ?? job?.siteAddress ?? view.request.deliveryAddress ?? null}
+            wide
+          />
+        </div>
+
+        {/* --- the four boxes ----------------------------------------------
+            TAXABLE is the one field on this form PCC genuinely does not know:
+            nothing in purchasing records a tax status, and guessing "No"
+            because it is the common case would put a wrong answer on a
+            document the office relies on. Printed as two boxes to tick.
+
+            SHIP TO is known — the destination's KIND is what the workshop
+            being a real place buys us — so it prints ticked. WHEN SHIP is the
+            need-by date. SHIP VIA is known only when the request said pick-up. */}
+        <div className="mt-4 grid grid-cols-4 gap-x-6 gap-y-2 border-y border-slate-400 py-3 text-sm">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Vendor</div>
-            {/* He chooses the vendor himself, often at the counter or on the
-                phone. When the record does not name one, the sheet prints a
-                RULED LINE to write on rather than the word "none" — the paper
-                has to work whether or not the database was told. */}
-            {view.vendor?.name ? (
-              <div>{view.vendor.name}</div>
-            ) : (
-              <div className="mt-4 border-b border-slate-400" style={{ minWidth: '14rem' }} aria-label="Vendor (write in)" />
-            )}
-            {view.vendorContact ? <div>Attn: {view.vendorContact.name}</div> : null}
-            {view.vendorContact ? <div className="text-slate-600">{view.vendorContact.email}</div> : null}
-            <div className="text-slate-600">{view.vendor.phone}</div>
-            <div className="text-slate-600">{view.vendor.address}</div>
-            {view.vendor.accountNumber ? <div className="text-slate-600">Account {view.vendor.accountNumber}</div> : null}
+            <FieldLabel>Taxable</FieldLabel>
+            <div className="mt-1 flex gap-4">
+              <Tick label="Yes" checked={null} />
+              <Tick label="No" checked={null} />
+            </div>
           </div>
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              {view.request.deliveryMethod === 'PICKUP' ? 'Pick up from' : 'Deliver to'}
+            <FieldLabel>Ship to</FieldLabel>
+            <div className="mt-1 flex gap-4">
+              <Tick label="Job" checked={shipTo === 'JOB'} />
+              <Tick label="Shop" checked={shipTo === 'SHOP'} />
             </div>
-            <div>{view.request.deliveryLocationName}</div>
-            <div className="text-slate-600">{view.request.deliveryAddress}</div>
-            <div className="mt-1">
-              Needed by {view.request.needByDate} at {view.request.needByTime}
-            </div>
-            <div className="text-slate-600">Requested by {view.request.requestorName}</div>
           </div>
+          <Field
+            label="When ship"
+            value={view.request.needByDate ? `${view.request.needByDate}${view.request.needByTime ? ` ${view.request.needByTime}` : ''}` : null}
+          />
+          {/* PICKUP is a fact the request records. A delivery's carrier is not
+              — PCC never asks for one — so it prints a line to write on. */}
+          <Field label="Ship via" value={view.request.deliveryMethod === 'PICKUP' ? 'Will call / pick up' : null} />
         </div>
 
-        <div className="mt-6 border-t border-slate-200 pt-3 text-sm">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <div className="font-medium">
-              Job {view.request.jobNumber}
-              {job?.name ? ` — ${job.name}` : ''}
-            </div>
-            <div className="text-slate-600">Request {view.request.requestNumber}</div>
-          </div>
-          {job?.site_address ?? job?.siteAddress ? (
-            <div className="text-slate-600">{job.site_address ?? job.siteAddress}</div>
-          ) : null}
-        </div>
-
-        <table className="mt-4 min-w-full text-left text-sm">
-          <thead className="border-y border-slate-300 text-xs uppercase text-slate-600">
+        {/* --- the lines ----------------------------------------------------
+            QTY RECEIVED is on the paper because somebody writes it at the
+            tailgate. PCC prints what it has already recorded and leaves the
+            rest ruled, so the same sheet works before and after the delivery. */}
+        <table className="mt-4 w-full text-left text-sm">
+          <thead className="border-y border-slate-800 text-[11px] uppercase tracking-wide">
             <tr>
-              <th className="py-2 pr-2">#</th>
-              <th className="py-2 pr-2">Description</th>
-              <th className="py-2 pr-2 text-right">Qty</th>
-              <th className="py-2 pr-2">Unit</th>
-              {showCosts ? <th className="py-2 pr-2 text-right">Unit cost</th> : null}
-              {showCosts ? <th className="py-2 text-right">Line total</th> : null}
+              <th className="w-16 py-1.5 pr-2 text-right">Qty ord.</th>
+              <th className="w-16 py-1.5 pr-2 text-right">Qty rec.</th>
+              <th className="py-1.5 pr-2">Stock no. / Description</th>
+              {showCosts ? <th className="w-24 py-1.5 pr-2 text-right">Unit price</th> : null}
+              {showCosts ? <th className="w-24 py-1.5 text-right">Total</th> : null}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {view.items.map((i: any) => (
-              <tr key={i.lineNo}>
-                <td className="py-2 pr-2">{i.lineNo}</td>
-                <td className="py-2 pr-2">
+              <tr key={i.lineNo} className="border-b border-slate-200 align-top">
+                <td className="py-1.5 pr-2 text-right tabular-nums">
+                  {formatQty(i.finalOrderQty)}
+                  {i.unit ? <span className="ml-0.5 text-[11px] text-slate-600">{i.unit}</span> : null}
+                </td>
+                <td className="py-1.5 pr-2 text-right tabular-nums">
+                  {Number(i.receivedQty ?? 0) > 0 ? (
+                    formatQty(i.receivedQty)
+                  ) : (
+                    <span className="inline-block w-10 border-b border-slate-400">&nbsp;</span>
+                  )}
+                </td>
+                <td className="py-1.5 pr-2">
+                  {i.stockNumber ? <span className="font-medium tabular-nums">{i.stockNumber} · </span> : null}
                   {i.description}
                   {i.substituteFor ? (
-                    <span className="block text-xs text-slate-500">substitute for: {i.substituteFor}</span>
+                    <span className="block text-[11px] text-slate-600">substitute for: {i.substituteFor}</span>
                   ) : null}
                   {i.expectedArrivalDate ? (
-                    <span className="block text-xs text-slate-500">expected {i.expectedArrivalDate}</span>
+                    <span className="block text-[11px] text-slate-600">expected {i.expectedArrivalDate}</span>
                   ) : null}
                 </td>
-                <td className="py-2 pr-2 text-right tabular-nums">{formatQty(i.finalOrderQty)}</td>
-                <td className="py-2 pr-2">{i.unit}</td>
-                {showCosts ? <td className="py-2 pr-2 text-right tabular-nums">{formatMoney(i.estimatedUnitCostCents)}</td> : null}
-                {showCosts ? <td className="py-2 text-right tabular-nums">{formatMoney(i.lineTotalCents)}</td> : null}
+                {showCosts ? (
+                  <td className="py-1.5 pr-2 text-right tabular-nums">{formatMoney(i.estimatedUnitCostCents)}</td>
+                ) : null}
+                {showCosts ? (
+                  <td className="py-1.5 text-right tabular-nums">{formatMoney(i.lineTotalCents)}</td>
+                ) : null}
+              </tr>
+            ))}
+            {/* A few ruled lines, because material gets added at the counter
+                and the paper has to accommodate it. */}
+            {BLANK_LINES.map((n) => (
+              <tr key={`blank-${n}`} className="border-b border-slate-200">
+                <td className="py-2.5">&nbsp;</td>
+                <td />
+                <td />
+                {showCosts ? <td /> : null}
+                {showCosts ? <td /> : null}
               </tr>
             ))}
           </tbody>
           {showCosts ? (
             <tfoot>
-              <tr className="border-t border-slate-300">
-                <td colSpan={5} className="py-2 pr-2 text-right font-semibold">
-                  Estimated total
+              <tr className="border-t-2 border-slate-800">
+                <td colSpan={4} className="py-2 pr-2 text-right font-semibold">
+                  Total
                 </td>
-                <td className="py-2 text-right font-semibold tabular-nums">
+                <td className="py-2 text-right font-bold tabular-nums">
                   {formatMoney(view.purchaseOrder.estimatedTotalCents)}
                 </td>
               </tr>
@@ -191,36 +253,102 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
         </table>
 
         {view.purchaseOrder.notes ? (
-          <div className="mt-4 text-sm">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes</div>
-            <div>{view.purchaseOrder.notes}</div>
+          <div className="mt-3 text-sm">
+            <FieldLabel>Notes</FieldLabel>
+            <div className="whitespace-pre-line">{view.purchaseOrder.notes}</div>
           </div>
         ) : null}
 
-        {/* THE FILING BLOCK. The vendor's receipt gets stapled to this sheet and
-            the pair goes in the office file, so the paper needs somewhere to
-            write what happened. This is the part of the workflow the software
-            is not replacing, and designing for it is the point. */}
-        <div className="print-keep-together mt-8 border-t border-slate-200 pt-3">
-          <div className="grid grid-cols-3 gap-6 text-xs text-slate-600">
+        {/* --- authorisation and the filing block --------------------------
+            AUTHORIZED BY prints the approver PCC recorded, and still carries a
+            rule beneath it: the paper is signed, and a printed name is not a
+            signature. */}
+        <div className="print-keep-together mt-6 border-t border-slate-400 pt-3">
+          <div className="grid grid-cols-3 gap-6 text-xs">
             <div>
-              <div className="mb-5">Ordered by</div>
-              <div className="border-b border-slate-400" />
+              <FieldLabel>Authorized by</FieldLabel>
+              <div className="mt-3 min-h-4">{view.approver?.name ?? ''}</div>
+              <div className="border-b border-slate-500" />
             </div>
             <div>
-              <div className="mb-5">Date ordered</div>
-              <div className="border-b border-slate-400" />
+              <FieldLabel>Date ordered</FieldLabel>
+              <div className="mt-3 min-h-4">
+                {view.purchaseOrder.orderedAt ? String(view.purchaseOrder.orderedAt).slice(0, 10) : ''}
+              </div>
+              <div className="border-b border-slate-500" />
             </div>
             <div>
-              <div className="mb-5">Receipt attached</div>
-              <div className="border-b border-slate-400" />
+              <FieldLabel>Receipt attached</FieldLabel>
+              <div className="mt-3 min-h-4">&nbsp;</div>
+              <div className="border-b border-slate-500" />
             </div>
           </div>
-          <p className="mt-4 text-xs text-slate-600">
-            Reference the PO number on all packing slips and invoices.
+
+          <p className="mt-4 border border-slate-400 p-2 text-[11px] leading-snug text-slate-800">
+            <strong>Reference this purchase order number on all packing slips and invoices.</strong> Invoices without
+            a purchase order number may be returned unpaid. Deliver only the quantities listed above; any substitution
+            or back-order must be agreed with purchasing before shipping.
+          </p>
+          <p className="mt-2 text-[11px] text-slate-600">
+            PCC request {view.request.requestNumber}
           </p>
         </div>
       </div>
     </div>
   );
 }
+
+/** A label in the form's vocabulary: small, upright, above its value. */
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-600">{children}</span>;
+}
+
+/**
+ * One field on the form.
+ *
+ * An absent value draws a RULED LINE rather than an em-dash or the word
+ * "none". This sheet is filled in by hand as often as it is read, and a line is
+ * where somebody writes; a dash says the question was answered and the answer
+ * was nothing.
+ */
+function Field({
+  label,
+  value,
+  wide = false,
+  children,
+}: {
+  label: string;
+  value?: string | null;
+  wide?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className={wide ? 'col-span-1' : undefined}>
+      <FieldLabel>{label}</FieldLabel>
+      {value ? (
+        <div className="font-medium">{value}</div>
+      ) : (
+        <div className="mt-3 border-b border-slate-500" aria-label={`${label} (write in)`} />
+      )}
+      {children}
+    </div>
+  );
+}
+
+/**
+ * A tick box. `checked === null` means PCC does not know — the box prints
+ * empty for a person to mark, which is what the paper form has always been for.
+ */
+function Tick({ label, checked }: { label: string; checked: boolean | null }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="inline-flex h-3.5 w-3.5 items-center justify-center border border-slate-700 text-[10px] font-bold leading-none">
+        {checked ? 'X' : ''}
+      </span>
+      <span className="text-xs">{label}</span>
+    </span>
+  );
+}
+
+/** Ruled lines under the printed material, for what gets added at the counter. */
+const BLANK_LINES = [1, 2, 3];

@@ -33,6 +33,7 @@ import type {
 } from '../../domain/repositories.ts';
 import { formatPoNumber } from '../../domain/po-number.mjs';
 import { lineOutstandingQty } from '../../domain/numbers.mjs';
+import { itemSummary } from '../../domain/entities.mjs';
 import { byCatalogUsefulness, matchCatalog, normalizeDescription } from '../../domain/catalog.mjs';
 
 const uuid = () => randomUUID();
@@ -107,6 +108,9 @@ function toRequest(row: any): PurchaseRequestRecord {
           itemCount: Number(row.item_count ?? 0),
           workshopStockQty: Number(row.stock_qty ?? 0),
           finalOrderQty: Number(row.final_qty ?? 0),
+          // Built by the SAME domain function the Supabase provider uses, so a
+          // row reads the same whichever provider loaded it.
+          itemSummary: itemSummary(row.first_item_description, Number(row.item_count ?? 0)),
         }),
   } as PurchaseRequestRecord;
 }
@@ -130,6 +134,11 @@ const LIST_SELECT = `
          (select coalesce(sum(i.requested_qty), 0) from purchase_request_items i
            where i.request_id = r.id) as requested_qty,
          (select count(*) from purchase_request_items i where i.request_id = r.id) as item_count,
+         -- What was actually asked for, so a list row can say so and a search
+         -- for "MC cable" has something to match. The lowest line number is
+         -- the one the requester typed first.
+         (select i.description from purchase_request_items i
+           where i.request_id = r.id order by i.line_no limit 1) as first_item_description,
          (select coalesce(sum(ri.usable_stock_qty), 0) from purchase_review_items ri
             join purchase_reviews rv on rv.id = ri.review_id where rv.request_id = r.id) as stock_qty,
          (select coalesce(sum(ri.final_order_qty), 0) from purchase_review_items ri
@@ -524,7 +533,18 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
       const approver = db.prepare('select * from users where id = ?').get(po.approver_id) as any;
       const request = db.prepare('select * from purchase_requests where id = ?').get(po.request_id) as any;
       const requestor = db.prepare('select * from users where id = ?').get(request.requestor_id) as any;
-      const items = db.prepare('select * from purchase_order_items where purchase_order_id = ? order by line_no').all(purchaseOrderId) as any[];
+      // The company's paper purchase order has a "Stock No. / Description"
+      // column and a "Ship To: Job / Shop" box. Both facts already exist —
+      // the stock number on the REQUEST line the order line came from, and the
+      // destination's kind — they were simply never carried into this view.
+      const items = db.prepare(
+        `select oi.*, ri.stock_number,
+                (select coalesce(sum(rc.received_qty), 0) from purchase_receipt_items rc
+                  where rc.purchase_order_item_id = oi.id) as received_qty
+           from purchase_order_items oi
+           join purchase_request_items ri on ri.id = oi.request_item_id
+          where oi.purchase_order_id = ? order by oi.line_no`,
+      ).all(purchaseOrderId) as any[];
 
       return {
         org: { id: org.id, name: org.name, phone: org.phone, address: org.address },
@@ -539,13 +559,16 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
           id: request.id, requestNumber: request.request_number, jobNumber: request.job_number,
           needByDate: request.need_by_date, needByTime: request.need_by_time,
           deliveryMethod: request.delivery_method, deliveryLocationName: location?.name ?? '',
+          deliveryLocationKind: location?.kind ?? null,
           deliveryAddress: location?.address ?? '', requestorName: requestor?.full_name ?? '',
           reason: request.reason ?? '', notes: request.notes ?? '',
         },
         approver: { id: approver?.id, name: approver?.full_name ?? '' },
         items: items.map((i) => ({
           lineNo: i.line_no, description: i.description, substituteFor: i.substitute_description,
+          stockNumber: i.stock_number ?? null,
           finalOrderQty: Number(i.order_qty), unit: i.unit,
+          receivedQty: Number(i.received_qty ?? 0),
           estimatedUnitCostCents: Number(i.unit_cost_cents), lineTotalCents: Number(i.line_total_cents),
           expectedArrivalDate: i.expected_arrival_date,
         })),
