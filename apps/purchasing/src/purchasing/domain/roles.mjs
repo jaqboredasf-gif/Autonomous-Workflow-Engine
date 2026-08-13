@@ -382,9 +382,33 @@ export const REQUESTOR_FORBIDDEN_FIELDS = [
   'priority', // removed by design — replaced by need_by_date + need_by_time
 ];
 
-/** Effective permission set for a user. */
+/**
+ * Effective permission set for a user.
+ *
+ * TWO SOURCES, and the order matters.
+ *
+ * If the actor arrives carrying `capabilities`, those are used and the tables
+ * below are not consulted. That is an ORGANIZATION-RESOLVED set: the roles an
+ * organization defines, and what each one may do, are its own configuration
+ * (capability/purchasing/authorization.mjs), resolved against the caller's
+ * membership before the actor reaches any use case. A business with no workshop
+ * can name its approver whatever it likes; purchasing never learns the name.
+ *
+ * Otherwise the built-in tables apply, unchanged. That fallback is not
+ * transitional scaffolding — it is the sensible default for a deployment that
+ * has not been given a profile, and it is what made this change safe to land
+ * without touching a single use case.
+ *
+ * `ROLE_PERMISSIONS` remains the built-in vocabulary, and the deploying
+ * organization's profile expresses the same thing explicitly. A test asserts
+ * the two produce identical capability sets for every role, so the default and
+ * the profile cannot drift apart.
+ */
 export function permissionsFor(user) {
-  if (!user || !Array.isArray(user.roles)) return [];
+  if (!user) return [];
+  if (Array.isArray(user.capabilities)) return [...new Set(user.capabilities)].sort();
+  if (!Array.isArray(user.roles)) return [];
+
   const set = new Set();
   for (const role of user.roles) {
     for (const p of ROLE_PERMISSIONS[role] ?? []) set.add(p);
