@@ -26,6 +26,7 @@ import { getDb } from './infrastructure/sqlite/database.ts';
 import { builtinIntegrationProviders } from './infrastructure/providers/builtin.ts';
 import { authAdapter } from './infrastructure/auth/index.ts';
 import { loadConfig } from './infrastructure/env.ts';
+import { poNumberStrategyFor } from './organization/po-numbering.mjs';
 
 /**
  * Which repositories are bound. The Supabase context is request-scoped — it
@@ -65,7 +66,12 @@ export function purchasingContext(db: DatabaseSync = getDb(), now?: string): Pur
     // catalogue says about "last ordered from" and "last price" is read from
     // here rather than from a live join.
     history: sqlitePurchaseHistoryRepository(db),
-    poNumbers: sqlitePoNumberAllocator(db),
+    // THE NUMBERING SEAM, BOUND HERE AND NOWHERE ELSE. Purchasing above this
+    // line asks for a number; which rule produces it is this file's decision,
+    // taken from the organization's profile id. An id nobody has implemented
+    // throws on the way up — the alternative is issuing purchase orders with
+    // invented numbers on them, which is not a smaller failure.
+    poNumbers: sqlitePoNumberAllocator(db, poNumberStrategyFor(loadConfig().poNumbering)),
     identity: identityAdapter(db),
     // Credentials: Supabase Auth in production, the local scrypt store for the
     // pilot. Chosen once, here, by configuration.

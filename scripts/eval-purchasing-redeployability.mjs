@@ -166,7 +166,7 @@ console.log('--- extraction debt, stated rather than implied -----------------')
   const score = extractionScore();
   note(`profile fields honoured by the code: ${score.honoured} fully, ${score.partial} partially, ${score.hardCoded} hard-coded (${score.percent}%)`);
   check(score.total === Object.keys(PROFILE_FIELDS).length, 'every profile field is scored');
-  check(score.percent >= 65, `at least two thirds of the profile is honoured or nearly so (currently ${score.percent}%)`);
+  check(score.percent >= 70, `at least seventy percent of the profile is honoured or nearly so (currently ${score.percent}%)`);
   check(score.hardCoded > 0, 'and the suite admits there is still hard-coded behaviour');
 
   const debt = extractionDebt(org002TradesProfile);
@@ -182,7 +182,10 @@ console.log('--- extraction debt, stated rather than implied -----------------')
   check(!paths.includes('roles.orderers'), 'as are ordering roles');
   check(!paths.includes('roles.receivers'), 'and receiving roles');
 
-  check(paths.includes('purchasing.po_numbering'), 'PO numbering shape is not yet configurable');
+  // EXTRACTED THIS SESSION, and asserted the other way round for the same
+  // reason as the role fields: the profile now NAMES the numbering rule and the
+  // composition root selects an implementation for it.
+  check(!paths.includes('purchasing.po_numbering'), 'PO numbering IS selected by the profile (extracted)');
   check(paths.includes('purchasing.quantity_rule'), 'the quantity rule is fixed (arguably correctly)');
   check(paths.includes('documents.po_template'), 'the document template is not yet configurable');
 }

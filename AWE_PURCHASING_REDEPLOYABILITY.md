@@ -1,5 +1,11 @@
 # AWE Purchasing — redeployability scorecard
 
+> **Superseded in part.** This is the scorecard as measured before the role-vocabulary and
+> PO-numbering extractions. Rows 4 and 7 have since moved to CONFIGURABLE; the current numbers and
+> the current customer-#2 change surface are in **`AWE_PURCHASING_CAPABILITY_STATUS.md`**. Kept
+> because the per-capability evidence and the "smallest extraction" column are still the best
+> statement of what each coupling actually was.
+
 **Measured, not estimated.** Every row is backed by `scripts/eval-purchasing-redeployability.mjs`
 (26 checks) reading the actual repository, or by a named file.
 

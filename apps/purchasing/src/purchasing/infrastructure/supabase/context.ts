@@ -19,6 +19,7 @@ import { emailDraftAdapter, pdfRenderer, systemClock } from '../adapters.ts';
 import { builtinIntegrationProviders } from '../providers/builtin.ts';
 import { requestClient, privilegedClient, unwrap, type SupabaseHandles } from './client.ts';
 import { TABLES, money, qty, toActor } from './mappers.ts';
+import { poNumberStrategyFor } from '../../organization/po-numbering.mjs';
 import {
   supabaseApprovalRepository, supabaseEmailDraftRepository, supabaseInventoryRepository,
   supabaseOrderRepository, supabasePoNumberAllocator, supabasePurchaseHistoryRepository,
@@ -388,7 +389,10 @@ export function supabasePurchasingContext(
     // "last ordered from" and "last price" read from here, so a renamed vendor
     // cannot rewrite what a past purchase says.
     history: supabasePurchaseHistoryRepository(handles),
-    poNumbers: supabasePoNumberAllocator(handles),
+    // Same seam as the local composition root, same source of truth: the
+    // organization's profile id decides the rule, and both providers now build
+    // the identifier with the same function.
+    poNumbers: supabasePoNumberAllocator(handles, poNumberStrategyFor(config.poNumbering, handles.orgId)),
     identity: identity(handles, config),
     // Credentials stay with the AuthPort; the Supabase auth adapter already
     // exists and is selected by the same configuration.

@@ -1,42 +1,34 @@
 // ---------------------------------------------------------------------------
-// po-number.mjs — the Lippolis purchase order numbering rule, and NOTHING else.
+// po-number.mjs — the parts of purchase order numbering that belong to
+// PURCHASING rather than to any particular organization.
 //
-// THE RULE, from Mike and Paul (2026-08-12):
+// WHAT LIVES HERE: vendor codes, the job segment sanitizer, where a counter
+// starts, and the rule for lining a counter up with a paper book. Every one of
+// these is true of purchasing wherever it runs — a vendor code has to be safe
+// to type into an invoice and a filename no matter what shape the finished
+// identifier takes, and a counter starts at one because a pair nothing has been
+// issued against has issued nothing.
 //
-//     job number + vendor + sequential number
+// WHAT NO LONGER LIVES HERE: the SHAPE of the identifier. How the components
+// are assembled — job + vendor + sequence, joined by a hyphen — is one
+// organization's rule, and it moved to organization/po-numbering.mjs behind the
+// interface in domain/po-number-strategy.mjs. Purchasing above that interface
+// does not know a number contains a job.
 //
-// and the sequential number is scoped to the PAIR. Job 1234 with Cooper counts
-// 1, 2, 3. Job 1234 with Graybar starts again at 1. Job 5678 with Cooper starts
-// again at 1. There is no company-wide counter, and there never was one — the
-// single per-organization sequence this module used to format (LE-52901…) was a
-// placeholder standing in for an answer nobody had yet.
-//
-//     1234-COOPER-1
-//     1234-COOPER-2
-//     1234-GRAYBAR-1
-//     5678-COOPER-1
-//
-// WHAT LIVES HERE: the shape of the identifier, and the two normalizations that
-// make its components safe to put in one. Pure. Shared by both providers, by
-// the PDF, by the vendor email and by the screens, so there is exactly one
-// answer to "what is this purchase order called".
-//
-// WHAT DOES NOT LIVE HERE: the number itself. The sequence is ALLOCATED by the
-// database, inside the transaction that writes the purchase order — an upsert
-// that increments and returns in one statement (SQLite) or the same under a row
-// lock (Postgres). A counter in application code cannot be made safe against
-// two people pressing Approve in the same second, so there isn't one.
+// WHAT HAS NEVER LIVED HERE: the number itself. The sequence is ALLOCATED by
+// the database, inside the transaction that writes the purchase order — an
+// upsert that increments and returns in one statement (SQLite) or the same
+// under a row lock (Postgres). A counter in application code cannot be made
+// safe against two people pressing Approve in the same second, so there isn't
+// one, and no strategy is permitted to invent one.
 // ---------------------------------------------------------------------------
 
-/** The separator between the three components. Stakeholder-established. */
-export const PO_NUMBER_SEPARATOR = '-';
-
 /**
- * The sequence every (job, vendor) pair begins at. One, not zero, and not a
- * configured starting point: a pair PCC has never issued against has issued
- * nothing. Where the office has already written paper purchase orders for a
- * pair, an administrator initializes that pair explicitly — see
- * application/administration.ts, `initializePoSequence`.
+ * The value every counter begins at, whatever the organization's rule scopes
+ * that counter to. One, not zero, and not a configured starting point: a scope
+ * PCC has never issued against has issued nothing. Where the office has already
+ * written purchase orders on paper, an administrator initializes that scope
+ * explicitly — see application/administration.ts, `initializePoSequence`.
  */
 export const FIRST_SEQUENCE = 1;
 
@@ -72,14 +64,15 @@ export function normalizeVendorCode(name) {
 }
 
 /**
- * The job's identifier as it appears in a purchase order number.
+ * A job number, made safe to carry inside an identifier and to key a counter
+ * on. Used to compare a stored job number against a counter's scope, whether or
+ * not the organization's rule puts the job in the number at all.
  *
  * Lippolis job numbers are already identifier-shaped ("1234", "24-118"), and the
  * hyphen inside "24-118" is theirs — it is preserved rather than stripped,
- * because 24-118 is what is written on the drawing. That makes the separator
- * ambiguous to the eye but not to the parser: a vendor code can never contain a
- * hyphen, so `parsePoNumber` splits from the RIGHT and the job takes what is
- * left. Everything else — spaces, slashes, periods — is removed.
+ * because 24-118 is what is written on the drawing. Everything else — spaces,
+ * slashes, periods — is removed. A strategy that uses this as part of an
+ * identifier is responsible for staying able to read its own output back.
  */
 export function normalizeJobSegment(jobNumber) {
   return String(jobNumber ?? '')
@@ -89,53 +82,6 @@ export function normalizeJobSegment(jobNumber) {
     .replace(/[^A-Z0-9-]/g, '')
     .replace(/-{2,}/g, '-')
     .replace(/^-+|-+$/g, '');
-}
-
-/**
- * THE ONE PLACE A PURCHASE ORDER NUMBER IS BUILT.
- *
- * Nothing else in the codebase concatenates these three components — the PDF,
- * the email draft, the queue, the receipt screen and the file name all read the
- * stored `po_number` that this produced once, at issuance.
- *
- * No zero-padding: `1234-COOPER-1`, not `1234-COOPER-0001`. The examples came
- * from the people who write these by hand and they are unpadded.
- */
-export function formatPoNumber({ jobNumber, vendorCode, sequence }) {
-  const job = normalizeJobSegment(jobNumber);
-  const code = String(vendorCode ?? '').toUpperCase();
-  const n = Number(sequence);
-
-  if (!job) throw new Error(`a purchase order number needs a job number (got ${JSON.stringify(jobNumber)})`);
-  if (!isValidVendorCode(code)) throw new Error(`invalid vendor code for a purchase order number: ${JSON.stringify(vendorCode)}`);
-  if (!Number.isSafeInteger(n) || n < FIRST_SEQUENCE) throw new Error(`invalid PO sequence value: ${sequence}`);
-
-  return `${job}${PO_NUMBER_SEPARATOR}${code}${PO_NUMBER_SEPARATOR}${n}`;
-}
-
-/**
- * Read a formatted number back into its components — for audit, for the legacy
- * import, and for an administrator typing "what did we last send Cooper on this
- * job" into a box.
- *
- * Split from the right, because the JOB may contain hyphens and the vendor code
- * may not. Returns null rather than throwing: this parses input a human typed.
- */
-export function parsePoNumber(poNumber) {
-  const text = String(poNumber ?? '').trim().toUpperCase();
-  const lastDash = text.lastIndexOf(PO_NUMBER_SEPARATOR);
-  if (lastDash <= 0) return null;
-  const secondDash = text.lastIndexOf(PO_NUMBER_SEPARATOR, lastDash - 1);
-  if (secondDash <= 0) return null;
-
-  const jobNumber = text.slice(0, secondDash);
-  const vendorCode = text.slice(secondDash + 1, lastDash);
-  const digits = text.slice(lastDash + 1);
-
-  if (!jobNumber || !isValidVendorCode(vendorCode) || !/^\d+$/.test(digits)) return null;
-  const sequence = Number(digits);
-  if (!Number.isSafeInteger(sequence) || sequence < FIRST_SEQUENCE) return null;
-  return { jobNumber, vendorCode, sequence };
 }
 
 export function isValidVendorCode(code) {

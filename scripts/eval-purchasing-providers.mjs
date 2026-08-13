@@ -47,6 +47,13 @@ console.log('--- repository shape parity ------------------------------------');
 const handles = { db: new Proxy({}, { get: () => () => {} }), privileged: () => ({}), orgId: 'org' };
 const fakeDb = new Proxy({}, { get: () => () => ({}) });
 
+// The numbering allocator takes the organization's strategy as its second
+// argument on both providers — the seam is part of the parity, not an exception
+// to it.
+const strategy = (await import(pathToFileURL(join(APP, 'organization', 'po-numbering.mjs')).href)).JOB_VENDOR_SEQUENCE;
+
+const EXTRA_ARGS = { poNumbers: [strategy] };
+
 const PAIRS = [
   ['request', sqlite.sqliteRequestRepository, supabase.supabaseRequestRepository],
   ['review', sqlite.sqliteReviewRepository, supabase.supabaseReviewRepository],
@@ -65,8 +72,9 @@ const PAIRS = [
 ];
 
 for (const [name, localFactory, remoteFactory] of PAIRS) {
-  const local = localFactory(fakeDb);
-  const remote = remoteFactory(handles);
+  const extra = EXTRA_ARGS[name] ?? [];
+  const local = localFactory(fakeDb, ...extra);
+  const remote = remoteFactory(handles, ...extra);
 
   const localMethods = Object.keys(local).sort();
   const remoteMethods = Object.keys(remote).sort();
@@ -78,6 +86,19 @@ for (const [name, localFactory, remoteFactory] of PAIRS) {
       remote[method].length === local[method].length,
       `${name}.${method} takes the same arguments (local ${local[method].length}, supabase ${remote[method]?.length})`,
     );
+    // ONE NAMED EXEMPTION, AND IT IS NOT A LOOPHOLE. `poNumbers.preview`
+    // formats a number that has not been allocated, for a screen to show a
+    // person before they commit — it reads nothing, writes nothing and touches
+    // no store, so making it async would be decoration pretending to be a
+    // boundary. Both providers must still agree that it is synchronous, which
+    // is asserted rather than skipped.
+    if (name === 'poNumbers' && method === 'preview') {
+      check(
+        local[method].constructor.name !== 'AsyncFunction' && remote[method].constructor.name !== 'AsyncFunction',
+        `${name}.${method} is synchronous on both providers — it formats, it does not persist`,
+      );
+      continue;
+    }
     check(
       remote[method].constructor.name === 'AsyncFunction',
       `${name}.${method} is async — a repository that answers synchronously is not a boundary`,

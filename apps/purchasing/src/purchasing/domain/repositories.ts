@@ -397,11 +397,33 @@ export type PoNumberScope = {
  * transactional storage or it is not safe. The implementation holds the write
  * lock; nothing above this interface may invent a number.
  *
- * The scope is (org, job, vendor) because that is how Lippolis numbers — each
- * pair counts 1, 2, 3 independently of every other pair.
+ * The scope carries (org, job, vendor). WHICH of those the counter actually
+ * counts within is the organization's decision, made by its PO number strategy
+ * (`domain/po-number-strategy.mjs`) — an implementation asks the strategy for
+ * the counter key rather than assuming the pair.
  */
+/**
+ * The organization's numbering rule, as purchasing sees it. Constructed and
+ * validated by `definePoNumberStrategy` in `domain/po-number-strategy.mjs`;
+ * this is only its shape, so TypeScript callers get checked.
+ */
+export interface PoNumberStrategy {
+  readonly id: string;
+  sequenceScope(scope: PoNumberScope): { jobKey?: string | null; vendorKey: string };
+  format(components: {
+    orgId: Id; jobNumber: string; jobKey: string; vendorId: Id; vendorCode: string; sequence: number;
+  }): string;
+}
+
 export interface PoNumberAllocator {
   allocate(scope: PoNumberScope, now: string): Promise<{ poNumber: string; sequenceValue: number }>;
+  /**
+   * What a number WOULD look like at a given sequence value — for the
+   * administration screen, which has to show a person the number they are about
+   * to line the counter up with. Formatting only: nothing is allocated, nothing
+   * is written, and the value is never used as an order's number.
+   */
+  preview(scope: PoNumberScope, sequence: number): string;
   /**
    * The highest sequence a purchase order actually CARRIES for a pair, or 0.
    * Read from the issued orders rather than from the counter, because it is

@@ -12,18 +12,18 @@ import { emit, must, PurchasingError, type PurchasingContext } from './context.t
 import type { Actor } from './ports.ts';
 import { events } from '../domain/events.mjs';
 import {
-  FIRST_SEQUENCE, formatPoNumber, normalizeJobSegment, planSequenceInitialization, validateVendorCode,
+  FIRST_SEQUENCE, normalizeJobSegment, planSequenceInitialization, validateVendorCode,
 } from '../domain/po-number.mjs';
 import { isReservedLocation, ROLES, WORKSHOP_LOCATION } from '../domain/roles.mjs';
 
 // ===========================================================================
 // PURCHASE ORDER NUMBERING.
 //
-// Lippolis numbers a purchase order job + vendor + sequence, and the sequence
-// counts within the PAIR: 1234-COOPER-1, 1234-COOPER-2, then 1234-GRAYBAR-1 and
-// 5678-COOPER-1 both starting again at 1. There is nothing to configure — no
-// prefix, no padding, no company-wide starting number — so the two use cases
-// here are the only two an administrator has:
+// The organization's numbering rule is not configured from this screen — it is
+// established once, in the organization's profile, and implemented behind
+// domain/po-number-strategy.mjs. There is no prefix, no padding and no
+// company-wide starting number to set, so the two use cases here are the only
+// two an administrator has:
 //
 //   * read what each pair stands at, and
 //   * declare where a pair ALREADY stood, because the office wrote purchase
@@ -102,7 +102,7 @@ export async function initializePoSequence(
     throw new PurchasingError(
       'sequence_already_issued',
       `PCC has already issued ${issuedSequence} purchase order number(s) for job ${jobNumber} with ${vendor.name}, ` +
-        `the most recent being ${formatPoNumber({ jobNumber, vendorCode: vendor.code, sequence: issuedSequence })}. ` +
+        `the most recent being ${ctx.poNumbers.preview({ orgId: actor.orgId, jobNumber, vendorId: vendor.id, vendorCode: String(vendor.code).toUpperCase() }, issuedSequence)}. ` +
         'Setting this pair is still possible, but it has to be deliberate — confirm that you mean to move a sequence ' +
         'that is already in use.',
     );
@@ -142,7 +142,12 @@ export async function initializePoSequence(
     issuedSequence,
     /** True when this pair was declared to have no paper history behind it. */
     declaredNew: nextValue === FIRST_SEQUENCE,
-    nextPoNumber: formatPoNumber({ jobNumber, vendorCode: vendor.code, sequence: nextValue }),
+    // Shown through the allocator, which is where the organization's numbering
+    // rule is bound. This screen does not know the shape of a number.
+    nextPoNumber: ctx.poNumbers.preview(
+      { orgId: actor.orgId, jobNumber, vendorId: vendor.id, vendorCode: String(vendor.code).toUpperCase() },
+      nextValue,
+    ),
   };
 }
 

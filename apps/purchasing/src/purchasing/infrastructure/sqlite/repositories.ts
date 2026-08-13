@@ -26,12 +26,13 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import type {
   ApprovalRepository, CatalogEntry, EmailDraftRepository, InventoryRepository,
-  ItemCatalogRepository, LineProgressRecord, PoNumberAllocator, PurchaseHistoryLineRecord,
+  ItemCatalogRepository, LineProgressRecord, PoNumberAllocator, PoNumberStrategy, PurchaseHistoryLineRecord,
   PurchaseHistoryRepository, PurchaseOrderRepository, PurchaseRequestRecord,
   PurchaseRequestRepository, ReceiptRepository, ReferenceRepository,
   RequestItemRecord, ReviewLineRecord, WorkshopReviewRepository,
 } from '../../domain/repositories.ts';
-import { assignVendorCode, FIRST_SEQUENCE, formatPoNumber, normalizeJobSegment } from '../../domain/po-number.mjs';
+import { assignVendorCode, FIRST_SEQUENCE, normalizeJobSegment } from '../../domain/po-number.mjs';
+import { poNumberFrom, requirePoNumberStrategy, sequenceKeyFor } from '../../domain/po-number-strategy.mjs';
 import { lineOutstandingQty } from '../../domain/numbers.mjs';
 import { itemSummary } from '../../domain/entities.mjs';
 import { byCatalogUsefulness, matchCatalog, normalizeDescription } from '../../domain/catalog.mjs';
@@ -623,11 +624,19 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
  * purchase orders for that pair first, an administrator initializes it — see
  * `initialize` below.
  */
-export function sqlitePoNumberAllocator(db: DatabaseSync): PoNumberAllocator {
+export function sqlitePoNumberAllocator(db: DatabaseSync, strategy: PoNumberStrategy): PoNumberAllocator {
+  // BEFORE THE CONNECTION IS EVER TOUCHED. An installation with no numbering
+  // rule fails while it is being wired up, not on the first purchase order —
+  // and certainly not by issuing one with a made-up number on it.
+  requirePoNumberStrategy(strategy);
+
   return {
     async allocate(scope, now) {
-      const job = normalizeJobSegment(scope.jobNumber);
-      if (!job) {
+      // A purchase order belongs to a job whatever the numbering rule is —
+      // `purchase_orders.job_number` is not optional — so this is purchasing's
+      // check, made before the strategy is consulted and independent of whether
+      // the job appears in the finished number.
+      if (!normalizeJobSegment(scope.jobNumber)) {
         const err: any = new Error('a purchase order needs the job number it is for');
         err.reason = 'po_job_missing';
         throw err;
@@ -637,6 +646,11 @@ export function sqlitePoNumberAllocator(db: DatabaseSync): PoNumberAllocator {
         err.reason = 'vendor_code_missing';
         throw err;
       }
+
+      // The organization's rule decides what the counter counts WITHIN. For a
+      // rule that does not count per job, `jobKey` is empty and the counter row
+      // is keyed on the vendor alone.
+      const { jobKey: job, vendorKey } = sequenceKeyFor(strategy, scope);
 
       const row = db
         .prepare(
@@ -649,27 +663,43 @@ export function sqlitePoNumberAllocator(db: DatabaseSync): PoNumberAllocator {
                  updated_at = excluded.updated_at
            returning next_value - 1 as allocated`,
         )
-        .get(scope.orgId, job, scope.vendorId, scope.vendorCode, FIRST_SEQUENCE + 1, now, now) as any;
+        .get(scope.orgId, job, vendorKey, scope.vendorCode, FIRST_SEQUENCE + 1, now, now) as any;
 
       const sequenceValue = Number(row.allocated);
+      // The organization's rule writes the identifier. `poNumberFrom` refuses a
+      // strategy that produces nothing usable, and because that happens inside
+      // the transaction the consumed sequence value rolls back with it — better
+      // than sending a supplier a blank.
       return {
-        poNumber: formatPoNumber({ jobNumber: job, vendorCode: scope.vendorCode, sequence: sequenceValue }),
+        poNumber: poNumberFrom(strategy, {
+          orgId: scope.orgId, jobNumber: scope.jobNumber, jobKey: job,
+          vendorId: scope.vendorId, vendorCode: scope.vendorCode, sequence: sequenceValue,
+        }),
         sequenceValue,
       };
     },
 
+    preview(scope, sequence) {
+      return poNumberFrom(strategy, {
+        orgId: scope.orgId, jobNumber: scope.jobNumber,
+        jobKey: sequenceKeyFor(strategy, scope).jobKey,
+        vendorId: scope.vendorId, vendorCode: scope.vendorCode, sequence,
+      });
+    },
+
     async highestIssued(scope) {
-      // Normalized in CODE rather than in the WHERE clause: purchase_orders
-      // stores the job number as the request carried it, and the counter is
-      // keyed on the normalized segment. Comparing the two raw would miss an
-      // order whose job number differed only in spacing — and missing one is
-      // how an initialization is allowed to undercut a number already issued.
-      const job = normalizeJobSegment(scope.jobNumber);
+      // Compared through the STRATEGY rather than in the WHERE clause:
+      // purchase_orders stores the job number as the request carried it, and
+      // the counter is keyed on whatever the organization's rule counts within.
+      // Comparing the two raw would miss an order whose job number differed
+      // only in spacing — and missing one is how an initialization is allowed
+      // to undercut a number already issued.
+      const { jobKey: job } = sequenceKeyFor(strategy, scope as any);
       const rows = db
         .prepare('select job_number, sequence_value from purchase_orders where org_id = ? and vendor_id = ?')
         .all(scope.orgId, scope.vendorId) as any[];
       return rows
-        .filter((row) => normalizeJobSegment(row.job_number) === job)
+        .filter((row) => sequenceKeyFor(strategy, { ...(scope as any), jobNumber: row.job_number }).jobKey === job)
         .reduce((highest, row) => Math.max(highest, Number(row.sequence_value)), 0);
     },
 
@@ -688,7 +718,7 @@ export function sqlitePoNumberAllocator(db: DatabaseSync): PoNumberAllocator {
     },
 
     async initialize(scope, nextValue, actorId, now) {
-      const job = normalizeJobSegment(scope.jobNumber);
+      const { jobKey: job, vendorKey } = sequenceKeyFor(strategy, scope);
       // Upsert, so declaring a pair that has never been ordered against creates
       // its counter. The forward-only trigger on the table refuses a value
       // below the one already there — the application checks the same thing
@@ -704,7 +734,7 @@ export function sqlitePoNumberAllocator(db: DatabaseSync): PoNumberAllocator {
                initialized_at = coalesce(po_job_vendor_sequences.initialized_at, excluded.initialized_at),
                initialized_by = excluded.initialized_by,
                updated_at = excluded.updated_at`,
-      ).run(scope.orgId, job, scope.vendorId, scope.vendorCode, nextValue, now, actorId, now, now);
+      ).run(scope.orgId, job, vendorKey, scope.vendorCode, nextValue, now, actorId, now, now);
     },
   };
 }

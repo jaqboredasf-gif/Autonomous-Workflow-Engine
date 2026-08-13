@@ -246,18 +246,23 @@ export async function validate() {
   // THE ONE PLACE THE FORMAT IS DUPLICATED, and therefore the one place it can
   // drift. `formatPoNumber` builds the number for the local provider; Postgres
   // must build it inside `next_po_number_for()`, because the allocation has to
-  // be one statement to be atomic. Two implementations of one format is a
-  // deliberate cost — so the separator, the component order and the absence of
-  // padding are asserted against the DOMAIN's own constants rather than against
-  // a string typed twice.
+  // be one statement to be atomic.
+  //
+  // THE APPLICATION NO LONGER USES THAT STRING. Since the numbering strategy
+  // seam landed, the Supabase adapter takes the sequence value the function
+  // consumed and formats it with the SAME JS function the local provider uses,
+  // so one organization's rule is one function. The SQL expression is still
+  // asserted here because `generate_purchase_order()` — the older all-in-one
+  // RPC — still writes it, and a silent divergence between the two would be a
+  // supplier receiving two differently shaped numbers from one company.
   {
     const { PO_NUMBER_SEPARATOR, formatPoNumber } =
-      await import(join(APP, 'purchasing', 'domain', 'po-number.mjs'));
+      await import(join(APP, 'purchasing', 'organization', 'po-numbering.mjs'));
     const sep = PO_NUMBER_SEPARATOR;
     const expression = `v_job || '${sep}' || v_code || '${sep}' || v_seq::text`;
     if (!allMigrations.includes(expression)) {
       bad(
-        `the Postgres allocator does not build the PO number the way domain/po-number.mjs does ` +
+        `the Postgres allocator does not build the PO number the way organization/po-numbering.mjs does ` +
         `(expected \`${expression}\`) — the two providers would issue differently formatted numbers`,
       );
     }

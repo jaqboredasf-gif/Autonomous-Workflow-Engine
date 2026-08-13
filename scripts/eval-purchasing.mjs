@@ -71,7 +71,7 @@ const {
 } = await import(join(APP, 'purchasing', 'domain', 'history.mjs'));
 const { summarize, isOverdue, attentionBand, attentionQueue } =
   await import(join(APP, 'purchasing', 'domain', 'dashboard.mjs'));
-const { parsePoNumber } = await import(join(APP, 'purchasing', 'domain', 'po-number.mjs'));
+const { parsePoNumber } = await import(join(APP, 'purchasing', 'organization', 'po-numbering.mjs'));
 // The directory use cases are not on the server facade — the screens call them
 // directly — so the harness does too.
 const ADMIN = await import(join(APP, 'purchasing', 'application', 'administration.ts'));

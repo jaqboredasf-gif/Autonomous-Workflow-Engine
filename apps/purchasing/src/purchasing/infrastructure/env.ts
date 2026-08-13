@@ -17,6 +17,18 @@ export type AppConfig = {
   authProvider: AuthProvider;
   /** Which purchasing repositories are bound. See composition.ts. */
   persistenceProvider: PersistenceProvider;
+  /**
+   * Which PO numbering rule this installation performs — the id in the
+   * organization profile's `purchasing.po_numbering`.
+   *
+   * DEFAULTED, AND THE DEFAULT IS A REAL ORGANIZATION'S RULE. This build is
+   * Lippolis's installation and `job-vendor-sequence` is their established
+   * rule, so leaving it unset keeps issuing exactly the numbers already on
+   * their suppliers' paperwork. It is NOT a generic fallback: a value naming a
+   * rule this build cannot perform is refused at startup rather than
+   * approximated, and a second installation sets this to its own profile's id.
+   */
+  poNumbering: string;
   appBaseUrl: string;
   sessionSecret: string;
   sessionTtlSeconds: number;
@@ -71,6 +83,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     authProvider,
     persistenceProvider,
+    poNumbering: (env.PCC_PO_NUMBERING ?? '').trim() || 'job-vendor-sequence',
     appBaseUrl: env.APP_BASE_URL ?? DEFAULT_APP_BASE_URL,
     sessionSecret: env.SESSION_SECRET ?? DEV_SESSION_SECRET,
     sessionTtlSeconds: Number(env.SESSION_TTL_SECONDS ?? 60 * 60 * 12),

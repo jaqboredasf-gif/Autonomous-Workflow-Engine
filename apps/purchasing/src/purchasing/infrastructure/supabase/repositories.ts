@@ -26,7 +26,7 @@
 
 import type {
   ApprovalRepository, CatalogEntry, EmailDraftRepository, InventoryRepository,
-  ItemCatalogRepository, LineProgressRecord, PoNumberAllocator, PurchaseHistoryLineRecord,
+  ItemCatalogRepository, LineProgressRecord, PoNumberAllocator, PoNumberStrategy, PurchaseHistoryLineRecord,
   PurchaseHistoryRepository, PurchaseOrderRepository, PurchaseRequestRepository,
   ReceiptRepository, ReferenceRepository, WorkshopReviewRepository,
 } from '../../domain/repositories.ts';
@@ -34,7 +34,8 @@ import type {
 // purpose: two catalogues that ordered their suggestions differently would be
 // two products. Only the read differs between providers.
 import { byCatalogUsefulness, matchCatalog, normalizeDescription } from '../../domain/catalog.mjs';
-import { assignVendorCode, normalizeJobSegment } from '../../domain/po-number.mjs';
+import { assignVendorCode } from '../../domain/po-number.mjs';
+import { poNumberFrom, requirePoNumberStrategy, sequenceKeyFor } from '../../domain/po-number-strategy.mjs';
 import { lineOutstandingQty } from '../../domain/numbers.mjs';
 import { summarizeItems } from '../../domain/entities.mjs';
 import type { SupabaseHandles } from './client.ts';
@@ -604,9 +605,23 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
  * concurrency because the DATABASE makes it safe, not because this adapter is
  * careful; this file only carries the scope across.
  */
-export function supabasePoNumberAllocator(h: SupabaseHandles): PoNumberAllocator {
+export function supabasePoNumberAllocator(h: SupabaseHandles, strategy: PoNumberStrategy): PoNumberAllocator {
+  requirePoNumberStrategy(strategy, h.orgId);
+
   return {
     async allocate(scope, _now) {
+      // THE DATABASE ALLOCATES; THE STRATEGY NAMES. `next_po_number_for()`
+      // consumes a value under a row lock and returns it, which is the part
+      // that cannot be done safely anywhere else. The identifier is then built
+      // here, by the organization's rule, so that BOTH providers have exactly
+      // one formatter and a second organization changes one JS function rather
+      // than a JS function and a migration.
+      //
+      // The function also returns a `po_number` of its own. It is deliberately
+      // ignored: it is the same string for the rule we have, it is asserted to
+      // stay that way by scripts/lib/validate-migration-0016.mjs, and it is
+      // what the legacy generate_purchase_order() RPC still uses — but it is no
+      // longer what the application issues.
       const rows = unwrap(
         await h.db.rpc('next_po_number_for', {
           p_org: scope.orgId, p_job: scope.jobNumber, p_vendor: scope.vendorId,
@@ -614,25 +629,42 @@ export function supabasePoNumberAllocator(h: SupabaseHandles): PoNumberAllocator
         'next_po_number_for',
       ) as any;
       const row = Array.isArray(rows) ? rows[0] : rows;
-      if (!row?.po_number) {
+      const sequenceValue = Number(row?.sequence_value);
+      if (!Number.isSafeInteger(sequenceValue) || sequenceValue < 1) {
         const err: any = new Error('no PO number could be allocated for this job and vendor');
         err.reason = 'po_sequence_missing';
         throw err;
       }
-      return { poNumber: String(row.po_number), sequenceValue: Number(row.sequence_value) };
+      return {
+        poNumber: poNumberFrom(strategy, {
+          orgId: scope.orgId, jobNumber: scope.jobNumber,
+          jobKey: sequenceKeyFor(strategy, scope).jobKey,
+          vendorId: scope.vendorId, vendorCode: scope.vendorCode, sequence: sequenceValue,
+        }),
+        sequenceValue,
+      };
+    },
+
+    preview(scope, sequence) {
+      return poNumberFrom(strategy, {
+        orgId: scope.orgId, jobNumber: scope.jobNumber,
+        jobKey: sequenceKeyFor(strategy, scope).jobKey,
+        vendorId: scope.vendorId, vendorCode: scope.vendorCode, sequence,
+      });
     },
 
     async highestIssued(scope) {
-      // Normalized in CODE, for the same reason as the local provider: the
-      // order stores the job number as the request carried it, and the counter
-      // is keyed on the normalized segment.
-      const job = normalizeJobSegment(scope.jobNumber);
+      // Compared through the STRATEGY, for the same reason as the local
+      // provider: the order stores the job number as the request carried it,
+      // and the counter is keyed on whatever the organization's rule counts
+      // within.
+      const { jobKey: job } = sequenceKeyFor(strategy, scope as any);
       const { data } = await h.db.from(TABLES.orders)
         .select('job_number,sequence_value')
         .eq('org_id', scope.orgId)
         .eq('vendor_id', scope.vendorId);
       return ((data ?? []) as any[])
-        .filter((row) => normalizeJobSegment(row.job_number) === job)
+        .filter((row) => sequenceKeyFor(strategy, { ...(scope as any), jobNumber: row.job_number }).jobKey === job)
         .reduce((highest, row) => Math.max(highest, Number(row.sequence_value)), 0);
     },
 

@@ -13,11 +13,20 @@
 //   3. a capability nobody holds is refused
 //   4. organization A's grants do not reach organization B's members
 //
+// And, since the numbering seam landed, four more about PO NUMBERS:
+//   5. Lippolis's numbers are byte-for-byte what they were
+//   6. an organization with a completely different rule needs no core change
+//   7. one organization's rule cannot reach another organization's counters
+//   8. an organization with no rule, or a rule this build cannot perform, is
+//      refused — it is never given a placeholder number
+//
 //   node scripts/eval-organization-provisioning.mjs
 // ---------------------------------------------------------------------------
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -30,6 +39,18 @@ const { defineAuthorizationProfile, effectiveCapabilities, withCapabilities, cap
   await import(join(CAP, 'authorization.mjs'));
 const { lippolisAuthorization } = await import(join(CAP, 'profiles', 'lippolis-authorization.mjs'));
 const { org002Authorization } = await import(join(CAP, 'profiles', 'org-002-authorization.mjs'));
+
+const PURCHASING = join(ROOT, 'apps', 'purchasing', 'src', 'purchasing');
+const { definePoNumberStrategy, requirePoNumberStrategy, poNumberFrom, sequenceKeyFor } =
+  await import(join(DOMAIN, 'po-number-strategy.mjs'));
+const { JOB_VENDOR_SEQUENCE, poNumberStrategyFor, IMPLEMENTED_IDS } =
+  await import(join(PURCHASING, 'organization', 'po-numbering.mjs'));
+const { openDatabase } = await import(join(PURCHASING, 'infrastructure', 'sqlite', 'database.ts'));
+const { sqlitePoNumberAllocator } = await import(join(PURCHASING, 'infrastructure', 'sqlite', 'repositories.ts'));
+const lippolisProfile = (await import(join(CAP, 'profiles', 'lippolis.mjs'))).lippolis
+  ?? (await import(join(CAP, 'profiles', 'lippolis.mjs'))).default;
+const org002Profile = (await import(join(CAP, 'profiles', 'org-002-trades.mjs'))).org002Trades
+  ?? (await import(join(CAP, 'profiles', 'org-002-trades.mjs'))).default;
 
 let pass = 0;
 const failures = [];
@@ -178,6 +199,230 @@ console.log('--- what the two organizations actually differ on ---------------')
   console.log(`  note: only Lippolis grants: ${diff.onlyInFirst.join(', ') || '(none)'}`);
   console.log(`  note: only org-002 grants: ${diff.onlyInSecond.join(', ') || '(none)'}`);
 }
+
+
+// ===========================================================================
+// PO NUMBERING — the second thing an organization owns.
+//
+// The role vocabulary proved that WHO may act is the organization's. This
+// proves the same for WHAT ITS PURCHASE ORDERS ARE CALLED, and it is proved the
+// hard way: against a real database, through the real allocator, with a
+// strategy defined HERE — in the test file, outside the application entirely —
+// so that "a second organization needs no core change" is demonstrated rather
+// than asserted.
+// ===========================================================================
+
+console.log('--- the profile names the rule, the strategy performs it --------');
+
+eq(lippolisProfile.purchasing.po_numbering, JOB_VENDOR_SEQUENCE.id,
+  'the Lippolis profile names the strategy this build implements');
+check(poNumberStrategyFor(lippolisProfile.purchasing.po_numbering) === JOB_VENDOR_SEQUENCE,
+  'selecting by the profile id returns the Lippolis strategy');
+
+// ---------------------------------------------------------------------------
+console.log('--- Lippolis numbers are exactly what they were -----------------');
+
+// FROZEN OUTPUT. These four strings came from Mike and Paul. If the seam
+// changed any of them it broke a supplier's paperwork, not a test.
+for (const [components, want] of [
+  [{ jobNumber: '1234', vendorCode: 'COOPER', sequence: 1 }, '1234-COOPER-1'],
+  [{ jobNumber: '1234', vendorCode: 'COOPER', sequence: 2 }, '1234-COOPER-2'],
+  [{ jobNumber: '1234', vendorCode: 'GRAYBAR', sequence: 1 }, '1234-GRAYBAR-1'],
+  [{ jobNumber: '5678', vendorCode: 'COOPER', sequence: 1 }, '5678-COOPER-1'],
+  // The job's own hyphen survives; no padding is added.
+  [{ jobNumber: '24-118', vendorCode: 'COOPER', sequence: 12 }, '24-118-COOPER-12'],
+]) {
+  eq(JOB_VENDOR_SEQUENCE.format(components), want, `Lippolis still numbers ${want}`);
+}
+eq(JOB_VENDOR_SEQUENCE.sequenceScope({ jobNumber: ' 24/118 ', vendorId: 'v1' }), { jobKey: '24118', vendorKey: 'v1' },
+  'the Lippolis counter is scoped to the (job, vendor) pair, on the sanitized job');
+
+// ---------------------------------------------------------------------------
+console.log('--- a synthetic organization with a different rule --------------');
+
+// DELIBERATELY UNLIKE LIPPOLIS, and deliberately trivial: no job in the number,
+// no vendor in the number, no hyphen-joined components, and a counter scoped to
+// the VENDOR rather than the pair. If purchasing had any assumption about the
+// shape of a number left in it, this would not work.
+const SYNTHETIC = definePoNumberStrategy({
+  id: 'synthetic-vendor-sequence',
+  sequenceScope: ({ vendorId }) => ({ vendorKey: vendorId }),
+  format: ({ sequence }) => `SYN-${sequence}`,
+});
+
+const tmp = mkdtempSync(join(tmpdir(), 'pcc-numbering-'));
+const db = openDatabase(join(tmp, 'numbering.db'));
+const NOW = '2026-08-13T09:00:00.000Z';
+
+const seedOrg = (orgId, vendors) => {
+  db.prepare('insert into orgs (id, name, created_at, updated_at) values (?,?,?,?)').run(orgId, orgId, NOW, NOW);
+  for (const [id, name, code] of vendors) {
+    db.prepare('insert into vendors (id, org_id, name, code, is_active, created_at, updated_at) values (?,?,?,?,1,?,?)')
+      .run(id, orgId, name, code, NOW, NOW);
+  }
+};
+// One administrator per organization: `initialize` records who declared the
+// counter, and that is a foreign key rather than a free-text name.
+const seedAdmin = (orgId, id) =>
+  db.prepare('insert into users (id, org_id, full_name, email, is_active, created_at, updated_at) values (?,?,?,?,1,?,?)')
+    .run(id, orgId, 'Administrator', `${id}@example.invalid`, NOW, NOW);
+
+seedOrg('org-lippolis', [['v-cooper', 'Cooper Electric Supply Co.', 'COOPER'], ['v-graybar', 'Graybar', 'GRAYBAR']]);
+seedOrg('org-synth', [['v-syn', 'Northgate Supply', 'NORTHGATE']]);
+seedAdmin('org-lippolis', 'admin-lip');
+seedAdmin('org-synth', 'admin-syn');
+
+// TWO ALLOCATORS OVER ONE DATABASE, each bound to its organization's rule. This
+// is the composition root's job in production; doing it by hand here is what
+// makes the isolation claim testable.
+const lippolisNumbers = sqlitePoNumberAllocator(db, JOB_VENDOR_SEQUENCE);
+const synthNumbers = sqlitePoNumberAllocator(db, SYNTHETIC);
+
+const lipScope = (jobNumber, vendorId, vendorCode) => ({ orgId: 'org-lippolis', jobNumber, vendorId, vendorCode });
+const synScope = (jobNumber) => ({ orgId: 'org-synth', jobNumber, vendorId: 'v-syn', vendorCode: 'NORTHGATE' });
+
+{
+  // Lippolis, through the real allocator and the real counter table.
+  const issued = [];
+  for (const [job, vendor, code] of [
+    ['1234', 'v-cooper', 'COOPER'], ['1234', 'v-cooper', 'COOPER'],
+    ['1234', 'v-graybar', 'GRAYBAR'], ['5678', 'v-cooper', 'COOPER'],
+  ]) issued.push(await lippolisNumbers.allocate(lipScope(job, vendor, code), NOW));
+
+  eq(issued.map((r) => r.poNumber), ['1234-COOPER-1', '1234-COOPER-2', '1234-GRAYBAR-1', '5678-COOPER-1'],
+    'the allocator issues the Lippolis sequence exactly as the office writes it');
+  eq(issued.map((r) => r.sequenceValue), [1, 2, 1, 1],
+    'each (job, vendor) pair counts on its own from 1');
+}
+
+{
+  // The synthetic organization, over the SAME database, the SAME allocator
+  // code, the SAME counter table. Only the strategy differs.
+  const a = await synthNumbers.allocate(synScope('J-1'), NOW);
+  const b = await synthNumbers.allocate(synScope('J-2'), NOW);
+  eq([a.poNumber, b.poNumber], ['SYN-1', 'SYN-2'],
+    'a different organization gets a completely different number shape from unmodified purchasing');
+  // AND A DIFFERENT SCOPE. Two different jobs, one counter, because this
+  // organization counts per vendor — proof the seam governs the counter's key
+  // and not only the string.
+  eq([a.sequenceValue, b.sequenceValue], [1, 2],
+    'its counter is scoped to the vendor, so a second job continues the same run');
+}
+
+// ---------------------------------------------------------------------------
+console.log('--- one organization\'s rule cannot reach another\'s counters -----');
+
+{
+  // Lippolis has issued 1234-COOPER-1 and -2. The synthetic organization is
+  // asked for the same job and a vendor code that reads the same. It must not
+  // see, continue, or disturb that counter.
+  const before = db.prepare(
+    'select next_value from po_job_vendor_sequences where org_id = ? and job_number = ? and vendor_id = ?',
+  ).get('org-lippolis', '1234', 'v-cooper');
+
+  const crossing = await synthNumbers.allocate(synScope('1234'), NOW);
+  eq(crossing.poNumber, 'SYN-3', 'the second organization continues its OWN counter, not the first one\'s');
+
+  const after = db.prepare(
+    'select next_value from po_job_vendor_sequences where org_id = ? and job_number = ? and vendor_id = ?',
+  ).get('org-lippolis', '1234', 'v-cooper');
+  eq(Number(after.next_value), Number(before.next_value),
+    'the first organization\'s counter was not touched');
+
+  const next = await lippolisNumbers.allocate(lipScope('1234', 'v-cooper', 'COOPER'), NOW);
+  eq(next.poNumber, '1234-COOPER-3', 'and it carries on from where it was');
+
+  // The counter rows are org-scoped in the store, which is what makes the above
+  // true rather than lucky.
+  const rows = db.prepare('select distinct org_id from po_job_vendor_sequences order by org_id').all();
+  eq(rows.map((r) => r.org_id), ['org-lippolis', 'org-synth'], 'every counter row names its organization');
+}
+
+// ---------------------------------------------------------------------------
+console.log('--- sequence correctness survives the seam ----------------------');
+
+{
+  // FORWARD ONLY, AND NEVER TWICE. The database, not the strategy, is what
+  // makes this true — the strategy is handed a number, it never picks one.
+  await lippolisNumbers.initialize(lipScope('9000', 'v-cooper', 'COOPER'), 41, 'admin-lip', NOW);
+  const resumed = await lippolisNumbers.allocate(lipScope('9000', 'v-cooper', 'COOPER'), NOW);
+  eq(resumed.poNumber, '9000-COOPER-41', 'an initialized pair resumes from the declared value');
+
+  const seen = new Set();
+  for (let i = 0; i < 25; i++) seen.add((await lippolisNumbers.allocate(lipScope('7777', 'v-cooper', 'COOPER'), NOW)).poNumber);
+  check(seen.size === 25, 'twenty-five allocations produced twenty-five distinct numbers');
+
+  // IDEMPOTENCY IS NOT THE ALLOCATOR'S. Asking twice here deliberately consumes
+  // twice — a purchase order is not re-generated because `generatePurchaseOrder`
+  // refuses a request that already has one, and the unique index on
+  // (org_id, request_id) is what makes that refusal true. Recording the
+  // division so nobody later "fixes" the allocator into caching.
+  const highest = await lippolisNumbers.highestIssued({ orgId: 'org-lippolis', jobNumber: '1234', vendorId: 'v-cooper' });
+  eq(highest, 0, 'highestIssued reads issued ORDERS, not the counter — nothing was written to purchase_orders here');
+}
+
+// ---------------------------------------------------------------------------
+console.log('--- a missing rule fails, and is never filled in -----------------');
+
+{
+  // The two provisioning failures, both loud.
+  let unset = null;
+  try { poNumberStrategyFor(undefined, 'org-new'); } catch (err) { unset = err; }
+  check(unset?.reason === 'po_numbering_unconfigured', 'an organization with no declared numbering rule is refused');
+  check(unset && /org-new/.test(unset.message), 'and the refusal names the organization');
+
+  let unknown = null;
+  try { poNumberStrategyFor(org002Profile.purchasing.po_numbering); } catch (err) { unknown = err; }
+  check(unknown?.reason === 'po_numbering_not_implemented',
+    `org-002 declares "${org002Profile.purchasing.po_numbering}", which this build cannot perform, and is refused`);
+  check(unknown && IMPLEMENTED_IDS.every((id) => unknown.message.includes(id)),
+    'and the refusal says what this build CAN perform');
+
+  // NO PLACEHOLDER, ANYWHERE. The failure modes above must not be reachable as
+  // a number. A strategy that produces nothing usable is an error inside the
+  // transaction, so the sequence value it consumed rolls back with it.
+  let unwired = null;
+  try { sqlitePoNumberAllocator(db, null); } catch (err) { unwired = err; }
+  check(unwired?.reason === 'po_numbering_unconfigured',
+    'an allocator cannot even be built without a strategy — the failure is at wiring, not at the first order');
+
+  const EMPTY = definePoNumberStrategy({
+    id: 'produces-nothing',
+    sequenceScope: ({ vendorId }) => ({ vendorKey: vendorId }),
+    format: () => '   ',
+  });
+  let blank = null;
+  try { await sqlitePoNumberAllocator(db, EMPTY).allocate(synScope('J-9'), NOW); } catch (err) { blank = err; }
+  check(blank?.reason === 'po_number_not_produced',
+    'a strategy that produces a blank is refused rather than issuing one');
+
+  for (const forbidden of ['TEMP-001', 'UNKNOWN', 'TBD']) {
+    const rows = db.prepare('select count(*) as n from po_job_vendor_sequences where job_number = ?').get(forbidden);
+    check(Number(rows.n) === 0, `nothing in this run invented a ${forbidden} counter`);
+  }
+
+  // And the strategy contract itself refuses a half-built rule.
+  for (const [broken, why] of [
+    [{ id: '', sequenceScope: () => ({}), format: () => 'x' }, 'without an id'],
+    [{ id: 'x', format: () => 'x' }, 'without a sequence scope'],
+    [{ id: 'x', sequenceScope: () => ({}) }, 'without a format'],
+  ]) {
+    let threw = null;
+    try { definePoNumberStrategy(broken); } catch (err) { threw = err.message; }
+    check(threw && /invalid PO numbering strategy/.test(threw), `a strategy ${why} is refused at construction`);
+  }
+
+  // A scope with no vendor is refused rather than silently keyed on nothing.
+  let noVendor = null;
+  try { sequenceKeyFor(SYNTHETIC, { orgId: 'org-synth', jobNumber: 'J', vendorId: '' }); } catch (err) { noVendor = err; }
+  check(noVendor?.reason === 'po_sequence_scope_invalid', 'a counter cannot be keyed on an absent vendor');
+
+  check(typeof requirePoNumberStrategy === 'function' && typeof poNumberFrom === 'function',
+    'the seam exports exactly the two guards purchasing calls');
+}
+
+db.close();
+rmSync(tmp, { recursive: true, force: true });
 
 console.log('');
 console.log(`organization provisioning checks: ${pass} passed, ${failures.length} failed`);

@@ -33,7 +33,14 @@ const { REQUEST_STATUSES, TRANSITIONS, TERMINAL_STATUSES, GUARD_REASONS, transit
 const { authorize, permissionsFor, availableActions, PERMISSIONS, DENY_REASONS, REQUESTOR_FORBIDDEN_FIELDS } =
   await import(join(DOMAIN, 'roles.mjs'));
 const N = await import(join(DOMAIN, 'numbers.mjs'));
-const PO = await import(join(DOMAIN, 'po-number.mjs'));
+// The two halves of numbering: what purchasing owns (vendor codes, the job
+// sanitizer, where a counter starts) and what ONE ORGANIZATION owns (the shape
+// of the identifier), which now lives behind the strategy seam. Merged into one
+// namespace here because these assertions predate the split and test both.
+const PO = {
+  ...(await import(join(DOMAIN, 'po-number.mjs'))),
+  ...(await import(join(DOMAIN, '..', 'organization', 'po-numbering.mjs'))),
+};
 const { domainEvent, events } = await import(join(DOMAIN, 'events.mjs'));
 const { ACTIVITY_ACTIONS, NOTIFICATION_EVENTS, buildTimeline, describeActivity } =
   await import(join(DOMAIN, 'activity.mjs'));

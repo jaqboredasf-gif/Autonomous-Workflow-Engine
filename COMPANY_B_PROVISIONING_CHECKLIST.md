@@ -67,7 +67,7 @@ surfacing as a refused action months later. The vocabulary is the 35 capabilitie
 
 | Ask | Today's answer |
 |---|---|
-| **How do you number purchase orders?** | If not `job-vendor-sequence`: **core change** to `domain/po-number.mjs`. The one remaining item that requires editing reusable code. |
+| **How do you number purchase orders?** | If not `job-vendor-sequence`: an **adapter** — two functions in `organization/po-numbering.mjs`, an id in their profile's `purchasing.po_numbering`, and `PCC_PO_NUMBERING` set to match. No purchasing core file changes. Ask before the first order: an installation with no established rule refuses to start rather than inventing numbers. |
 | **Do you already have paper POs for jobs we'll use?** | Per (job, vendor) initialization in Administration. **Cannot be guessed and cannot be undone** — ask before the first order. |
 | What do you call the place you keep stock? | "Workshop" today. Anything else is **core edit** (8 modules) — or live with the label. |
 | Do you price purchase orders when raising them? | No pricing is the current behaviour; prices are optional. |
@@ -102,11 +102,14 @@ job list. Section B is the one requiring care; the rest is data entry.
 `application/`, all repositories, every screen. Proven by 45 checks in
 `scripts/eval-organization-provisioning.mjs`.
 
-**4. What still needs engineering:** PO numbering if their rule differs; the PO document layout;
-email sending if they want it; the stock-location label if "workshop" is wrong for them.
+**4. What still needs engineering:** the PO document layout; email sending if they want it; the
+stock-location label if "workshop" is wrong for them. PO numbering is now an adapter rather than a
+core edit — still code we write, but behind a seam, and proved by a synthetic organization whose
+numbers share nothing with Lippolis's.
 
-**5. Distinct customization seams:** four — numbering, document, communications, terminology.
-Down from five; role vocabulary was closed this session.
+**5. Distinct customization seams:** four — numbering, document, communications, terminology. Two of
+the four (role vocabulary, then numbering) have been closed into adapters or configuration; the
+count stays four because numbering is still a seam, just no longer a core edit.
 
 **6. What would prevent deployment:** nothing in purchasing. Deployment blockers are hostname, TLS
 owner, a persistent volume, and a named person who restarts it — the same four that still hold PCC

@@ -55,8 +55,8 @@ export const PROFILE_FIELDS = {
   'roles.receivers':               { required: true,  extractable: 'yes',     desc: 'Roles carrying receiving.record. Still assignment-scoped per job.' },
 
   // --- purchasing policy ----------------------------------------------------
-  'purchasing.po_numbering':       { required: true,  extractable: 'partial', desc: 'Lippolis: job-vendor-sequence, per pair, from 1.' },
-  'purchasing.po_separator':       { required: false, extractable: 'partial', desc: 'Lippolis: "-". One constant in domain/po-number.mjs.' },
+  'purchasing.po_numbering':       { required: true,  extractable: 'yes',     desc: 'The id of the organization\'s numbering strategy. Read by the composition root, which selects the implementation; an id nobody has implemented stops startup rather than inventing numbers. Lippolis: job-vendor-sequence, per pair, from 1.' },
+  'purchasing.po_separator':       { required: false, extractable: 'partial', desc: 'Lippolis: "-". Now owned by the numbering strategy rather than by the domain, so it is honoured only in the sense that a strategy may do anything it likes — no code reads this field on its own.' },
   'purchasing.quantity_rule':      { required: true,  extractable: 'no',      desc: 'order = max(needed - stock, 0). Proven; not configurable, and probably should not be.' },
   'purchasing.default_fulfilment_days': { required: false, extractable: 'no', desc: 'Lippolis: next day. Currently an assumption in the UI copy, not a value.' },
   'purchasing.overdue_rule':       { required: false, extractable: 'partial', desc: 'Lippolis: past need-by and still needing purchasing.' },
