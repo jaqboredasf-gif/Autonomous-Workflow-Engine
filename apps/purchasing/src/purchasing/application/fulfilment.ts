@@ -50,6 +50,28 @@ export async function generatePurchaseOrder(ctx: PurchasingContext, actor: Actor
     const vendorId = assertSingleVendor([...new Set(lines.map((l) => l.vendorId))]);
     const contact = await ctx.reference.primaryContact(vendorId);
 
+    // THE TWO COMPONENTS THE NUMBER IS BUILT FROM, resolved here and captured
+    // on the order. A purchase order number is job + vendor + sequence, so the
+    // vendor's code has to exist before one can be issued; a vendor without one
+    // is a directory row that predates the migration, and it is better to refuse
+    // than to invent a code on a supplier's paperwork.
+    //
+    // Loaded by id rather than from the active vendor list: the review already
+    // chose this vendor, and somebody retiring it in between must not turn an
+    // approved request into a purchase order that cannot be numbered.
+    const vendor = await ctx.reference.vendorById(actor.orgId, vendorId);
+    const vendorCode = vendor?.code ? String(vendor.code).toUpperCase() : null;
+    if (!vendorCode) {
+      throw new PurchasingError(
+        'vendor_code_missing',
+        `${vendor?.name ?? 'that vendor'} has no purchase order code, and a purchase order number is built from one. ` +
+          'An administrator can set it in Administration → Vendors.',
+      );
+    }
+    if (!request.jobNumber) {
+      throw new PurchasingError('po_job_missing', 'a purchase order number is built from the job number, and this request has none');
+    }
+
     // The domain builds the order from the review; this layer only persists it.
     const order = purchaseOrderFromReview({
       request,
@@ -61,13 +83,28 @@ export async function generatePurchaseOrder(ctx: PurchasingContext, actor: Actor
         substituteDescription: l.substituteDescription,
         expectedArrivalDate: l.expectedArrivalDate,
       })),
-      poNumber: '', sequenceValue: 0, vendorId,
+      poNumber: '', sequenceValue: 0, vendorId, vendorCode,
       approverId: request.approverId ?? actor.id, generatedBy: actor.id,
     });
 
-    // The number comes from the sequence, inside this transaction, under the
-    // write lock. Nothing above infrastructure may invent one.
-    const { poNumber, sequenceValue } = await ctx.poNumbers.allocate(actor.orgId, now);
+    // THE NUMBER IS ALLOCATED HERE AND NOWHERE ELSE, inside this transaction,
+    // under the write lock, from the counter that belongs to THIS job and THIS
+    // vendor. Nothing above infrastructure may invent one.
+    //
+    // Allocation happens at issuance, not at draft: this line is reached only
+    // once the request is APPROVED and the order rows are about to be written,
+    // and the idempotency check at the top of this function returns the
+    // existing number without touching the counter. Viewing a request, refreshing
+    // the page or abandoning a draft therefore burns nothing.
+    //
+    // If anything below fails, the whole transaction rolls back and the counter
+    // goes back with it — the number was never issued, so re-running allocates
+    // the same one. What is never done is the reverse: a number that HAS been
+    // committed is never re-used, whatever happens to the order afterwards.
+    const { poNumber, sequenceValue } = await ctx.poNumbers.allocate(
+      { orgId: actor.orgId, jobNumber: request.jobNumber, vendorId, vendorCode },
+      now,
+    );
 
     const saved = await ctx.orders.insert(
       { ...order, poNumber, sequenceValue, vendorContactId: contact?.id ?? null, notes: request.decisionNotes ?? null },
@@ -231,9 +268,26 @@ export async function advanceVendorEmailDraft(
 export async function markOrderPlaced(ctx: PurchasingContext, actor: Actor, requestId: string, input: { orderedAt?: string; notes?: string } = {}) {
   const request = await loadRequest(ctx, actor, requestId);
   await must(ctx, actor, 'order.mark_ordered', request);
+
   return ctx.uow.run(async () => {
-    await transitionTo(ctx, actor, request, 'markOrdered', { ordered_at: input.orderedAt ?? ctx.clock.now() });
-    await emit(ctx, actor, actor.orgId, [events.orderPlaced(request, input.notes ?? null)]);
+    // RE-READ INSIDE THE TRANSACTION.
+    //
+    // The status checked above was read BEFORE this call joined the write
+    // queue, and a second press — a double click, an impatient refresh, two
+    // tabs — arrives holding the same stale EMAIL_DRAFTED. Handing that stale
+    // record to the transition means the guard is evaluated against a status
+    // that is no longer true, and the second press is judged on what the
+    // request looked like before the first one moved it.
+    //
+    // Reading the row again here means the second caller sees ORDERED and is
+    // refused with `illegal_transition`, which is what the state machine is
+    // for. The status was never wrong either way — the write is idempotent —
+    // but "refused because it is already ordered" and "allowed because we were
+    // looking at an old copy" are different systems, and only one of them stays
+    // correct when the next transition is not idempotent.
+    const fresh = await loadRequest(ctx, actor, requestId);
+    await transitionTo(ctx, actor, fresh, 'markOrdered', { ordered_at: input.orderedAt ?? ctx.clock.now() });
+    await emit(ctx, actor, actor.orgId, [events.orderPlaced(fresh, input.notes ?? null)]);
     return { status: 'ORDERED' };
   });
 }
@@ -429,6 +483,69 @@ export async function recordReceipt(
     await emit(ctx, actor, actor.orgId, emitted);
     return { receiptId: receipt.id, outstandingLines: outstanding };
   });
+}
+
+/**
+ * "It arrived." — the whole delivery, in one act.
+ *
+ * WHAT MIKE ACTUALLY DOES. The truck turns up, he checks it against the printed
+ * purchase order in his hand, and the paperwork goes in the packet. He does not
+ * re-key the quantities: PCC already knows what was ordered, and asking him to
+ * type it again is asking him to copy a document into the computer that the
+ * computer produced.
+ *
+ * So this receives every outstanding quantity at once. It is NOT a second way
+ * to write a receipt — it builds the same input `recordReceipt` takes and calls
+ * it, so every guard behind that (authorization, the over-receipt check, the
+ * inventory movements, the events, the status transition) applies exactly as it
+ * did when the quantities were typed by hand. The receipt row still exists;
+ * the operator simply never has to know it does.
+ *
+ * COMPLETION IS ATTEMPTED, NOT ASSUMED. Receiving authority is deliberately
+ * wider than completion authority — a foreman signs for material on his own job
+ * but does not close the purchase. If this actor cannot complete, the request
+ * stops at RECEIVED and somebody who can finishes it. Doing otherwise would
+ * quietly widen an authority boundary to save a click.
+ */
+export async function receiveEverything(
+  ctx: PurchasingContext, actor: Actor, requestId: string,
+  input: { receivedDate?: string; notes?: string } = {},
+) {
+  // AUTHORIZE FIRST, before reading anything. `recordReceipt` below checks the
+  // same permission and is the fence that matters — but this function reads the
+  // order's outstanding quantities on the way there, and "how much is still
+  // owed on this order" should not be answerable, even through an error
+  // message, by somebody who may not receive against it.
+  const request = await loadRequest(ctx, actor, requestId);
+  await must(ctx, actor, 'receiving.record', request);
+
+  const progress = await ctx.orders.progressFor(requestId);
+  const outstanding = progress.filter((line) => Number(line.outstandingQty) > 0);
+  if (!outstanding.length) {
+    throw new PurchasingError('nothing_outstanding', 'everything on this order has already been accounted for');
+  }
+
+  const receipt = await recordReceipt(ctx, actor, requestId, {
+    receivedDate: (input.receivedDate ?? ctx.clock.now()).slice(0, 10),
+    notes: input.notes ?? null,
+    lines: outstanding.map((line) => ({
+      purchaseOrderItemId: line.purchaseOrderItemId,
+      // Thousandths on the record, whole units on the wire — the same shape a
+      // typed receipt produces.
+      receivedQty: String(Number(line.outstandingQty) / 1000),
+    })),
+  } as any);
+
+  // The record of what was bought is written at the terminal transition, so a
+  // delivery that nobody can close leaves no history. Try, and say what
+  // happened rather than failing the receipt that already succeeded.
+  let completed = false;
+  if (authorize(actor, 'request.complete', { request }).ok) {
+    await completePurchaseRequest(ctx, actor, requestId, input.notes ?? undefined);
+    completed = true;
+  }
+
+  return { ...receipt, completed };
 }
 
 export async function completePurchaseRequest(ctx: PurchasingContext, actor: Actor, requestId: string, notes?: string) {

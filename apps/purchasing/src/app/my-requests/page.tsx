@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { requireAccess, purchasingRequestContext } from '../../server/session.ts';
 import * as S from '../../server/service.ts';
 import { StatusBadge, Empty } from '../../components/ui';
+import { nextStepFor } from '../../components/pcc';
 import { isOverdue } from '../../purchasing/domain/dashboard.mjs';
 import { statusLabel } from '../../purchasing/domain/status.mjs';
 
@@ -56,7 +57,14 @@ export default async function MyRequestsPage() {
                   <span className="text-base font-medium text-slate-900">{r.requestNumber}</span>
                   <StatusBadge status={r.status} />
                 </div>
-                <div className="mt-1 text-sm text-slate-600">Job {r.jobNumber}</div>
+                {/* WHO HAS IT. A status badge tells a requester the name of a
+                    state; it does not tell him whether anybody is dealing with
+                    his cable. This does, in a sentence, and it is the line he
+                    opened the page to read. */}
+                <div className="mt-1 text-sm font-medium text-slate-800">{nextStepFor(r).waitingOn}</div>
+                <div className="mt-1 text-sm text-slate-600">
+                  {r.deliveryLocationKind === 'WORKSHOP' ? 'To the workshop' : `Job ${r.jobNumber}`}
+                </div>
                 <div className="mt-1 text-sm text-slate-600">
                   Needed {r.needByDate} at {r.needByTime}
                   {isOverdue(r, now) ? <span className="ml-2 font-medium text-rose-700">overdue</span> : null}

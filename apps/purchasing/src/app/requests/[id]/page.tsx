@@ -28,6 +28,7 @@ import {
   ButtonLink,
   ButtonRow,
   ConfirmSubmit,
+  MoreDetails,
   DataGrid,
   DataPoint,
   EmptyState,
@@ -45,9 +46,10 @@ import {
   Timeline,
   TR,
   TextInput,
-  UrgencyBadge,
   nextActionFor,
+  nextStepFor,
 } from '../../../components/pcc';
+import { OUTCOME_MESSAGES } from '../../outcomes.ts';
 import {
   addNoteAction,
   answerClarificationAction,
@@ -56,13 +58,20 @@ import {
   generateEmailDraftAction,
   generatePoAction,
   markOrderedAction,
+  markReceivedAction,
   submitRequestAction,
   updateTrackingAction,
 } from '../../actions.ts';
 
 export const dynamic = 'force-dynamic';
 
-export default async function RequestDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function RequestDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
   const actor = await requireAccess('/requests');
 
@@ -78,6 +87,16 @@ export default async function RequestDetailPage({ params }: { params: Promise<{ 
   const now = new Date().toISOString();
   const can = (a: string) => detail.actions.includes(a);
   const next = nextActionFor(r);
+  const step = nextStepFor(r);
+
+  // DID THAT WORK? Seven actions on this page used to answer that question by
+  // re-rendering, which answers it only if you already knew what the page
+  // looked like before. They now redirect carrying the outcome, and this is
+  // where it is read — once, and gone on the next navigation.
+  const query = (await searchParams) ?? {};
+  const param = (key: string) => (Array.isArray(query[key]) ? query[key]?.[0] : query[key]) ?? '';
+  const done = param('done');
+  const failed = param('failed');
 
   // Receiving progress across the whole order, in quantities rather than in
   // lines: "3 of 5 lines" hides a line that is 1 short of 200.
@@ -104,7 +123,6 @@ export default async function RequestDetailPage({ params }: { params: Promise<{ 
         meta={
           <>
             <StatusBadge status={r.status} />
-            <UrgencyBadge request={r} now={now} />
           </>
         }
         actions={
@@ -119,11 +137,30 @@ export default async function RequestDetailPage({ params }: { params: Promise<{ 
         }
       />
 
-      {/* What has to happen next, in words, before anything else on the page. */}
-      <Alert tone={next.actionable ? 'info' : 'success'} title={`Next: ${next.label}`}>
-        {outstandingLines > 0
-          ? `${outstandingLines} line${outstandingLines === 1 ? '' : 's'} still outstanding — this order stays open until every line is accounted for.`
-          : 'Nothing is outstanding on this order.'}
+      {/* The answer to "did that work", first, because it is the most
+          perishable thing on the page. */}
+      {done && OUTCOME_MESSAGES[done] ? (
+        <Alert tone="success" title={OUTCOME_MESSAGES[done]} />
+      ) : null}
+      {failed ? (
+        <Alert tone="danger" title="That did not go through">
+          {param('why') || 'The action was refused. Nothing has been changed.'}
+        </Alert>
+      ) : null}
+
+      {/* WHAT HAPPENS NEXT, AND WHO HAS IT. The second half is the one a
+          requester and a foreman actually need: "Needs Approval" does not say
+          whether anybody is dealing with it. */}
+      <Alert tone={next.actionable ? 'info' : 'success'} title={`${step.state} — ${step.waitingOn}`}>
+        <p>
+          <span className="font-medium">Next: </span>
+          {next.label}
+        </p>
+        <p className="mt-0.5">
+          {outstandingLines > 0
+            ? `${outstandingLines} line${outstandingLines === 1 ? '' : 's'} still outstanding — this order stays open until every line is accounted for.`
+            : 'Nothing is outstanding on this order.'}
+        </p>
       </Alert>
 
       {/* A rejection has to reach the person who asked, in words, at the top
@@ -218,29 +255,16 @@ export default async function RequestDetailPage({ params }: { params: Promise<{ 
       {/* --- Vendor + email (BR-010) ------------------------------------- */}
       <Panel
         title="Vendor"
-        subtitle="The email is drafted here. Nothing is sent by this system — a human sends it."
+        subtitle="PCC writes the draft. Nothing is sent by this system — a person sends it."
         actions={
-          <ButtonRow>
-            {can('draft_email') ? (
-              <form action={generateEmailDraftAction}>
-                <input type="hidden" name="requestId" value={id} />
-                <Button type="submit">Draft vendor email</Button>
-              </form>
-            ) : null}
-            {detail.emailDrafts.length ? (
-              <ButtonLink href={`/requests/${id}/email`} variant={can('draft_email') ? 'secondary' : 'primary'}>
-                Open vendor email
-              </ButtonLink>
-            ) : null}
-            {vendorEmail ? (
-              <a
-                href={`mailto:${vendorEmail}`}
-                className="inline-flex h-10 items-center justify-center rounded-md border border-line-strong bg-surface px-4 text-sm font-medium text-ink-soft shadow-sm hover:bg-subtle"
-              >
-                Email {detail.vendorContact?.name ?? 'the vendor'}
-              </a>
-            ) : null}
-          </ButtonRow>
+          /* The email is drafted automatically when the purchase order is
+             created, and "Email vendor" is in the action row above. All that
+             belongs here is a way to open what PCC already wrote. */
+          detail.emailDrafts.length ? (
+            <ButtonLink href={`/requests/${id}/email`} variant="secondary">
+              Open the draft
+            </ButtonLink>
+          ) : null
         }
       >
         {r.vendorName || po ? (
@@ -293,8 +317,14 @@ export default async function RequestDetailPage({ params }: { params: Promise<{ 
           <div className="border-t border-line px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted">Attachments</p>
             <ul className="mt-1 space-y-1 text-sm text-ink-soft">
+              {/* A link, not a label. These were listed by name for months
+                  while the bytes had no route to reach a browser through. */}
               {detail.attachments.map((a: any) => (
-                <li key={a.id}>{a.filename}</li>
+                <li key={a.id}>
+                  <a className="underline hover:text-ink" href={`/api/attachments/${a.id}`}>
+                    {a.filename}
+                  </a>
+                </li>
               ))}
             </ul>
           </div>
@@ -465,69 +495,109 @@ export default async function RequestDetailPage({ params }: { params: Promise<{ 
         </Panel>
       ) : null}
 
-      {/* --- Actions ------------------------------------------------------ */}
-      <Panel title="Actions" subtitle="Only what you are authorized to do appears here.">
+      {/* --- What to do next ---------------------------------------------
+          NOT a generic actions panel. The old one listed every transition the
+          state machine permits, in one undifferentiated row, behind a heading
+          that told the reader nothing about which of them was theirs to press.
+          Mike's sequence is fixed and short — raise it, print it, email it,
+          mark it ordered, mark it received — so it is shown as that sequence,
+          with the next step first and largest.
+
+          Confirmation dialogs are gone from the ordinary steps. Marking an
+          order placed is something Mike does several times a day and it is
+          recorded, reversible in the sense that matters (the record shows who
+          and when) and not destructive. Cancelling still asks, because it is
+          terminal; so does completing, on the paths that still offer it. */}
+      <Panel title="What to do next">
         <ButtonRow>
           {can('submit') ? (
             <form action={submitRequestAction}>
               <input type="hidden" name="requestId" value={id} />
-              <Button type="submit">Submit to workshop</Button>
+              <Button type="submit" size="l">Submit to workshop</Button>
             </form>
           ) : null}
+
           {can('generate_po') ? (
             <form action={generatePoAction}>
               <input type="hidden" name="requestId" value={id} />
-              <Button type="submit">Generate purchase order</Button>
+              <Button type="submit" size="l">Create purchase order</Button>
             </form>
           ) : null}
+
+          {/* PRINT IS FIRST once the PO exists. The hardcopy is the artefact
+              the rest of the Lippolis process hangs off — the receipt gets
+              stapled to it and the packet gets filed. */}
+          {po ? (
+            <ButtonLink href={`/requests/${id}/po`} size="l">
+              Print PO
+            </ButtonLink>
+          ) : null}
+
+          {po && can('draft_email') ? (
+            <form action={generateEmailDraftAction}>
+              <input type="hidden" name="requestId" value={id} />
+              <Button type="submit" variant="secondary" size="l">Email vendor</Button>
+            </form>
+          ) : null}
+          {po && !can('draft_email') && detail.emailDrafts.length ? (
+            <ButtonLink href={`/requests/${id}/email`} variant="secondary" size="l">
+              Email vendor
+            </ButtonLink>
+          ) : null}
+
+          {/* ONE CLICK. No modal: this is a routine act, done many times a day,
+              and the audit trail records who and when without asking. */}
           {can('mark_ordered') ? (
             <form action={markOrderedAction}>
               <input type="hidden" name="requestId" value={id} />
-              <ConfirmSubmit
-                variant="primary"
-                label="Mark ordered"
-                title="Mark this order as placed?"
-                body="Only do this once the vendor has actually been sent the order. It moves the request into the awaiting-delivery pile and stays on the record."
-                confirmLabel="Yes, it has been placed"
-              />
+              <Button type="submit" size="l">Mark ordered</Button>
             </form>
           ) : null}
-          {can('receive') ? <ButtonLink href={`/requests/${id}/receive`}>Record receiving</ButtonLink> : null}
+
+          {can('receive') ? (
+            <form action={markReceivedAction}>
+              <input type="hidden" name="requestId" value={id} />
+              <Button type="submit" size="l">It arrived</Button>
+            </form>
+          ) : null}
+
           {can('complete') ? (
             <form action={completeRequestAction}>
               <input type="hidden" name="requestId" value={id} />
-              <ConfirmSubmit
-                variant="primary"
-                label="Complete request"
-                title="Complete this request?"
-                body="Completing closes the record. It is only allowed once every line is accounted for, and it cannot be undone — a correction after this is a new request."
-                confirmLabel="Complete it"
-              />
+              <Button type="submit" variant="secondary" size="l">Close it out</Button>
             </form>
           ) : null}
-          {po?.documents?.length
-            ? po.documents.map((d: any) => (
-                <a
-                  key={d.id}
-                  href={`/api/documents/${d.id}`}
-                  className="inline-flex h-10 items-center rounded-md border border-line-strong bg-surface px-4 text-sm font-medium text-ink-soft shadow-sm hover:bg-subtle"
-                >
-                  {d.filename}
-                </a>
-              ))
-            : null}
         </ButtonRow>
 
+        {/* The exceptional delivery, and the stored paperwork — present, quiet. */}
+        {(can('receive') || po?.documents?.length) ? (
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            {can('receive') ? (
+              <a href={`/requests/${id}/receive`} className="text-muted underline underline-offset-2 hover:text-ink-soft">
+                Only part of it arrived
+              </a>
+            ) : null}
+            {(po?.documents ?? []).map((d: any) => (
+              <a key={d.id} href={`/api/documents/${d.id}`} className="text-muted underline underline-offset-2 hover:text-ink-soft">
+                {d.filename}
+              </a>
+            ))}
+          </div>
+        ) : null}
+
+        {/* Tracking is not part of the ordinary path — most of this is
+            next-day counter pickup or delivery — so it stays available and
+            stays out of the way. */}
         {['ORDERED', 'PARTIALLY_RECEIVED', 'EMAIL_DRAFTED'].includes(r.status) && can('add_tracking') ? (
-          <form action={updateTrackingAction} className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-4">
-            <input type="hidden" name="requestId" value={id} />
-            <TextInput name="trackingNumber" placeholder="Tracking number" defaultValue={r.trackingNumber ?? ''} aria-label="Tracking number" />
-            <TextInput name="carrier" placeholder="Carrier" defaultValue={r.trackingCarrier ?? ''} aria-label="Carrier" />
-            <TextInput type="date" name="expectedArrivalDate" defaultValue={r.expectedArrivalDate ?? ''} aria-label="Expected arrival" />
-            <Button type="submit" variant="secondary">
-              Save tracking
-            </Button>
-          </form>
+          <MoreDetails label="Tracking" hint="only if the vendor gave you a number">
+            <form action={updateTrackingAction} className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+              <input type="hidden" name="requestId" value={id} />
+              <TextInput name="trackingNumber" placeholder="Tracking number" defaultValue={r.trackingNumber ?? ''} aria-label="Tracking number" />
+              <TextInput name="carrier" placeholder="Carrier" defaultValue={r.trackingCarrier ?? ''} aria-label="Carrier" />
+              <TextInput type="date" name="expectedArrivalDate" defaultValue={r.expectedArrivalDate ?? ''} aria-label="Expected arrival" />
+              <Button type="submit" variant="secondary">Save tracking</Button>
+            </form>
+          </MoreDetails>
         ) : null}
       </Panel>
 

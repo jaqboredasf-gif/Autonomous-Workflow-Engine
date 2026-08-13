@@ -30,6 +30,7 @@ import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { resolveDatabaseLocation, type LocationProbe } from './database-location.ts';
+import { assignVendorCode } from '../../domain/po-number.mjs';
 
 const DEFAULT_PATH = join(process.cwd(), '.data', 'purchasing.db');
 
@@ -44,6 +45,9 @@ const REAL_FILESYSTEM: LocationProbe = {
       return false;
     }
   },
+  // File OR directory: `.git` is a directory in an ordinary clone and a file in
+  // a worktree, and a worktree is still a checkout.
+  pathExists: (path) => existsSync(path),
 };
 
 /**
@@ -189,6 +193,12 @@ create table if not exists vendors (
   id          text primary key,
   org_id      text not null references orgs(id),
   name        text not null,
+  -- THE VENDOR AS IT APPEARS IN A PURCHASE ORDER NUMBER (1234-COOPER-1).
+  -- Derived from the name once and then frozen: the display name may be
+  -- corrected, merged or re-spelled without renumbering anything already
+  -- issued. Unique per organization — see the index built after migration,
+  -- which is where it lives so an existing database can be upgraded into it.
+  code        text,
   account_number text,
   phone       text,
   address     text,
@@ -382,6 +392,9 @@ create index if not exists purchase_approvals_request_idx on purchase_approvals(
 
 -- --- purchase orders -------------------------------------------------------
 
+-- LEGACY. Kept so an installation that ran the placeholder scheme still has the
+-- record of what it was set to; NOTHING allocates from it. The Lippolis rule is
+-- one sequence per (job, vendor) pair — see po_job_vendor_sequences below.
 create table if not exists po_number_sequences (
   org_id      text primary key references orgs(id),
   prefix      text not null default 'LE-',
@@ -391,6 +404,42 @@ create table if not exists po_number_sequences (
   updated_at  text not null,
   updated_by  text references users(id)
 );
+
+-- THE PURCHASE ORDER SEQUENCE, as Lippolis actually numbers.
+--
+-- One counter per (organization, job, vendor). Job 1234 with Cooper counts
+-- 1, 2, 3; job 1234 with Graybar starts again at 1; job 5678 with Cooper starts
+-- again at 1. The primary key IS the scope, so the database cannot be persuaded
+-- to keep two counters for one pair.
+--
+-- job_number here is the NORMALIZED segment (domain/po-number.mjs), which is
+-- what appears in the number — so "24-118" and "24-118 " share one counter
+-- rather than issuing two purchase orders called the same thing.
+--
+-- initialized_at is set only when an administrator declared where the pair's
+-- paper sequence had already reached. NULL means PCC started this pair at 1
+-- because PCC has issued nothing for it.
+create table if not exists po_job_vendor_sequences (
+  org_id          text not null references orgs(id),
+  job_number      text not null,
+  vendor_id       text not null references vendors(id),
+  vendor_code     text not null,
+  next_value      integer not null check (next_value > 0),
+  initialized_at  text,
+  initialized_by  text references users(id),
+  created_at      text not null,
+  updated_at      text not null,
+  primary key (org_id, job_number, vendor_id)
+);
+
+-- A pair's counter may only move FORWARD. Winding one back would re-issue a
+-- number a vendor already has on an invoice.
+create trigger if not exists po_job_vendor_sequences_forward_only
+before update on po_job_vendor_sequences
+for each row when new.next_value < old.next_value
+begin
+  select raise(abort, 'a PO sequence can only move forward; issued numbers are permanent');
+end;
 
 create table if not exists request_number_sequences (
   org_id      text primary key references orgs(id),
@@ -408,8 +457,15 @@ create table if not exists purchase_orders (
   -- Permanent. There is no update path that changes it (guarded in service.ts
   -- and by a trigger on the Postgres side).
   po_number         text not null,
+  -- The sequence WITHIN this order's (job, vendor) pair — 1, 2, 3 — not a
+  -- company-wide counter. It is therefore NOT unique on its own, and the
+  -- uniqueness that matters is the composite one below.
   sequence_value    integer not null,
   vendor_id         text not null references vendors(id),
+  -- The vendor code AS AT ISSUANCE. Snapshot, not a join: renaming the vendor,
+  -- or an administrator changing its code, must never alter a number a supplier
+  -- already has.
+  vendor_code       text,
   vendor_contact_id text references vendor_contacts(id),
   job_number        text not null,
   approver_id       text not null references users(id),
@@ -425,10 +481,53 @@ create table if not exists purchase_orders (
   created_at        text not null,
   updated_at        text not null,
   unique (org_id, po_number),
-  unique (org_id, sequence_value),
+  -- The sequence is unique WITHIN its pair. A single organization-wide
+  -- uniqueness on the sequence value used to stand here, and was correct only
+  -- while one counter served the whole company; under the real rule it would
+  -- refuse 1234-GRAYBAR-1 because 1234-COOPER-1 exists.
+  unique (org_id, job_number, vendor_id, sequence_value),
   -- One live PO per request in this milestone (multi-PO splits are §21 future).
   unique (request_id)
 );
+
+-- THE PURCHASE ORDER NUMBER IS PERMANENT. Not "should not change" — cannot.
+--
+-- Postgres has enforced this since 0016 (guard_po_number_permanent). The pilot
+-- store did not, and the pilot store is what runs at Lippolis: the comment on
+-- the column above claimed a guard in the service layer that was never written.
+-- Nothing in the application updates these columns today, which is precisely
+-- why the absence was invisible — the fence is for the change nobody has made
+-- yet, on the identifier a supplier already holds.
+--
+-- The three components are frozen with the number they produced, so a purchase
+-- order stays explainable even after the vendor is renamed or recoded and the
+-- job's description changes.
+create trigger if not exists purchase_orders_number_permanent
+  before update of po_number, sequence_value, vendor_code, job_number, vendor_id, request_id
+  on purchase_orders
+  when new.po_number is not old.po_number
+    or new.sequence_value is not old.sequence_value
+    -- FILLING THE HOLE IS NOT CHANGING THE VALUE. Orders raised before this
+    -- column existed carry NULL, and the migration records the vendor's code
+    -- against them. The old-is-not-null test allows that one transition
+    -- and nothing else: once a code is on the row it is frozen, and setting it
+    -- back to NULL is itself a change and is refused.
+    or (old.vendor_code is not null and new.vendor_code is not old.vendor_code)
+    or new.job_number is not old.job_number
+    or new.vendor_id is not old.vendor_id
+    or new.request_id is not old.request_id
+  begin
+    select raise(ABORT, 'the purchase order number is permanent: job, vendor and sequence are fixed at issuance');
+  end;
+
+-- And it cannot be withdrawn by deletion either. A cancelled order keeps its
+-- number: the vendor was told it, and a number that disappears is a number that
+-- can be issued twice.
+create trigger if not exists purchase_orders_no_delete
+  before delete on purchase_orders
+  begin
+    select raise(ABORT, 'a purchase order cannot be deleted; its number has already been issued');
+  end;
 
 create table if not exists purchase_order_items (
   id                text primary key,
@@ -859,11 +958,50 @@ const ADDED_COLUMNS = [
   "alter table users add column auth_user_id text",
   // A designated receiver may confirm deliveries for their assigned jobs.
   "alter table users add column is_delivery_receiver integer not null default 0",
+  // WHEN THE OFFICE SET ITS OWN PURCHASE ORDER SEQUENCE.
+  //
+  // Written when the placeholder global sequence was still the numbering
+  // scheme. Retained because it is a record of an act somebody performed; the
+  // column no longer gates anything (see 0038 and the note on
+  // po_number_sequences above).
+  'alter table po_number_sequences add column initialized_at text',
+  // 0038: the vendor's identifier inside a purchase order number, and the
+  // snapshot of it taken when the order was issued.
+  'alter table vendors add column code text',
+  'alter table purchase_orders add column vendor_code text',
+  // BR-011's audit stamp: the approver held the capability AND raised the
+  // request. It records a fact, it does not gate one.
+  //
+  // MISSED WHEN IT WAS INTRODUCED. It went into SCHEMA and nowhere else, and
+  // `create table if not exists` does not add a column to a table that already
+  // exists — so every database created before it simply did not have it, and
+  // every approval on one of those failed with "table purchase_approvals has no
+  // column named self_approved". Approval is the middle of the workflow, so the
+  // effect was a system that could take a request and never turn it into a
+  // purchase order. Invisible to the suite, which builds each database from
+  // SCHEMA and therefore always has the column.
+  "alter table purchase_approvals add column self_approved integer not null default 0",
 ];
 
-export const SCHEMA_VERSION = '0016-purchasing-control';
+/**
+ * Indexes built AFTER the column migrations, because they cover columns those
+ * migrations add. `create index` on a column that does not exist yet fails, and
+ * on a first-ever start the table is created by SCHEMA with the column already
+ * present — so this runs in both cases and is a no-op in one of them.
+ */
+const LATE_INDEXES = [
+  // A vendor code is the vendor's identity inside every purchase order number
+  // it appears in. Two vendors sharing one would make 1234-COOPER-2 ambiguous
+  // about who it was sent to. SQLite permits repeated NULLs in a unique index,
+  // which is what lets an un-backfilled database reach this line.
+  'create unique index if not exists vendors_org_code_idx on vendors(org_id, code)',
+  'create index if not exists po_job_vendor_sequences_org_idx on po_job_vendor_sequences(org_id, job_number)',
+];
+
+export const SCHEMA_VERSION = '0038-po-number-per-job-vendor';
 
 function migrate(db: DatabaseSync) {
+  refreshOwnedTriggers(db);
   db.exec(SCHEMA);
   for (const statement of ADDED_COLUMNS) {
     try {
@@ -874,14 +1012,233 @@ function migrate(db: DatabaseSync) {
       if (!/duplicate column name/i.test(String((err as Error).message))) throw err;
     }
   }
+  dropGlobalSequenceUniqueness(db);
+  for (const statement of LATE_INDEXES) db.exec(statement);
+  backfillVendorCodes(db);
+  backfillOrderVendorCodes(db);
   backfillLineItemOrgs(db);
+  recordSchemaVersion(db);
+}
 
+/**
+ * Drop the triggers this file owns, so SCHEMA can recreate them AT THIS
+ * RELEASE'S DEFINITION.
+ *
+ * `create trigger if not exists` is idempotent, which is what makes it safe to
+ * run on every start — and it also means a trigger whose definition CHANGES is
+ * never updated on a database that already has the old one. That is not a
+ * theoretical concern: it bit on the development database the moment the
+ * permanence fence was taught to allow one transition it had previously
+ * refused. The old trigger was still there, rejected the migration's own
+ * backfill, and the database came up degraded.
+ *
+ * Dropping first is the fix, and the window with no fence is the whole of one
+ * synchronous startup step, before the server accepts a request.
+ *
+ * Only the triggers whose text lives in SCHEMA below. Anything else in the
+ * database was not put there by this file and is not this function's to remove.
+ */
+function refreshOwnedTriggers(db: DatabaseSync) {
+  for (const name of [
+    'purchase_orders_number_permanent',
+    'purchase_orders_no_delete',
+    'po_job_vendor_sequences_forward_only',
+    'purchase_history_lines_no_update',
+    'purchase_history_lines_no_delete',
+  ]) {
+    db.exec(`drop trigger if exists ${name}`);
+  }
+}
+
+/**
+ * Retire `unique (org_id, sequence_value)` on purchase_orders.
+ *
+ * That constraint was inline in the CREATE TABLE, so there is no ALTER that
+ * removes it: SQLite requires the table to be rebuilt. It has to go, because
+ * under the real Lippolis rule the sequence is per (job, vendor) — 1234-COOPER-1
+ * and 1234-GRAYBAR-1 both carry sequence 1, and the old constraint would refuse
+ * the second one with a message about a duplicate purchase order that is not a
+ * duplicate of anything.
+ *
+ * Detected structurally rather than by a version stamp: ask the database what
+ * unique indexes it actually has. That makes this safe to run on every start
+ * and on a database at any point in the upgrade path, including one restored
+ * from a backup taken before it.
+ *
+ * A no-op on a fresh database, where SCHEMA already created the table without
+ * it.
+ */
+function dropGlobalSequenceUniqueness(db: DatabaseSync) {
+  const stale = (db.prepare('pragma index_list(purchase_orders)').all() as any[]).filter((index) => {
+    if (!Number(index.unique)) return false;
+    const columns = (db.prepare(`pragma index_info(${JSON.stringify(String(index.name))})`).all() as any[])
+      .map((c) => String(c.name));
+    return columns.length === 2 && columns.includes('org_id') && columns.includes('sequence_value');
+  });
+  if (!stale.length) return;
+
+  // Rebuild from the database's OWN definition of the table rather than from a
+  // definition written here. `sqlite_master.sql` already reflects every
+  // `alter table ... add column` this file has ever applied, and it carries the
+  // foreign keys and check constraints with it — reconstructing the DDL from
+  // `pragma table_info` would silently drop both, which is a far worse outcome
+  // than the constraint being retired.
+  const original = String(
+    (db.prepare("select sql from sqlite_master where type = 'table' and name = 'purchase_orders'").get() as any).sql,
+  );
+  // COMMENTS FIRST. The stored definition carries this file's own comments,
+  // and one of them describes the constraint being retired — so a naive
+  // search-and-replace rewrites the COMMENT and leaves the constraint in place,
+  // producing a migration that logs success on every start and changes nothing.
+  // The rebuilt table does not need the prose; it lives here, in the source.
+  const withoutComments = original.replace(/^[ \t]*--[^\n]*\n/gm, '');
+  const constraint = /unique\s*\(\s*org_id\s*,\s*sequence_value\s*\)/i;
+  if (!constraint.test(withoutComments)) {
+    throw new Error('cannot rewrite purchase_orders: the global sequence constraint was not found in its definition');
+  }
+  const rebuilt = withoutComments
+    .replace('purchase_orders', 'purchase_orders_rebuilt')
+    .replace(constraint, 'unique (org_id, job_number, vendor_id, sequence_value)');
+
+  // Indexes AND TRIGGERS. `drop table` takes both with it, and the triggers on
+  // this table are the fence that makes an issued purchase order number
+  // permanent — a rebuild that silently dropped them would leave the identifier
+  // unguarded, on exactly the databases being upgraded. SCHEMA recreates them
+  // on the NEXT start, which is one start too late.
+  const carried = (db.prepare(
+    `select sql from sqlite_master
+      where type in ('index', 'trigger') and tbl_name = 'purchase_orders' and sql is not null`,
+  ).all() as any[]).map((row) => String(row.sql));
+
+  const columns = (db.prepare('pragma table_info(purchase_orders)').all() as any[]).map((c) => `"${String(c.name)}"`);
+  const list = columns.join(', ');
+
+  // Foreign keys OFF for the swap: purchase_order_items, receipts, documents
+  // and email drafts all reference this table, and dropping it with enforcement
+  // on would either fail or cascade. The pragma cannot be changed inside a
+  // transaction, so it brackets one.
+  db.exec('pragma foreign_keys = OFF');
+  try {
+    db.exec('begin immediate');
+    try {
+      db.exec(rebuilt);
+      db.exec(`insert into purchase_orders_rebuilt (${list}) select ${list} from purchase_orders`);
+      db.exec('drop table purchase_orders');
+      db.exec('alter table purchase_orders_rebuilt rename to purchase_orders');
+      for (const sql of carried) db.exec(sql);
+      db.exec('commit');
+      console.log('[pcc] purchase order numbering migrated to one sequence per job and vendor');
+    } catch (err) {
+      db.exec('rollback');
+      throw err;
+    }
+  } finally {
+    db.exec('pragma foreign_keys = ON');
+  }
+
+  // The swap ran with enforcement off. If anything now dangles, this database
+  // must not be served: a purchase order line pointing at nothing is exactly
+  // the kind of damage that is invisible until somebody prints an order.
+  const violations = db.prepare('pragma foreign_key_check').all() as any[];
+  if (violations.length) {
+    throw new Error(`purchase order rebuild left ${violations.length} dangling reference(s); the database was not modified further`);
+  }
+}
+
+/**
+ * Give every vendor the code that will stand for it inside a purchase order
+ * number. Derived from the display name, deterministic, and assigned ONCE — a
+ * vendor that already has one is never touched, so this is a no-op after the
+ * first run and cannot renumber anybody.
+ *
+ * Ordered by creation so the derivation is stable: where two vendors normalize
+ * to the same code, the older one keeps the plain form.
+ */
+function backfillVendorCodes(db: DatabaseSync) {
+  const missing = db
+    .prepare("select id, org_id, name from vendors where code is null or trim(code) = '' order by created_at, id")
+    .all() as any[];
+  if (!missing.length) return;
+
+  const takenByOrg = new Map<string, Set<string>>();
+  for (const row of db.prepare("select org_id, code from vendors where code is not null and trim(code) <> ''").all() as any[]) {
+    if (!takenByOrg.has(row.org_id)) takenByOrg.set(row.org_id, new Set());
+    takenByOrg.get(row.org_id)!.add(String(row.code));
+  }
+
+  const update = db.prepare('update vendors set code = ? where id = ?');
+  for (const vendor of missing) {
+    if (!takenByOrg.has(vendor.org_id)) takenByOrg.set(vendor.org_id, new Set());
+    const taken = takenByOrg.get(vendor.org_id)!;
+    const code = assignVendorCode(vendor.name, [...taken]);
+    taken.add(code);
+    update.run(code, vendor.id);
+  }
+  console.log(`[pcc] assigned purchase-order codes to ${missing.length} vendor(s)`);
+}
+
+/**
+ * Fill in the vendor code on purchase orders raised before the column existed.
+ *
+ * Their `po_number` is untouched — it is what the supplier received, and under
+ * the retired scheme it was never built from a code at all. This only records
+ * which code is in force for that vendor, so the column is not a hole on half
+ * the table.
+ *
+ * Exists because the Postgres migration does exactly this (0038) and the two
+ * providers may not disagree about what a purchase order row contains. Found by
+ * running the upgraded development database and reading it.
+ */
+function backfillOrderVendorCodes(db: DatabaseSync) {
+  const filled = db.prepare(
+    `update purchase_orders
+        set vendor_code = (select v.code from vendors v where v.id = purchase_orders.vendor_id)
+      where vendor_code is null
+        and exists (select 1 from vendors v where v.id = purchase_orders.vendor_id and v.code is not null)`,
+  ).run();
+  if (Number(filled.changes) > 0) {
+    console.log(`[pcc] recorded the vendor code on ${filled.changes} existing purchase order(s)`);
+  }
+}
+
+/**
+ * Stamp the version the schema has just been brought TO.
+ *
+ * This used to write the row only when it was absent, which is correct exactly
+ * once — on the database this code created — and wrong on every database it
+ * ever upgrades. The statements above are idempotent and unconditional, so an
+ * existing database is migrated on every start; a version row that is only
+ * inserted on creation therefore keeps naming the version the file was BORN
+ * at, forever.
+ *
+ * That is not a cosmetic staleness. `/api/health` compares this row against
+ * SCHEMA_VERSION and answers 503 when they differ, which is the right check —
+ * it is how an operator learns a container is running against a database it
+ * does not understand. But with an insert-only stamp, the first release that
+ * bumps SCHEMA_VERSION migrates every installation correctly and then reports
+ * every one of them as unhealthy, permanently, with nothing actually wrong.
+ * The proxy drains a working instance, the monitoring pages somebody at 7am,
+ * and the documented upgrade path (`docker compose up -d --build`, check
+ * health) fails on its first real use. Nobody would find it by reading the
+ * migration, because the migration works.
+ *
+ * So: write it after the schema is at this version, and say so in the log when
+ * it moved. An upgrade is a thing that happened to the company's records, and
+ * it should be visible in `docker logs` rather than inferred.
+ */
+function recordSchemaVersion(db: DatabaseSync) {
   const row = db.prepare('select value from schema_meta where key = ?').get('version') as
     | { value: string }
     | undefined;
-  if (!row) {
-    db.prepare('insert into schema_meta (key, value) values (?, ?)').run('version', SCHEMA_VERSION);
-  }
+
+  if (row?.value === SCHEMA_VERSION) return;
+
+  db.prepare(
+    `insert into schema_meta (key, value) values ('version', ?)
+       on conflict(key) do update set value = excluded.value`,
+  ).run(SCHEMA_VERSION);
+
+  if (row) console.log(`[pcc] schema migrated from ${row.value} to ${SCHEMA_VERSION}`);
 }
 
 /**
@@ -931,6 +1288,7 @@ export const TABLES = [
   'purchase_review_items',
   'purchase_approvals',
   'po_number_sequences',
+  'po_job_vendor_sequences',
   'request_number_sequences',
   'purchase_orders',
   'purchase_order_items',

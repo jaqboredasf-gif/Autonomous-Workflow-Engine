@@ -87,7 +87,8 @@ rather than asserted.
    - Section B: record **6** in stock → the suggestion becomes **14** → type **18** over it to
      keep four spare → Graybar → `86.40` → the line total computes to `$1,555.20`.
    - Section C: Approve.
-3. **Generate purchase order** → `LE-52901` with a downloadable PDF. **Draft vendor email** →
+3. **Generate purchase order** → `24-118-GRAYBARELECTRIC-1` (job, vendor, and the first number
+   for that pair) with a downloadable PDF. **Draft vendor email** →
    mark it reviewed (the words freeze) → approve to send → open it in your own mail client →
    mark it sent. **Mark ordered**, add tracking.
 4. Sign in as **Dave** again → **Deliveries** shows the job. Confirm 12 of 18 → *Partially
@@ -239,7 +240,8 @@ Nothing here deploys automatically. The remaining steps, in order:
 6. Accounting is read-only. The role carries no write permission at all.
 7. Only the requestor answers their own clarification.
 8. Over-receipt needs a written reason; more than twice the ordered quantity is refused outright.
-9. PO numbers start at `LE-52901`, five digits, forward-only.
+9. PO numbers are `job-vendor-sequence`, counting from 1 for each job-and-vendor pair,
+   forward-only, and permanent once issued.
 10. The PO layout (`infrastructure/pdf-adapter.ts`, `LAYOUT`) is a placeholder carrying every
     required field; mapping it onto the real Lippolis form is an edit to that one object.
 11. All vendors, contacts, jobs and addresses are invented; every address is `@example.invalid`.

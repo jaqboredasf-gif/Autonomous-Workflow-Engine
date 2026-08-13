@@ -1,5 +1,21 @@
 # Purchasing — hosted deployment runbook
 
+> ## ⚠ SUPERSEDED — this is not how PCC is being deployed
+>
+> This document describes hosting PCC on **Vercel with a hosted Supabase database**. That is not
+> the plan. Lippolis IT has approved hosting PCC on **a company-managed VM behind their firewall**,
+> and the pilot runs on the **local SQLite store**, not Supabase.
+>
+> **For the actual deployment, read `docs/deployment/`:**
+>
+> * `PCC_PRODUCTION_ARCHITECTURE.md` — what PCC is, as deployed
+> * `PCC_IT_DEPLOYMENT_HANDOFF.md` — the runbook IT works from
+> * `PCC_PRODUCTION_PILOT_CHECKLIST.md` — the go/no-go list
+>
+> Kept, rather than deleted, because the Supabase migration and RLS detail below is still accurate
+> and is what the Postgres path would need if IT later offers a company database server (handoff
+> question #9). **Nothing in it should be executed against the Lippolis deployment.**
+
 **Status: the application is ready to host. Nothing here has been executed** — this
 environment has no hosted Supabase project, no hosting-provider account and no
 Supabase CLI, so every command below needs somebody with those credentials.

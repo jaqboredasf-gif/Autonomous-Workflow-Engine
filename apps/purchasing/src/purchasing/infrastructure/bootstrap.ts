@@ -26,7 +26,8 @@
 //   the roles                  the same six; they are structure, not data
 //   the email templates        editable copies of the built-in wording
 //   the workshop + office      the two destinations that are not job sites
-//   the PO and request sequences
+//   the request sequence  (purchase order numbers need no counter to seed —
+//                          each job-and-vendor pair counts from 1 on its own)
 //   ONE administrator          from PCC_BOOTSTRAP_ADMIN_EMAIL/_PASSWORD
 //
 // No vendors, no jobs, no people. Those are the company's, they are entered
@@ -44,7 +45,6 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { TEMPLATES, EMAIL_TEMPLATE_TYPES } from '../domain/email.mjs';
 import { hashPassword } from './auth/local-auth.ts';
-import { DEFAULT_PO_CONFIG } from '../domain/po-number.mjs';
 import { ROLE_ROWS, SAMPLE_CONTEXT, toPlaceholders, seed } from './seed.ts';
 
 export type BootstrapResult = {
@@ -124,15 +124,19 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
       ).run(randomUUID(), orgId, location.name, null, location.kind, now, now);
     }
 
-    // The PO sequence starts at the documented default and is expected to be
-    // corrected in Admin before the first real order — see the PO numbering
-    // panel, which says so. The starting number is the office's to supply.
-    db.prepare(
-      'insert into po_number_sequences (org_id, prefix, padding, suffix, next_value, updated_at) values (?,?,?,?,?,?)',
-    ).run(orgId, DEFAULT_PO_CONFIG.prefix, DEFAULT_PO_CONFIG.padding, DEFAULT_PO_CONFIG.suffix, DEFAULT_PO_CONFIG.nextNumber, now);
+    // NO PURCHASE ORDER SEQUENCE IS CREATED, because there is no such thing as
+    // one. A number is job + vendor + sequence, and each (job, vendor) pair
+    // counts on its own from 1 — the counters come into existence as orders are
+    // raised. A fresh installation therefore has nothing to correct and no
+    // placeholder to send a supplier by accident.
+    //
+    // What DOES still need a person: any pair the office has already written
+    // paper purchase orders for. That is declared per pair in Administration ->
+    // PO numbering, and only where it is true.
     notes.push(
-      `PO numbering starts at ${DEFAULT_PO_CONFIG.prefix}${String(DEFAULT_PO_CONFIG.nextNumber).padStart(DEFAULT_PO_CONFIG.padding, '0')} — ` +
-        'set the office\'s real next number in Administration before the first order',
+      'Purchase orders are numbered job-vendor-sequence, e.g. 1234-COOPER-1, counting from 1 for each ' +
+        'job and vendor. Where the office has already issued paper purchase orders for a job and vendor ' +
+        'PCC will now be used for, set that pair in Administration before the first order.',
     );
 
     db.prepare(

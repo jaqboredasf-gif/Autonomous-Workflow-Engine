@@ -1,16 +1,28 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Screen 06's index — everything this person may receive against.
+// Screen 06 — the receiving queue. A list of things owed, and one button each.
+//
+// WHAT THIS IS NOT ANY MORE. It used to hand off to a form that asked, line by
+// line, how many arrived, how many were damaged, how many were back-ordered and
+// how many were written off — for a delivery the receiver was holding the
+// printed purchase order against. PCC produced that purchase order. Asking him
+// to type its contents back in is asking him to copy the computer's own
+// document into the computer.
+//
+// So: identity enough to recognise the delivery, and "It arrived". The receipt
+// row is still written, by the same guarded use case as before; nobody has to
+// know it exists. The exceptional case — only part of it turned up — keeps the
+// detailed form, one link down, where it belongs.
 //
 // Cards, not a table: this is opened on a phone at least as often as at a
 // desk, and a nine-column table squeezed onto 390px is not information, it is
-// a shape. Each card carries the identity a receiver checks (PO, job, vendor)
-// and what is still owed.
+// a shape.
 import { requireAccess, purchasingRequestContext } from '../../server/session.ts';
 import { describeLocations } from '../../purchasing/domain/navigation.mjs';
 import { receivableForActor } from '../../purchasing/application/queries.ts';
 import { formatQty } from '../../purchasing/domain/numbers.mjs';
 import { isOverdue } from '../../purchasing/domain/dashboard.mjs';
-import { Badge, ButtonLink, EmptyState, PageHeader, Panel, StatusBadge } from '../../components/pcc';
+import { Badge, Button, ButtonLink, EmptyState, PageHeader, Panel, StatusBadge } from '../../components/pcc';
+import { markReceivedAction } from '../actions.ts';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Receiving — Lippolis Purchasing' };
@@ -84,9 +96,17 @@ export default async function ReceivingPage() {
                   {outstanding.length === 0 ? <li className="text-muted">Nothing outstanding.</li> : null}
                 </ul>
 
-                <div className="mt-4">
-                  <ButtonLink href={`/requests/${r.id}/receive`} size="l" className="w-full sm:w-auto">
-                    Confirm what arrived
+                {/* ONE BUTTON. Everything outstanding, received, and the
+                    purchase closed if this person may close it. */}
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <form action={markReceivedAction}>
+                    <input type="hidden" name="requestId" value={r.id} />
+                    <Button type="submit" size="l" className="w-full sm:w-auto">
+                      It arrived
+                    </Button>
+                  </form>
+                  <ButtonLink href={`/requests/${r.id}/receive`} variant="ghost">
+                    Only part of it arrived
                   </ButtonLink>
                 </div>
               </li>

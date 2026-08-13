@@ -15,7 +15,8 @@
     "test:providers": "bash ../../scripts/eval-purchasing-providers.sh",
     "test:isolation": "bash ../../scripts/eval-purchasing-isolation.sh",
     "test:workflow": "node ../../scripts/eval-workflow-engine.mjs",
-    "test:operability": "node ../../scripts/eval-pcc-operability.mjs"
+    "test:operability": "node ../../scripts/eval-pcc-operability.mjs",
+    "postbuild": "node ../../scripts/stage-standalone.mjs"
   },
   "dependencies": {
     "next": "16.2.10",

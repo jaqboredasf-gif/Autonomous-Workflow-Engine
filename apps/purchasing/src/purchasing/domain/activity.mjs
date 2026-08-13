@@ -53,7 +53,10 @@ export const ACTIVITY_ACTIONS = [
   'request.completed',
   'authz.denied',
   'validation.rejected_fields',
+  // RETIRED with the global counter (0038). Kept in the vocabulary because
+  // existing activity rows carry it and the log must stay readable.
   'admin.po_config_changed',
+  'admin.po_sequence_initialized',
   'admin.approval_authority_changed',
   'accounting.actual_cost_recorded',
   'admin.vendor_created',
@@ -173,6 +176,8 @@ export function describeActivity(entry) {
     case 'authz.denied': return `${who} was refused: ${d.permission ?? ''} (${d.reason ?? ''})`;
     case 'validation.rejected_fields': return `${who} sent fields they may not set: ${(d.fields ?? []).join(', ')}`;
     case 'admin.po_config_changed': return `${who} changed the PO numbering configuration`;
+    case 'admin.po_sequence_initialized':
+      return `${who} set the purchase order sequence for job ${event.after?.jobNumber ?? ''} with ${event.after?.vendorCode ?? 'a vendor'} to ${event.after?.nextValue ?? ''}`;
     case 'admin.approval_authority_changed': return `${who} changed approval authority`;
     default: return `${who}: ${entry.action}`;
   }

@@ -103,7 +103,10 @@ export const TABLES = {
   reviews: 'purchase_reviews',
   reviewItems: 'purchase_review_items',
   approvals: 'purchase_approvals',
+  /** RETIRED by 0038 — the placeholder global counter. Nothing allocates from it. */
   poSequences: 'po_number_sequences',
+  /** One counter per (org, job, vendor). The Lippolis rule. Migration 0038. */
+  poPairSequences: 'po_job_vendor_sequences',
   requestSequences: 'request_number_sequences',
   orders: 'purchase_orders',
   orderItems: 'purchase_order_items',
@@ -221,6 +224,7 @@ export function toOrder(row: any): any {
     poNumber: row.po_number,
     sequenceValue: Number(row.sequence_value),
     vendorId: row.vendor_id,
+    vendorCode: row.vendor_code ?? null,
     vendorContactId: row.vendor_contact_id ?? null,
     jobNumber: row.job_number,
     approverId: row.approver_id,

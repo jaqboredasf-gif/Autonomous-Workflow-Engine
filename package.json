@@ -5,8 +5,9 @@
     "apps/*",
     "packages/*"
   ],
+  "_engines_note": "24, not 20: the purchasing store is node:sqlite, which is part of the runtime rather than a dependency. On Node 20 the import fails at startup with a module-not-found error that names nothing anybody can act on. The Dockerfile already pins 24; this is the same fact stated where a developer installing on a laptop will meet it.",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "pcc:dev": "bash scripts/pcc-dev.sh",

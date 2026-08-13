@@ -56,7 +56,11 @@ export default async function DeliveriesPage() {
                     </span>
                     <StatusBadge status={r.status} />
                   </div>
-                  <div className="mt-1 text-sm text-slate-600">{r.vendorName ?? 'vendor not recorded'}</div>
+                  <div className="mt-1 text-sm text-slate-600">
+                    {r.vendorName ?? 'vendor not recorded'}
+                    {r.needByDate ? ` · needed ${r.needByDate}` : ''}
+                    {r.expectedArrivalDate ? ` · expected ${r.expectedArrivalDate}` : ''}
+                  </div>
                   <ul className="mt-2 space-y-0.5 text-sm text-slate-700">
                     {outstanding.slice(0, 3).map((p: any) => (
                       <li key={p.purchaseOrderItemId}>
@@ -67,7 +71,10 @@ export default async function DeliveriesPage() {
                       <li className="text-slate-500">+{outstanding.length - 3} more</li>
                     ) : null}
                   </ul>
-                  <span className="mt-3 inline-flex rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white">
+                  {/* Full width and 48px tall: this is pressed outdoors, on a
+                      phone, often with a glove on. A tidy inline button is the
+                      wrong shape for the one thing this screen exists to do. */}
+                  <span className="mt-3 flex h-12 w-full items-center justify-center rounded-md bg-slate-900 px-4 text-base font-semibold text-white">
                     Confirm what arrived
                   </span>
                 </Link>

@@ -13,10 +13,10 @@
 import { emit, loadRequest, must, PurchasingError, transitionTo, type PurchasingContext } from './context.ts';
 import type { Actor } from './ports.ts';
 import { changesFromOriginal, saveWorkshopReview } from './review.ts';
-import { generatePurchaseOrder } from './fulfilment.ts';
+import { generatePurchaseOrder, generateVendorEmailDraft } from './fulfilment.ts';
 import { recordPurchaseHistory } from './history.ts';
 import { events } from '../domain/events.mjs';
-import { isSelfApproval } from '../domain/roles.mjs';
+import { authorize, isSelfApproval } from '../domain/roles.mjs';
 import { QUEUE_STATUSES } from '../domain/status.mjs';
 
 export type Decision = 'APPROVE' | 'REJECT' | 'CLARIFY';
@@ -109,9 +109,17 @@ async function approve(
     throw new PurchasingError('nothing_to_order', 'approve with at least one line to order, or reject the request');
   }
   if (ordering.some((l) => !l.vendorId)) throw new PurchasingError('vendor_required', 'every ordered line needs a vendor');
-  if (ordering.some((l) => l.estimatedUnitCostCents === null)) {
-    throw new PurchasingError('cost_required', 'every ordered line needs an estimated unit cost');
-  }
+
+  // NO PRICE IS REQUIRED TO ORDER.
+  //
+  // It used to be, and it made the purchaser invent one. Lippolis does not
+  // price a purchase order when raising it: the vendor's invoice arrives later
+  // and accounting reconciles it, which is what `recordActualCost` is for. A
+  // required estimate produced either a guess or a zero, and a guess printed on
+  // a supplier's paperwork is worse than a blank.
+  //
+  // `estimated_unit_cost_cents` stays nullable on the row and the accounting
+  // path is untouched — this removes the PRECONDITION, not the column.
 
   await transitionTo(ctx, actor, request, 'approve', { approver_id: actor.id, decided_at: now, decision_notes: notes });
   // BR-011: an approver may decide their own request. The row records both
@@ -223,5 +231,32 @@ export async function reviewApproveAndCreatePo(
 
   const decided = await saveReviewAndDecide(ctx, actor, requestId, input, 'APPROVE', decisionInput);
   const po = await generatePurchaseOrder(ctx, actor, requestId);
-  return { ...decided, poNumber: po.poNumber, purchaseOrderId: po.purchaseOrderId, reusedPo: Boolean(po.reused) };
+
+  // THE VENDOR EMAIL IS PREPARED HERE, not asked for.
+  //
+  // PCC already knows the vendor, the purchase order number, the job and the
+  // lines; making Mike press a button to have it assemble facts it is holding
+  // is ceremony. The draft is created and waits — nothing is sent, by this or
+  // any other path, and the review-then-send gate is untouched.
+  //
+  // NON-FATAL on purpose. The purchase order is the act that matters and it has
+  // already committed; a vendor with no ordering contact on file must not undo
+  // it. The button on the purchase order remains for that case.
+  let emailDraftId: string | null = null;
+  if (authorize(actor, 'email.draft', { request }).ok) {
+    try {
+      const draft = await generateVendorEmailDraft(ctx, actor, requestId);
+      emailDraftId = draft.id;
+    } catch {
+      emailDraftId = null;
+    }
+  }
+
+  return {
+    ...decided,
+    poNumber: po.poNumber,
+    purchaseOrderId: po.purchaseOrderId,
+    reusedPo: Boolean(po.reused),
+    emailDraftId,
+  };
 }

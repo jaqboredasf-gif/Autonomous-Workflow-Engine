@@ -22,7 +22,7 @@
 import { useActionState, useState } from 'react';
 
 import {
-  createVendorAction, updateVendorAction, setVendorActiveAction,
+  createVendorAction, updateVendorAction, setVendorActiveAction, setVendorCodeAction,
   createJobAction, updateJobAction,
 } from '../app/actions.ts';
 import { Section, inputClass, buttonClass, secondaryButtonClass, Empty } from './ui';
@@ -52,6 +52,7 @@ function Saved({ state, what }: { state: Result; what: string }) {
 export function AdminVendors({ vendors }: { vendors: any[] }) {
   const [addState, addAction, adding] = useActionState<Result, FormData>(createVendorAction, null);
   const [editState, editAction, editing] = useActionState<Result, FormData>(updateVendorAction, null);
+  const [codeState, codeAction, savingCode] = useActionState<Result, FormData>(setVendorCodeAction, null);
   const [open, setOpen] = useState<string | null>(null);
 
   return (
@@ -63,6 +64,14 @@ export function AdminVendors({ vendors }: { vendors: any[] }) {
         <label className="text-xs text-slate-700 sm:col-span-1">
           Vendor name <span aria-hidden className="text-rose-600">*</span>
           <input name="name" required className={inputClass} placeholder="Graybar" />
+        </label>
+        {/* THE CODE THAT APPEARS IN EVERY PURCHASE ORDER NUMBER SENT TO THIS
+            VENDOR (the COOPER in 1234-COOPER-1). Left blank it is derived from
+            the name; it can be shortened here or on the vendor until the first
+            order is raised, and is frozen after that. */}
+        <label className="text-xs text-slate-700">
+          PO code
+          <input name="code" className={inputClass} placeholder="derived from the name" />
         </label>
         <label className="text-xs text-slate-700">
           Account number
@@ -105,7 +114,12 @@ export function AdminVendors({ vendors }: { vendors: any[] }) {
             <li key={v.id} className="py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <div className="font-medium text-slate-900">{v.name}</div>
+                  <div className="font-medium text-slate-900">
+                    {v.name}{' '}
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+                      {v.code ?? '—'}
+                    </span>
+                  </div>
                   <div className="text-xs text-slate-600">
                     {v.contact_name
                       ? `${v.contact_name}${v.contact_email ? ` · ${v.contact_email}` : ''}`
@@ -165,6 +179,35 @@ export function AdminVendors({ vendors }: { vendors: any[] }) {
                     <button type="submit" disabled={editing} className={buttonClass}>
                       {editing ? 'Saving…' : 'Save vendor'}
                     </button>
+                    <p className="text-xs text-slate-600">
+                      Renaming a vendor does not change any purchase order number already issued to it. The name
+                      and the PO code are kept apart on purpose.
+                    </p>
+                  </div>
+                </form>
+              )}
+
+              {/* ITS OWN FORM, because it is its own act with its own refusal:
+                  once this vendor has been sent a purchase order, the code is
+                  part of every number it carries and cannot be changed. */}
+              {open === v.id && (
+                <form action={codeAction} className="mt-3 grid gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-3">
+                  <input type="hidden" name="vendorId" value={v.id} />
+                  <label className="text-xs text-slate-700 sm:col-span-2">
+                    PO code — the vendor&rsquo;s part of a purchase order number, e.g. {v.code ?? 'COOPER'} in{' '}
+                    <span className="font-mono">1234-{v.code ?? 'COOPER'}-1</span>
+                    <input name="code" defaultValue={v.code ?? ''} className={inputClass} />
+                  </label>
+                  <div className="sm:col-span-3 space-y-2">
+                    <Problem state={codeState} />
+                    <Saved state={codeState} what="PO code" />
+                    <button type="submit" disabled={savingCode} className={secondaryButtonClass}>
+                      {savingCode ? 'Saving…' : 'Change PO code'}
+                    </button>
+                    <p className="text-xs text-slate-600">
+                      Letters and digits only. Changeable until the first purchase order goes to this vendor;
+                      after that it is fixed, because it is printed on their paperwork.
+                    </p>
                   </div>
                 </form>
               )}

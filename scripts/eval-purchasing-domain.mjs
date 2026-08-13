@@ -33,6 +33,7 @@ const { REQUEST_STATUSES, TRANSITIONS, TERMINAL_STATUSES, GUARD_REASONS, transit
 const { authorize, permissionsFor, availableActions, PERMISSIONS, DENY_REASONS, REQUESTOR_FORBIDDEN_FIELDS } =
   await import(join(DOMAIN, 'roles.mjs'));
 const N = await import(join(DOMAIN, 'numbers.mjs'));
+const PO = await import(join(DOMAIN, 'po-number.mjs'));
 const { domainEvent, events } = await import(join(DOMAIN, 'events.mjs'));
 const { ACTIVITY_ACTIONS, NOTIFICATION_EVENTS, buildTimeline, describeActivity } =
   await import(join(DOMAIN, 'activity.mjs'));
@@ -198,12 +199,14 @@ refuses(() => E.assertSingleVendor([null]), 'single_vendor_required', 'a missing
 
 const order = E.purchaseOrderFromReview({
   request: { id: 'r1', orgId: 'org', jobNumber: '24-118', deliveryLocationId: 'loc', deliveryMethod: 'DELIVERY', needByDate: '2026-08-07', needByTime: '07:00' },
-  lines: ready, poNumber: 'LE-52901', sequenceValue: 52901, vendorId: 'graybar', approverId: 'mike', generatedBy: 'mike',
+  lines: ready, poNumber: '24-118-GRAYBAR-1', sequenceValue: 1, vendorId: 'graybar', vendorCode: 'GRAYBAR',
+  approverId: 'mike', generatedBy: 'mike',
 });
 eq(order.estimatedTotalCents, 155_520, 'the order total is the sum of its line totals');
 eq(order.items.length, 1, 'only lines being ordered reach the purchase order');
 eq(order.items[0].orderQty, 18 * K, 'the order carries the FINAL quantity, not the requested one');
 eq(order.jobNumber, '24-118', 'the order carries the job number');
+eq(order.vendorCode, 'GRAYBAR', 'and the vendor code the number was built from');
 
 console.log('--- invariant: completion needs every line resolved -------------');
 
@@ -335,8 +338,8 @@ const sample = {
 const built = [
   events.requestCreated(sample), events.requestSubmitted(sample), events.awaitingReview(sample),
   events.approved(sample, [], 'ok'), events.rejected(sample, 'no'), events.clarificationRequested(sample, 'which floor?'),
-  events.poGenerated(sample, { id: 'po', poNumber: 'LE-52901', vendorId: 'v', estimatedTotalCents: 1, items: [] }),
-  events.emailDraftGenerated('r1', { id: 'd', templateKey: 'VENDOR_PURCHASE_ORDER', to: [] }, 'LE-52901'),
+  events.poGenerated(sample, { id: 'po', poNumber: '24-118-GRAYBAR-1', vendorId: 'v', estimatedTotalCents: 1, items: [] }),
+  events.emailDraftGenerated('r1', { id: 'd', templateKey: 'VENDOR_PURCHASE_ORDER', to: [] }, '24-118-GRAYBAR-1'),
   events.orderPlaced(sample, null), events.receiptPartial('r1', 'rc', 1), events.receiptCompleted('r1', 'rc', '2026-08-06'),
   events.materialReady('r1'), events.requestCompleted(sample, null), events.requestCancelled(sample, 'why'),
 ];
@@ -348,12 +351,12 @@ check(built.every((e) => Object.isFrozen(e)), 'events are immutable once built')
 const timeline = buildTimeline([
   { id: '2', at: '2026-08-03T13:05:00Z', seq: 2, action: 'decision.approved', actorName: 'Mike', previousValues: { status: 'PENDING_WORKSHOP_REVIEW' }, newValues: { status: 'APPROVED' } },
   { id: '1', at: '2026-08-03T13:00:00Z', seq: 1, action: 'request.created', actorName: 'Dave' },
-  { id: '3', at: '2026-08-03T13:05:00Z', seq: 10, action: 'po.generated', actorName: 'Mike', newValues: { poNumber: 'LE-52901' } },
+  { id: '3', at: '2026-08-03T13:05:00Z', seq: 10, action: 'po.generated', actorName: 'Mike', newValues: { poNumber: '24-118-GRAYBAR-1' } },
 ]);
 eq(timeline.map((t) => t.id), ['1', '2', '3'], 'the timeline orders by time then sequence, numerically');
 check(timeline[1].changes.some((c) => c.field === 'status'), 'a recorded change appears as a field diff');
 check(timeline.every((t) => t.description.length > 0), 'every entry renders a human sentence');
-check(describeActivity({ action: 'po.generated', actorName: 'Mike', details: { poNumber: 'LE-52901' } }).includes('LE-52901'),
+check(describeActivity({ action: 'po.generated', actorName: 'Mike', details: { poNumber: '24-118-GRAYBAR-1' } }).includes('24-118-GRAYBAR-1'),
       'the PO number appears in its own timeline line');
 
 console.log('--- email: draft-only ------------------------------------------');
@@ -371,13 +374,13 @@ check(!('send' in composeDraft), 'composition has no send path');
 
 const draft = composeDraft('VENDOR_PURCHASE_ORDER', {
   org: { name: 'Lippolis Electric', phone: '(914) 555-0100' },
-  purchaseOrder: { poNumber: 'LE-52901', estimatedTotalCents: 155_520 },
+  purchaseOrder: { poNumber: '24-118-GRAYBAR-1', estimatedTotalCents: 155_520 },
   request: { requestNumber: 'PR-01001', jobNumber: '24-118', needByDate: '2026-08-07', needByTime: '07:00', deliveryMethod: 'DELIVERY', deliveryLocationName: 'Job site', requestorName: 'Dave' },
   vendorContact: { name: 'Angela' },
   items: [{ description: 'troffer', finalOrderQty: 18 * K, unit: 'ea', estimatedUnitCostCents: 8640 }],
-  to: ['orders@example.invalid'], draftKey: 'po:LE-52901:vendor', sender: { name: 'Mike' },
+  to: ['orders@example.invalid'], draftKey: 'po:24-118-GRAYBAR-1:vendor', sender: { name: 'Mike' },
 });
-check(draft.subject.includes('LE-52901'), 'the vendor subject carries the PO number');
+check(draft.subject.includes('24-118-GRAYBAR-1'), 'the vendor subject carries the PO number');
 check(draft.body.includes('24-118') && draft.body.includes('2026-08-07') && draft.body.includes('07:00'),
       'the vendor body carries the job number and the need-by moment');
 check(draft.body.includes('$1,555.20'), 'the vendor body carries the exact total');
@@ -386,11 +389,133 @@ eq(draft.externalSendEnabled, false, 'a composed draft records that sending is d
 
 const stored = renderStoredTemplate(
   { subject: 'PO {{purchaseOrder.poNumber}}', body: 'Job {{request.jobNumber}}\n{{itemsTable}}\nTotal {{purchaseOrder.estimatedTotal}}\n{{unknown.placeholder}}' },
-  { purchaseOrder: { poNumber: 'LE-52901', estimatedTotalCents: 155_520 }, request: { jobNumber: '24-118' }, items: [{ description: 'troffer', finalOrderQty: 18 * K, unit: 'ea' }] },
+  { purchaseOrder: { poNumber: '24-118-GRAYBAR-1', estimatedTotalCents: 155_520 }, request: { jobNumber: '24-118' }, items: [{ description: 'troffer', finalOrderQty: 18 * K, unit: 'ea' }] },
 );
-check(stored.subject === 'PO LE-52901', 'stored templates fill scalar placeholders');
+check(stored.subject === 'PO 24-118-GRAYBAR-1', 'stored templates fill scalar placeholders');
 check(stored.body.includes('troffer') && stored.body.includes('$1,555.20'), 'stored templates fill the table and the money');
 check(stored.body.includes('\n\n') || !stored.body.includes('{{'), 'an unknown placeholder renders empty rather than throwing');
+
+console.log('--- purchase order numbers: job + vendor + sequence -------------');
+
+// `refuses` above reads DomainError.reason; these are plain Errors, because a
+// malformed purchase order number is a programming fault rather than a rule a
+// user broke. So the message is what there is to assert on.
+const rejects = (fn, pattern, m) => {
+  try {
+    fn();
+    bad(`${m} — expected it to throw but it returned`);
+  } catch (err) {
+    if (pattern.test(String(err?.message ?? ''))) ok();
+    else bad(`${m} — expected /${pattern.source}/, got ${err?.message}`);
+  }
+};
+
+// THE RULE, from Mike and Paul: 1234-COOPER-1, 1234-COOPER-2, 1234-GRAYBAR-1,
+// 5678-COOPER-1. This section is the FORMAT and the two normalizations; the
+// counting itself is the database's and is proven in eval-purchasing.mjs.
+
+eq(PO.formatPoNumber({ jobNumber: '1234', vendorCode: 'COOPER', sequence: 1 }), '1234-COOPER-1',
+   "the stakeholders' first example");
+eq(PO.formatPoNumber({ jobNumber: '1234', vendorCode: 'COOPER', sequence: 2 }), '1234-COOPER-2', 'their second');
+eq(PO.formatPoNumber({ jobNumber: '1234', vendorCode: 'GRAYBAR', sequence: 1 }), '1234-GRAYBAR-1',
+   'a different vendor on the same job');
+eq(PO.formatPoNumber({ jobNumber: '5678', vendorCode: 'COOPER', sequence: 1 }), '5678-COOPER-1',
+   'the same vendor on a different job');
+
+// NO ZERO-PADDING. The examples came from the people who write these by hand
+// and they are unpadded; inventing padding would invent a format.
+eq(PO.formatPoNumber({ jobNumber: '1234', vendorCode: 'COOPER', sequence: 12 }), '1234-COOPER-12',
+   'a two-digit sequence is not padded');
+eq(PO.FIRST_SEQUENCE, 1, 'a pair starts at one');
+
+rejects(() => PO.formatPoNumber({ jobNumber: '', vendorCode: 'COOPER', sequence: 1 }), /job number/i,
+        'a number cannot be built without a job');
+rejects(() => PO.formatPoNumber({ jobNumber: '1234', vendorCode: '', sequence: 1 }), /vendor code/i,
+        'nor without a vendor code');
+rejects(() => PO.formatPoNumber({ jobNumber: '1234', vendorCode: 'COOP-ER', sequence: 1 }), /vendor code/i,
+        'nor with a vendor code containing the separator');
+rejects(() => PO.formatPoNumber({ jobNumber: '1234', vendorCode: 'COOPER', sequence: 0 }), /sequence/i,
+        'nor with a sequence below one');
+
+// THE VENDOR CODE. Derived from the display name, never abbreviated: an
+// abbreviation this module invented would be a name nobody at the company chose,
+// printed on a supplier's paperwork.
+eq(PO.normalizeVendorCode('Cooper'), 'COOPER', 'a one-word vendor name is its own code');
+eq(PO.normalizeVendorCode('Cooper Electric Supply Co.'), 'COOPERELECTRICSUPPLYCO',
+   'spaces and punctuation are removed rather than abbreviated');
+eq(PO.normalizeVendorCode('Rexel & Sons'), 'REXELANDSONS', 'an ampersand is spelled out');
+eq(PO.normalizeVendorCode('Nuñez Supply'), 'NUNEZSUPPLY', 'an accent is folded, not dropped with its letter');
+eq(PO.normalizeVendorCode('Graybar-Electric'), 'GRAYBARELECTRIC',
+   'a hyphen is removed — it is the separator, and a code containing one would break the number');
+check(PO.normalizeVendorCode('A'.repeat(50)).length === PO.VENDOR_CODE_MAX, 'a very long name is bounded');
+
+// Collisions are made VISIBLE rather than resolved by inventing a second
+// abbreviation: COOPER2 is legible as "the second Cooper", and the office can
+// go and give it a proper code.
+eq(PO.assignVendorCode('Cooper', []), 'COOPER', 'the first vendor of a name gets the plain code');
+eq(PO.assignVendorCode('Cooper', ['COOPER']), 'COOPER2', 'a second one is suffixed');
+eq(PO.assignVendorCode('Cooper', ['COOPER', 'COOPER2']), 'COOPER3', 'and a third');
+eq(PO.assignVendorCode('Cooper', ['COOPER']), 'COOPER2', 'and the derivation is deterministic — running it twice agrees');
+eq(PO.assignVendorCode('!!!', []), 'VENDOR', 'a name with nothing usable in it still yields a code');
+
+// THE JOB SEGMENT. Lippolis job numbers already contain a hyphen (24-118) and
+// that hyphen is theirs — it stays.
+eq(PO.normalizeJobSegment('24-118'), '24-118', "the office's own hyphen is preserved");
+eq(PO.normalizeJobSegment(' 24-118 '), '24-118', 'surrounding whitespace is not part of a job number');
+eq(PO.normalizeJobSegment('24 118'), '24118', 'a space inside one is removed');
+eq(PO.normalizeJobSegment('24--118'), '24-118', 'a doubled separator is collapsed');
+eq(PO.normalizeJobSegment('-24-118-'), '24-118', 'and it cannot start or end with the separator');
+
+// PARSING BACK. The job may contain hyphens and the vendor code may not, so the
+// identifier is split from the RIGHT and the job takes what is left.
+eq(PO.parsePoNumber('1234-COOPER-1'), { jobNumber: '1234', vendorCode: 'COOPER', sequence: 1 },
+   'a number parses back into its three components');
+eq(PO.parsePoNumber('24-118-GRAYBAR-7'), { jobNumber: '24-118', vendorCode: 'GRAYBAR', sequence: 7 },
+   'and so does one whose job number contains the separator');
+eq(PO.parsePoNumber('24-118-graybar-7'), { jobNumber: '24-118', vendorCode: 'GRAYBAR', sequence: 7 },
+   'parsing is case-insensitive — a person typed this');
+check(PO.parsePoNumber('LE-52901') === null, 'a number from the retired global scheme does not parse as one of these');
+check(PO.parsePoNumber('1234-COOPER-x') === null, 'a non-numeric sequence is not a purchase order number');
+check(PO.parsePoNumber('1234-COOPER') === null, 'nor is a number with a component missing');
+check(PO.parsePoNumber('') === null, 'nor is nothing at all');
+
+// Round trip, on the shapes that actually occur.
+for (const [job, code, seq] of [['1234', 'COOPER', 1], ['24-118', 'GRAYBARELECTRIC', 42], ['9', 'A', 1]]) {
+  const text = PO.formatPoNumber({ jobNumber: job, vendorCode: code, sequence: seq });
+  eq(PO.parsePoNumber(text), { jobNumber: job, vendorCode: code, sequence: seq }, `${text} survives a round trip`);
+}
+
+// A CODE AN ADMINISTRATOR TYPED has to be told why it is not acceptable.
+check(PO.validateVendorCode('COOPER').ok, 'a plain code is accepted');
+eq(PO.validateVendorCode(' cooper ').value, 'COOPER', 'and is normalized to upper case');
+check(!PO.validateVendorCode('').ok, 'an empty code is refused');
+check(!PO.validateVendorCode('CO-OP').ok, 'a code containing the separator is refused');
+check(!PO.validateVendorCode('CO OP').ok, 'a code containing a space is refused');
+check(!PO.validateVendorCode('A'.repeat(40)).ok, 'an over-long code is refused');
+
+// LINING A PAIR UP WITH THE PAPER BOOK. Either the last one issued or the next
+// one — both are things a person knows — and exactly one of them.
+eq(PO.planSequenceInitialization({ lastIssuedSequence: 3 }).nextValue, 4,
+   'the last issued number means the next one is one higher');
+eq(PO.planSequenceInitialization({ nextSequence: 4 }).nextValue, 4, 'or the next number is given directly');
+eq(PO.planSequenceInitialization({ lastIssuedSequence: 0 }).nextValue, 1,
+   'a pair whose paper sequence has issued nothing starts at one');
+check(!PO.planSequenceInitialization({}).ok, 'saying neither is refused');
+check(!PO.planSequenceInitialization({ lastIssuedSequence: 3, nextSequence: 9 }).ok, 'saying both is refused');
+check(!PO.planSequenceInitialization({ nextSequence: 0 }).ok, 'zero is not a next number');
+check(!PO.planSequenceInitialization({ nextSequence: 'four' }).ok, 'nor is a word');
+check(!PO.planSequenceInitialization({ lastIssuedSequence: -1 }).ok, 'nor is a negative last number');
+
+// NEVER BACKWARDS OVER WHAT PCC ITSELF HAS ISSUED. That number is already on a
+// supplier's paperwork.
+eq(PO.planSequenceInitialization({ nextSequence: 6, issuedSequence: 5 }).nextValue, 6,
+   'a starting point above everything issued is allowed');
+eq(PO.planSequenceInitialization({ nextSequence: 5, issuedSequence: 5 }).reason, 'sequence_rewind',
+   'a starting point ON an issued number is refused');
+eq(PO.planSequenceInitialization({ nextSequence: 2, issuedSequence: 5 }).reason, 'sequence_rewind',
+   'and so is one below it');
+check(PO.planSequenceInitialization({ nextSequence: 5, issuedSequence: 5 }).message.includes('6'),
+      'and the refusal says what the smallest acceptable number is');
 
 console.log('--- numbers ----------------------------------------------------');
 
@@ -588,9 +713,9 @@ eq(statusMessageKey('PENDING_WORKSHOP_REVIEW'), 'purchasing.status.PENDING_WORKS
 check(REQUEST_STATUSES.every((s) => statusMessageKey(s).startsWith('purchasing.status.')),
       'every status has a translation key');
 
-const message = activityMessage({ action: 'po.generated', actorName: 'Mike', details: { poNumber: 'LE-52901' } });
+const message = activityMessage({ action: 'po.generated', actorName: 'Mike', details: { poNumber: '24-118-GRAYBAR-1' } });
 eq(message.key, 'purchasing.activity.po.generated', 'a timeline entry resolves to a key');
-eq(message.params.poNumber, 'LE-52901', 'with the values to interpolate, rather than a built sentence');
+eq(message.params.poNumber, '24-118-GRAYBAR-1', 'with the values to interpolate, rather than a built sentence');
 eq(message.params.actor, 'Mike', 'including who did it');
 check(ACTIVITY_ACTIONS.every((a) => activityMessage({ action: a }).key.startsWith('purchasing.activity.')),
       'every recorded action has a translation key');
@@ -661,7 +786,7 @@ const historyInput = {
   },
   requestItems: [{ id: 'ri-1', lineNo: 1, description: '2x4 LED Troffer 4000K', requestedQty: 20 * K, unit: 'ea' }],
   reviewLines: [{ requestItemId: 'ri-1', vendorId: 'v-1', vendorName: 'IGNORED WHEN ORDERED', estimatedUnitCostCents: 1 }],
-  order: { id: 'po-1', poNumber: 'LE-52901', vendorId: 'v-1', generatedAt: '2026-08-04T09:00:00.000Z' },
+  order: { id: 'po-1', poNumber: '24-118-GRAYBAR-1', vendorId: 'v-1', generatedAt: '2026-08-04T09:00:00.000Z' },
   orderItems: [{
     id: 'oi-1', request_item_id: 'ri-1', description: '2x4 LED Troffer 4000K', substitute_description: null,
     normalized_description: '2x4 led troffer 4000k', catalog_item_id: 'cat-1', order_qty: 18 * K, unit: 'ea',

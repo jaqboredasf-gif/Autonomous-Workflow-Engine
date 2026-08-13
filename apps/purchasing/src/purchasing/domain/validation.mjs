@@ -27,6 +27,8 @@ export const VALIDATION_CODES = [
   'item_description_required',
   'item_quantity_invalid',
   'item_unit_required',
+  // Still raised — by a rejection, a cancellation and a clarification, which
+  // are accountable acts. NOT by intake; asking for material needs no excuse.
   'reason_required',
   'forbidden_field',
 ];
@@ -78,9 +80,18 @@ export function validateRequestDraft(draft = {}) {
     add('delivery_location_required', 'deliveryLocationId', 'Choose where the material should go.');
   }
 
-  if (!String(draft.reason ?? '').trim()) {
-    add('reason_required', 'reason', 'Say why the material is needed.');
-  }
+  // NO REASON IS REQUIRED TO ASK FOR MATERIAL.
+  //
+  // It used to be, and it was the wrong question: a material request already
+  // says why it exists — the work cannot continue without the material. Asking
+  // a foreman to write a procurement justification in a parking lot slowed down
+  // the one action the whole system exists to make fast, and what came back was
+  // "needed for the job" often enough to prove the field was noise.
+  //
+  // `reason` remains on the request and remains editable; it is simply not a
+  // precondition for asking. The reasons that ARE required are the ones a
+  // person is accountable for: a rejection, a cancellation and a clarification
+  // each still refuse without one (application/decisions.ts, requests.ts).
 
   const items = Array.isArray(draft.items) ? draft.items : [];
   if (items.length === 0) {

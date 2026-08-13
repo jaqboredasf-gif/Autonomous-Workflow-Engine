@@ -24,7 +24,6 @@ export function QueueFilters({
   jobs,
   vendors,
   requesters,
-  priorities,
   hidden = {},
 }: {
   action: string;
@@ -33,7 +32,6 @@ export function QueueFilters({
   jobs: FilterOption[];
   vendors: FilterOption[];
   requesters: FilterOption[];
-  priorities: FilterOption[];
   /** Values carried through the form without being editable (the stage tab). */
   hidden?: Record<string, string>;
 }) {
@@ -77,21 +75,6 @@ export function QueueFilters({
           {statuses.map((s) => (
             <option key={s.value} value={s.value}>
               {s.label}
-            </option>
-          ))}
-        </select>
-
-        <select
-          name="priority"
-          defaultValue={values.priority ?? ''}
-          onChange={submit}
-          aria-label="Filter by priority"
-          className={fieldStyle()}
-        >
-          <option value="">Any priority</option>
-          {priorities.map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
             </option>
           ))}
         </select>

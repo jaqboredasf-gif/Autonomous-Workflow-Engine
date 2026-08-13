@@ -72,7 +72,7 @@ const AUTHORIZED_BY_CALLER = {
   'review.ts:changesFromOriginal': 'read-only diff, no write',
   'fulfilment.ts:renderAndStore': 'generatePurchaseOrder (po.generate)',
   'decisions.ts:saveReviewAndDecide': 'delegates to saveWorkshopReview + decidePurchaseRequest',
-  'administration.ts:poConfig': 'read-only; authorizes with admin.po_config',
+  'administration.ts:poSequences': 'read-only; authorizes with admin.po_config',
   // The history WRITE is not a use case a route can reach: it runs inside the
   // terminal transition of the three use cases that end a request, each of
   // which authorized before transitioning. Asking again here would authorize

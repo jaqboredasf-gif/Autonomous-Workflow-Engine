@@ -11,56 +11,139 @@
 import { emit, must, PurchasingError, type PurchasingContext } from './context.ts';
 import type { Actor } from './ports.ts';
 import { events } from '../domain/events.mjs';
-import { validatePoConfig } from '../domain/po-number.mjs';
+import {
+  FIRST_SEQUENCE, formatPoNumber, normalizeJobSegment, planSequenceInitialization, validateVendorCode,
+} from '../domain/po-number.mjs';
 import { isReservedLocation, ROLES, WORKSHOP_LOCATION } from '../domain/roles.mjs';
 
-export async function poConfig(ctx: PurchasingContext, actor: Actor) {
-  return await ctx.reference.poConfig(actor.orgId);
+// ===========================================================================
+// PURCHASE ORDER NUMBERING.
+//
+// Lippolis numbers a purchase order job + vendor + sequence, and the sequence
+// counts within the PAIR: 1234-COOPER-1, 1234-COOPER-2, then 1234-GRAYBAR-1 and
+// 5678-COOPER-1 both starting again at 1. There is nothing to configure — no
+// prefix, no padding, no company-wide starting number — so the two use cases
+// here are the only two an administrator has:
+//
+//   * read what each pair stands at, and
+//   * declare where a pair ALREADY stood, because the office wrote purchase
+//     orders for it on paper before PCC existed.
+//
+// The second is the dangerous one and is written to be dull: forward only,
+// never below what PCC itself has issued, always attributable.
+// ===========================================================================
+
+/** What every (job, vendor) pair this organization counts stands at. */
+export async function poSequences(ctx: PurchasingContext, actor: Actor) {
+  await must(ctx, actor, 'admin.po_config');
+  return await ctx.poNumbers.sequences(actor.orgId);
 }
 
 /**
- * Change the PO numbering scheme. The next value may only move FORWARD:
- * winding a sequence backwards would re-issue numbers that vendors and invoices
- * already reference.
+ * Line one (job, vendor) pair up with the office's paper book — or record that
+ * it has no paper behind it.
+ *
+ * Both are declarations, and both are useful. A pair the office has already
+ * written orders for must be told where it had reached, or PCC's first number
+ * collides with one the supplier holds. A pair with NO paper history is
+ * declared by saying its next number is 1: nothing changes about how it counts,
+ * but the pair stops being an open question, and `pcc-verify-production.mjs`
+ * stops asking about it before go-live. That is the whole difference between
+ * "nobody has checked this job" and "the office checked, and it is new".
+ *
+ * The administrator gives EITHER the last number they issued or the next one —
+ * both are things a person actually knows, and requiring exactly one of them
+ * means a half-filled form cannot be mistaken for an answer.
  */
-export async function updatePoConfig(
+export async function initializePoSequence(
   ctx: PurchasingContext, actor: Actor,
-  input: { prefix?: string; padding?: number; suffix?: string; nextValue?: number },
+  input: {
+    jobNumber?: string; vendorId?: string;
+    lastIssuedSequence?: string | number; nextSequence?: string | number;
+    /**
+     * Required only when PCC has ALREADY issued purchase orders for this pair.
+     * Moving such a pair is legitimate — an office correcting a gap — but it is
+     * never something to do by accident, so the caller has to have seen the
+     * count and said so.
+     */
+    acknowledgeIssued?: boolean;
+  },
 ) {
   await must(ctx, actor, 'admin.po_config');
-  const current = await ctx.reference.poConfig(actor.orgId);
 
-  const validation = validatePoConfig({
-    prefix: input.prefix ?? current.prefix,
-    padding: input.padding ?? current.padding,
-    nextNumber: input.nextValue ?? current.next_value,
+  const jobNumber = normalizeJobSegment(input.jobNumber);
+  if (!jobNumber) throw new PurchasingError('validation_failed', 'which job? A purchase order sequence belongs to a job and a vendor.');
+
+  const vendor = await ctx.reference.vendorById(actor.orgId, String(input.vendorId ?? ''));
+  if (!vendor) throw new PurchasingError('not_found', 'vendor not found');
+  if (!vendor.code) throw new PurchasingError('vendor_code_missing', `${vendor.name} has no purchase order code yet`);
+
+  // WHAT PCC ITSELF HAS ALREADY PUT ON A SUPPLIER'S PAPERWORK. Read from the
+  // issued orders rather than from the counter: the counter is where the next
+  // one comes from, and this is the floor the declaration may not go under.
+  const issuedSequence = await ctx.poNumbers.highestIssued({ orgId: actor.orgId, jobNumber, vendorId: vendor.id });
+
+  const plan = planSequenceInitialization({
+    lastIssuedSequence: input.lastIssuedSequence,
+    nextSequence: input.nextSequence,
+    issuedSequence,
   });
-  if (!validation.ok) throw new PurchasingError('validation_failed', 'invalid PO configuration', validation.errors);
+  if (!plan.ok) throw new PurchasingError(plan.reason as string, plan.message as string);
 
-  const nextValue = input.nextValue ?? Number(current.next_value);
-  if (nextValue < Number(current.next_value)) {
-    throw new PurchasingError('sequence_rewind', 'a PO sequence can only move forward — issued numbers are permanent');
+  const nextValue = plan.nextValue as number;
+
+  // NOT SILENTLY, OVER REAL ORDERS. `planSequenceInitialization` already refuses
+  // to land on or below a number PCC has issued; this covers the other half —
+  // a pair with real purchase orders behind it being moved FORWARD. That is a
+  // legitimate act (an office reconciling a gap after an outage) and a terrible
+  // accident, and the two are told apart by whether the person knew the orders
+  // were there.
+  if (issuedSequence > 0 && !input.acknowledgeIssued) {
+    throw new PurchasingError(
+      'sequence_already_issued',
+      `PCC has already issued ${issuedSequence} purchase order number(s) for job ${jobNumber} with ${vendor.name}, ` +
+        `the most recent being ${formatPoNumber({ jobNumber, vendorCode: vendor.code, sequence: issuedSequence })}. ` +
+        'Setting this pair is still possible, but it has to be deliberate — confirm that you mean to move a sequence ' +
+        'that is already in use.',
+    );
   }
 
-  await ctx.reference.updatePoConfig(
-    actor.orgId,
-    {
-      prefix: input.prefix ?? current.prefix,
-      padding: input.padding ?? current.padding,
-      suffix: input.suffix ?? current.suffix,
+  const before = (await ctx.poNumbers.sequences(actor.orgId))
+    .find((s: any) => s.job_number === jobNumber && s.vendor_id === vendor.id) as any;
+  if (before && Number(before.next_value) > nextValue) {
+    throw new PurchasingError(
+      'sequence_rewind',
+      `this job and vendor are already at ${before.next_value}. A sequence can only move forward — issued numbers are permanent.`,
+    );
+  }
+
+  const now = ctx.clock.now();
+  await ctx.uow.run(() =>
+    ctx.poNumbers.initialize(
+      { orgId: actor.orgId, jobNumber, vendorId: vendor.id, vendorCode: String(vendor.code).toUpperCase() },
       nextValue,
-    },
-    actor.id,
-    ctx.clock.now(),
+      actor.id,
+      now,
+    ),
   );
 
   await emit(ctx, actor, actor.orgId, [
-    events.poConfigChanged(
-      { prefix: current.prefix, padding: current.padding, suffix: current.suffix, nextValue: current.next_value },
-      { prefix: input.prefix ?? current.prefix, padding: input.padding ?? current.padding, nextValue },
+    events.poSequenceInitialized(
+      { jobNumber, vendorId: vendor.id, vendorName: vendor.name, vendorCode: vendor.code },
+      // `issued` goes on the record too: months later, the question about a
+      // moved sequence is always "what was already out there when they moved
+      // it", and that is not recoverable from the before/after alone.
+      { from: before ? Number(before.next_value) : null, to: nextValue, issued: issuedSequence },
     ),
   ]);
-  return { ok: true };
+  return {
+    ok: true,
+    nextValue,
+    issuedSequence,
+    /** True when this pair was declared to have no paper history behind it. */
+    declaredNew: nextValue === FIRST_SEQUENCE,
+    nextPoNumber: formatPoNumber({ jobNumber, vendorCode: vendor.code, sequence: nextValue }),
+  };
 }
 
 // --- user administration ----------------------------------------------------
@@ -265,7 +348,7 @@ export async function setApprovalAuthority(ctx: PurchasingContext, actor: Actor,
 // ===========================================================================
 
 export type VendorInput = {
-  name?: string; accountNumber?: string; phone?: string; address?: string; notes?: string;
+  name?: string; code?: string; accountNumber?: string; phone?: string; address?: string; notes?: string;
   contactName?: string; contactEmail?: string; contactPhone?: string;
 };
 
@@ -304,9 +387,21 @@ export async function createVendor(ctx: PurchasingContext, actor: Actor, input: 
     throw new PurchasingError('duplicate', `this organization already has a vendor called ${v.name}`);
   }
 
+  // THE PO CODE, if the administrator supplied one. Blank means "derive it from
+  // the name", which the repository does — the derivation is one function and
+  // lives in the domain, not here and not in two providers.
+  let code: string | null = null;
+  if ((input.code ?? '').trim()) {
+    const validation = validateVendorCode(input.code);
+    if (!validation.ok) throw new PurchasingError('validation_failed', validation.errors[0].message, validation.errors);
+    const clash = await ctx.reference.vendorByCode(actor.orgId, validation.value);
+    if (clash) throw new PurchasingError('duplicate', `${clash.name} already uses the code ${validation.value}`);
+    code = validation.value;
+  }
+
   const now = ctx.clock.now();
   const vendorId = await ctx.uow.run(async () => {
-    const id = await ctx.reference.createVendor(actor.orgId, v, actor.id, now);
+    const id = await ctx.reference.createVendor(actor.orgId, { ...v, code }, actor.id, now);
     if (v.contactName || v.contactEmail || v.contactPhone) {
       await ctx.reference.setVendorPrimaryContact(actor.orgId, id, {
         name: v.contactName, email: v.contactEmail, phone: v.contactPhone,
@@ -350,6 +445,47 @@ export async function updateVendor(
     events.vendorUpdated(vendorId, { name: before.name }, v, `updated vendor ${v.name}`),
   ]);
   return { ok: true };
+}
+
+/**
+ * Set the code this vendor is known by inside purchase order numbers.
+ *
+ * ALLOWED ONLY UNTIL THE FIRST ORDER. After that the code is on a supplier's
+ * paperwork, in their system and on their invoices, and changing it would make
+ * 1234-COOPER-2 the successor to a 1234-COOPERELECTRIC-1 that no longer appears
+ * to exist. The display name stays freely editable — that is the point of
+ * keeping the two apart.
+ */
+export async function setVendorCode(ctx: PurchasingContext, actor: Actor, vendorId: string, code: string) {
+  await must(ctx, actor, 'admin.vendors');
+  const vendor = await ctx.reference.vendorById(actor.orgId, vendorId);
+  if (!vendor) throw new PurchasingError('not_found', 'vendor not found');
+
+  const validation = validateVendorCode(code);
+  if (!validation.ok) throw new PurchasingError('validation_failed', validation.errors[0].message, validation.errors);
+  if (validation.value === String(vendor.code ?? '').toUpperCase()) return { ok: true, code: validation.value };
+
+  if (await ctx.reference.vendorHasOrders(actor.orgId, vendorId)) {
+    throw new PurchasingError(
+      'vendor_code_frozen',
+      `${vendor.name} has already been sent purchase orders as ${vendor.code}. That code is part of every number it carries and cannot be changed.`,
+    );
+  }
+
+  const clash = await ctx.reference.vendorByCode(actor.orgId, validation.value);
+  if (clash && clash.id !== vendorId) {
+    throw new PurchasingError('duplicate', `${clash.name} already uses the code ${validation.value}`);
+  }
+
+  const now = ctx.clock.now();
+  await ctx.reference.setVendorCode(actor.orgId, vendorId, validation.value, actor.id, now);
+  await emit(ctx, actor, actor.orgId, [
+    events.vendorUpdated(
+      vendorId, { code: vendor.code ?? null }, { code: validation.value },
+      `set the purchase order code for ${vendor.name} to ${validation.value}`,
+    ),
+  ]);
+  return { ok: true, code: validation.value };
 }
 
 /**

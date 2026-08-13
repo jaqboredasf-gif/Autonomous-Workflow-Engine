@@ -11,7 +11,8 @@
 // of a restart:
 //
 //   --write   sign in, prove the shipped image has no published accounts,
-//             configure the PO sequence, and put real purchasing data in.
+//             set a job-and-vendor sequence from the paper book, and put
+//             real purchasing data in.
 //             Prints a fingerprint of what it created.
 //   --verify  sign in again and prove every one of those facts survived,
 //             against the fingerprint from the write pass.
@@ -157,33 +158,14 @@ if (!check(signedIn.status === 200, 'the configured administrator signs in', `st
 
 // ===========================================================================
 if (MODE === 'write') {
-  console.log('\n--- the office sets its own PO sequence -------------------------');
+  console.log('\n--- the numbering rule the office actually uses -----------------');
 
   const adminPage = await admin.go('/admin?module=settings');
   check(adminPage.status === 200, 'administration opens');
-  check(/affects every purchase order|cannot be undone|only move forward/i.test(text(adminPage.body)),
-    'the PO numbering panel warns what changing the sequence does');
-
-  // A number nobody would reach by accident, so finding it after a restart
-  // proves the setting persisted rather than that a default happens to match.
-  const START = 60250;
-  const saved = await admin.submit('/admin?module=settings', 'Save PO numbering', [
-    ['prefix', 'LE-'], ['padding', '5'], ['suffix', ''], ['nextValue', String(START)],
-  ]);
-  check(saved.status >= 200 && saved.status < 400, 'the next number can be set', `status ${saved.status}`);
-
-  const confirmed = await admin.go('/admin?module=settings');
-  check(confirmed.body.includes(String(START)), 'and the administration screen shows it');
-
-  // WINDING IT BACK MUST BE REFUSED. Re-issuing a number a vendor already has
-  // on an invoice is the failure this rule exists for.
-  const backwards = await admin.submit('/admin?module=settings', 'Save PO numbering', [
-    ['prefix', 'LE-'], ['padding', '5'], ['suffix', ''], ['nextValue', String(START - 100)],
-  ]);
-  const afterBackwards = await admin.go('/admin?module=settings');
-  check(afterBackwards.body.includes(String(START)),
-    'winding the sequence backwards is refused — issued numbers are permanent',
-    `status ${backwards.status}`);
+  check(/job number.*vendor.*counts from 1|counts separately for each job and vendor/is.test(text(adminPage.body)),
+    'the PO numbering panel states the rule: job, vendor, and a count that starts at 1');
+  check(/already wrote paper purchase orders|already have paper/i.test(text(adminPage.body)),
+    'and says when an administrator still has to intervene');
 
   console.log('\n--- and real purchasing data goes in ----------------------------');
 
@@ -204,6 +186,39 @@ if (MODE === 'write') {
     ['siteAddress', '1 Test Way'],
   ]);
   check(jobRes.status >= 200 && jobRes.status < 400, 'a job can be added', `status ${jobRes.status}`);
+
+  // THE PAIR THE OFFICE HAS ALREADY WRITTEN BY HAND. A number nobody would
+  // reach by accident, so finding it after a restart proves the counter
+  // persisted rather than that a default happens to match.
+  const VENDOR_CODE = 'DEPLOYMENTTESTSUPPLYCO';
+  const START = 37;
+  const vendorsPage = await admin.go('/admin?module=vendors');
+  check(vendorsPage.body.includes(VENDOR_CODE),
+    'the new vendor was given the PO code its numbers will be built from');
+  // The vendor picker on the settings screen lists "<name> (<code>)", so the
+  // option carrying our vendor's name is the one to submit.
+  const settingsBody = (await admin.go('/admin?module=settings')).body;
+  const newVendorId = [...settingsBody.matchAll(/value="([0-9a-f-]{36})"[^>]*>([^<]*)</g)]
+    .find(([, , label]) => label.includes('Deployment Test Supply Co'))?.[1] ?? '';
+  check(Boolean(newVendorId), 'the new vendor can be chosen when setting a pair sequence');
+
+  const seqSaved = await admin.submit('/admin?module=settings', 'Set this pair', [
+    ['jobNumber', '26-001'], ['vendorId', newVendorId], ['lastIssuedSequence', String(START - 1)], ['nextSequence', ''],
+  ]);
+  check(seqSaved.status >= 200 && seqSaved.status < 400, "the pair's paper sequence can be set", `status ${seqSaved.status}`);
+  const confirmed = await admin.go('/admin?module=settings');
+  check(confirmed.body.includes(`26-001-${VENDOR_CODE}-${START}`),
+    'and the screen says exactly what the next purchase order will be called');
+
+  // WINDING IT BACK MUST BE REFUSED. Re-issuing a number a vendor already has
+  // on an invoice is the failure this rule exists for.
+  const backwards = await admin.submit('/admin?module=settings', 'Set this pair', [
+    ['jobNumber', '26-001'], ['vendorId', newVendorId], ['lastIssuedSequence', ''], ['nextSequence', '2'],
+  ]);
+  const afterBackwards = await admin.go('/admin?module=settings');
+  check(afterBackwards.body.includes(`26-001-${VENDOR_CODE}-${START}`),
+    'winding the sequence backwards is refused — issued numbers are permanent',
+    `status ${backwards.status}`);
 
   const request = await admin.submit('/requests/new', 'Submit to workshop', [
     ['jobNumber', '26-001'],
@@ -232,12 +247,16 @@ if (MODE === 'write') {
       `status ${approved.status} -> ${approved.location ?? 'no redirect'}`);
 
     const po = await admin.go(`/requests/${requestId}/po`);
-    poNumber = /LE-\d+/.exec(text(po.body))?.[0] ?? null;
-    check(poNumber === `LE-${START}`, 'the PO number comes from the sequence the office set',
-      `got ${poNumber}, expected LE-${START}`);
+    poNumber = new RegExp(`26-001-${VENDOR_CODE}-\\d+`).exec(text(po.body))?.[0] ?? null;
+    check(poNumber === `26-001-${VENDOR_CODE}-${START}`,
+      'the PO number is job-vendor-sequence and continues the office paper sequence',
+      `got ${poNumber}, expected 26-001-${VENDOR_CODE}-${START}`);
   }
 
-  writeFileSync(FINGERPRINT, JSON.stringify({ requestId, poNumber, start: START, vendor: 'Deployment Test Supply Co', job: '26-001' }, null, 2));
+  writeFileSync(FINGERPRINT, JSON.stringify({
+    requestId, poNumber, start: START, vendorCode: VENDOR_CODE,
+    vendor: 'Deployment Test Supply Co', job: '26-001',
+  }, null, 2));
   console.log(`\n(fingerprint written to ${FINGERPRINT})`);
 }
 
@@ -271,8 +290,8 @@ if (MODE === 'verify') {
   // THE SEQUENCE MUST HAVE MOVED ON, not reset. A restart that rewound it
   // would re-issue a number that is already on a vendor's desk.
   const adminPage = await admin.go('/admin?module=settings');
-  check(adminPage.body.includes(String(expected.start + 1)),
-    `the PO sequence continued at ${expected.start + 1} rather than resetting`);
+  check(adminPage.body.includes(`${expected.job}-${expected.vendorCode}-${expected.start + 1}`),
+    `the job-and-vendor sequence continued at ${expected.start + 1} rather than resetting`);
 }
 
 console.log('');

@@ -183,14 +183,27 @@ export function renderPoPdf(view: any): Buffer {
   y -= 18;
 
   // --- item table
+  //
+  // THE VENDOR'S COPY SHOWS WHAT THE VENDOR IS SELLING. `finalOrderQty` is the
+  // quantity being bought — the job may need more and be covered from Lippolis
+  // stock for the difference, which is Lippolis's business and not this
+  // supplier's. The three-way breakdown belongs on the internal printed copy.
+  //
+  // Money prints only when somebody recorded some. Lippolis prices from the
+  // vendor's invoice rather than estimating up front, so on most orders these
+  // two columns would otherwise be an inch of $0.00 on a supplier's paperwork —
+  // which reads as a priced order for nothing rather than an unpriced order.
   const C = LAYOUT.columns;
+  const showCosts = view.items.some((i: any) => Number(i.estimatedUnitCostCents ?? 0) > 0);
   page.rule(PAGE.margin, y + 10, right, 0.6);
   page.text('#', C.line, y, { size: 9, bold: true });
   page.text('DESCRIPTION', C.description, y, { size: 9, bold: true });
   page.right('QTY', C.qty, y, { size: 9, bold: true });
   page.text('UNIT', C.unit, y, { size: 9, bold: true });
-  page.right('UNIT COST', C.unitCost, y, { size: 9, bold: true });
-  page.right('LINE TOTAL', C.lineTotal, y, { size: 9, bold: true });
+  if (showCosts) {
+    page.right('UNIT COST', C.unitCost, y, { size: 9, bold: true });
+    page.right('LINE TOTAL', C.lineTotal, y, { size: 9, bold: true });
+  }
   y -= 6;
   page.rule(PAGE.margin, y, right, 0.6);
   y -= LAYOUT.rowHeight;
@@ -209,8 +222,10 @@ export function renderPoPdf(view: any): Buffer {
     current.text(truncate(item.description, 52), C.description, y, { size: 10 });
     current.right(formatQty(item.finalOrderQty), C.qty, y, { size: 10 });
     current.text(item.unit, C.unit, y, { size: 10 });
-    current.right(formatMoney(item.estimatedUnitCostCents), C.unitCost, y, { size: 10 });
-    current.right(formatMoney(item.lineTotalCents), C.lineTotal, y, { size: 10 });
+    if (showCosts) {
+      current.right(formatMoney(item.estimatedUnitCostCents), C.unitCost, y, { size: 10 });
+      current.right(formatMoney(item.lineTotalCents), C.lineTotal, y, { size: 10 });
+    }
     y -= LAYOUT.rowHeight;
     if (item.substituteFor) {
       current.text(`substitute for: ${truncate(item.substituteFor, 60)}`, C.description, y, { size: 8 });
@@ -224,10 +239,12 @@ export function renderPoPdf(view: any): Buffer {
 
   // --- totals
   y -= 4;
-  current.rule(C.unitCost - 60, y + 10, right, 0.6);
-  current.right('ESTIMATED TOTAL', C.unitCost, y, { size: 11, bold: true });
-  current.right(formatMoney(view.purchaseOrder.estimatedTotalCents), C.lineTotal, y, { size: 11, bold: true });
-  y -= 26;
+  if (showCosts) {
+    current.rule(C.unitCost - 60, y + 10, right, 0.6);
+    current.right('ESTIMATED TOTAL', C.unitCost, y, { size: 11, bold: true });
+    current.right(formatMoney(view.purchaseOrder.estimatedTotalCents), C.lineTotal, y, { size: 11, bold: true });
+    y -= 26;
+  }
 
   if (view.purchaseOrder.notes) {
     current.text('Notes', PAGE.margin, y, { size: 9, bold: true });

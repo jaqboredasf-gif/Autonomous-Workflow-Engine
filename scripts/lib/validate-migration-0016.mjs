@@ -67,7 +67,10 @@ export const TABLE_MAP = {
   purchase_reviews: 'purchase_reviews',
   purchase_review_items: 'purchase_review_items',
   purchase_approvals: 'purchase_approvals',
+  // Retired by 0038 as the allocator; the table stays because it records what
+  // an office was configured to before the real rule was known.
   po_number_sequences: 'po_number_sequences',
+  po_job_vendor_sequences: 'po_job_vendor_sequences',
   request_number_sequences: 'request_number_sequences',
   purchase_orders: 'purchase_orders',
   purchase_order_items: 'purchase_order_items',
@@ -192,7 +195,12 @@ export async function validate() {
   for (const s of EMAIL_DRAFT_STATUSES) if (!draftEnum.includes(s)) bad(`email draft status ${s} is missing from the enum`);
 
   // --- table parity ---------------------------------------------------------
-  const created = new Set([...sql.matchAll(/create table (?:if not exists )?(\w+)/g)].map((m) => m[1]));
+  // Every migration, not only the four read into `sql`: a pilot table created
+  // by a later migration (po_job_vendor_sequences, 0038) is still a table the
+  // production schema has, and reporting it missing would be a false alarm.
+  const created = new Set(
+    [...allMigrations.matchAll(/create table (?:if not exists )?(?:public\.)?(\w+)/g)].map((m) => m[1]),
+  );
   for (const pilotTable of TABLES) {
     if (!(pilotTable in TABLE_MAP)) {
       bad(`pilot table ${pilotTable} has no entry in TABLE_MAP — add it or map it to null with a reason`);
@@ -227,6 +235,53 @@ export async function validate() {
   ];
   for (const [needle, what] of required) {
     if (!sql.includes(needle)) bad(`migration 0016 is missing ${what} (${needle})`);
+  }
+
+  // --- 0038: the numbering rule Lippolis actually uses ----------------------
+  //
+  // Checked across every migration rather than 0016, because that is where it
+  // lives. Each of these is a property the pilot store also has, and the two
+  // must not drift: a purchase order numbered one way on the workshop PC and
+  // another way in production would be two products.
+  // THE ONE PLACE THE FORMAT IS DUPLICATED, and therefore the one place it can
+  // drift. `formatPoNumber` builds the number for the local provider; Postgres
+  // must build it inside `next_po_number_for()`, because the allocation has to
+  // be one statement to be atomic. Two implementations of one format is a
+  // deliberate cost — so the separator, the component order and the absence of
+  // padding are asserted against the DOMAIN's own constants rather than against
+  // a string typed twice.
+  {
+    const { PO_NUMBER_SEPARATOR, formatPoNumber } =
+      await import(join(APP, 'purchasing', 'domain', 'po-number.mjs'));
+    const sep = PO_NUMBER_SEPARATOR;
+    const expression = `v_job || '${sep}' || v_code || '${sep}' || v_seq::text`;
+    if (!allMigrations.includes(expression)) {
+      bad(
+        `the Postgres allocator does not build the PO number the way domain/po-number.mjs does ` +
+        `(expected \`${expression}\`) — the two providers would issue differently formatted numbers`,
+      );
+    }
+    // And the domain itself still produces what that expression produces, so a
+    // change to formatPoNumber cannot pass by leaving the SQL alone.
+    const sample = formatPoNumber({ jobNumber: 'JOB', vendorCode: 'VEND', sequence: 5 });
+    if (sample !== `JOB${sep}VEND${sep}5`) {
+      bad(`formatPoNumber no longer produces job${sep}vendor${sep}sequence (got ${sample}) — update migration 0038 to match`);
+    }
+    if (/lpad|to_char/.test(allMigrations.slice(allMigrations.indexOf('next_po_number_for')).slice(0, 2000))) {
+      bad('the Postgres allocator pads the sequence; the local provider does not');
+    }
+  }
+
+  for (const [needle, what] of [
+    ['po_job_vendor_sequences', 'the per (job, vendor) sequence table'],
+    ['next_po_number_for', 'the per-pair allocator'],
+    ['guard_po_pair_sequence_forward', 'forward-only pair sequences'],
+    ['initialize_po_sequence', 'the administrator-controlled historical initialization'],
+    ['purchase_orders_pair_sequence_idx', 'per-pair uniqueness on the orders themselves'],
+    ['drop constraint if exists purchase_orders_org_id_sequence_value_key', 'retiring the global sequence uniqueness'],
+    ['revoke execute on function next_po_number', 'putting the retired global allocator out of reach'],
+  ]) {
+    if (!allMigrations.includes(needle)) bad(`the migrations are missing ${what} (${needle})`);
   }
 
   // --- BR-011: approval authority, not requester identity -------------------

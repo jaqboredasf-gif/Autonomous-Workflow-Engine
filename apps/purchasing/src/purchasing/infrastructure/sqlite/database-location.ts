@@ -32,6 +32,14 @@ export type LocationProbe = {
   fileExists(path: string): boolean;
   /** Does this directory exist? */
   directoryExists(path: string): boolean;
+  /**
+   * Does anything — file OR directory — exist at this path?
+   *
+   * Needed to spot a `.git`, which is a directory in an ordinary clone and a
+   * FILE in a worktree or a submodule. Checking only for the directory would
+   * declare a worktree checkout safe.
+   */
+  pathExists(path: string): boolean;
 };
 
 export type LocationDecision =
@@ -102,6 +110,39 @@ export function resolveDatabaseLocation(
     };
   }
 
+  // THE RECORDS MUST NOT LIVE INSIDE THE SOURCE CHECKOUT.
+  //
+  // This one was found by reading our own installation runbook as if for the
+  // first time. It said: clone the repository to /srv/pcc, then put the data in
+  // /srv/pcc/data. Both halves are reasonable; together they put the company's
+  // purchasing records inside a git working tree, where the ordinary vocabulary
+  // of deploying software destroys them:
+  //
+  //   git clean -xfd          removes untracked files — that is the database
+  //   rm -rf /srv/pcc         the obvious way to "reinstall from scratch"
+  //   re-clone over the top   what somebody does when a checkout goes wrong
+  //   a release script that replaces the application directory
+  //
+  // None of those look destructive. Each one is, and the backups directory
+  // usually sits beside the database, so the same command takes the recovery
+  // path with it.
+  //
+  // A DEPLOYMENT SHOULD NOT DEPEND ON EVERYBODY REMEMBERING THIS, so production
+  // refuses the layout outright. Development is untouched: a laptop keeps its
+  // database in the checkout on purpose, and nothing there is anybody's record.
+  const enclosingRepository = repositoryAbove(configured, probe);
+  if (enclosingRepository) {
+    return {
+      ok: false,
+      variable: DATABASE_PATH_VARIABLES[0],
+      message:
+        `${configured} is inside the source checkout at ${enclosingRepository}. The purchasing records must not ` +
+        'live in a git working tree: `git clean -xfd`, a re-clone, or replacing the application directory during ' +
+        'a release would delete them, and the backups beside them. Put the data on its own path — ' +
+        '/var/lib/pcc/pcc.sqlite, or a mounted volume — and keep the application directory disposable.',
+    };
+  }
+
   const exists = probe.fileExists(configured);
   if (!exists && env[ALLOW_CREATE_VARIABLE] !== '1') {
     return {
@@ -120,7 +161,33 @@ export function resolveDatabaseLocation(
   return { ok: true, path: configured, creating: !exists, createDirectory: false };
 }
 
+/**
+ * The nearest ancestor directory that is a git working tree, or null.
+ *
+ * Walks UPWARDS from the database's own directory, because the dangerous
+ * arrangement is a data directory nested somewhere below a checkout root —
+ * /srv/pcc/data when the clone is at /srv/pcc — and the marker is at the top.
+ *
+ * `.git` is checked with pathExists rather than directoryExists because it is a
+ * FILE in a worktree or a submodule, and those are checkouts too.
+ */
+function repositoryAbove(databasePath: string, probe: LocationProbe): string | null {
+  let directory = parentOf(databasePath);
+  // Bounded rather than `while (true)`: a malformed path must not spin.
+  for (let depth = 0; depth < 40; depth++) {
+    if (probe.pathExists(joinPath(directory, '.git'))) return directory;
+    const parent = parentOf(directory);
+    if (parent === directory) return null; // reached the root
+    directory = parent;
+  }
+  return null;
+}
+
 /** node:path without importing it, so this module stays trivially testable. */
+function joinPath(directory: string, name: string) {
+  return directory.endsWith('/') || directory.endsWith('\\') ? `${directory}${name}` : `${directory}/${name}`;
+}
+
 function isAbsolute(path: string) {
   return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
 }

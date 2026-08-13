@@ -1,0 +1,45 @@
+# ---------------------------------------------------------------------------
+# pcc-docker.service — PCC under systemd, via Docker Compose.
+#
+# USE THIS ONE if the VM is Linux and Docker (or Podman) is available. It is the
+# path the Dockerfile and docker-compose.yml were written for, and the one the
+# deployment handoff documents.
+#
+# What it buys over `docker compose up -d` alone: the compose project comes back
+# after a VM reboot without anybody logging in, and `systemctl status pcc` is a
+# question IT can already answer. Compose's own `restart: unless-stopped`
+# handles a crashed container; this handles a rebooted host.
+#
+#   sudo cp deploy/pcc-docker.service /etc/systemd/system/pcc.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now pcc
+#   systemctl status pcc
+#   journalctl -u pcc -f            # or: docker compose logs -f pcc
+#
+# EDIT WorkingDirectory to wherever the repository is checked out.
+# ---------------------------------------------------------------------------
+
+[Unit]
+Description=Purchasing Control Center (PCC)
+Documentation=file:///srv/pcc/docs/deployment/PCC_IT_DEPLOYMENT_HANDOFF.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/srv/pcc
+
+# Compose reads .env from this directory. The secrets are in that file and it is
+# not in the repository — see the handoff, §3.
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose stop
+ExecReload=/usr/bin/docker compose up -d --build
+
+# A rebuild on a big VM is not instant, and a unit that gives up halfway leaves
+# a half-started deployment nobody looked at.
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

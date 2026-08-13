@@ -102,7 +102,11 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {attachments.map((a: any) => (
               <li key={a.id} className="rounded-md border border-slate-200 p-2 text-xs">
-                <div className="font-medium text-slate-800">{a.filename}</div>
+                {/* The photograph of the packing slip is the evidence this
+                    screen is named after. Until it linked, it was a filename. */}
+                <a className="font-medium text-slate-800 underline" href={`/api/attachments/${a.id}`}>
+                  {a.filename}
+                </a>
                 {a.caption ? <div className="text-slate-600">{a.caption}</div> : null}
                 <div className="text-slate-500">{Math.round(Number(a.byte_size ?? 0) / 1024)} KB</div>
               </li>

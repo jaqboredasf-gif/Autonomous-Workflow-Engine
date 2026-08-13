@@ -9,14 +9,21 @@ import { requireAccess, purchasingRequestContext } from '../../../../server/sess
 import * as S from '../../../../server/service.ts';
 import { formatMoney, formatQty } from '../../../../purchasing/domain/numbers.mjs';
 import { Empty, Section, buttonClass, secondaryButtonClass } from '../../../../components/ui';
-import { BrandMark, PrintButton } from '../../../../components/pcc';
+import { AutoPrint, BrandMark, PrintButton } from '../../../../components/pcc';
 import { generateEmailDraftAction } from '../../../actions.ts';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PoPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PoPage({
+  params, searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
   const actor = await requireAccess('/requests');
+  // Set only by the redirect out of "Approve and print PO".
+  const printed = (await searchParams)?.printed === '1';
 
   const ctx = await purchasingRequestContext();
   let detail: any;
@@ -56,6 +63,11 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
 
   return (
     <div className="space-y-4">
+      {/* Arriving straight from "Approve and print PO" opens the print dialog,
+          because that is the step he came here to perform. Opening the page any
+          other way does not. */}
+      <AutoPrint when={printed} />
+
       <div className="no-print flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold text-slate-900">Purchase order {view.purchaseOrder.poNumber}</h1>
         <div className="flex flex-wrap gap-2">
@@ -181,12 +193,22 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
         </div>
 
         {/* --- the lines ----------------------------------------------------
-            QTY RECEIVED is on the paper because somebody writes it at the
-            tailgate. PCC prints what it has already recorded and leaves the
-            rest ruled, so the same sheet works before and after the delivery. */}
+            THREE QUANTITIES, THREE COLUMNS, because they are three different
+            facts and collapsing them loses the one Mike needs at the tailgate:
+
+              JOB QTY    what the job asked for          10
+              SHOP       what was already on the shelf    2
+              QTY ORD.   what this vendor is selling      8
+
+            SHOP is deliberately not called "received" — it is stock Lippolis
+            already owned, and the material this order covers has not arrived
+            yet. QTY REC. is the one somebody writes in by hand when it does, so
+            the same sheet works before and after the delivery. */}
         <table className="mt-4 w-full text-left text-sm">
           <thead className="border-y border-slate-800 text-[11px] uppercase tracking-wide">
             <tr>
+              <th className="w-14 py-1.5 pr-2 text-right">Job qty</th>
+              <th className="w-14 py-1.5 pr-2 text-right">Shop</th>
               <th className="w-16 py-1.5 pr-2 text-right">Qty ord.</th>
               <th className="w-16 py-1.5 pr-2 text-right">Qty rec.</th>
               <th className="py-1.5 pr-2">Stock no. / Description</th>
@@ -197,9 +219,15 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
           <tbody>
             {view.items.map((i: any) => (
               <tr key={i.lineNo} className="border-b border-slate-200 align-top">
-                <td className="py-1.5 pr-2 text-right tabular-nums">
+                <td className="py-1.5 pr-2 text-right tabular-nums text-slate-600">
+                  {formatQty(i.requestedQty ?? 0)}
+                </td>
+                <td className="py-1.5 pr-2 text-right tabular-nums text-slate-600">
+                  {Number(i.workshopStockQty ?? 0) > 0 ? formatQty(i.workshopStockQty) : '—'}
+                </td>
+                <td className="py-1.5 pr-2 text-right font-semibold tabular-nums">
                   {formatQty(i.finalOrderQty)}
-                  {i.unit ? <span className="ml-0.5 text-[11px] text-slate-600">{i.unit}</span> : null}
+                  {i.unit ? <span className="ml-0.5 text-[11px] font-normal text-slate-600">{i.unit}</span> : null}
                 </td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">
                   {Number(i.receivedQty ?? 0) > 0 ? (
@@ -233,6 +261,8 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
                 <td className="py-2.5">&nbsp;</td>
                 <td />
                 <td />
+                <td />
+                <td />
                 {showCosts ? <td /> : null}
                 {showCosts ? <td /> : null}
               </tr>
@@ -241,7 +271,7 @@ export default async function PoPage({ params }: { params: Promise<{ id: string 
           {showCosts ? (
             <tfoot>
               <tr className="border-t-2 border-slate-800">
-                <td colSpan={4} className="py-2 pr-2 text-right font-semibold">
+                <td colSpan={6} className="py-2 pr-2 text-right font-semibold">
                   Total
                 </td>
                 <td className="py-2 text-right font-bold tabular-nums">

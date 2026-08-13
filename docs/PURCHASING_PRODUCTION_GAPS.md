@@ -211,7 +211,8 @@ Each of these is asserted by a test that fails if it stops being true:
   payloads (domain unit suite)
 - the six quantities never overwriting each other; the suggestion never negative (unit)
 - the closed status graph, checked over all 14 × 14 transitions in both directions (unit)
-- PO number uniqueness under eight concurrent worker threads (integration)
+- PO number uniqueness AND gaplessness for one job-and-vendor pair under eight concurrent
+  worker threads, plus the pairs not interfering with each other (integration)
 - draft-only email: no transport exists, and `SENT` is unreachable without a recorded human
   review (unit + integration)
 - every workspace boundary over real HTTP, including a forged cookie, an expired session, and a

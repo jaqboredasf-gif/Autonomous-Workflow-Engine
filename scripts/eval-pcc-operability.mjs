@@ -13,6 +13,11 @@
 //   PILOT_PASSWORD        the shared local fixture credential
 // ---------------------------------------------------------------------------
 
+// A purchase order number: job number, vendor code, sequence — 24-118-GRAYBAR-3.
+// The job may contain hyphens; the vendor code may not, which is what makes the
+// last two segments unambiguous.
+const PO_NUMBER = /[A-Z0-9][A-Z0-9-]*-[A-Z0-9]+-\d+/;
+
 const BASE = process.env.ACCEPTANCE_BASE_URL ?? 'http://localhost:3100';
 const PASSWORD = process.env.PILOT_PASSWORD;
 
@@ -254,7 +259,7 @@ if (mike && workerRequestId) {
   check(po.status === 200, 'the PO opens');
   const poText = text(po.body);
   check(/Print PO/.test(poText), 'PRINT is a first-class action on it');
-  check(/LE-\d+/.test(poText), 'the PO carries its number');
+  check(PO_NUMBER.test(poText), 'the PO carries its number');
   check(/24-118/.test(poText), 'and the job number');
   check(/Harrison/i.test(poText), 'and the job name, so the paper is useful to a person holding it');
   check(/Ordered by|Receipt attached/i.test(poText), 'the filing block for the vendor receipt is on the sheet');
@@ -709,7 +714,7 @@ if (mike && worker) {
   ]) {
     check(printed.includes(needle), `the printed PO carries ${what}`);
   }
-  check(/LE-\d+/.test(printed), 'and its purchase order number');
+  check(PO_NUMBER.test(printed), 'and its purchase order number');
   // WHICH BOX IS TICKED, not merely that both boxes print. This order went to
   // a job site, so the paper must say JOB — the mapping from PCC's four
   // destination kinds onto the form's two boxes is the whole reason the

@@ -49,7 +49,7 @@ import {
   TR,
   type TabItem,
 } from '../../components/pcc';
-import { updatePoConfigAction } from '../actions.ts';
+import { declarePoPairNewAction, initializePoSequenceAction } from '../actions.ts';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Administration — Lippolis Purchasing' };
@@ -105,7 +105,9 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       {active === 'notifications' ? <NotificationsModule /> : null}
       {active === 'settings' ? (
         <SettingsModule
-          po={await S.poConfig(ctx, actor)}
+          sequences={await S.poSequences(ctx, actor)}
+          vendors={await S.listVendors(ctx, actor)}
+          jobs={jobs}
           settings={await ctx.reference.settings(actor.orgId)}
           locations={await S.listDeliveryLocations(ctx, actor)}
           templates={await listEmailTemplates(ctx, actor)}
@@ -299,12 +301,16 @@ function NotificationsModule() {
 // --- Organization settings --------------------------------------------------
 
 function SettingsModule({
-  po,
+  sequences,
+  vendors,
+  jobs,
   settings,
   locations,
   templates,
 }: {
-  po: any;
+  sequences: any[];
+  vendors: any[];
+  jobs: any[];
   settings: any;
   locations: any[];
   templates: any[];
@@ -313,62 +319,245 @@ function SettingsModule({
     <div className="space-y-4">
       <Panel
         title="PO numbering"
-        subtitle="The number the next purchase order will carry. Setting this is how PCC is lined up with the office's paper book."
+        subtitle="Job number, vendor, and a number that counts from 1 for that job and that vendor."
       >
-        {/* WHAT THIS CHANGES, before the fields that change it. The office runs
-            a paper sequence; PCC has to continue it rather than start a second
-            one, and the person doing that needs to know three things: it
-            affects future orders only, it cannot be wound back, and this is
-            the number the NEXT order gets — not the last one issued. */}
-        <Alert tone="warning" title="Changing this affects every purchase order issued from now on">
-          <ul className="ml-4 list-disc space-y-1">
-            <li>
-              <strong>Next number</strong> is the number the NEXT purchase order will carry — not the last one the
-              office issued. If the last paper PO was {po.prefix}
-              {String(Math.max(0, Number(po.next_value) - 1)).padStart(Number(po.padding), '0')}, enter{' '}
-              {String(po.next_value)}.
-            </li>
-            <li>
-              The sequence can only move <strong>forward</strong>. Winding it back is refused, because a number already
-              on a vendor&apos;s invoice must never be issued twice.
-            </li>
-            <li>Purchase orders already issued keep their numbers. Nothing is renumbered.</li>
-            <li>Every change is recorded in the audit log with who made it.</li>
+        {/* THE RULE, SAID PLAINLY AND FIRST. An administrator arriving here
+            used to find a prefix, a padding and a single company-wide "next
+            number" — a scheme the office does not use. There is nothing to
+            configure now, so what this panel owes the reader is the rule
+            itself and the one case where a person still has to say something. */}
+        <Alert tone="info" title="How a purchase order number is made">
+          <p>
+            A purchase order number is the <strong>job number</strong>, the <strong>vendor</strong>, and a{' '}
+            <strong>number that counts from 1</strong> — and it counts separately for each job and vendor.
+          </p>
+          <ul className="ml-4 mt-2 list-disc space-y-1">
+            <li>Job 1234, first order to Cooper → <code>1234-COOPER-1</code></li>
+            <li>Job 1234, second order to Cooper → <code>1234-COOPER-2</code></li>
+            <li>Job 1234, first order to Graybar → <code>1234-GRAYBAR-1</code></li>
+            <li>Job 5678, first order to Cooper → <code>5678-COOPER-1</code></li>
           </ul>
+          <p className="mt-2">
+            Nothing here needs setting up for a new job or a new vendor: the count starts at 1 because nothing has
+            been ordered yet. A number, once issued, never changes — renaming a vendor or a job does not touch it.
+          </p>
         </Alert>
 
-        <form action={updatePoConfigAction} className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-          <TextInput label="Prefix" name="prefix" defaultValue={po.prefix} />
-          <TextInput label="Digits" name="padding" defaultValue={po.padding} inputMode="numeric" />
-          <TextInput label="Suffix" name="suffix" defaultValue={po.suffix} />
+        {/* THE ONE THING A PERSON STILL HAS TO SAY. If the office already
+            wrote paper purchase orders for a job and a vendor, PCC starting
+            that pair at 1 would put a number a supplier already has on a
+            second, different order. */}
+        <Alert
+          tone="warning"
+          title="If the office already wrote paper purchase orders for a job and vendor, say so here first"
+        >
+          <p>
+            PCC counts from 1 for a job and vendor it has issued nothing for. Where the office has <em>already</em>{' '}
+            written orders for that pair by hand, tell PCC where the pair had reached — otherwise the next order
+            carries a number a supplier already has.
+          </p>
+          <p className="mt-2">
+            Only for pairs that already have paper orders. <strong>Do not guess a number.</strong> A sequence can
+            only move forward, and PCC refuses anything at or below a number it has already issued itself.
+          </p>
+        </Alert>
+
+        <form action={initializePoSequenceAction} className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <label className="text-xs font-medium text-ink-soft sm:col-span-1">
+            Job number
+            <select
+              name="jobNumber"
+              className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+              defaultValue=""
+            >
+              <option value="" disabled>
+                Choose a job
+              </option>
+              {jobs.map((j: any) => (
+                <option key={String(j.job_number)} value={String(j.job_number)}>
+                  {String(j.job_number)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-ink-soft sm:col-span-1">
+            Vendor
+            <select
+              name="vendorId"
+              className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+              defaultValue=""
+            >
+              <option value="" disabled>
+                Choose a vendor
+              </option>
+              {vendors.map((v: any) => (
+                <option key={v.id} value={v.id}>
+                  {v.name} ({v.code})
+                </option>
+              ))}
+            </select>
+          </label>
+          {/* Two ways to say the same thing, because both are things a person
+              actually knows. Exactly one is required, so a half-filled form
+              cannot be mistaken for an answer. */}
           <TextInput
-            label="Next number"
-            name="nextValue"
-            defaultValue={po.next_value}
+            label="Last paper number"
+            name="lastIssuedSequence"
             inputMode="numeric"
-            hint={`The next PO will be ${po.prefix}${String(po.next_value).padStart(Number(po.padding), '0')}${po.suffix ?? ''}`}
+            hint="e.g. 3 if the last one written was 1234-COOPER-3"
           />
+          <TextInput
+            label="or next number"
+            name="nextSequence"
+            inputMode="numeric"
+            hint="e.g. 4 if the next one should be 1234-COOPER-4"
+          />
+          {/* REQUIRED ONLY WHEN THE PAIR IS ALREADY IN USE. Moving a sequence
+              that has real purchase orders behind it is legitimate — an office
+              reconciling a gap after an outage — and a bad accident. The server
+              refuses it without this box, naming the count, so the two are told
+              apart by whether the person had seen the orders. */}
+          <label className="col-span-2 flex items-start gap-2 text-xs text-ink-soft sm:col-span-5">
+            <input type="checkbox" name="acknowledgeIssued" value="true" className="mt-0.5" />
+            <span>
+              This job and vendor <strong>already has purchase orders raised in PCC</strong>, and I mean to move its
+              sequence anyway. Leave unticked unless PCC refused and told you the count.
+            </span>
+          </label>
           <div className="flex items-end">
             <ConfirmSubmit
               variant="primary"
-              label="Save PO numbering"
-              title="Change the purchase order sequence?"
+              label="Set this pair"
+              title="Set the sequence for this job and vendor?"
               body={
                 <>
                   <p>
-                    The next purchase order raised will take the number you entered, and the sequence continues from
-                    there. Orders already issued are untouched.
+                    The next purchase order PCC raises for this job and this vendor will take the number you
+                    entered, and the count continues from there. No other job or vendor is affected, and no order
+                    already issued is renumbered.
                   </p>
                   <p className="mt-2">
-                    Check the number against the office&apos;s paper book before confirming. It cannot be wound back
+                    Check it against the office&rsquo;s paper file before confirming. It cannot be wound back
                     afterwards, and a gap is much easier to live with than a duplicate.
                   </p>
                 </>
               }
-              confirmLabel="Change the sequence"
+              confirmLabel="Set the sequence"
             />
           </div>
         </form>
+
+        {/* THE OTHER ANSWER, and its own form on purpose. "This pair is new"
+            is a different sentence from "this pair stands at N", and a person
+            who can give the second by accident while meaning the first is how a
+            job with paper history gets confirmed as having none. Until one of
+            the two is recorded, pcc-verify-production.mjs keeps asking. */}
+        <form action={declarePoPairNewAction} className="mt-5 grid grid-cols-2 gap-3 border-t border-line pt-4 sm:grid-cols-5">
+          <label className="text-xs font-medium text-ink-soft sm:col-span-1">
+            Job number
+            <select
+              name="jobNumber"
+              className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+              defaultValue=""
+            >
+              <option value="" disabled>
+                Choose a job
+              </option>
+              {jobs.map((j: any) => (
+                <option key={String(j.job_number)} value={String(j.job_number)}>
+                  {String(j.job_number)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-ink-soft sm:col-span-1">
+            Vendor
+            <select
+              name="vendorId"
+              className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+              defaultValue=""
+            >
+              <option value="" disabled>
+                Choose a vendor
+              </option>
+              {vendors.map((v: any) => (
+                <option key={v.id} value={v.id}>
+                  {v.name} ({v.code})
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="col-span-2 self-end text-xs text-muted sm:col-span-2">
+            Use this when the office has checked and there are <strong>no paper purchase orders</strong> for this job
+            and vendor. Nothing about the count changes — it starts at 1 either way — but the pair stops being an
+            unanswered question before go-live.
+          </p>
+          <div className="flex items-end">
+            <ConfirmSubmit
+              variant="secondary"
+              label="Confirm as new"
+              title="Confirm this job and vendor has no paper history?"
+              body={
+                <p>
+                  Record that the office has checked and this job and vendor has never had a purchase order written
+                  for it by hand. Its first PCC order will be number 1. If paper orders DO exist, use the form above
+                  instead — starting at 1 would issue a number the supplier already holds.
+                </p>
+              }
+              confirmLabel="It has no paper history"
+            />
+          </div>
+        </form>
+
+        {/* WHERE EVERY PAIR STANDS. A counter appears here the first time an
+            order is raised against the pair, so an empty table on a new
+            installation is the truth and not a missing setup step. */}
+        <div className="mt-5">
+          {sequences.length === 0 ? (
+            <EmptyState
+              title="No purchase orders have been numbered yet"
+              description="A job and vendor appears here as soon as its first order is raised, or when its paper sequence is set above."
+            />
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-muted">
+                  <th className="py-1">Job</th>
+                  <th className="py-1">Vendor</th>
+                  <th className="py-1">Issued by PCC</th>
+                  <th className="py-1">Next number</th>
+                  <th className="py-1">How it was settled</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sequences.map((row: any) => (
+                  <tr key={`${row.job_number}:${row.vendor_id}`} className="border-t border-line">
+                    <td className="py-1 font-medium text-ink">{row.job_number}</td>
+                    <td className="py-1 text-ink-soft">
+                      {row.vendor_name} <span className="text-muted">({row.vendor_code})</span>
+                    </td>
+                    <td className="py-1 text-ink-soft">{Number(row.issued_count ?? 0)}</td>
+                    <td className="py-1 font-mono text-xs text-ink">
+                      {row.job_number}-{row.vendor_code}-{row.next_value}
+                    </td>
+                    {/* The same four states pcc-verify-production.mjs reports,
+                        so the screen and the go/no-go check cannot disagree
+                        about which pairs are still open questions. */}
+                    <td className="py-1 text-xs text-muted">
+                      {Number(row.issued_count ?? 0) > 0
+                        ? 'In use — PCC has issued numbers'
+                        : row.initialized_at && Number(row.next_value) > 1
+                          ? `Continued from paper, set ${new Date(row.initialized_at).toLocaleDateString()}`
+                          : row.initialized_at
+                            ? `Confirmed as new, ${new Date(row.initialized_at).toLocaleDateString()}`
+                            : 'Not confirmed — will start at 1'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </Panel>
 
       <Panel title="Purchasing settings">

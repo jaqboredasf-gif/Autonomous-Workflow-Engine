@@ -206,8 +206,24 @@ export interface ReferenceRepository {
   // natural key the user actually types. Looking it up first turns "unique
   // constraint violated" into "you already have a vendor called that".
   vendorByName(orgId: Id, name: string): Promise<any | null>;
+  /**
+   * One vendor, active or retired. `vendors()` lists only active ones because
+   * it feeds pickers; issuing a purchase order has to be able to resolve the
+   * vendor a review already chose, even if somebody retired it in between.
+   */
+  vendorById(orgId: Id, vendorId: Id): Promise<any | null>;
+  /** By the code that appears in purchase order numbers. Unique per org. */
+  vendorByCode(orgId: Id, code: string): Promise<any | null>;
   createVendor(orgId: Id, input: Record<string, unknown>, actorId: Id, now: string): Promise<Id>;
   updateVendor(orgId: Id, vendorId: Id, patch: Record<string, unknown>, actorId: Id, now: string): Promise<void>;
+  /**
+   * Change the code a vendor is known by inside purchase order numbers.
+   * Separate from `updateVendor` because it is a different act with a different
+   * blast radius: a rename is cosmetic, and this is not.
+   */
+  setVendorCode(orgId: Id, vendorId: Id, code: string, actorId: Id, now: string): Promise<void>;
+  /** Whether any purchase order has ever been issued to this vendor. */
+  vendorHasOrders(orgId: Id, vendorId: Id): Promise<boolean>;
   setVendorPrimaryContact(orgId: Id, vendorId: Id, contact: Record<string, unknown>, now: string): Promise<void>;
 
   jobByNumber(orgId: Id, jobNumber: string): Promise<any | null>;
@@ -219,8 +235,6 @@ export interface ReferenceRepository {
   settings(orgId: Id): Promise<any>;
   emailTemplate(orgId: Id, key: string): Promise<any | null>;
   emailTemplates(orgId: Id): Promise<any[]>;
-  poConfig(orgId: Id): Promise<any>;
-  updatePoConfig(orgId: Id, patch: Record<string, unknown>, actorId: Id, now: string): Promise<void>;
   setApprovalAuthority(userId: Id, canApprove: boolean, actorId: Id, now: string): Promise<void>;
 }
 
@@ -363,10 +377,43 @@ export interface PurchaseHistoryRepository {
 }
 
 /**
+ * The scope a purchase order sequence counts within.
+ *
+ * All four fields, not just the ids: `jobNumber` and `vendorCode` are the
+ * components the number is BUILT from, and they are captured at issuance so a
+ * later rename cannot change what was already sent.
+ */
+export type PoNumberScope = {
+  orgId: Id;
+  /** Normalized job segment — domain/po-number.mjs, `normalizeJobSegment`. */
+  jobNumber: string;
+  vendorId: Id;
+  /** The vendor's frozen code, as it will appear in the number. */
+  vendorCode: string;
+};
+
+/**
  * PO numbering is a repository, not a service: the number comes from durable,
  * transactional storage or it is not safe. The implementation holds the write
  * lock; nothing above this interface may invent a number.
+ *
+ * The scope is (org, job, vendor) because that is how Lippolis numbers — each
+ * pair counts 1, 2, 3 independently of every other pair.
  */
 export interface PoNumberAllocator {
-  allocate(orgId: Id, now: string): Promise<{ poNumber: string; sequenceValue: number }>;
+  allocate(scope: PoNumberScope, now: string): Promise<{ poNumber: string; sequenceValue: number }>;
+  /**
+   * The highest sequence a purchase order actually CARRIES for a pair, or 0.
+   * Read from the issued orders rather than from the counter, because it is
+   * what an administrator's initialization must not be allowed to undercut.
+   */
+  highestIssued(scope: Omit<PoNumberScope, 'vendorCode'>): Promise<number>;
+  /** Every pair this organization counts against, for the administration screen. */
+  sequences(orgId: Id): Promise<Array<Record<string, unknown>>>;
+  /**
+   * Declare where a pair's sequence stands, because the office issued paper
+   * purchase orders for it before PCC existed. Forward-only, and refused if it
+   * would land on or below a number PCC has already issued.
+   */
+  initialize(scope: PoNumberScope, nextValue: number, actorId: Id, now: string): Promise<void>;
 }

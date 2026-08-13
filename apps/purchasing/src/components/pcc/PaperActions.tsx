@@ -10,11 +10,38 @@
 // Client components for one reason each: window.print() and the clipboard.
 // Neither does any thinking — no data, no decisions, no formatting rules.
 // ---------------------------------------------------------------------------
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Button } from './Button';
 
-/** Opens the browser's print dialog on the sheet the page already renders. */
+/**
+ * Open the print dialog once, on arrival.
+ *
+ * Mike's sequence is create → print → file, and the create step already lands
+ * him on this page. Making him find a button to do the thing he came here to do
+ * is the ceremony this pass exists to remove.
+ *
+ * Deliberately NOT printer-aware. It opens the standard browser dialog, so the
+ * workshop printer is chosen the way every other printer on that machine is
+ * chosen, and Jose can set the default at the OS or browser level without
+ * anything here knowing about it. Hard-coding a printer would be a promise this
+ * application cannot keep on a machine it has never seen.
+ *
+ * Once per mount, guarded — a re-render must not re-open the dialog on top of
+ * itself.
+ */
+export function AutoPrint({ when }: { when: boolean }) {
+  const fired = useRef(false);
+  useEffect(() => {
+    if (!when || fired.current) return;
+    fired.current = true;
+    // After paint, so the sheet the dialog previews is the finished one.
+    const id = window.setTimeout(() => window.print(), 250);
+    return () => window.clearTimeout(id);
+  }, [when]);
+  return null;
+}
+
 export function PrintButton({ label = 'Print PO' }: { label?: string }) {
   return (
     <Button type="button" size="l" onClick={() => window.print()} className="no-print">

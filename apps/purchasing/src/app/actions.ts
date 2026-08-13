@@ -22,6 +22,7 @@ import * as admin from '../purchasing/application/administration.ts';
 import * as fulfilment from '../purchasing/application/fulfilment.ts';
 import * as requests from '../purchasing/application/requests.ts';
 import { currentActor, purchasingRequestContext } from '../server/session.ts';
+import { safeFilename } from '../server/file-response.ts';
 
 type Result = { ok: true; data?: any } | { ok: false; error: string; reason?: string; details?: any };
 
@@ -39,6 +40,42 @@ async function run<T>(fn: (ctx: any, actor: S.Actor) => Promise<T> | T): Promise
       details: err?.details ?? null,
     };
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// SAYING WHETHER IT WORKED.
+//
+// THE DEFECT THIS CLOSES. Seven actions on the request screen — submit, mark
+// ordered, complete, cancel, add note, answer a clarification, save tracking —
+// called run(), THREW THE RESULT AWAY and revalidated the page. On success that
+// is merely mute. On failure it is worse than mute: the refusal is computed,
+// the reason is known, and the user is shown the same page with nothing
+// changed and nothing said. Pressing "Complete request" on an order with a
+// line outstanding looked exactly like pressing a dead button.
+//
+// These are plain <form action={…}> submissions, not useActionState, so there
+// is no state to render into. The outcome therefore travels the way a
+// no-JavaScript browser can carry it: in the URL, on a redirect the page
+// reads once and the next navigation drops.
+//
+// The wording lives in ./outcomes.ts rather than here: a `'use server'` module
+// may export async functions and NOTHING else, and exporting a table from this
+// file compiles and typechecks and then fails the production build.
+// ---------------------------------------------------------------------------
+
+/**
+ * Finish a plain form action by telling the user what happened.
+ *
+ * On success: `?done=<key>`. On failure: `?failed=<key>` carrying the domain's
+ * own message, which is written for a person ("3 line(s) are not fully
+ * resolved") rather than for a log.
+ */
+function outcome(path: string, key: string, result: Result): never {
+  const params = result.ok
+    ? `done=${encodeURIComponent(key)}`
+    : `failed=${encodeURIComponent(key)}&why=${encodeURIComponent(result.error)}`;
+  redirect(`${path}${path.includes('?') ? '&' : '?'}${params}`);
 }
 
 // --- session ---------------------------------------------------------------
@@ -118,7 +155,13 @@ async function readFiles(formData: FormData, field: string) {
     if (file.size > MAX_FILE_BYTES) continue;
     const bytes = Buffer.from(await file.arrayBuffer());
     out.push({
-      filename: file.name,
+      // The name comes from whatever chose it — a phone, a scanner, or a person
+      // typing. It is stored, returned in a download header, and (on the
+      // Supabase provider) CONCATENATED INTO A STORAGE KEY as
+      // `<org>/requests/<id>/<filename>`, where a `../` would put one company's
+      // photograph outside its own prefix. Cleaned once, here, at the only door
+      // files come through, so no store has to remember to distrust it.
+      filename: safeFilename(file.name, 'attachment'),
       contentType: file.type || 'application/octet-stream',
       dataBase64: bytes.toString('base64'),
       byteSize: bytes.byteLength,
@@ -146,26 +189,30 @@ function parseItems(formData: FormData) {
 
 export async function submitRequestAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) => await S.submitRequest(ctx, actor, id));
+  const result = await run(async (ctx, actor) => await S.submitRequest(ctx, actor, id));
   revalidatePath(`/requests/${id}`);
+  outcome(`/requests/${id}`, 'submitted', result);
 }
 
 export async function cancelRequestAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) => await S.cancelRequest(ctx, actor, id, String(formData.get('reason') ?? '')));
+  const result = await run(async (ctx, actor) => await S.cancelRequest(ctx, actor, id, String(formData.get('reason') ?? '')));
   revalidatePath(`/requests/${id}`);
+  outcome(`/requests/${id}`, 'cancelled', result);
 }
 
 export async function addNoteAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) => await S.addNote(ctx, actor, id, String(formData.get('note') ?? '')));
+  const result = await run(async (ctx, actor) => await S.addNote(ctx, actor, id, String(formData.get('note') ?? '')));
   revalidatePath(`/requests/${id}`);
+  outcome(`/requests/${id}`, 'noted', result);
 }
 
 export async function answerClarificationAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) => await S.answerClarification(ctx, actor, id, String(formData.get('answer') ?? '')));
+  const result = await run(async (ctx, actor) => await S.answerClarification(ctx, actor, id, String(formData.get('answer') ?? '')));
   revalidatePath(`/requests/${id}`);
+  outcome(`/requests/${id}`, 'answered', result);
 }
 
 // --- workshop review + decision --------------------------------------------
@@ -182,6 +229,14 @@ export async function saveReviewAction(_prev: unknown, formData: FormData): Prom
 
 function parseReviewLines(formData: FormData) {
   const ids = formData.getAll('lineRequestItemId').map(String);
+  // ONE SUPPLIER FOR THE REQUEST, sent as one field.
+  //
+  // The screens post it both ways: a named <select> that works without
+  // JavaScript, and a hidden per-line copy that React keeps in step. This
+  // prefers the request-level field and falls back to the positional one, so
+  // neither an unhydrated page nor an older cached form loses the vendor the
+  // purchaser chose.
+  const requestVendorId = String(formData.get('vendorId') ?? '').trim();
   const stock = formData.getAll('lineUsableStock').map(String);
   const approved = formData.getAll('lineApprovedQty').map(String);
   const finalQty = formData.getAll('lineFinalOrderQty').map(String);
@@ -196,7 +251,7 @@ function parseReviewLines(formData: FormData) {
     usableStock: stock[i] ?? '0',
     approvedQty: approved[i] ?? '',
     finalOrderQty: finalQty[i] ?? '',
-    vendorId: vendor[i] || null,
+    vendorId: requestVendorId || vendor[i] || null,
     estimatedUnitCost: cost[i] || null,
     substituteDescription: substitute[i] || null,
     expectedArrivalDate: arrival[i] || null,
@@ -321,15 +376,30 @@ export async function advanceEmailDraftAction(formData: FormData) {
 
 // --- ordering, tracking, receiving, completion ------------------------------
 
+/**
+ * "I placed it." One press, and back to the board.
+ *
+ * There is no confirmation step. Marking an order placed is something the
+ * purchaser does several times a day, it is not destructive, and the record
+ * already says who did it and when — so a dialog asking whether he meant it
+ * buys nothing and costs a click every time.
+ *
+ * ON SUCCESS HE GOES TO THE DASHBOARD, not back to the request he has just
+ * finished with. The order is placed; the next thing he wants is the next
+ * thing to do. Failures stay on the request, where the problem is.
+ */
 export async function markOrderedAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) => await S.markOrdered(ctx, actor, id, { notes: String(formData.get('notes') ?? '') }));
+  const result = await run(async (ctx, actor) => await S.markOrdered(ctx, actor, id, { notes: String(formData.get('notes') ?? '') }));
   revalidatePath(`/requests/${id}`);
+  revalidatePath('/dashboard');
+  if (!result.ok) outcome(`/requests/${id}`, 'ordered', result);
+  outcome('/dashboard', 'ordered', result);
 }
 
 export async function updateTrackingAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) =>
+  const result = await run(async (ctx, actor) =>
     await S.updateTracking(ctx, actor, id, {
       trackingNumber: String(formData.get('trackingNumber') ?? ''),
       carrier: String(formData.get('carrier') ?? ''),
@@ -337,6 +407,24 @@ export async function updateTrackingAction(formData: FormData) {
     }),
   );
   revalidatePath(`/requests/${id}`);
+  outcome(`/requests/${id}`, 'tracking', result);
+}
+
+/**
+ * "It arrived." One click, from the receiving queue or the request itself.
+ *
+ * Receives every outstanding quantity and closes the purchase if this person is
+ * allowed to. No form, because there is nothing to ask: PCC produced the
+ * purchase order and already knows what was on it. The physical paperwork is
+ * the vendor's receipt stapled to the printed PO, which is where Lippolis
+ * keeps it.
+ */
+export async function markReceivedAction(formData: FormData) {
+  const id = String(formData.get('requestId'));
+  const result = await run(async (ctx, actor) => await S.receiveEverything(ctx, actor, id));
+  revalidatePath('/receiving');
+  revalidatePath(`/requests/${id}`);
+  outcome(`/requests/${id}`, 'received', result);
 }
 
 export async function recordReceiptAction(_prev: unknown, formData: FormData): Promise<Result> {
@@ -439,16 +527,65 @@ export async function setDeliveryReceiverAction(formData: FormData) {
   revalidatePath('/admin');
 }
 
-export async function updatePoConfigAction(formData: FormData) {
-  await run(async (ctx, actor) =>
-    await S.updatePoConfig(ctx, actor, {
-      prefix: String(formData.get('prefix') ?? ''),
-      padding: Number(formData.get('padding') ?? 5),
-      suffix: String(formData.get('suffix') ?? ''),
-      nextValue: Number(formData.get('nextValue') ?? 0),
+/**
+ * Line one job-and-vendor pair up with the office's paper book.
+ *
+ * There is no global numbering to configure — a purchase order is
+ * job + vendor + sequence and every pair counts from 1 — so this is the only
+ * numbering write an administrator has, and it is needed only where paper
+ * purchase orders already exist for that pair.
+ *
+ * The refusals (backwards, or below what PCC has already issued) must be
+ * VISIBLE: an administrator who saw the same screen with the old number in it
+ * could not tell whether the save had failed or whether they had mistyped.
+ */
+export async function initializePoSequenceAction(formData: FormData) {
+  const result = await run(async (ctx, actor) =>
+    await S.initializePoSequence(ctx, actor, {
+      jobNumber: String(formData.get('jobNumber') ?? ''),
+      vendorId: String(formData.get('vendorId') ?? ''),
+      lastIssuedSequence: String(formData.get('lastIssuedSequence') ?? ''),
+      nextSequence: String(formData.get('nextSequence') ?? ''),
+      acknowledgeIssued: String(formData.get('acknowledgeIssued') ?? '') === 'true',
     }),
   );
   revalidatePath('/admin');
+  outcome('/admin?module=settings', 'po_sequence', result);
+}
+
+/**
+ * Record that a job and vendor has NO paper purchase orders behind it.
+ *
+ * The same use case with a next number of 1 — the count does not change, but
+ * the pair stops being an open question and the go-live verifier stops asking
+ * about it. Separate from the form above because it is a different sentence:
+ * "the office checked, and this one is new", not "the office says it stands at
+ * N". Confusing the two is how a pair WITH paper history gets confirmed as new
+ * by somebody clicking through a form.
+ */
+export async function declarePoPairNewAction(formData: FormData) {
+  const result = await run(async (ctx, actor) =>
+    await S.initializePoSequence(ctx, actor, {
+      jobNumber: String(formData.get('jobNumber') ?? ''),
+      vendorId: String(formData.get('vendorId') ?? ''),
+      nextSequence: '1',
+    }),
+  );
+  revalidatePath('/admin');
+  outcome('/admin?module=settings', 'po_pair_new', result);
+}
+
+/**
+ * Set the code a vendor is known by inside purchase order numbers. Refused once
+ * that vendor has been sent one, because the code is part of every number it
+ * carries.
+ */
+export async function setVendorCodeAction(_prev: unknown, formData: FormData): Promise<Result> {
+  const result = await run(async (ctx, actor) =>
+    await S.setVendorCode(ctx, actor, String(formData.get('vendorId')), String(formData.get('code') ?? '')),
+  );
+  revalidatePath('/admin');
+  return result;
 }
 
 export async function setApprovalAuthorityAction(formData: FormData) {
@@ -460,8 +597,9 @@ export async function setApprovalAuthorityAction(formData: FormData) {
 
 export async function completeRequestAction(formData: FormData) {
   const id = String(formData.get('requestId'));
-  await run(async (ctx, actor) => await S.completeRequest(ctx, actor, id, String(formData.get('notes') ?? '')));
+  const result = await run(async (ctx, actor) => await S.completeRequest(ctx, actor, id, String(formData.get('notes') ?? '')));
   revalidatePath(`/requests/${id}`);
+  outcome(`/requests/${id}`, 'completed', result);
 }
 
 // --- directories: vendors and jobs -------------------------------------------
@@ -473,6 +611,9 @@ export async function createVendorAction(_prev: unknown, formData: FormData): Pr
   const result = await runAsync(async (ctx, actor) =>
     await admin.createVendor(ctx, actor, {
       name: String(formData.get('name') ?? ''),
+      // Blank means "derive it from the name" — the vendor's part of every
+      // purchase order number issued to it.
+      code: String(formData.get('code') ?? ''),
       accountNumber: String(formData.get('accountNumber') ?? ''),
       phone: String(formData.get('phone') ?? ''),
       address: String(formData.get('address') ?? ''),

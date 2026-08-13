@@ -7,6 +7,12 @@ about, and what we still need from you.
 Nothing here prescribes a hosting provider. PCC is an ordinary Linux container that listens on a
 port; where that container runs is your decision, and the application has no opinion about it.
 
+> **Start with `PCC_IT_INSTALLATION_PACKET.md`** — one page covering what to provision, what to
+> connect, and the ten answers we need before installation. **This document is the operations
+> runbook**: start, stop, logs, update, backup, restore. The other two in this directory are
+> `PCC_PRODUCTION_ARCHITECTURE.md` (what PCC is and why) and `PCC_GO_LIVE_PLAN.md` (the pilot
+> phases, the rollback procedure, and the go-live gate).
+
 ---
 
 ## 1. The application
@@ -21,7 +27,7 @@ port; where that container runs is your decision, and the application has no opi
 | Health endpoint | `GET /api/health` — see §5 |
 | Outbound network | **None required.** PCC does not send email, call APIs, or phone home. |
 | Inbound network | HTTP from your reverse proxy only |
-| CPU / memory | Small. Two users and a few hundred purchase orders a year; 1 vCPU and 512 MB is ample. |
+| CPU / memory | **2 vCPU, 4 GB RAM, 50 GB expandable disk** to start. PCC is small, but do not size it at the floor: attachment downloads are read into memory whole, and the disk is dominated by backup retention rather than by the database. Reasoning in `PCC_PRODUCTION_ARCHITECTURE.md` §8. |
 | State | One SQLite file. See §2. |
 
 PCC composes vendor emails as **drafts** and cannot send them — a database constraint pins
@@ -40,7 +46,7 @@ no SMTP configuration because there is nothing to configure.
 | Where | The directory mounted at `/data` inside the container |
 | File | `/data/pcc.sqlite`, set by `PCC_DATABASE_PATH` |
 | Owner | uid **1000**, gid **1000** (the `node` user the process runs as) |
-| Permissions | The directory must be writable by uid 1000. `chown -R 1000:1000 /srv/pcc/data` if you bind mount a host path. |
+| Permissions | The directory must be writable by uid 1000. `chown -R 1000:1000 /var/lib/pcc` if you bind mount a host path. |
 | Size | Megabytes. Attachments are stored inside the database, so allow a few hundred MB of headroom. |
 
 Use a Docker named volume or a bind mount to a directory on a disk you back up. Either works.
@@ -133,6 +139,17 @@ a nice-to-have. If VPN-on-phone is realistic for your foremen, that is the bette
 
 ## 5. Health and monitoring
 
+There are **two** endpoints, and pointing the wrong tool at the wrong one causes real trouble:
+
+| | Question | A failure means | Point this at it |
+|---|---|---|---|
+| `GET /api/health` | **Readiness.** Is it configured, migrated, and able to read its database? | Do not send it traffic. **Do not restart it** — it will answer 503 until the configuration is fixed. | Monitoring, and the proxy's drain decision |
+| `GET /api/health/live` | **Liveness.** Is the process up? | The process is wedged; restarting is right. | A supervisor's restart policy |
+
+A supervisor pointed at *readiness* turns a typo in `PCC_DATABASE_PATH` into a restart loop that
+fills the log and fixes nothing. Monitoring pointed at *liveness* reports green while the instance
+serves nothing. The liveness endpoint deliberately touches no configuration, database or disk.
+
 `GET /api/health` — unauthenticated by design (a load balancer cannot sign in). It reports state
 only: no paths, no credentials, no configuration values, no user data.
 
@@ -168,6 +185,27 @@ Assuming `docker compose` from the repository directory:
 | Backup | see §8 |
 | Restore | see §8 |
 
+### 6a. Keeping it running — process supervision
+
+**PCC must not depend on somebody leaving a terminal open.** It has to come back after a VM
+reboot, restart after a crash, and put its logs somewhere you can read them. Which mechanism
+does that depends on the VM's operating system, **which we do not know yet — see question #1.**
+Both supported answers are ready:
+
+| Situation | Use | Ships as |
+|---|---|---|
+| Linux **with** Docker/Podman | Compose's `restart: unless-stopped` for crashes, plus a systemd unit so the project starts at boot | `deploy/pcc-docker.service` |
+| Linux **without** a container runtime | systemd running the Node process directly | `deploy/pcc-node.service` |
+| Windows Server | **Open — tell us and we will finish it.** Either Docker Desktop / Windows containers with the compose file above, or the Node process wrapped as a service with NSSM or `sc.exe`. The application itself is portable; nothing in it assumes Linux. |
+
+Each unit file's header lists its prerequisites and the exact commands. Both are written to
+**restart on a crash but NOT on a refusal**: the startup preflight exits non-zero on purpose when
+production configuration is wrong, and looping on that would bury the one log line that explains
+it. `deploy/pcc-node.service` encodes this as `RestartPreventExitStatus=1`.
+
+Whichever is chosen: **test it by rebooting the VM once, before the pilot**, and confirm PCC comes
+back on its own. It is on the pilot checklist for that reason.
+
 ---
 
 ## 7. Updating
@@ -189,6 +227,25 @@ a rollback across a schema change is the one case where the older code may not u
 newer database.
 
 ---
+
+## 7a. Verifying the database before a pilot
+
+`check-deployable.mjs` (§7) asks whether the image is safe to ship. The other half is whether the
+DATABASE it opens is the company's own rather than somebody's demonstration:
+
+```bash
+docker run --rm -v pcc-data:/data -v /path/to/repo/scripts:/scripts:ro \
+  node:24-bookworm-slim \
+  node /scripts/pcc-verify-production.mjs --db /data/pcc.sqlite --strict
+```
+
+It reports demonstration accounts (the pilot seed's `@example.invalid` cast, whose password is
+published), seeded vendors and jobs, an unset purchase order sequence, a missing workshop
+location, and whether anybody can sign in at all. Exit 0 means fit for real work.
+
+Every mechanism that keeps demo data out of production is a rule about how the database was
+CREATED. None of them help if a database made on a laptop is copied to the server, which is
+exactly what happens at five o'clock on the day of a pilot. This looks at the rows.
 
 ## 8. Backup and restore
 
@@ -240,8 +297,54 @@ be hard to run by accident:
   so a mistaken restore is itself recoverable;
 * it restores the original file's ownership, so the application can still write to it.
 
-Delete the `.replaced-*` file once you are satisfied. **Test a restore before you rely on one** — a
-backup nobody has restored is a hypothesis.
+Delete the `.replaced-*` file once you are satisfied.
+
+### The restore test — do this before the pilot, then twice a year
+
+**A backup nobody has restored is a hypothesis.** This rehearses the real thing without touching
+the live system, and takes about ten minutes.
+
+> **It has been done, automatically, and it passes.** `bash scripts/restore-rehearsal.sh` performs
+> the whole drill unattended: it builds the image, stands up a source instance and fills it with a
+> real purchasing system (two users, vendor, job, a request with an attachment, an approved PO, a
+> received delivery with a packing slip), takes a backup while that instance keeps serving,
+> restores into a throwaway volume, starts a second instance against the restored data, and
+> verifies **23 facts** through the web interface — including downloading both attachments and
+> comparing them byte for byte, confirming the second user can still sign in and is still refused
+> administration, and checking the PO sequence was not rewound. It then proves the source instance
+> was never touched, and removes everything it made.
+>
+> Run it on the VM after installation, so the result describes *that* machine. The manual steps
+> below are the same drill for an operator who wants to watch it happen.
+
+```bash
+# 1. Take a backup, and note what is in the system right now.
+docker run --rm -v pcc-data:/data -v /path/to/repo/scripts:/scripts:ro --user 1000:1000 \
+  node:24-bookworm-slim node /scripts/pcc-backup.mjs --db /data/pcc.sqlite --out /data/backups
+#    In PCC: note the most recent purchase order number and who raised it.
+
+# 2. Restore that backup into a THROWAWAY volume — never the live one.
+docker volume create pcc-restore-test
+docker run --rm -v pcc-data:/src:ro -v pcc-restore-test:/data \
+  node:24-bookworm-slim sh -c 'cp /src/backups/$(ls -t /src/backups | head -1) /data/pcc.sqlite'
+
+# 3. Verify the restored database is fit for work — not merely present.
+docker run --rm -v pcc-restore-test:/data -v /path/to/repo/scripts:/scripts:ro \
+  node:24-bookworm-slim node /scripts/pcc-verify-production.mjs --db /data/pcc.sqlite --strict
+
+# 4. Start a SECOND PCC against it, on another port, and look at it.
+docker run --rm -p 127.0.0.1:3001:3000 -v pcc-restore-test:/data \
+  --env-file .env -e APP_BASE_URL=http://127.0.0.1:3001 pcc:local
+curl -fsS http://127.0.0.1:3001/api/health      # expect "status":"ok"
+#    Sign in. Find the purchase order from step 1. Open its PDF. Open an
+#    attachment. If any of those is missing, the backup is not a backup.
+
+# 5. Tear down.
+docker volume rm pcc-restore-test
+```
+
+**Record the date it was last done and who did it.** A restore procedure nobody has run in a year
+is the same hypothesis with more confidence attached.
 
 ---
 
@@ -310,8 +413,12 @@ These are open on purpose, pending this conversation:
 * **One instance only.** Two containers against one SQLite file is not supported.
 * **The sign-in throttle is per process** (§10).
 * **Attachments live in the database**, which keeps backup to a single file and will not scale to
-  years of photographs. Fine for the pilot; revisit when the file passes a few hundred MB.
+  years of photographs. Fine for the pilot; revisit when the file passes a few hundred MB. Note
+  that this is what makes backup retention, not the records themselves, the thing that fills the
+  disk — each nightly backup is a full copy. Watch `/data/backups`, not `pcc.sqlite`.
 * **No MFA, no SSO** today.
-* **The PO sequence starts at a placeholder.** An administrator must set the office's real next
-  purchase order number in Administration → Organization before the first live order. The screen
-  warns that the sequence can only move forward.
+* **Purchase order numbers count per job and vendor** (`1234-COOPER-1`), starting at 1 for each
+  pair, so a fresh installation needs no numbering setup. The exception: a job and vendor the
+  office already wrote paper purchase orders for must be set in Administration → PO numbering
+  before the first live order on that job, or PCC issues a number the supplier already holds.
+  `scripts/pcc-verify-production.mjs` lists every pair about to issue its first number.

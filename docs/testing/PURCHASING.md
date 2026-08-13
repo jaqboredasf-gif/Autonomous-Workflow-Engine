@@ -161,13 +161,24 @@ received without receiving information · cannot be completed with lines outstan
 states are terminal · unknown statuses are refused.
 
 ### Purchase orders (spec §6)
-The number is formatted from the configured sequence (`LE-52901`), regenerating returns the same
-permanent number and burns no sequence value, the stored document is a real PDF containing the
-PO number, job number, vendor and total, and it is SHA-256 hashed. The database itself rejects a
-duplicate PO number.
+The number is `job-vendor-sequence` (`24-118-GRAYBARELECTRIC-1`) and the sequence counts from 1
+for each job-and-vendor pair independently — job A with vendor X runs 1,2,3 while job A with
+vendor Y and job B with vendor X each start again at 1. Regenerating returns the same permanent
+number and burns no sequence value; the stored document is a real PDF containing the PO number,
+job number, vendor and total, SHA-256 hashed. The database itself rejects a duplicate PO number,
+and accepts the same sequence value on a different pair. Renaming the vendor or the job does not
+renumber anything: the vendor code and job number are snapshotted onto the order at issuance.
 
-**Concurrency:** eight worker threads, five allocations each, one database file, one sequence.
-40 numbers, all distinct, and the sequence advanced exactly once per issued number. This is the
+An issued number is permanent and undeletable in **both** providers (Postgres by trigger since
+0016; the pilot store since this pass), including immediately after the upgrade rebuild that
+recreates the table. A pair PCC has already issued against cannot be moved without an explicit
+acknowledgement of the count, and never backwards. Four complete purchases — request through
+review, approval, numbering, print, vendor email, ordering, receiving and completion — assert the
+same identifier in the PDF, the draft subject, the receipt, the queue row and the immutable
+history, across same-pair, different-vendor, different-job and legacy-initialized cases.
+
+**Concurrency:** eight worker threads, five allocations each, one database file, one
+job-and-vendor pair. 40 numbers — 1 to 40, no duplicate **and no gap**. This is the
 gate a frontend counter cannot pass.
 
 ### Email (spec §7)

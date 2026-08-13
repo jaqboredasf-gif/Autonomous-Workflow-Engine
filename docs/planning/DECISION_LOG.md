@@ -441,3 +441,174 @@ Append-only. Newest first. Format: date — decision — why — supersedes (if 
   asserts identical message-type, business-role and blocked-reason vocabularies (missing
   OR extra both fail). Branch-logic divergence is still possible and is exactly what
   acceptance slice 4 (B3-live) must retire.
+
+## 2026-08-12 (go-live pass — decisions rescued from stale session handoffs)
+
+`PCC_NEXT_SESSION_HANDOFF.md`, `PCC_NEXT_SESSION_PROMPT.md` and
+`SESSION_TRANSITION_COMMANDS.md` were untracked working notes from an earlier session,
+pinned to commit `b5e1a60` and to test counts and a lint problem that no longer describe
+the repository. Everything in them was either implemented (BR-011, Lippolis branding, the
+dashboard hierarchy, the provider seams), documented elsewhere (`PCC_PERMISSION_MATRIX.md`,
+`PCC_UI_HANDOFF/`, `docs/deployment/`), or obsolete. They have been removed so the
+repository has one obvious source of truth for installation.
+
+Two product decisions from those notes were NOT recorded anywhere else and are still true
+of the code, so they are preserved here rather than lost:
+
+- **Priority is derived from the need-by date, not entered by the requester.** There is no
+  priority field for somebody to set. `domain/dashboard.mjs` computes urgency and overdue
+  state from `needByDate`/`needByTime`. This is deliberate — a self-declared priority field
+  becomes "everything is urgent" within a fortnight — and it should not be changed casually.
+- **A requester's preferred vendor is stored as an attributed note, not written to
+  `vendor_id`.** `withVendorSuggestion()` in `app/actions.ts` appends the suggestion to the
+  request notes. The vendor on a purchase order is the workshop's decision, recorded during
+  review; letting the field firewall be crossed by a requester's suggestion would make the
+  request's vendor and the order's vendor the same field, and the audit trail could no
+  longer show that purchasing chose differently.
+
+Also settled in this pass, and recorded because it changes application behaviour:
+
+- **A purchase order cannot be generated while the PO sequence is the built-in
+  placeholder.** `po_number_sequences.initialized_at` is null until an administrator saves
+  the office's own number; `application/fulfilment.ts` refuses allocation with
+  `po_sequence_uninitialized` while it is. The demonstration seed sets it (so development
+  and the eval suites work); the production bootstrap does not. The difference is data, not
+  an environment check.
+  **SUPERSEDED 2026-08-13** — see *The Lippolis PO numbering rule* below. The guard was
+  protecting a real risk against the wrong model, and went with the model.
+
+## 2026-08-13 (second pass) — making the numbering rule safe for real Lippolis data
+
+The rule itself was already implemented and is unchanged. This pass closed the gaps between
+"correct" and "safe to hand to an office", and all of them were about what happens when a person
+is involved.
+
+- **The pilot store had no fence on the identifier.** Postgres has made `po_number` permanent by
+  trigger since 0016; SQLite — the thing that actually runs at Lippolis — had a comment claiming a
+  service-layer guard that was never written. Nothing in the application updates those columns, which
+  is exactly why the absence was invisible. `purchase_orders` now carries the same two triggers in
+  both providers: the number, its three components and its request cannot be changed, and the row
+  cannot be deleted. A purchase order that can be deleted is a number that can be issued twice.
+
+- **The upgrade rebuild silently dropped those triggers.** `drop table` takes a table's triggers
+  with it, and the rebuild that retires the old global uniqueness recreates the table — so the
+  databases *most* recently migrated would have been the ones running unguarded, until the next
+  restart re-ran SCHEMA. Triggers are now carried across with the indexes, and asserted after the
+  rebuild rather than after a restart.
+
+- **"No paper history" was unrecordable.** A pair with no declaration and a pair the office had
+  checked and found new were the same row — absent. `initializePoSequence` with a next number of 1
+  now records the decision (`declarePoPairNewAction`), which changes no count and is the entire
+  point: it converts an open question into an answered one. Without it the go-live check can only
+  ever say "this might be a problem", which is the kind of warning operators learn to skip.
+
+- **A pair already in use could be moved forward silently.** Moving one is legitimate — an office
+  reconciling a gap after an outage — and a bad accident, and the two are told apart only by whether
+  the person had seen the orders already out there. Refused with `sequence_already_issued` naming
+  the count and the most recent number, unless acknowledged. Backwards stays refused regardless.
+
+- **The format is duplicated in exactly one other place, and now it is fenced.** Postgres has to
+  build the number inside `next_po_number_for()` for the allocation to remain a single statement, so
+  `formatPoNumber` is not literally the only implementation. The migration validator asserts the SQL
+  expression against the domain's own `PO_NUMBER_SEPARATOR` and against `formatPoNumber`'s output,
+  so changing one without the other fails the suite. A future change of separator or casing from a
+  real Lippolis PO is a two-line edit in known places, not a hunt.
+
+- **Vendor codes derived but never chosen are now surfaced.** A code identical to what PCC derives
+  from the name has never been looked at by the office. The verifier re-derives and reports them —
+  detecting the fact rather than recording that somebody opened a screen — because after a vendor's
+  first purchase order its code is frozen.
+
+**The verifier now sorts every pair into four states** — in use, continued from paper, confirmed
+new, unresolved — and separately lists active jobs nobody has been asked about, each with the exact
+operator action. Reported per job rather than per possible pair: the vendors a job will use are not
+knowable in advance, and a screenful of job × vendor combinations is noise that trains people to
+skip the section. Pairs and jobs appearing after go-live are ordinary business and are not flagged.
+
+## 2026-08-13 — the Lippolis PO numbering rule, from Mike and Paul
+
+**A purchase order number is `job number + vendor + a sequence that counts from 1 for that
+pair`.** `1234-COOPER-1`, `1234-COOPER-2`, `1234-GRAYBAR-1`, `5678-COOPER-1`. Given directly by
+the purchasing stakeholders on 2026-08-12; implemented as given.
+
+**What it replaced.** A single per-organization counter formatted `LE-52901` — a placeholder
+standing in for an answer nobody had, guarded by a refusal (`po_sequence_uninitialized`) until an
+administrator supplied "the next number from the paper book". The guard was right about the
+danger and wrong about the shape: there is no one Lippolis sequence, so there was never a single
+number to supply.
+
+**Decisions taken in implementing it, and why:**
+
+- **The vendor's code is a stored field, not a derivation.** `vendors.code` / 
+  `purchase_vendors.code`, derived from the display name once and then frozen. A code recomputed
+  from the name would renumber a supplier's paperwork the day somebody corrects a spelling. It is
+  unique per organization, and changeable only until the vendor's first purchase order.
+- **The derivation does not abbreviate.** `Cooper Electric Supply Co.` becomes
+  `COOPERELECTRICSUPPLYCO`, not `CESC`. An abbreviation invented here would be a name nobody at
+  Lippolis chose, printed on a supplier's paperwork. Where the office wants a short code, an
+  administrator sets it — a decision with a person behind it.
+- **The job segment keeps its hyphens** (`24-118`), because that is what is on the drawing. The
+  identifier is still unambiguous: a vendor code can never contain a hyphen, so `parsePoNumber`
+  splits from the right.
+- **No zero-padding**, and no configurable prefix or suffix. The stakeholder examples are
+  unpadded; padding would have been an invented format.
+- **Allocation is one statement.** An upsert with `RETURNING` per (org, job, vendor), inside the
+  transaction that writes the order — SQLite under `begin immediate`, Postgres in
+  `next_po_number_for()`. The compare-and-set it replaced was safe against a lost update but could
+  fail spuriously under contention; this cannot, and the concurrency gate now asserts *no gap* as
+  well as *no duplicate*.
+- **`unique (org_id, sequence_value)` on `purchase_orders` had to go**, replaced by
+  `(org_id, job_number, vendor_id, sequence_value)`. Under the real rule `1234-COOPER-1` and
+  `1234-GRAYBAR-1` both carry sequence 1 and neither is a duplicate. SQLite cannot ALTER a
+  constraint away, so `database.ts` rebuilds the table from its own `sqlite_master` definition —
+  keeping the foreign keys and checks that reconstructing from `pragma table_info` would silently
+  drop — and runs `pragma foreign_key_check` afterwards.
+- **The components are snapshotted onto the order** (`job_number`, `vendor_code`,
+  `sequence_value`) beside the permanent `po_number`. A number stays explainable years later
+  without depending on the directory still saying the same thing.
+- **Allocation happens at issuance only.** Viewing a request, refreshing the page or abandoning a
+  draft burns nothing; asking twice returns the same number without advancing the counter; a
+  failed transaction rolls the counter back with it. An issued number is never reused.
+
+**What remains a business question, and is now the only one:** whether any job-and-vendor pair
+PCC will be used for already has purchase orders written on paper. For those pairs an
+administrator sets where the count had reached (Administration → PO numbering) — forward-only,
+refused at or below anything PCC has issued, audited. `pcc-verify-production.mjs` lists every pair
+about to issue its first number, so the question is asked by the go/no-go check rather than
+remembered.
+
+## 2026-08-12 (build mode → deploy/observe/refine mode)
+
+**PCC feature development stops being speculative from this point.**
+
+The application-controlled work is finished: the production-readiness pass, the restore
+rehearsal, deployment idempotence, the placeholder-PO guard, the data-outside-checkout
+guard, the installation runbook, the preflight and the storage tooling all exist and are
+tested. What PCC does not have is a single hour of real use by the people it was built
+for.
+
+Until it does, further feature work is guessing — and the repository has enough evidence
+now to make that guessing unnecessary rather than merely unwise.
+
+**From now, product changes should be driven by:**
+
+- Phase A smoke-test failures — things that do not work on the real VM
+- Phase B user friction — what Mike, Rick or a foreman actually stumbles over
+- production defects — anything that misbehaves with real data
+- purchasing stakeholder feedback — the office asking for something concrete
+- operational evidence — logs, storage growth, backup timings, health history
+
+**Explicitly NOT a reason to change PCC:** an architectural preference, a pattern that
+would be tidier, a capability another system has, or a feature nobody has asked for. That
+includes the two standing invitations in this repository — migrating to PostgreSQL and
+extracting attachments to object storage. Both have documented, measurable triggers
+(`PCC_PRODUCTION_ARCHITECTURE.md` §3 and §4). Neither trigger has fired. Doing either now
+would trade a working simple thing for a speculative complicated one, days before real
+users first touch it.
+
+**This does not freeze bug fixes.** A defect is a defect and gets fixed. The distinction is
+between *making PCC do what it already claims to do* — always in scope — and *making PCC do
+something new* — which now needs evidence from an actual user.
+
+The success condition for the next phase is not a feature. It is a fortnight of purchasing
+that nobody had to work around.

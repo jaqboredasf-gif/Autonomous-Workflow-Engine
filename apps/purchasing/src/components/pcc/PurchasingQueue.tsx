@@ -16,7 +16,8 @@ import { applyFilters, isOverdue, lifecycleBoard } from '../../purchasing/domain
 import { REQUEST_STATUSES } from '../../purchasing/domain/status.mjs';
 import { formatMoney, formatQty } from '../../purchasing/domain/numbers.mjs';
 import { ButtonLink } from './Button';
-import { StatusBadge, UrgencyBadge } from './Badge';
+import { Badge, StatusBadge } from './Badge';
+import { attentionBand } from '../../purchasing/domain/dashboard.mjs';
 import { QueueFilters } from './QueueFilters';
 import { Tabs, type TabItem } from './Tabs';
 import {
@@ -31,7 +32,7 @@ import {
   THead,
   TR,
 } from './Table';
-import { displayStatus, nextActionFor, urgencyOf, URGENCY_LABELS, type Urgency } from './status-display';
+import { displayStatus, nextActionFor } from './status-display';
 
 const STAGE_LABELS: Record<string, string> = {
   NEEDS_REVIEW: 'Needs approval',
@@ -51,7 +52,6 @@ export type QueueSearchParams = {
   jobNumber?: string;
   vendorId?: string;
   requestorId?: string;
-  priority?: string;
   needByFrom?: string;
   needByTo?: string;
   overdue?: string;
@@ -112,12 +112,11 @@ export function PurchasingQueue({
     now,
   );
 
-  // Priority is derived, so it filters here rather than in applyFilters —
-  // the domain has no priority field to filter on. See status-display.ts.
-  const rows = (params.priority
-    ? filtered.filter((r: any) => urgencyOf(r, now) === params.priority)
-    : filtered
-  ).sort((a: any, b: any) =>
+  // NO PRIORITY FILTER. There is no priority to filter on: nearly all of this
+  // is next-day, so a three-level scale sorted nothing. The exception that
+  // matters — work that has gone past its date and still needs purchasing — has
+  // its own checkbox (Overdue) and its own column below, both derived.
+  const rows = filtered.sort((a: any, b: any) =>
     `${a.needByDate ?? '9999-12-31'}${a.needByTime ?? ''}`.localeCompare(
       `${b.needByDate ?? '9999-12-31'}${b.needByTime ?? ''}`,
     ),
@@ -164,16 +163,11 @@ export function PurchasingQueue({
           jobNumber: params.jobNumber ?? '',
           vendorId: params.vendorId ?? '',
           requestorId: params.requestorId ?? '',
-          priority: params.priority ?? '',
           needByFrom: params.needByFrom ?? '',
           needByTo: params.needByTo ?? '',
           overdue: params.overdue ?? '',
         }}
         statuses={REQUEST_STATUSES.map((s: string) => ({ value: s, label: displayStatus(s) }))}
-        priorities={(['EMERGENCY', 'URGENT', 'NORMAL'] as Urgency[]).map((u) => ({
-          value: u,
-          label: URGENCY_LABELS[u],
-        }))}
         jobs={distinct(requests, 'jobNumber', 'jobNumber')}
         vendors={distinct(requests, 'vendorId', 'vendorName')}
         requesters={distinct(requests, 'requestorId', 'requestorName')}
@@ -187,7 +181,7 @@ export function PurchasingQueue({
               <TH>Job</TH>
               <TH className="hidden lg:table-cell">Vendor</TH>
               <TH className="hidden xl:table-cell">Requester</TH>
-              <TH>Priority</TH>
+              <TH>Needs</TH>
               <TH>Status</TH>
               <TH align="right" className="hidden sm:table-cell">
                 Age
@@ -223,8 +217,17 @@ export function PurchasingQueue({
                   </TD>
                   <TD className="hidden lg:table-cell">{r.vendorName ?? '—'}</TD>
                   <TD className="hidden xl:table-cell">{r.requestorName ?? '—'}</TD>
+                  {/* Derived from the workflow, not chosen by anybody. Blank
+                      for ordinary work, so the exceptions are the only things
+                      wearing a colour. */}
                   <TD>
-                    <UrgencyBadge request={r} now={now} />
+                    {(() => {
+                      const band = attentionBand(r, now);
+                      if (band === 'OVERDUE') return <Badge tone="bad">Overdue</Badge>;
+                      if (band === 'DUE_TODAY') return <Badge tone="warn">Today</Badge>;
+                      if (band === 'PART_RECEIVED') return <Badge tone="warn">Part received</Badge>;
+                      return <span className="text-muted">—</span>;
+                    })()}
                   </TD>
                   <TD>
                     <StatusBadge status={r.status} />

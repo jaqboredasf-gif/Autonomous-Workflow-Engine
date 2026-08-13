@@ -209,11 +209,15 @@ export function ShellChrome({
               ) : null}
               <span className="sr-only">{unread ? `${unread} unread notifications` : 'no unread notifications'}</span>
             </Link>
+            {/* THE PRIMARY ACTION FOR A FIELD USER, and it used to disappear
+                below the `sm` breakpoint — which is to say on the phone the
+                foreman is actually holding. Always present now; on a narrow
+                screen it drops the word "request" rather than the button. */}
             <Link
               href="/requests/new"
-              className="hidden h-9 items-center rounded-md bg-brand px-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-hover sm:inline-flex"
+              className="inline-flex h-10 items-center rounded-md bg-brand px-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-hover"
             >
-              New request
+              New<span className="ml-1 hidden sm:inline">&nbsp;request</span>
             </Link>
           </div>
         </header>

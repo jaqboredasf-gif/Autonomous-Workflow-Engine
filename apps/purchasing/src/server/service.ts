@@ -30,6 +30,7 @@ import { getDb } from '../purchasing/infrastructure/sqlite/database.ts';
 import { purchasingContext } from '../purchasing/composition.ts';
 import { PurchasingError, type PurchasingContext } from '../purchasing/application/context.ts';
 import type { Actor } from '../purchasing/application/ports.ts';
+import type { PoNumberScope } from '../purchasing/domain/repositories.ts';
 
 import * as requests from '../purchasing/application/requests.ts';
 import * as review from '../purchasing/application/review.ts';
@@ -136,6 +137,10 @@ export const updateTracking = (ctx: PurchasingContext, actor: Actor, requestId: 
 export const recordReceipt = (ctx: PurchasingContext, actor: Actor, requestId: string, input: any) =>
   fulfilment.recordReceipt(ctx, actor, requestId, input);
 
+/** "It arrived" — receive every outstanding quantity, and close it if allowed. */
+export const receiveEverything = (ctx: PurchasingContext, actor: Actor, requestId: string, input: any = {}) =>
+  fulfilment.receiveEverything(ctx, actor, requestId, input);
+
 export const completeRequest = (ctx: PurchasingContext, actor: Actor, requestId: string, notes?: string) =>
   fulfilment.completePurchaseRequest(ctx, actor, requestId, notes);
 
@@ -143,9 +148,12 @@ export const completeRequest = (ctx: PurchasingContext, actor: Actor, requestId:
  * PO number allocation, exposed because the concurrency gate drives it directly
  * from worker threads. It is a repository call: the number comes from the
  * database under a write lock, never from this process.
+ *
+ * The scope is (org, job, vendor) — the Lippolis rule counts within the pair,
+ * so there is no such thing as "the next number" without saying whose.
  */
-export const allocatePoNumber = (ctx: PurchasingContext, orgId: string) =>
-  ctx.poNumbers.allocate(orgId, ctx.clock.now());
+export const allocatePoNumber = (ctx: PurchasingContext, scope: PoNumberScope) =>
+  ctx.poNumbers.allocate(scope, ctx.clock.now());
 
 // --- reads ------------------------------------------------------------------
 
@@ -163,6 +171,13 @@ export const listNotifications = queries.listNotifications;
 export const auditLog = queries.auditLog;
 
 /**
+ * Files, read back. Both carry the same rule as the request they belong to —
+ * they are records of it, not a separate thing with its own permissions.
+ */
+export const getDocumentForDownload = queries.getDocumentForDownload;
+export const getAttachmentForDownload = queries.getAttachmentForDownload;
+
+/**
  * The immutable record of what was actually purchased. READ ONLY through this
  * facade on purpose: history is written by the use cases that end a request,
  * and there is no path here — or anywhere above infrastructure — that edits it.
@@ -172,10 +187,18 @@ export const requestHistory = history.purchaseHistoryForRequest;
 
 // --- administration ---------------------------------------------------------
 
-export const poConfig = administration.poConfig;
+/**
+ * Purchase order numbering. Nothing to configure — the format is job + vendor +
+ * sequence — so the administration surface is: see where each pair stands, and
+ * declare where one already stood because the office issued it on paper first.
+ */
+export const poSequences = administration.poSequences;
 
-export const updatePoConfig = (ctx: PurchasingContext, actor: Actor, input: any) =>
-  administration.updatePoConfig(ctx, actor, input);
+export const initializePoSequence = (ctx: PurchasingContext, actor: Actor, input: any) =>
+  administration.initializePoSequence(ctx, actor, input);
+
+export const setVendorCode = (ctx: PurchasingContext, actor: Actor, vendorId: string, code: string) =>
+  administration.setVendorCode(ctx, actor, vendorId, code);
 
 export const setApprovalAuthority = (ctx: PurchasingContext, actor: Actor, userId: string, canApprove: boolean) =>
   administration.setApprovalAuthority(ctx, actor, userId, canApprove);

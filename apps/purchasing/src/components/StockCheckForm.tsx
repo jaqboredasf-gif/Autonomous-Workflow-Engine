@@ -14,9 +14,28 @@
 // So: ONE input per line. Stock. The quantity to order is derived in front of
 // him and stays editable, because sometimes he buys a full box anyway.
 //
+// THREE QUANTITIES, AND THEY STAY THREE.
+//
+//   job needs        what the field asked for — never altered by anything here
+//   workshop stock   what Mike counted on the shelf
+//   to order         max(job needs − workshop stock, 0)
+//
+// Workshop stock is NOT a receipt. Nothing has arrived; this is material
+// Lippolis already owned. Typing 2 here does not turn a request for 10 into a
+// request for 8 — the job still needs 10, and the record still says so.
+//
 // The other seven fields are not deleted — they are behind "More", they keep
 // their columns, their validation and their audit, and the office still uses
 // them. Hidden, not removed: that distinction is the whole design.
+//
+// NO PRICE FIELD. It was here because the domain refused to order a line
+// without one; it no longer does. Mike does not estimate cost — the vendor
+// bills, accounting reconciles, and `recordActualCost` is where that lands.
+//
+// ONE SUPPLIER, ONE SELECTOR. The vendor used to be a dropdown per line, which
+// let the purchaser pick two suppliers for one purchase order — something the
+// domain refuses, and refused only after the approval had been recorded. It is
+// now asked once, above the button.
 //
 // THE ARITHMETIC IS THE DOMAIN'S. `suggestedOrderQty` is the same pure function
 // the server recomputes with, so the number he sees before pressing the button
@@ -58,6 +77,17 @@ export default function StockCheckForm({
 }) {
   const [state, formAction, pending] = useActionState(approveAndCreatePoAction, null as any);
   const [advanced, setAdvanced] = useState(false);
+  // ONE SUPPLIER FOR THE REQUEST, not one per line.
+  //
+  // The domain refuses a purchase order whose lines name more than one vendor
+  // (`assertSingleVendor`), so a dropdown on every line offered a choice the
+  // system would reject — and rejected it at PO time, AFTER the approval, with
+  // an error about a milestone limitation. Whatever a previous save recorded
+  // seeds it; every line posts it as a hidden field, so the server contract is
+  // untouched and the impossible option is gone.
+  const [vendorId, setVendorId] = useState<string>(
+    () => reviewLines.find((l: any) => l.vendorId)?.vendorId ?? '',
+  );
   const [lines, setLines] = useState<Line[]>(() =>
     items.map((item) => {
       const saved = reviewLines.find((l) => l.requestItemId === item.id) ?? {};
@@ -104,7 +134,8 @@ export default function StockCheckForm({
         <div className="border-b border-line px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">Check the shelf</h2>
           <p className="text-xs text-muted">
-            Type how many you already have. We work out what to buy.
+            Type how many are already in the workshop. What to order works itself out — the job still needs the
+            full amount, and PCC only buys the difference.
           </p>
         </div>
 
@@ -114,16 +145,33 @@ export default function StockCheckForm({
             return (
               <li key={line.requestItemId} className="p-4">
                 <input type="hidden" name="lineRequestItemId" value={line.requestItemId} />
-                {/* The approved quantity is not asked for: the workshop approves what
-                    the field asked for unless somebody says otherwise, and the server
-                    defaults it the same way. */}
-                <input type="hidden" name="lineFinalOrderQty" value={formatQty(toOrder)} />
+                {/* THE SERVER DOES THE ARITHMETIC, not this page.
+                    
+                    A blank final quantity means "however much the shelf leaves
+                    short", and `saveWorkshopReview` computes exactly that from
+                    the stock figure. So nothing is posted unless the purchaser
+                    typed a quantity of his own.
+
+                    This used to post a hidden value React had computed, which
+                    is correct in a hydrated browser and silently wrong in one
+                    where the JavaScript has not run: the field held its
+                    server-rendered value — the full requested amount — so a
+                    shelf count of 2 against a job needing 10 ordered 10. Wrong
+                    quantity, no error, on a purchase order sent to a supplier.
+                    The approved quantity is not asked for at all; the workshop
+                    approves what the field asked for unless somebody says
+                    otherwise, and the server defaults that the same way. */}
+                {line.overridden ? (
+                  <input type="hidden" name="lineFinalOrderQty" value={line.toOrder} />
+                ) : (
+                  <input type="hidden" name="lineFinalOrderQty" value="" />
+                )}
 
                 <p className="text-base font-medium text-ink">{line.description}</p>
 
                 <div className="mt-3 grid grid-cols-3 items-end gap-3">
                   <div>
-                    <span className="block text-xs font-medium uppercase tracking-wide text-muted">Asked for</span>
+                    <span className="block text-xs font-medium uppercase tracking-wide text-muted">Job needs</span>
                     <span className="mt-1 block text-xl font-semibold tabular-nums text-ink">
                       {formatQty(line.requestedQty)}{' '}
                       <span className="text-sm font-normal text-muted">{line.unit}</span>
@@ -131,7 +179,7 @@ export default function StockCheckForm({
                   </div>
 
                   <label className="block">
-                    <span className="block text-xs font-medium uppercase tracking-wide text-muted">In the shop</span>
+                    <span className="block text-xs font-medium uppercase tracking-wide text-muted">Workshop stock</span>
                     <input
                       name="lineUsableStock"
                       value={line.stock}
@@ -141,7 +189,7 @@ export default function StockCheckForm({
                       // shelf, not typed at a desk.
                       className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2 text-xl tabular-nums text-ink focus:border-accent focus:outline-none"
                       placeholder="0"
-                      aria-label={`Stock in the shop for ${line.description}`}
+                      aria-label={`Workshop stock for ${line.description}`}
                     />
                   </label>
 
@@ -167,7 +215,7 @@ export default function StockCheckForm({
                         use {formatQty(orderQtyFor({ ...line, overridden: false }))} instead
                       </button>
                     ) : (
-                      <span className="mt-1 block text-[11px] text-muted">asked for − in the shop</span>
+                      <span className="mt-1 block text-[11px] text-muted">job needs − workshop stock</span>
                     )}
                   </div>
                 </div>
@@ -180,37 +228,15 @@ export default function StockCheckForm({
                     single button fail with a validation error the purchaser had
                     no way to see the cause of — worse than asking for two more
                     values. Only lines actually being ordered need them. */}
-                {toOrder > 0 ? (
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <label className="block text-xs">
-                      <span className="text-muted">Buying it from</span>
-                      <select
-                        name="lineVendorId"
-                        value={line.vendorId}
-                        onChange={(e) => update(line.requestItemId, { vendorId: e.target.value })}
-                        className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-2 text-sm text-ink"
-                      >
-                        <option value="">Choose a vendor…</option>
-                        {vendors.map((v) => (
-                          <option key={v.id} value={v.id}>{v.name}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block text-xs">
-                      <span className="text-muted">Price each</span>
-                      <input
-                        name="lineUnitCost" value={line.unitCost} inputMode="decimal" placeholder="0.00"
-                        onChange={(e) => update(line.requestItemId, { unitCost: e.target.value })}
-                        className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-2 text-sm tabular-nums text-ink"
-                      />
-                    </label>
-                  </div>
-                ) : (
-                  <>
-                    <input type="hidden" name="lineVendorId" value={line.vendorId} />
-                    <input type="hidden" name="lineUnitCost" value={line.unitCost} />
-                  </>
-                )}
+                {/* The supplier is chosen once, below. Every line carries it so
+                    the server sees exactly what it saw before. */}
+                <input type="hidden" name="lineVendorId" value={toOrder > 0 ? vendorId : ''} />
+
+                {/* NO PRICE. Lippolis does not price a purchase order when it
+                    raises one — the vendor's invoice arrives later and
+                    accounting reconciles it. Whatever a previous save recorded
+                    is carried through untouched rather than blanked. */}
+                <input type="hidden" name="lineUnitCost" value={line.unitCost} />
 
                 {advanced ? (
                   <div className="mt-3 grid gap-3 border-t border-line pt-3 sm:grid-cols-2">
@@ -259,6 +285,37 @@ export default function StockCheckForm({
             : `${totalToOrder} of ${lines.length} ${lines.length === 1 ? 'line' : 'lines'} to buy.`}
         </p>
       </div>
+
+      {/* WHO IT IS GOING TO — one answer for the whole purchase order, sitting
+          directly above the button that sends it. Only shown when something is
+          actually being bought; a request filled entirely from stock has no
+          supplier to choose. */}
+      {nothingToOrder ? null : (
+        <div className="rounded-lg border border-line bg-surface p-4">
+          <label className="block">
+            <span className="block text-xs font-medium uppercase tracking-wide text-muted">Buying it from</span>
+            {/* NAMED, so the form works as plain HTML. The per-line hidden
+                inputs below mirror this for the server's positional parser —
+                but they are written by React, and a page whose JavaScript has
+                not hydrated would post an empty vendor and fail approval with a
+                message about a missing supplier the purchaser had just chosen.
+                The server prefers this field when it is present. */}
+            <select
+              name="vendorId"
+              value={vendorId}
+              onChange={(e) => setVendorId(e.target.value)}
+              className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2 text-base text-ink sm:max-w-sm"
+              aria-label="Supplier for this purchase order"
+            >
+              <option value="">Choose a supplier…</option>
+              {vendors.map((v) => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+          </label>
+          <p className="mt-1 text-xs text-muted">One supplier per purchase order.</p>
+        </div>
+      )}
 
       {/* ONE BUTTON. It approves, creates the purchase order and opens the
           printable sheet — three operations he used to perform by hand, each

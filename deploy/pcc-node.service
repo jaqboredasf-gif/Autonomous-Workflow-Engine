@@ -1,0 +1,91 @@
+# ---------------------------------------------------------------------------
+# pcc-node.service — PCC under systemd, WITHOUT Docker.
+#
+# USE THIS ONE if the VM is Linux and IT does not permit a container runtime.
+# PCC is an ordinary Node process; Docker is packaging, not a dependency.
+#
+# What has to exist first:
+#
+#   * Node 24 on the host. NOT optional and not "20 or later": the store is
+#     `node:sqlite`, which is part of the runtime.
+#   * a `pcc` service account that owns nothing else:
+#       sudo useradd --system --home /opt/pcc --shell /usr/sbin/nologin pcc
+#   * the BUILT application at /opt/pcc — the standalone output, which is what
+#     the Dockerfile copies:
+#       npm ci --workspaces --include-workspace-root
+#       npm run build --workspace purchasing
+#       node scripts/check-deployable.mjs          # refuses to ship a database
+#       sudo rsync -a apps/purchasing/.next/standalone/ /opt/pcc/
+#       sudo rsync -a apps/purchasing/.next/static/  /opt/pcc/apps/purchasing/.next/static/
+#       sudo rsync -a apps/purchasing/public/        /opt/pcc/apps/purchasing/public/
+#       sudo chown -R pcc:pcc /opt/pcc
+#   * the data directory, owned by that account and on a disk IT backs up:
+#       sudo install -d -o pcc -g pcc -m 750 /var/lib/pcc
+#   * the configuration, readable ONLY by that account — it holds SESSION_SECRET:
+#       sudo install -o root -g pcc -m 640 /dev/null /etc/pcc.env
+#       # then fill it in from .env.example
+#
+#   sudo cp deploy/pcc-node.service /etc/systemd/system/pcc.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now pcc
+#   curl -fsS http://127.0.0.1:3000/api/health
+#
+# UPDATES: rebuild, rsync over /opt/pcc, `sudo systemctl restart pcc`, check
+# health, read the log. Migrations apply on start; there is no separate step.
+# ---------------------------------------------------------------------------
+
+[Unit]
+Description=Purchasing Control Center (PCC)
+Documentation=file:///opt/pcc/docs/deployment/PCC_IT_DEPLOYMENT_HANDOFF.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pcc
+Group=pcc
+WorkingDirectory=/opt/pcc
+
+# Everything the application needs, including the session secret. Mode 640,
+# root:pcc — the process reads it, nobody else does.
+EnvironmentFile=/etc/pcc.env
+
+ExecStart=/usr/bin/node apps/purchasing/server.js
+
+# RESTART ON CRASH, NOT ON REFUSAL.
+#
+# The preflight exits 1 on a misconfigured production start — no session secret,
+# a database path pointing at an unmounted volume — and it is RIGHT to exit.
+# Restarting that is a loop that fills the journal and fixes nothing, so exit 1
+# is excluded from the restart policy: the unit stops, `systemctl status` shows
+# it failed, and the reason is the last line in the journal.
+#
+# `on-failure` still covers what supervision is actually for: a killed process,
+# an out-of-memory kill, a crash.
+Restart=on-failure
+RestartPreventExitStatus=1
+RestartSec=5s
+# Five failures in five minutes is a broken deployment, not a blip.
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Logs go to stdout/stderr as JSON lines; the journal collects them.
+#   journalctl -u pcc -f
+#   journalctl -u pcc | grep '\[pcc\]'      # startup diagnostics
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pcc
+
+# The process needs to read its own directory and write exactly one place.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/pcc
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+# PCC makes no outbound connections; it only listens.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

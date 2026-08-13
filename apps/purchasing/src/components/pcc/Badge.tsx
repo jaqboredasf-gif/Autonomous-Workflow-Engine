@@ -1,7 +1,7 @@
 // Badges. Status is ALWAYS text — the colour is a second signal, never the
 // only one (01_IMPLEMENTATION_CONTRACT invariant 2, and the reason none of
 // these render an unlabelled dot).
-import { displayStatus, toneFor, urgencyOf, urgencyTone, URGENCY_LABELS, type Tone, type Urgency } from './status-display';
+import { displayStatus, toneFor, type Tone } from './status-display';
 
 const TONES: Record<Tone, string> = {
   neutral: 'bg-subtle text-ink-soft ring-line-strong',
@@ -43,26 +43,6 @@ export function StatusBadge({ status, className = '' }: { status: string; classN
  * See status-display.ts for why. Normal renders as plain text so the two that
  * matter stand out on a dense board.
  */
-export function UrgencyBadge({
-  request,
-  now,
-  className = '',
-}: {
-  request: { needByDate?: string | null; needByTime?: string | null; status?: string };
-  now: string;
-  className?: string;
-}) {
-  const urgency: Urgency = urgencyOf(request, now);
-  if (urgency === 'NONE') return <span className="text-xs text-muted">—</span>;
-  if (urgency === 'NORMAL') return <span className={`text-xs text-muted ${className}`}>Normal</span>;
-  return (
-    <Badge tone={urgencyTone(urgency)} className={className}>
-      {URGENCY_LABELS[urgency]}
-    </Badge>
-  );
-}
-
-/** A count pill for tabs and sidebar destinations. */
 export function CountPill({ count, selected = false }: { count: number; selected?: boolean }) {
   return (
     <span

@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 
 import { getDocumentForDownload } from '../../../../purchasing/application/queries.ts';
 import { currentActor, purchasingRequestContext } from '../../../../server/session.ts';
+import { fileDownloadResponse } from '../../../../server/file-response.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,11 +24,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   }
   if (!document) return new NextResponse('Not found.', { status: 404 });
 
-  return new NextResponse(document.bytes, {
-    headers: {
-      'Content-Type': document.contentType,
-      'Content-Disposition': `attachment; filename="${document.filename}"`,
-      'Content-Length': String(document.byteSize),
-    },
-  });
+  // Shared with the attachment route. These filenames are PCC's own and the
+  // type is always application/pdf, so nothing here is currently dangerous —
+  // but two download routes with two header policies is how one of them drifts.
+  return fileDownloadResponse(document);
 }

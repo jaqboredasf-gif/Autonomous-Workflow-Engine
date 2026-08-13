@@ -34,6 +34,7 @@ import type {
 // purpose: two catalogues that ordered their suggestions differently would be
 // two products. Only the read differs between providers.
 import { byCatalogUsefulness, matchCatalog, normalizeDescription } from '../../domain/catalog.mjs';
+import { assignVendorCode, normalizeJobSegment } from '../../domain/po-number.mjs';
 import { lineOutstandingQty } from '../../domain/numbers.mjs';
 import { summarizeItems } from '../../domain/entities.mjs';
 import type { SupabaseHandles } from './client.ts';
@@ -437,6 +438,10 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
         await h.db.from(TABLES.orders).insert({
           org_id: order.orgId, request_id: order.requestId, po_number: order.poNumber,
           sequence_value: order.sequenceValue, vendor_id: order.vendorId,
+          // The vendor code AS AT ISSUANCE, beside the job number: the three
+          // components po_number was built from, so a later rename cannot
+          // change what a supplier was sent.
+          vendor_code: order.vendorCode ?? null,
           vendor_contact_id: order.vendorContactId ?? null, job_number: order.jobNumber,
           approver_id: order.approverId, delivery_location_id: order.deliveryLocationId,
           delivery_method: order.deliveryMethod, need_by_date: order.needByDate,
@@ -541,7 +546,10 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
           location:purchase_delivery_locations(name,address,kind),
           approver:users!purchase_orders_approver_id_fkey(id,full_name),
           request:purchase_requests(*, requestor:users!purchase_requests_requestor_id_fkey(full_name)),
-          ${TABLES.orderItems}(*, request_item:purchase_request_items(stock_number), receipts:purchase_receipt_items(received_qty))
+          ${TABLES.orderItems}(*,
+            request_item:purchase_request_items(stock_number, requested_qty),
+            review_item:purchase_review_items(usable_stock_qty),
+            receipts:purchase_receipt_items(received_qty))
         `).eq('id', purchaseOrderId).eq('org_id', h.orgId).maybeSingle(),
         'purchase order view',
       ) as any;
@@ -572,6 +580,12 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
         items: ((order[TABLES.orderItems] ?? []) as any[]).map((i) => ({
           lineNo: i.line_no, description: i.description, substituteFor: i.substitute_description,
           stockNumber: i.request_item?.stock_number ?? null,
+          // The job's requirement and the shelf count, beside the order
+          // quantity — three different numbers, never folded together.
+          requestedQty: qty.read(i.request_item?.requested_qty ?? 0),
+          workshopStockQty: qty.read(
+            (Array.isArray(i.review_item) ? i.review_item[0] : i.review_item)?.usable_stock_qty ?? 0,
+          ),
           finalOrderQty: qty.read(i.order_qty), unit: i.unit,
           receivedQty: ((i.receipts ?? []) as any[]).reduce((sum, r) => sum + qty.read(r.received_qty), 0),
           estimatedUnitCostCents: money.read(i.unit_cost), lineTotalCents: money.read(i.line_total),
@@ -583,21 +597,67 @@ export function supabaseOrderRepository(h: SupabaseHandles): PurchaseOrderReposi
 }
 
 /**
- * PO numbering. `next_po_number()` takes the row lock in Postgres (migration
- * 0016) — the allocation is safe under concurrency because the DATABASE makes
- * it safe, not because this adapter is careful.
+ * PO numbering, scoped to (org, job, vendor) — the Lippolis rule.
+ *
+ * `next_po_number_for()` (migration 0038) does the insert-or-increment in ONE
+ * statement and returns the value it consumed. The allocation is safe under
+ * concurrency because the DATABASE makes it safe, not because this adapter is
+ * careful; this file only carries the scope across.
  */
 export function supabasePoNumberAllocator(h: SupabaseHandles): PoNumberAllocator {
   return {
-    async allocate(orgId, _now) {
-      const rows = unwrap(await h.db.rpc('next_po_number', { p_org: orgId }), 'next_po_number') as any;
+    async allocate(scope, _now) {
+      const rows = unwrap(
+        await h.db.rpc('next_po_number_for', {
+          p_org: scope.orgId, p_job: scope.jobNumber, p_vendor: scope.vendorId,
+        }),
+        'next_po_number_for',
+      ) as any;
       const row = Array.isArray(rows) ? rows[0] : rows;
       if (!row?.po_number) {
-        const err: any = new Error('no PO number sequence configured for this organization');
+        const err: any = new Error('no PO number could be allocated for this job and vendor');
         err.reason = 'po_sequence_missing';
         throw err;
       }
       return { poNumber: String(row.po_number), sequenceValue: Number(row.sequence_value) };
+    },
+
+    async highestIssued(scope) {
+      // Normalized in CODE, for the same reason as the local provider: the
+      // order stores the job number as the request carried it, and the counter
+      // is keyed on the normalized segment.
+      const job = normalizeJobSegment(scope.jobNumber);
+      const { data } = await h.db.from(TABLES.orders)
+        .select('job_number,sequence_value')
+        .eq('org_id', scope.orgId)
+        .eq('vendor_id', scope.vendorId);
+      return ((data ?? []) as any[])
+        .filter((row) => normalizeJobSegment(row.job_number) === job)
+        .reduce((highest, row) => Math.max(highest, Number(row.sequence_value)), 0);
+    },
+
+    async sequences(orgId) {
+      const rows = unwrap(
+        await h.db.from(TABLES.poPairSequences)
+          .select(`*, vendor:${TABLES.vendors}(name)`)
+          .eq('org_id', orgId)
+          .order('job_number'),
+        'list PO sequences',
+      ) as any[];
+      return (rows ?? []).map((row) => ({ ...row, vendor_name: row.vendor?.name ?? null }));
+    },
+
+    async initialize(scope, nextValue, _actorId, _now) {
+      // Through the RPC, not a table write: the refusals — forward only, never
+      // below what has already been issued, authenticated and authorized — are
+      // in the function, and there is no insert policy on the table for a
+      // client to reach past them with.
+      unwrap(
+        await h.db.rpc('initialize_po_sequence', {
+          p_org: scope.orgId, p_job: scope.jobNumber, p_vendor: scope.vendorId, p_next: nextValue,
+        }),
+        'initialize_po_sequence',
+      );
     },
   };
 }
@@ -804,10 +864,25 @@ export function supabaseReferenceRepository(h: SupabaseHandles): ReferenceReposi
         .select('*').eq('org_id', orgId).ilike('name', name).maybeSingle();
       return data ?? null;
     },
+    async vendorById(orgId, vendorId) {
+      const { data } = await h.db.from(TABLES.vendors)
+        .select('*').eq('org_id', orgId).eq('id', vendorId).maybeSingle();
+      return data ?? null;
+    },
+    async vendorByCode(orgId, code) {
+      const { data } = await h.db.from(TABLES.vendors)
+        .select('*').eq('org_id', orgId).ilike('code', code).maybeSingle();
+      return data ?? null;
+    },
     async createVendor(orgId, input: any, actorId, now) {
+      // THE CODE IS ASSIGNED AT CREATION, and never again — it is what this
+      // vendor is called inside every purchase order number issued to it.
+      const taken = ((await h.db.from(TABLES.vendors).select('code').eq('org_id', orgId)).data ?? [])
+        .map((row: any) => String(row.code ?? '')).filter(Boolean);
+      const code = input.code ? String(input.code).toUpperCase() : assignVendorCode(input.name, taken);
       const row = unwrap(
         await h.db.from(TABLES.vendors).insert({
-          org_id: orgId, name: input.name, account_number: input.accountNumber ?? null,
+          org_id: orgId, name: input.name, code, account_number: input.accountNumber ?? null,
           phone: input.phone ?? null, address: input.address ?? null, notes: input.notes ?? null,
           is_active: true, created_at: now, updated_at: now,
           created_by: actorId, updated_by: actorId,
@@ -815,6 +890,19 @@ export function supabaseReferenceRepository(h: SupabaseHandles): ReferenceReposi
         'create vendor',
       ) as any;
       return String(row.id);
+    },
+    async setVendorCode(orgId, vendorId, code, actorId, now) {
+      unwrap(
+        await h.db.from(TABLES.vendors)
+          .update({ code: String(code).toUpperCase(), updated_at: now, updated_by: actorId })
+          .eq('id', vendorId).eq('org_id', orgId).select('id'),
+        'set vendor code',
+      );
+    },
+    async vendorHasOrders(orgId, vendorId) {
+      const { data } = await h.db.from(TABLES.orders)
+        .select('id').eq('org_id', orgId).eq('vendor_id', vendorId).limit(1).maybeSingle();
+      return Boolean(data);
     },
     async updateVendor(orgId, vendorId, patch: any, actorId, now) {
       const columns: Record<string, unknown> = { updated_at: now, updated_by: actorId };
@@ -931,21 +1019,6 @@ export function supabaseReferenceRepository(h: SupabaseHandles): ReferenceReposi
         await h.db.from(TABLES.emailTemplates).select('*').eq('org_id', orgId).order('template_key'),
         'list email templates',
       ) as any[];
-    },
-
-    async poConfig(orgId) {
-      const { data } = await h.db.from(TABLES.poSequences).select('*').eq('org_id', orgId).maybeSingle();
-      return data ?? null;
-    },
-
-    async updatePoConfig(orgId, patch: any, actorId, now) {
-      unwrap(
-        await h.db.from(TABLES.poSequences).update({
-          prefix: patch.prefix, padding: patch.padding, suffix: patch.suffix,
-          next_value: patch.nextValue, updated_at: now, updated_by: actorId,
-        }).eq('org_id', orgId),
-        'update PO configuration',
-      );
     },
 
     async setApprovalAuthority(userId, canApprove, actorId, now) {

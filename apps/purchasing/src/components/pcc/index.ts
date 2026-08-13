@@ -12,15 +12,16 @@ export {
   controlClass,
   fieldStyle,
 } from './Input';
-export { Badge, StatusBadge, UrgencyBadge, CountPill } from './Badge';
+export { Badge, StatusBadge, CountPill } from './Badge';
 export { BrandMark } from './BrandMark';
 export type { BrandMarkProps } from './BrandMark';
 export { Card, Panel, KpiCard, DataPoint, DataGrid } from './Card';
 export { BarSeries, MetricStat, WorkloadDonut } from './Chart';
-export { PrintButton, CopyEmailButton, MailtoLink } from './PaperActions';
+export { AutoPrint, PrintButton, CopyEmailButton, MailtoLink } from './PaperActions';
 export type { SeriesPoint, DonutSlice } from './Chart';
 export { Money, Qty } from './Value';
 export { MaterialSearch } from './MaterialSearch';
+export { MoreDetails } from './MoreDetails';
 export { PurchasingQueue } from './PurchasingQueue';
 export type { QueueSearchParams } from './PurchasingQueue';
 export { QueueFilters } from './QueueFilters';
@@ -48,9 +49,8 @@ export {
   displayStatus,
   stageLabel,
   toneFor,
-  urgencyOf,
-  urgencyTone,
-  URGENCY_LABELS,
   nextActionFor,
+  nextStepFor,
+  waitingOnLabel
 } from './status-display';
-export type { Tone, Urgency, NextAction } from './status-display';
+export type { Tone, NextAction, NextStep, NextOwner } from './status-display';

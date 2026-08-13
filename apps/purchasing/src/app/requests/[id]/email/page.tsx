@@ -5,7 +5,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
-import { ConfirmSubmit, CopyEmailButton, MailtoLink } from '../../../../components/pcc';
+import { Button, CopyEmailButton, MailtoLink } from '../../../../components/pcc';
 import { requireAccess, purchasingRequestContext } from '../../../../server/session.ts';
 import * as S from '../../../../server/service.ts';
 import { Empty, Section, buttonClass, inputClass, secondaryButtonClass } from '../../../../components/ui';
@@ -176,15 +176,13 @@ export default async function EmailDraftPage({ params }: { params: Promise<{ id:
           title="Once it has gone to the vendor"
           subtitle="Record it here, so receiving knows to expect the delivery."
         >
+          {/* ONE PRESS. No dialog: the button only appears once a person has
+              actually reviewed and sent the draft (the workflow enforces that,
+              not this screen), so the question a confirmation would ask has
+              already been answered by getting here. */}
           <form action={markOrderedAction}>
             <input type="hidden" name="requestId" value={id} />
-            <ConfirmSubmit
-              variant="primary"
-              label="Mark ordered"
-              title="Mark this order as placed?"
-              body="Only do this once the vendor has actually been sent the order. It moves the request into the awaiting-delivery pile and stays on the record."
-              confirmLabel="Yes, it has been placed"
-            />
+            <Button type="submit" size="l">Mark ordered</Button>
           </form>
         </Section>
       ) : null}

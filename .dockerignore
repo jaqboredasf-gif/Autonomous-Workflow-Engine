@@ -62,3 +62,7 @@ fixtures
 docs
 PCC_*.md
 SESSION_*.md
+
+# Host service definitions. They configure the machine that RUNS the container;
+# shipping them inside it would be a systemd unit describing its own cage.
+deploy

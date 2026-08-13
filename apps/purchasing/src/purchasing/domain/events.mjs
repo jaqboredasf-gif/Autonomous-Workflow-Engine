@@ -211,8 +211,23 @@ export const events = {
       after: { permission, reason }, notes: message,
     }),
 
-  poConfigChanged: (before, after) =>
-    domainEvent({ action: 'admin.po_config_changed', entityType: 'po_number_sequence', before, after, notes: 'PO numbering configuration changed' }),
+  // Declaring where one job-and-vendor pair's sequence already stood, because
+  // the office issued paper purchase orders for it before PCC. The most
+  // consequential thing an administrator can do to numbering — it decides which
+  // number the next real supplier receives — so it names the pair, where the
+  // sequence was, and where it now is.
+  poSequenceInitialized: (pair, movement) =>
+    domainEvent({
+      action: 'admin.po_sequence_initialized',
+      entityType: 'po_job_vendor_sequence',
+      entityId: `${pair.jobNumber}:${pair.vendorId}`,
+      before: { nextValue: movement.from },
+      after: {
+        nextValue: movement.to, jobNumber: pair.jobNumber, vendorCode: pair.vendorCode,
+        alreadyIssued: movement.issued ?? 0,
+      },
+      notes: `set the purchase order sequence for job ${pair.jobNumber} with ${pair.vendorName} to ${movement.to}`,
+    }),
 
   approvalAuthorityChanged: (userId, before, after, notes) =>
     domainEvent({ action: 'admin.approval_authority_changed', entityType: 'user', entityId: userId, before, after, notes }),

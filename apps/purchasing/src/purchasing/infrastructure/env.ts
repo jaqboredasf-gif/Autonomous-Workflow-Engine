@@ -22,7 +22,15 @@ export type AppConfig = {
   sessionTtlSeconds: number;
   demoMode: boolean;
   isProduction: boolean;
-  databasePath: string;
+  // NO databasePath HERE, deliberately. It used to sit in this object reading
+  // PURCHASING_DB_PATH alone — while the deployment documentation, the
+  // Dockerfile and the compose file all set PCC_DATABASE_PATH, and nothing
+  // read this field at all. A configuration object holding a stale answer that
+  // nobody asks is worse than no answer: the next person to need the database
+  // path finds it here, uses it, and gets an empty string on every real server.
+  // WHERE THE DATABASE LIVES IS DECIDED IN ONE PLACE —
+  // infrastructure/sqlite/database-location.ts — which understands both
+  // spellings and refuses to guess in production. Ask it.
   supabase: {
     url: string | null;
     anonKey: string | null;
@@ -39,6 +47,8 @@ export type AppConfig = {
 };
 
 const DEV_SESSION_SECRET = 'purchasing-pilot-development-secret-not-for-production';
+/** The development address. Production must replace it — see validateEnvironment. */
+const DEFAULT_APP_BASE_URL = 'http://localhost:3000';
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const isProduction = env.NODE_ENV === 'production';
@@ -61,14 +71,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     authProvider,
     persistenceProvider,
-    appBaseUrl: env.APP_BASE_URL ?? 'http://localhost:3000',
+    appBaseUrl: env.APP_BASE_URL ?? DEFAULT_APP_BASE_URL,
     sessionSecret: env.SESSION_SECRET ?? DEV_SESSION_SECRET,
     sessionTtlSeconds: Number(env.SESSION_TTL_SECONDS ?? 60 * 60 * 12),
     // The demo identity picker is a DEVELOPER tool. It is off unless asked for,
     // and it is refused outright in production (see validateEnvironment).
     demoMode: env.PURCHASING_DEMO_MODE === '1' && !isProduction,
     isProduction,
-    databasePath: env.PURCHASING_DB_PATH ?? '',
     supabase: {
       url: supabaseUrl,
       anonKey: supabaseAnon,
@@ -105,6 +114,25 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): {
   if (config.sessionSecret.length < 32) {
     (config.isProduction ? error : warn)('SESSION_SECRET', 'the session secret should be at least 32 characters');
   }
+  // APP_BASE_URL IS NOT OPTIONAL IN PRODUCTION.
+  //
+  // Its default is http://localhost:3000, which is right on a developer's
+  // machine and is developer-machine coupling anywhere else: it is the address
+  // password-reset links are built from and the origin session cookies are
+  // scoped against. Unset, a production deployment ran happily and pointed its
+  // links at a host that only exists on somebody's laptop — the preflight
+  // caught it, the application did not, and the preflight is a separate command
+  // an operator can skip.
+  //
+  // Checked against the DEFAULT rather than for emptiness, because the default
+  // is what a missing variable actually produces here.
+  if (config.isProduction && config.appBaseUrl === DEFAULT_APP_BASE_URL) {
+    error('APP_BASE_URL', 'a production deployment must state its own address — this is the hostname reset links and session cookies use');
+  }
+  if (config.isProduction && !/^https?:\/\//.test(config.appBaseUrl)) {
+    error('APP_BASE_URL', 'must be an absolute URL, e.g. https://purchasing.example.internal');
+  }
+
   if (env.PURCHASING_DEMO_MODE === '1' && config.isProduction) {
     error('PURCHASING_DEMO_MODE', 'demo identity selection is refused in production');
   }
@@ -141,12 +169,24 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): {
       error('SESSION_SECRET', 'Supabase persistence requires a real session secret: the session cookie carries the access token');
     }
   }
-  if (config.authProvider === 'local' && config.isProduction) {
-    warn('AUTH_PROVIDER', 'the local credential provider is intended for the pilot; production should use Supabase Auth');
-  }
-  if (config.storage.driver === 'inline' && config.isProduction) {
-    warn('STORAGE_DRIVER', 'inline attachment storage keeps files in the database; production should use Supabase Storage');
-  }
+  // NEITHER OF THE NEXT TWO IS A WARNING ANY MORE, and that is a correction
+  // rather than a relaxation.
+  //
+  // They used to say production "should" use Supabase Auth and Supabase
+  // Storage. Both fire on a correctly configured Lippolis pilot, which runs on
+  // the local credential store and inline attachments ON PURPOSE — the choices
+  // are recorded in docs/deployment/PCC_PRODUCTION_ARCHITECTURE.md §4 and §6,
+  // and identity is an open question for IT rather than a setting we are
+  // waiting for somebody to correct.
+  //
+  // A warning that appears on every start of a correct deployment is worse than
+  // no warning: it teaches whoever reads `docker logs` that the warnings in
+  // this application are noise, and the next one — the one that matters — is
+  // read the same way. So these are stated as facts, at info level, in the
+  // startup summary the preflight already prints.
+  //
+  // If the day comes that inline storage is genuinely wrong here, the honest
+  // signal is a size threshold on the database, not a permanent scold.
   if (!config.appBaseUrl.startsWith('http')) {
     error('APP_BASE_URL', 'must be an absolute URL');
   }

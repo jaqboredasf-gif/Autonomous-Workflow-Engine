@@ -31,7 +31,7 @@ import type {
   PurchaseRequestRepository, ReceiptRepository, ReferenceRepository,
   RequestItemRecord, ReviewLineRecord, WorkshopReviewRepository,
 } from '../../domain/repositories.ts';
-import { formatPoNumber } from '../../domain/po-number.mjs';
+import { assignVendorCode, FIRST_SEQUENCE, formatPoNumber, normalizeJobSegment } from '../../domain/po-number.mjs';
 import { lineOutstandingQty } from '../../domain/numbers.mjs';
 import { itemSummary } from '../../domain/entities.mjs';
 import { byCatalogUsefulness, matchCatalog, normalizeDescription } from '../../domain/catalog.mjs';
@@ -420,6 +420,7 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
           poNumber: row.po_number,
           sequenceValue: Number(row.sequence_value),
           vendorId: row.vendor_id,
+          vendorCode: row.vendor_code ?? null,
           vendorContactId: row.vendor_contact_id ?? null,
           jobNumber: row.job_number,
           approverId: row.approver_id,
@@ -442,12 +443,18 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
       const id = uuid();
       db.prepare(
         `insert into purchase_orders
-           (id, org_id, request_id, po_number, sequence_value, vendor_id, vendor_contact_id, job_number,
+           (id, org_id, request_id, po_number, sequence_value, vendor_id, vendor_code, vendor_contact_id, job_number,
             approver_id, delivery_location_id, delivery_method, need_by_date, need_by_time,
             estimated_total_cents, notes, status, generated_at, generated_by, created_at, updated_at)
-         values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
         id, order.orgId, order.requestId, order.poNumber, order.sequenceValue, order.vendorId,
+        // The vendor code AS AT ISSUANCE, beside the job number that is already
+        // snapshotted here. Together with the sequence they are the three
+        // components `po_number` was built from, so the identifier can be
+        // explained years later without depending on the directory still saying
+        // the same thing.
+        order.vendorCode ?? null,
         order.vendorContactId ?? null, order.jobNumber, order.approverId, order.deliveryLocationId,
         order.deliveryMethod, order.needByDate, order.needByTime, order.estimatedTotalCents,
         order.notes ?? null, 'ISSUED', now, order.generatedBy, now, now,
@@ -537,14 +544,30 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
       // column and a "Ship To: Job / Shop" box. Both facts already exist —
       // the stock number on the REQUEST line the order line came from, and the
       // destination's kind — they were simply never carried into this view.
+      // THREE QUANTITIES, AND THEY ARE NOT THE SAME QUANTITY.
+      //
+      //   requested_qty     what the job asked for            (10)
+      //   usable_stock_qty  what Mike found on the shelf      (2)
+      //   order_qty         what the vendor is being sold     (8)
+      //
+      // The order line has only ever carried the third. The other two live on
+      // the request line and the review line and were simply never brought into
+      // this view — so Mike's printed copy could not show the arithmetic he had
+      // just performed, and the paper he files could not be checked against the
+      // delivery without opening the application again.
       const items = db.prepare(
-        `select oi.*, ri.stock_number,
+        `select oi.*, ri.stock_number, ri.requested_qty,
+                (select rvi.usable_stock_qty
+                   from purchase_review_items rvi
+                   join purchase_reviews rv on rv.id = rvi.review_id
+                  where rv.request_id = ? and rvi.request_item_id = oi.request_item_id
+                  limit 1) as usable_stock_qty,
                 (select coalesce(sum(rc.received_qty), 0) from purchase_receipt_items rc
                   where rc.purchase_order_item_id = oi.id) as received_qty
            from purchase_order_items oi
            join purchase_request_items ri on ri.id = oi.request_item_id
           where oi.purchase_order_id = ? order by oi.line_no`,
-      ).all(purchaseOrderId) as any[];
+      ).all(po.request_id, purchaseOrderId) as any[];
 
       return {
         org: { id: org.id, name: org.name, phone: org.phone, address: org.address },
@@ -567,6 +590,10 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
         items: items.map((i) => ({
           lineNo: i.line_no, description: i.description, substituteFor: i.substitute_description,
           stockNumber: i.stock_number ?? null,
+          // The job's requirement and the shelf count, kept beside the order
+          // quantity rather than folded into it.
+          requestedQty: Number(i.requested_qty ?? 0),
+          workshopStockQty: Number(i.usable_stock_qty ?? 0),
           finalOrderQty: Number(i.order_qty), unit: i.unit,
           receivedQty: Number(i.received_qty ?? 0),
           estimatedUnitCostCents: Number(i.unit_cost_cents), lineTotalCents: Number(i.line_total_cents),
@@ -578,32 +605,106 @@ export function sqliteOrderRepository(db: DatabaseSync): PurchaseOrderRepository
 }
 
 /**
- * PO numbering. The compare-and-set is the whole safety property: even if two
- * callers read the same value, only one update lands, and the caller running
- * inside the unit of work holds the write lock while it happens.
+ * PO numbering, scoped to (org, job, vendor) — the Lippolis rule.
+ *
+ * ONE STATEMENT allocates. The insert-or-increment is a single upsert with a
+ * RETURNING clause, so there is no window between reading the counter and
+ * advancing it in which a second caller could read the same value: SQLite
+ * evaluates it atomically, and the caller is additionally inside `begin
+ * immediate` (composition.ts), which holds the database's write lock for the
+ * whole transaction that writes the purchase order.
+ *
+ * The read-then-compare-and-set this replaced was safe against a lost update
+ * but could still fail spuriously under contention. It cannot now: a losing
+ * caller does not exist.
+ *
+ * A pair PCC has never issued against starts at 1 (`values (…, 2)` inserts the
+ * counter already advanced and returns 1). Where the office issued paper
+ * purchase orders for that pair first, an administrator initializes it — see
+ * `initialize` below.
  */
 export function sqlitePoNumberAllocator(db: DatabaseSync): PoNumberAllocator {
   return {
-    async allocate(orgId, now) {
-      const seq = db.prepare('select * from po_number_sequences where org_id = ?').get(orgId) as any;
-      if (!seq) {
-        const err: any = new Error('no PO number sequence configured for this organization');
-        err.reason = 'po_sequence_missing';
+    async allocate(scope, now) {
+      const job = normalizeJobSegment(scope.jobNumber);
+      if (!job) {
+        const err: any = new Error('a purchase order needs the job number it is for');
+        err.reason = 'po_job_missing';
         throw err;
       }
-      const value = Number(seq.next_value);
-      const res = db
-        .prepare('update po_number_sequences set next_value = ?, updated_at = ? where org_id = ? and next_value = ?')
-        .run(value + 1, now, orgId, value);
-      if (Number(res.changes) !== 1) {
-        const err: any = new Error('PO number sequence was advanced concurrently; retry');
-        err.reason = 'po_sequence_contended';
+      if (!scope.vendorCode) {
+        const err: any = new Error('this vendor has no purchase order code');
+        err.reason = 'vendor_code_missing';
         throw err;
       }
+
+      const row = db
+        .prepare(
+          `insert into po_job_vendor_sequences
+             (org_id, job_number, vendor_id, vendor_code, next_value, created_at, updated_at)
+           values (?, ?, ?, ?, ?, ?, ?)
+           on conflict(org_id, job_number, vendor_id) do update
+             set next_value = po_job_vendor_sequences.next_value + 1,
+                 vendor_code = excluded.vendor_code,
+                 updated_at = excluded.updated_at
+           returning next_value - 1 as allocated`,
+        )
+        .get(scope.orgId, job, scope.vendorId, scope.vendorCode, FIRST_SEQUENCE + 1, now, now) as any;
+
+      const sequenceValue = Number(row.allocated);
       return {
-        poNumber: formatPoNumber(value, { prefix: seq.prefix, padding: seq.padding, suffix: seq.suffix }),
-        sequenceValue: value,
+        poNumber: formatPoNumber({ jobNumber: job, vendorCode: scope.vendorCode, sequence: sequenceValue }),
+        sequenceValue,
       };
+    },
+
+    async highestIssued(scope) {
+      // Normalized in CODE rather than in the WHERE clause: purchase_orders
+      // stores the job number as the request carried it, and the counter is
+      // keyed on the normalized segment. Comparing the two raw would miss an
+      // order whose job number differed only in spacing — and missing one is
+      // how an initialization is allowed to undercut a number already issued.
+      const job = normalizeJobSegment(scope.jobNumber);
+      const rows = db
+        .prepare('select job_number, sequence_value from purchase_orders where org_id = ? and vendor_id = ?')
+        .all(scope.orgId, scope.vendorId) as any[];
+      return rows
+        .filter((row) => normalizeJobSegment(row.job_number) === job)
+        .reduce((highest, row) => Math.max(highest, Number(row.sequence_value)), 0);
+    },
+
+    async sequences(orgId) {
+      return db
+        .prepare(
+          `select s.*, v.name as vendor_name,
+                  (select count(*) from purchase_orders po
+                    where po.org_id = s.org_id and po.job_number = s.job_number and po.vendor_id = s.vendor_id) as issued_count
+             from po_job_vendor_sequences s
+             join vendors v on v.id = s.vendor_id
+            where s.org_id = ?
+            order by s.job_number, v.name`,
+        )
+        .all(orgId) as any[];
+    },
+
+    async initialize(scope, nextValue, actorId, now) {
+      const job = normalizeJobSegment(scope.jobNumber);
+      // Upsert, so declaring a pair that has never been ordered against creates
+      // its counter. The forward-only trigger on the table refuses a value
+      // below the one already there — the application checks the same thing
+      // first, with a sentence a person can act on, but the database is what
+      // makes it true.
+      db.prepare(
+        `insert into po_job_vendor_sequences
+           (org_id, job_number, vendor_id, vendor_code, next_value, initialized_at, initialized_by, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         on conflict(org_id, job_number, vendor_id) do update
+           set next_value = excluded.next_value,
+               vendor_code = excluded.vendor_code,
+               initialized_at = coalesce(po_job_vendor_sequences.initialized_at, excluded.initialized_at),
+               initialized_by = excluded.initialized_by,
+               updated_at = excluded.updated_at`,
+      ).run(scope.orgId, job, scope.vendorId, scope.vendorCode, nextValue, now, actorId, now, now);
     },
   };
 }
@@ -806,15 +907,40 @@ export function sqliteReferenceRepository(db: DatabaseSync): ReferenceRepository
       return (db.prepare('select * from vendors where org_id = ? and lower(name) = lower(?)')
         .get(orgId, name) as any) ?? null;
     },
+    async vendorById(orgId, vendorId) {
+      return (db.prepare('select * from vendors where id = ? and org_id = ?').get(vendorId, orgId) as any) ?? null;
+    },
+    async vendorByCode(orgId, code) {
+      return (db.prepare('select * from vendors where org_id = ? and upper(code) = upper(?)')
+        .get(orgId, code) as any) ?? null;
+    },
     async createVendor(orgId, input: any, actorId, now) {
       const id = uuid();
+      // THE CODE IS ASSIGNED AT CREATION, and never again. It is what this
+      // vendor is called inside every purchase order number issued to it, so
+      // deriving it later — or re-deriving it after a rename — would change
+      // what a supplier was already sent. Taken from the administrator if they
+      // gave one, otherwise derived from the name against the codes already in
+      // use in this organization.
+      const taken = (db.prepare("select code from vendors where org_id = ? and code is not null and trim(code) <> ''")
+        .all(orgId) as any[]).map((row) => String(row.code));
+      const code = input.code ? String(input.code).toUpperCase() : assignVendorCode(input.name, taken);
       db.prepare(
-        `insert into vendors (id, org_id, name, account_number, phone, address, notes,
+        `insert into vendors (id, org_id, name, code, account_number, phone, address, notes,
                               is_active, created_at, updated_at, created_by, updated_by)
-         values (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
-      ).run(id, orgId, input.name, input.accountNumber ?? null, input.phone ?? null,
+         values (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+      ).run(id, orgId, input.name, code, input.accountNumber ?? null, input.phone ?? null,
             input.address ?? null, input.notes ?? null, now, now, actorId, actorId);
       return id;
+    },
+    async setVendorCode(orgId, vendorId, code, actorId, now) {
+      db.prepare('update vendors set code = ?, updated_at = ?, updated_by = ? where id = ? and org_id = ?')
+        .run(String(code).toUpperCase(), now, actorId, vendorId, orgId);
+    },
+    async vendorHasOrders(orgId, vendorId) {
+      const row = db.prepare('select 1 as found from purchase_orders where org_id = ? and vendor_id = ? limit 1')
+        .get(orgId, vendorId) as any;
+      return Boolean(row);
     },
     async updateVendor(orgId, vendorId, patch: any, actorId, now) {
       // Only the keys present are written, so a partial update (retiring a
@@ -910,14 +1036,6 @@ export function sqliteReferenceRepository(db: DatabaseSync): ReferenceRepository
     },
     async emailTemplates(orgId) {
       return db.prepare('select * from email_templates where org_id = ? order by template_key').all(orgId) as any[];
-    },
-    async poConfig(orgId) {
-      return db.prepare('select * from po_number_sequences where org_id = ?').get(orgId) as any;
-    },
-    async updatePoConfig(orgId, patch: any, actorId, now) {
-      db.prepare(
-        'update po_number_sequences set prefix = ?, padding = ?, suffix = ?, next_value = ?, updated_at = ?, updated_by = ? where org_id = ?',
-      ).run(patch.prefix, patch.padding, patch.suffix, patch.nextValue, now, actorId, orgId);
     },
     async setApprovalAuthority(userId, canApprove, actorId, now) {
       db.prepare('update users set can_approve = ?, updated_at = ?, updated_by = ? where id = ?')

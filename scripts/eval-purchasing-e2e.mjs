@@ -18,6 +18,11 @@
 
 import { createClient } from '@supabase/supabase-js';
 
+// A purchase order number: job number, vendor code, sequence — 24-118-GRAYBAR-3.
+// The job may contain hyphens; the vendor code may not, which is what makes the
+// last two segments unambiguous.
+const PO_NUMBER = /[A-Z0-9][A-Z0-9-]*-[A-Z0-9]+-\d+/;
+
 const BASE = process.env.ACCEPTANCE_BASE_URL ?? 'http://localhost:3100';
 const SUPA = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321';
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -255,15 +260,16 @@ if (!requestId) {
   {
     const po = await purchasing.go(`/requests/${requestId}/po`);
     check('approving produced the purchase order, with no second step', po.status === 200, `status ${po.status}`);
-    check('the PO carries a PO number', /LE-\d+/.test(text(po.body)), 'no organization PO number found');
+    // job + vendor + sequence, e.g. 24-118-GRAYBARELECTRIC-1.
+    check('the PO carries a PO number', PO_NUMBER.test(text(po.body)), 'no purchase order number found');
     check('the PO sheet offers PRINT as a first-class action', /Print PO/.test(text(po.body)),
       'the purchaser keeps paper; printing must not be hidden behind a download link');
 
     // Idempotence still matters: the composed action must not mint a second
     // number if it runs again.
-    const before = /LE-(\d+)/.exec(text(po.body))?.[1];
+    const before = PO_NUMBER.exec(text(po.body))?.[0];
     const again = await purchasing.go(`/requests/${requestId}/po`);
-    const after = /LE-(\d+)/.exec(text(again.body))?.[1];
+    const after = PO_NUMBER.exec(text(again.body))?.[0];
     check('the PO number is permanent', before === after, `${before} then ${after}`);
   }
 
@@ -278,7 +284,7 @@ if (!requestId) {
     const emailPage = await purchasing.go(`/requests/${requestId}/email`);
     check('the vendor email draft opens', emailPage.status === 200, `status ${emailPage.status}`);
     check('the draft is addressed and populated from the PO',
-      /LE-\d+/.test(text(emailPage.body)), 'the draft does not reference its PO number');
+      PO_NUMBER.test(text(emailPage.body)), 'the draft does not reference its PO number');
     check('nothing is sent externally without review',
       /draft|review|not sent/i.test(text(emailPage.body)),
       'the draft-only boundary is not stated on the page');
@@ -341,7 +347,7 @@ if (!requestId) {
       ['it was created', /created|raised/i],
       ['it was submitted', /submitted/i],
       ['it was approved', /approved/i],
-      ['a PO was generated', /LE-\d+/],
+      ['a PO was generated', PO_NUMBER],
       ['it was ordered', /ordered/i],
       ['it was received', /received/i],
       ['it was completed', /completed/i],

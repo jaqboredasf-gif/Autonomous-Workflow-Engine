@@ -257,7 +257,7 @@ export function assertSingleVendor(vendorIds) {
 
 // --- entity: purchase order --------------------------------------------------
 
-export function purchaseOrderFromReview({ request, lines, poNumber, sequenceValue, vendorId, approverId, generatedBy }) {
+export function purchaseOrderFromReview({ request, lines, poNumber, sequenceValue, vendorId, vendorCode, approverId, generatedBy }) {
   const ordering = lines.filter((l) => l.quantities.finalOrder > 0);
   const estimatedTotalCents = ordering.reduce((t, l) => t + l.lineTotalCents, 0);
   return Object.freeze({
@@ -266,6 +266,10 @@ export function purchaseOrderFromReview({ request, lines, poNumber, sequenceValu
     poNumber,
     sequenceValue,
     vendorId,
+    // The vendor's code AS AT ISSUANCE, kept beside the job number: these two
+    // and the sequence ARE the purchase order number, and a later rename must
+    // not be able to change what a supplier was sent.
+    vendorCode,
     jobNumber: request.jobNumber,
     approverId,
     generatedBy,

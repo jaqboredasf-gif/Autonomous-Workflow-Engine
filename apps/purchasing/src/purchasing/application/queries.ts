@@ -399,6 +399,28 @@ export async function getDocumentForDownload(ctx: PurchasingContext, actor: Acto
   };
 }
 
+/**
+ * An uploaded attachment, for download — the photograph of the packing slip,
+ * the picture of the panel somebody needs parts for.
+ *
+ * The same rule as a PO document, for the same reason: the file is a record of
+ * the request, so whoever may read the request may read the file, and nobody
+ * else. `getRequestDetail` is the single authorization decision — awaited, so
+ * a refusal is a refusal rather than an unobserved rejection.
+ *
+ * Returns null rather than throwing when the id is unknown or the provider
+ * cannot produce bytes, so the route answers 404 for "no such file" and 404 for
+ * "not yours" alike. Distinguishing them would confirm that an id exists to
+ * somebody who is not allowed to know it.
+ */
+export async function getAttachmentForDownload(ctx: PurchasingContext, actor: Actor, attachmentId: string) {
+  if (!ctx.attachments.fetch) return null;
+  const attachment = await ctx.attachments.fetch(attachmentId);
+  if (!attachment) return null;
+  await getRequestDetail(ctx, actor, attachment.requestId);
+  return attachment;
+}
+
 function authzView(request: any) {
   return {
     id: request.id,

@@ -92,9 +92,49 @@ the application or the database reads it.
 
 ## PO numbering
 
-/admin → **PO numbering**. Prefix, digit count, suffix, next number. The sequence **only moves
-forward**: winding it back would re-issue numbers vendors and invoices already reference, and
-the server refuses it.
+A purchase order number is **the job number, the vendor, and a number that counts from 1** — and
+it counts separately for each job and each vendor:
+
+```
+1234-COOPER-1     1234-COOPER-2     1234-GRAYBAR-1     5678-COOPER-1
+```
+
+**There is nothing to configure.** A new job or a new vendor needs no setup: the count starts at 1
+because nothing has been ordered against that pair. `/admin` → **PO numbering** shows where every
+pair stands and what its next order will be called.
+
+**The one question you have to answer, per job and vendor.** *Has a purchase order ever been
+written by hand for this job and this vendor?*
+
+- **Yes** → *Set this pair*. Give either the last paper number or the next one; the form takes one,
+  not both. PCC continues from there.
+- **No** → *Confirm as new*. The count starts at 1 either way — but recording the answer is what
+  distinguishes "the office checked, and it is new" from "nobody has looked yet", and it is what
+  stops `pcc-verify-production.mjs` asking about that job before go-live.
+
+Either way the answer is on the record with who gave it. If neither is recorded, PCC still counts
+from 1 — the risk is not that it breaks, it is that nobody was asked.
+
+**The refusals, and what they mean:**
+
+| PCC says | Why | What to do |
+|---|---|---|
+| *a sequence can only move forward* | The value is at or below where the pair already stands | Nothing to do — a gap is harmless, a repeat is not |
+| *PCC has already issued N purchase order number(s) for this pair* | Real orders exist on this pair, and moving it is not something to do by accident | If you mean it (reconciling after an outage), tick the acknowledgement box and submit again |
+| *this vendor has no purchase order code* | The vendor predates the code column | Administration → Vendors → Edit → PO code |
+
+The table below the form shows every pair and **how it was settled** — in use, continued from
+paper, confirmed as new, or not confirmed. The same four states the go-live verifier reports, so
+the screen and the check cannot disagree.
+
+**Vendor codes.** The middle part of the number comes from `vendors.code`, derived from the vendor
+name once and then frozen — so renaming a vendor never renumbers an order it has already been sent.
+
+PCC's derivation does not abbreviate: `Graybar Electric` becomes `GRAYBARELECTRIC`. If the office
+writes `GRAYBAR`, set that in `/admin` → **Vendors** → *Edit* → *PO code*. **Do this before the
+vendor's first purchase order** — afterwards it is refused, because the code is part of every number
+that supplier holds. Two vendors may not share a code. Letters and digits only: a hyphen would break
+the number apart, since the hyphen is what separates the three components.
 
 ## Audit
 

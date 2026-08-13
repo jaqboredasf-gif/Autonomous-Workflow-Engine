@@ -138,10 +138,31 @@ export interface DocumentRenderer {
   templateKey: string;
 }
 
+/** What `fetch` hands back: the bytes, and the request they hang off. */
+export type StoredAttachment = {
+  /** The request this file belongs to, whether it was attached to the request
+   *  itself or to one of its receipts. Authorization is decided against it. */
+  requestId: string;
+  filename: string;
+  contentType: string | null;
+  byteSize: number;
+  bytes: Buffer;
+};
+
 /** User-uploaded files (photos of a panel, a packing slip). */
 export interface AttachmentPort {
   attachToRequest(requestId: string, file: any, actorId: string, now: string): Promise<{ id: string; filename: string }>;
   attachToReceipt(receiptId: string, file: any, actorId: string, now: string): Promise<void>;
+
+  /**
+   * Read one back. OPTIONAL, and optional for a stated reason rather than a
+   * shrug: the local provider keeps the bytes in the database and can always
+   * produce them, while the Supabase provider records a storage path and does
+   * not upload anything to it yet. A provider that cannot honestly return the
+   * file omits this, and the caller reports "not found" rather than a provider
+   * inventing an empty one.
+   */
+  fetch?(attachmentId: string): Promise<StoredAttachment | null>;
 }
 
 /**

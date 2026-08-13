@@ -96,8 +96,12 @@ export async function register() {
     process.exit(1);
   }
 
+  // The deliberate choices, stated once, so an operator reading `docker logs`
+  // can confirm the deployment is the one that was intended — and so the two
+  // facts that used to be permanent warnings (local credentials, attachments in
+  // the database) appear where they belong: as configuration, not as a scold.
   console.log(
     `[pcc] ready — auth: ${env.config.authProvider}, persistence: ${env.config.persistenceProvider}, ` +
-      `mode: ${isProduction ? 'production' : 'development'}`,
+      `attachments: ${env.config.storage.driver}, mode: ${isProduction ? 'production' : 'development'}`,
   );
 }

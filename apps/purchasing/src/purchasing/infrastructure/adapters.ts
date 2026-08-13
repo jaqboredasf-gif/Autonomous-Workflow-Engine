@@ -271,6 +271,58 @@ export function attachmentAdapter(db: DatabaseSync): AttachmentPort {
             file.dataBase64 ? Math.floor((file.dataBase64.length * 3) / 4) : null,
             file.dataBase64 ?? null, file.caption ?? null, now, actorId);
     },
+
+    /**
+     * Read an attachment back, from wherever it hangs.
+     *
+     * Until this existed, every attachment PCC accepted was write-only: the
+     * bytes went into the row, three screens listed the filename, and no code
+     * path anywhere returned the file. A foreman photographing a packing slip
+     * was told the evidence was kept, and it was — unreadably. The gap survived
+     * because listing attachments and serving one look the same from the
+     * screen, and only the purchase-order PDF had a download route.
+     *
+     * Two tables, one lookup, because the caller has an id and should not have
+     * to know which kind of attachment it names. Both resolve to the owning
+     * REQUEST, which is the thing authorization is decided about — a receipt is
+     * not separately permissioned, it belongs to the request it received.
+     */
+    async fetch(attachmentId) {
+      const onRequest = db
+        .prepare(
+          `select request_id, filename, content_type, byte_size, data_base64
+             from purchase_request_attachments where id = ?`,
+        )
+        .get(attachmentId) as any;
+
+      const row =
+        onRequest ??
+        (db
+          .prepare(
+            `select r.request_id, a.filename, a.content_type, a.byte_size, a.data_base64
+               from purchase_receipt_attachments a
+               join purchase_receipts r on r.id = a.receipt_id
+              where a.id = ?`,
+          )
+          .get(attachmentId) as any);
+
+      // No row, or a row whose bytes were never stored (the Supabase writer
+      // records a storage path instead). Either way there is no file to serve,
+      // and saying "not found" is more honest than an empty download.
+      if (!row?.data_base64) return null;
+
+      const bytes = Buffer.from(row.data_base64, 'base64');
+      return {
+        requestId: row.request_id as string,
+        filename: row.filename as string,
+        contentType: (row.content_type ?? null) as string | null,
+        // The stored size is what the uploader claimed; the buffer is what we
+        // actually have. Serve the truth, or Content-Length disagrees with the
+        // body and the download stalls.
+        byteSize: bytes.byteLength,
+        bytes,
+      };
+    },
   };
 }
 

@@ -41,6 +41,7 @@ import {
   summarize,
   isOverdue,
   applyFilters,
+  attentionBand,
   attentionQueue,
   workloadToday,
   purchasingStatus,
@@ -74,7 +75,6 @@ import {
   TH,
   THead,
   TR,
-  UrgencyBadge,
   WorkloadDonut,
   nextActionFor,
   stageLabel,
@@ -457,7 +457,7 @@ export default async function DashboardPage({
                   <TH>Material</TH>
                   <TH>Job</TH>
                   <TH>Need by</TH>
-                  <TH className="hidden sm:table-cell">Priority</TH>
+                  <TH className="hidden sm:table-cell">Needs</TH>
                   <TH>Status</TH>
                   <TH className="hidden lg:table-cell">Next action</TH>
                 </tr>
@@ -474,8 +474,19 @@ export default async function DashboardPage({
                         {r.needByDate ?? '—'}
                         {isOverdue(r, now) ? <span className="ml-1 font-medium text-danger">overdue</span> : null}
                       </TD>
+                      {/* WHAT THIS ROW NEEDS, derived — not a priority somebody
+                          chose. `attentionBand` is the same function that ranks
+                          the queue above, so the column and the ordering cannot
+                          disagree. Ordinary next-day work is deliberately blank:
+                          a badge on every row is a badge on none. */}
                       <TD className="hidden sm:table-cell">
-                        <UrgencyBadge request={r} now={now} />
+                        {(() => {
+                          const band = attentionBand(r, now);
+                          if (band === 'OVERDUE') return <Badge tone="bad">Overdue</Badge>;
+                          if (band === 'DUE_TODAY') return <Badge tone="warn">Today</Badge>;
+                          if (band === 'PART_RECEIVED') return <Badge tone="warn">Part received</Badge>;
+                          return <span className="text-muted">—</span>;
+                        })()}
                       </TD>
                       <TD>
                         <StatusBadge status={r.status} />

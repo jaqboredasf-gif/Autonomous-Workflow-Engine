@@ -319,7 +319,10 @@ try {
   };
   for (const [path, marker, message] of [
     ['/my-requests', 'New request', 'the field workspace renders on a phone'],
-    ['/requests/new', 'Need-by date', 'the request form renders on a phone'],
+    // The heading, not a field label: the marker is a proxy for "the page
+    // rendered", and pinning it to a label makes wording changes look like
+    // regressions.
+    ['/requests/new', 'What do you need?', 'the request form renders on a phone'],
     ['/deliveries', 'Deliveries', 'the delivery list renders on a phone'],
   ]) {
     const res = await fetch(`${BASE}${path}`, { headers: mobileHeaders });
@@ -330,10 +333,77 @@ try {
   const newRequestHtml = await (await fetch(`${BASE}/requests/new`, { headers: mobileHeaders })).text();
   check(newRequestHtml.includes('type="date"') && newRequestHtml.includes('type="time"'),
         'the phone form uses native date and time pickers');
+
+  // --- what a phone-width layout must not do -------------------------------
+  //
+  // These are markup rules, checkable without a browser, and each one is a way
+  // the field screens have actually gone wrong:
+  //
+  //   a fixed pixel width          forces the page sideways on a 360px screen
+  //   a table with no scroller     does the same, one column at a time
+  //   the primary action hidden    `hidden sm:inline-flex` removed "New
+  //                                request" from the phone the foreman holds
+  for (const [path, label] of [['/my-requests', 'my requests'], ['/deliveries', 'deliveries'], ['/requests/new', 'the request form']]) {
+    const html = await (await fetch(`${BASE}${path}`, { headers: mobileHeaders })).text();
+    const body = html.replace(/<script[\s\S]*?<\/script>/g, ' ');
+
+    // A width in pixels, or a min-width bigger than a narrow phone.
+    const fixedWidths = [...body.matchAll(/(?:min-)?w-\[(\d+)px\]/g)].map((m) => Number(m[1])).filter((n) => n > 340);
+    check(fixedWidths.length === 0, `${label}: nothing is pinned wider than a phone`, fixedWidths.join(', '));
+
+    // Every table is inside something that can scroll on its own.
+    const tables = (body.match(/<table/g) ?? []).length;
+    const scrollers = (body.match(/overflow-x-auto|overflow-auto/g) ?? []).length;
+    check(tables === 0 || scrollers > 0, `${label}: any table can scroll without moving the page`, `${tables} tables, ${scrollers} scrollers`);
+
+    // The primary action is present at the narrowest width, not only from `sm`.
+    const hiddenPrimary = /class="[^"]*\bhidden\b[^"]*"[^>]*>\s*New request/.test(body);
+    check(!hiddenPrimary, `${label}: the primary action is not hidden on a phone`);
+  }
+
+  // The receiving sheet is the one screen operated outdoors in gloves, so its
+  // controls are held to a 44px minimum rather than the default height.
+  const receivingList = await (await fetch(`${BASE}/deliveries`, { headers: mobileHeaders })).text();
+  check(/h-1[12]|py-3|min-h-1[12]/.test(receivingList), 'the delivery list offers a full-size target to press');
   // The invariant is about FIELDS, not words: "Vendor counter pickup" is a
   // legitimate delivery location, and the banner mentions suppliers.
   for (const forbidden of ['lineVendorId', 'lineUnitCost', 'lineUsableStock', 'name="priority"', 'Estimated unit cost']) {
     check(!newRequestHtml.includes(forbidden), `the phone form has no ${forbidden} input`);
+  }
+
+  console.log('--- no ceremony: no confirmation, no priority -------------------');
+
+  // MARK ORDERED IS ONE PRESS. The confirmation component renders a dialog and
+  // a second button; if either appears on a screen that offers "Mark ordered",
+  // the click count is two and the pilot finding has regressed.
+  {
+    const ordered = await get('/requests', sessions.mike);
+    check(ordered.status === 200, 'the purchasing list opens');
+
+    for (const [path, label] of [['/dashboard', 'dashboard'], ['/requests', 'purchasing list']]) {
+      const html = await (await get(path, sessions.mike)).text();
+      check(!/Mark this order as placed\?/.test(html), `no order confirmation prompt on the ${label}`);
+      check(!/Yes, it has been placed/.test(html), `no confirm-again button on the ${label}`);
+    }
+  }
+
+  // NO MANUAL PRIORITY, anywhere a person works.
+  for (const [path, label] of [
+    ['/requests/new', 'the request form'],
+    ['/dashboard', 'the dashboard'],
+    ['/requests', 'the purchasing list'],
+  ]) {
+    const html = await (await get(path, sessions.mike)).text();
+    check(!/name="priority"/.test(html), `${label} has no priority input`);
+    check(!/Any priority/.test(html), `${label} has no priority filter`);
+    check(!/>Emergency</.test(html), `${label} offers no urgency grade to choose`);
+  }
+
+  // BUT THE DERIVED EXCEPTION SURVIVES. The dashboard still knows what is late.
+  {
+    const html = await (await get('/dashboard', sessions.mike)).text();
+    check(/Overdue/.test(html), 'the dashboard still surfaces overdue work');
+    check(/Needs/.test(html), 'and the derived attention column replaced the priority column');
   }
 
   console.log('--- the shell --------------------------------------------------');

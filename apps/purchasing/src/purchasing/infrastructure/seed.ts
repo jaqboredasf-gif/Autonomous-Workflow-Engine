@@ -18,7 +18,7 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { TEMPLATES, EMAIL_TEMPLATE_TYPES } from '../domain/email.mjs';
 import { hashPassword } from './auth/local-auth.ts';
-import { DEFAULT_PO_CONFIG } from '../domain/po-number.mjs';
+import { assignVendorCode } from '../domain/po-number.mjs';
 
 export const DEMO_ORG_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -130,11 +130,17 @@ export function seed(db: DatabaseSync, now = new Date().toISOString()) {
       ).run(id, u.email, hash, salt, disabled ? 1 : 0, now, now);
     }
 
+    const vendorCodes: string[] = [];
     for (const v of VENDORS) {
       const vendorId = randomUUID();
+      // The code the vendor is known by inside a purchase order number. Derived
+      // by the same domain function the application uses, so the fixture cannot
+      // demonstrate a numbering scheme the product does not have.
+      const code = assignVendorCode(v.name, vendorCodes);
+      vendorCodes.push(code);
       db.prepare(
-        'insert into vendors (id, org_id, name, account_number, phone, address, is_active, created_at, updated_at) values (?,?,?,?,?,?,1,?,?)',
-      ).run(vendorId, DEMO_ORG_ID, v.name, v.account, v.phone, v.address, now, now);
+        'insert into vendors (id, org_id, name, code, account_number, phone, address, is_active, created_at, updated_at) values (?,?,?,?,?,?,?,1,?,?)',
+      ).run(vendorId, DEMO_ORG_ID, v.name, code, v.account, v.phone, v.address, now, now);
       db.prepare(
         'insert into vendor_contacts (id, vendor_id, name, email, phone, is_primary, created_at, updated_at) values (?,?,?,?,?,1,?,?)',
       ).run(randomUUID(), vendorId, v.contact.name, v.contact.email, v.contact.phone, now, now);
@@ -152,9 +158,18 @@ export function seed(db: DatabaseSync, now = new Date().toISOString()) {
       );
     }
 
-    db.prepare(
-      'insert into po_number_sequences (org_id, prefix, padding, suffix, next_value, updated_at) values (?,?,?,?,?,?)',
-    ).run(DEMO_ORG_ID, DEFAULT_PO_CONFIG.prefix, DEFAULT_PO_CONFIG.padding, DEFAULT_PO_CONFIG.suffix, DEFAULT_PO_CONFIG.nextNumber, now);
+    // NO PURCHASE ORDER SEQUENCE IS SEEDED, and there is nothing to seed.
+    //
+    // A purchase order number is job + vendor + sequence, and every (job,
+    // vendor) pair starts at 1 because a pair PCC has issued nothing for HAS
+    // issued nothing. The counters create themselves, one row at a time, as
+    // orders are raised. Where the office already wrote paper purchase orders
+    // for a pair, an administrator declares that pair explicitly in
+    // Administration -> PO numbering; that is a statement about the real world
+    // and a fixture must not fabricate one.
+    //
+    // This replaces a seeded global counter (LE-52901) that existed only
+    // because the old model needed a starting number nobody had supplied.
 
     db.prepare(
       'insert into request_number_sequences (org_id, prefix, padding, suffix, next_value, updated_at) values (?,?,?,?,?,?)',
