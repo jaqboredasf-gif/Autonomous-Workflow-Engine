@@ -193,12 +193,16 @@ only: no paths, no credentials, no configuration values, no user data.
 `poNumbering` answers "which numbering rule is this installation running". None of them is a
 secret and none is a path.
 
-### 5a. The nine questions, and where each is answered
+### 5a. The operator's questions, and where each is answered
 
-Everything below is answerable without the developer.
+Everything below is answerable without the developer. That is the bar this whole document is
+written to: if a question here needs a phone call, the answer belongs in this table instead.
 
 | Question | How |
 |---|---|
+| Why did it refuse to start? | The last `[pcc]` line says which. "Nothing has been written" ⇒ a variable in §3. "The database was opened but could not be used" ⇒ permissions or the volume |
+| Is it running over HTTPS, and does that match what I configured? | §4a. `APP_BASE_URL`'s scheme is what decides; a mismatch is refused at startup, not discovered by a user |
+| How is this installation numbering purchase orders? | the `poNumbering` field of `/api/health` |
 | Is PCC running? | `curl -fsS http://127.0.0.1:3000/api/health/live` — 200 means the process is up |
 | Is the database reachable? | `curl -fsS .../api/health` — `checks.database.ok` |
 | Which build is deployed? | the `release` field of `/api/health` |
@@ -460,22 +464,35 @@ somewhere. Nothing else in the application knows or cares what the hostname is.
 
 ## 11. What we need from you
 
-Please answer these — they are what the next decisions depend on.
+Split by whether it stops a launch. **The first table blocks; the second does not** — and treating
+a "later" item as a blocker delays a system Mike and Rick can already use.
 
-| # | Question | Why it matters |
+### 11.1 Required before launch
+
+Six answers. Nothing here is software work; all of it is infrastructure or a decision.
+
+| # | Question | Why it blocks |
 |---|---|---|
-| 1 | **Server OS and environment** — which host, which distribution, physical/VM/cloud? | Determines whether the container approach fits at all |
-| 2 | **Is Docker (or Podman) available?** If not, what is the supported way to run a long-lived service? | Everything in §6 assumes a container runtime |
-| 3 | **Hostname / IP** for the server | Needed for `APP_BASE_URL` and the proxy configuration |
-| 4 | **Public or VPN-only?** See §4 | Decides whether foremen can sign for deliveries from a job site |
-| 5 | **Who controls DNS** for `lippoliselectric.com`, and can a subdomain be added? | Needed before any hostname works |
-| 6 | **What terminates TLS** — nginx, Caddy, Traefik, IIS, a hardware appliance? Who issues certificates? | PCC does not do TLS |
-| 7 | **What backup system exists**, and can it collect a directory on this server? How often, retained how long, stored where? | §8 produces files for it; retention is yours |
-| 8 | **What monitoring exists** that can poll an HTTP endpoint and alert somebody? | `/api/health` is ready for it |
-| 9 | **Is there a company database server** (SQL Server, PostgreSQL, MySQL) that PCC should eventually use instead of SQLite? Version and access model? | The repository layer already supports swapping; we would rather know now than migrate twice |
-| 10 | **Microsoft 365 / Entra ID** — is there a tenant, and would you want staff signing in with their work accounts? | Would replace PCC's own passwords, and add MFA |
-| 11 | **Outbound email policy** — if PCC ever needs to send (it does not today), is there a relay or a policy against it? | Affects whether vendor email stays draft-only |
-| 12 | **Who holds the operational owner ROLE** — who restarts it at 7am if it is down? Name the role and its current holder, not just a person: this hands over | Determines how much of §6 needs to be written down for somebody else |
+| 1 | **Server OS and environment** — which host, which distribution, physical/VM/cloud? | Decides which of the two supplied service units applies (`deploy/pcc-docker.service` or `deploy/pcc-node.service`), or whether it is Windows and neither does |
+| 2 | **Is Docker (or Podman) available?** If not, confirm Node 24 can be installed. | Both paths are supported and both are documented. Node 24 is not negotiable on the non-Docker path — the database is `node:sqlite`, part of the runtime |
+| 3 | **Hostname**, and who controls DNS for it | `APP_BASE_URL` is required and PCC will not start without it. Reset links and session cookies are scoped to it |
+| 4 | **What terminates TLS**, and is a certificate available on day one? | PCC does not do TLS. If the answer is "not yet", that is fine and supported — see §4a — but it must be a decision, because PCC refuses to start on plain HTTP until it is recorded |
+| 5 | **Where the data directory lives, and does your backup system already collect it?** | §8 writes files; retention, offsite and *testing the restore* are yours. A backup nobody has restored is not a backup |
+| 6 | **Who holds the operational owner ROLE** — who restarts it at 7am if it is down? Name the role and its current holder, not just a person: this hands over | Determines how much of §6 needs to be written down for somebody else |
+
+### 11.2 Can be integrated after launch
+
+None of these stops a real purchase order being raised, approved, printed, sent and received. Each
+is a later improvement with a known shape.
+
+| # | Question | What it would change | Status today |
+|---|---|---|---|
+| 7 | **Workshop printing** — make, model and connection of the printer Mike prints purchase orders on. Is it shared from a Windows print server, reachable over IP, or driven by CUPS? | Would let PCC send a purchase order to that printer directly | **Not needed to launch.** Mike prints from the browser today: approving opens the print dialogue on the PO, which prints to whatever that PC already prints to. That is a working answer, not a placeholder — see §13 |
+| 8 | **Monitoring** that can poll an HTTP endpoint and alert somebody | Automated alerting instead of somebody noticing | `/api/health` is ready for it. Until then, §5 is a manual check |
+| 9 | **Microsoft 365 / Entra ID** — is there a tenant, and would you want staff signing in with work accounts? | Replaces PCC's own passwords and adds MFA | PCC's own accounts work now (§10). A provider swap, not a rewrite |
+| 10 | **Outbound email policy** — is there a relay, or a policy against sending? | Only relevant if PCC should ever send vendor email itself | PCC composes a draft and **cannot** send; the database pins external sending to false. Mike sends from his own mailbox, which is also who the vendor should be replying to |
+| 11 | **Is there a company database server** (SQL Server, PostgreSQL, MySQL) PCC should eventually use instead of SQLite? | Would replace the single file | The repository layer already supports swapping. Worth knowing early to avoid migrating twice |
+| 12 | **Public or VPN-only?** See §4 | Decides whether foremen can sign for deliveries from a job site | Affects reach, not function. Worth deciding early because the workflow it replaces happens in a yard |
 
 ---
 
@@ -519,6 +536,16 @@ These are open on purpose, pending this conversation:
   that this is what makes backup retention, not the records themselves, the thing that fills the
   disk — each nightly backup is a full copy. Watch `/data/backups`, not `pcc.sqlite`.
 * **No MFA, no SSO** today.
+* **Printing goes through the browser, and that is the design.** Mike requires physical purchase
+  orders, and he gets them: approving a request lands on the purchase order with the print dialogue
+  already open, the page has a print stylesheet, and the same document downloads as a PDF that PCC
+  generated and stored as evidence. It prints to whatever that PC already prints to, which needs
+  nothing from IT — no driver, no printer address, no credential, no queue.
+
+  What PCC deliberately does **not** do is send a purchase order to a named printer by itself. That
+  needs the printer's make, connection and permissions (§11.2 #7), and guessing any of it produces
+  a feature that fails silently on the one day it matters. If it is wanted later it is a small,
+  contained addition; nothing about today's arrangement has to be undone to add it.
 * **Purchase order numbers count per job and vendor** (`1234-COOPER-1`), starting at 1 for each
   pair, so a fresh installation needs no numbering setup. The exception: a job and vendor the
   office already wrote paper purchase orders for must be set in Administration → PO numbering
