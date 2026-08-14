@@ -10,10 +10,16 @@
 // WHAT IT REFUSES TO START WITH, in production:
 //
 //   * a configuration validateEnvironment() calls an error — no session
-//     secret, demo mode on, Supabase persistence without Supabase auth
+//     secret, no numbering rule, demo mode on, Supabase persistence without
+//     Supabase auth
 //   * a database location that would silently become the WRONG database:
 //     unset, relative, in a directory nobody mounted, or a file that does not
 //     exist on a start nobody said was the first one
+//
+// IN THAT ORDER, AND THE ORDER IS THE POINT. Configuration is checked and
+// refused BEFORE the database is opened, so "nothing has been written" is a
+// true statement rather than a comforting one. Anything reported after that
+// line has a database behind it and says so.
 //
 // Both exit non-zero rather than degrading. A container that exits is a
 // container the operator sees restarting; a container that starts against an
@@ -46,9 +52,30 @@ export async function register() {
     }
   }
 
+  // REFUSE BEFORE TOUCHING THE DATABASE, not after.
+  //
+  // This block used to sit at the bottom, below the database open. A production
+  // start with a bad variable therefore CREATED the company's database, ran
+  // every migration and created the bootstrap administrator — and then printed
+  // "Nothing has been written", which was false. An operator who mistyped a
+  // variable was told to fix it and start again, with a database already on
+  // disk holding an account whose password was in the environment they were
+  // about to change.
+  //
+  // A configuration error is knowable without opening anything, so it is
+  // answered without opening anything.
+  if (fatal.length && isProduction) {
+    console.error(
+      `[pcc] refusing to start: ${fatal.length} configuration problem(s) above. ` +
+        'Nothing has been written — the database was not opened. Fix the environment and start again.',
+    );
+    process.exit(1);
+  }
+
   // The database question is only PCC's to answer when PCC owns the file.
   // Under Supabase persistence the store is somebody else's server and its
   // reachability is a per-request fact, not a startup one.
+  let databaseOpened = false;
   if (env.config.persistenceProvider === 'local') {
     const location = databaseLocation();
     if (!location.ok) {
@@ -69,6 +96,10 @@ export async function register() {
         // file that cannot be read, a schema that cannot be applied or a
         // volume mounted read-only is a startup failure an operator sees in
         // `docker logs` — rather than a 500 the first purchaser meets.
+        // Set BEFORE the call, not after: if getDb() throws, the file was
+        // still reached — it is the open that failed, not the path — and that
+        // sends an operator to permissions rather than to the mount.
+        databaseOpened = true;
         const db = getDb();
         const result = bootstrapDatabase(db);
         for (const note of result.notes) console.warn(`[pcc] ${note}`);
@@ -88,10 +119,18 @@ export async function register() {
     }
   }
 
+  // The database half, and the two halves of THAT are said differently too.
+  //
+  // A location error is decided from the path alone — nothing was opened. An
+  // error from getDb()/bootstrap means the file WAS opened and the schema or
+  // the permissions are the problem, which is a different thing to go and look
+  // at. Telling an operator "the database was reached" when the directory does
+  // not exist sends them to the wrong place.
   if (fatal.length && isProduction) {
     console.error(
-      `[pcc] refusing to start: ${fatal.length} configuration problem(s) above. ` +
-        'Nothing has been written. Fix the environment and start again.',
+      databaseOpened
+        ? `[pcc] refusing to start: ${fatal.length} problem(s) above. The database was opened but could not be used as configured — check permissions and the schema. Fix it and start again.`
+        : `[pcc] refusing to start: ${fatal.length} problem(s) above. Nothing has been written — no database was opened. Fix the path or the environment and start again.`,
     );
     process.exit(1);
   }

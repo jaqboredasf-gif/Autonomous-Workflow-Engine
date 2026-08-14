@@ -81,6 +81,7 @@ start_pcc() {
     -e PCC_DATABASE_PATH=/data/pcc.sqlite \
     -e APP_BASE_URL="$ACCEPTANCE_BASE_URL" \
     -e PCC_ORG_NAME="$ORG" \
+    -e PCC_PO_NUMBERING=job-vendor-sequence \
     "$@" \
     "$IMAGE" >/dev/null
 }

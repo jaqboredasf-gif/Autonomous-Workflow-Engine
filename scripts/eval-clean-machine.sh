@@ -68,12 +68,32 @@ echo "  ok  package-lock.json present (npm ci installs exactly this)"
 # Proves the preflight script itself has no dependency on the checkout, on
 # installed packages, or on anything but Node.
 step "running the preflight in a clean node:24 container"
-docker run --rm \
-  -v "$EXPORT_DIR/scripts:/scripts:ro" \
-  -v "$EXPORT_DIR/apps/purchasing:/app:ro" \
+# MOUNTED AS THE WHOLE EXPORT, READ-ONLY, at one path. It used to mount
+# scripts/ and apps/purchasing/ at two unrelated paths, which broke every
+# relative import the preflight has always had — `../deployment/facts.mjs`
+# resolved to `/deployment` and there was nothing there. The step failed for
+# that reason rather than for a real one, and a check that cannot pass tells you
+# nothing. The export still carries no node_modules, no build output and no
+# database, which is what this step is actually asserting.
+#
+# WHAT IS ASSERTED IS THAT IT RAN, not that it passed. An unconfigured container
+# has no SESSION_SECRET and no systemd, so a correct preflight MUST report those
+# as failures and exit non-zero — treating that as a broken preflight is how the
+# check ends up testing the container instead of the script. A crash produces no
+# report; that is the failure this step exists to catch.
+PREFLIGHT_OUT="$(docker run --rm \
+  -v "$EXPORT_DIR:/pcc:ro" \
   node:24-bookworm-slim \
-  node /scripts/pcc-preflight.mjs --data /tmp --port 3000 \
-  || fatal "the preflight does not run on a clean machine"
+  node /pcc/scripts/pcc-preflight.mjs --data /tmp --port 3000 2>&1)"
+echo "$PREFLIGHT_OUT" | grep -q 'read-only readiness check' \
+  || { echo "$PREFLIGHT_OUT"; fatal "the preflight does not run on a clean machine"; }
+echo "$PREFLIGHT_OUT" | grep -qE '^[0-9]+ passed' \
+  || { echo "$PREFLIGHT_OUT"; fatal "the preflight ran but produced no verdict"; }
+echo "  ok  the preflight runs with nothing but Node — $(echo "$PREFLIGHT_OUT" | grep -E '^[0-9]+ passed')"
+# And it must be capable of reporting readiness, not merely of running: the
+# numbering check is the one this session added, so assert it is present.
+echo "$PREFLIGHT_OUT" | grep -q 'pcc.po_numbering' \
+  || fatal "the preflight no longer checks how purchase orders are numbered"
 
 # --- 4. the whole lifecycle, from the clean export -------------------------
 # restore-rehearsal.sh builds the image from the directory it is run in, stands

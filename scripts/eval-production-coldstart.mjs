@@ -27,6 +27,7 @@
 //   SESSION_SECRET="$(openssl rand -hex 32)" \
 //   PCC_DATABASE_PATH=/tmp/pcc-cold/pcc.sqlite PCC_DATABASE_ALLOW_CREATE=1 \
 //   PCC_ORG_NAME="Lippolis Electric, Inc." \
+//   PCC_PO_NUMBERING=job-vendor-sequence \
 //   PCC_BOOTSTRAP_ADMIN_EMAIL=admin@example.test \
 //   PCC_BOOTSTRAP_ADMIN_PASSWORD='ColdStartAdmin!2026' \
 //     node apps/purchasing/.next/standalone/apps/purchasing/server.js &
@@ -34,6 +35,11 @@
 //   PCC_BASE_URL=http://127.0.0.1:3399 \
 //   PCC_ADMIN_EMAIL=admin@example.test PCC_ADMIN_PASSWORD='ColdStartAdmin!2026' \
 //     node scripts/eval-production-coldstart.mjs
+//
+// RE-RUNNABLE ON PURPOSE. Running it a second time against the same database is
+// how a restart is verified: the purchase runs again and the (job, vendor)
+// sequence continues. Set PCC_EXPECT_PO_SEQUENCE=2 on the second run to assert
+// that continuity rather than merely observe it.
 // ---------------------------------------------------------------------------
 const BASE = process.env.PCC_BASE_URL ?? 'http://127.0.0.1:3399';
 const ADMIN_EMAIL = process.env.PCC_ADMIN_EMAIL ?? 'jose@lippolis.test';
@@ -107,7 +113,18 @@ ok((appr.location??'').includes('/po'),'approval creates the PO and goes to prin
 
 const po=await get(mike,`/requests/${id}/po`);
 const poNumber=/26-001-GRAYBAR-\d+/.exec(po.body)?.[0]??null;
-ok(poNumber==='26-001-GRAYBAR-1','the PO number is job-vendor-sequence',`got ${poNumber}`);
+// SHAPE AND CONTINUITY, NOT A LITERAL. This used to assert `-1`, which made the
+// whole acceptance test a once-per-database thing: run it twice — as anybody
+// verifying a restart does — and it failed on the CORRECT answer, because the
+// second purchase from the same job and vendor is genuinely -2. Asserting the
+// shape and that the sequence moves forward tests the rule; asserting -1 tested
+// that nobody had used the system yet.
+const poSeq=poNumber?Number(poNumber.split('-').pop()):NaN;
+ok(Number.isSafeInteger(poSeq)&&poSeq>=1,'the PO number is job-vendor-sequence',`got ${poNumber}`);
+if(process.env.PCC_EXPECT_PO_SEQUENCE){
+  ok(String(poSeq)===process.env.PCC_EXPECT_PO_SEQUENCE,
+    `the sequence continued to ${process.env.PCC_EXPECT_PO_SEQUENCE} across the restart`,`got ${poSeq}`);
+}
 ok(/Job qty/.test(po.body)&&/Shop/.test(po.body),'the printed copy shows the quantity breakdown');
 {
   const tbl=/<table[\s\S]*?<\/table>/.exec(po.body)?.[0]??'';

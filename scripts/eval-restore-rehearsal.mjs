@@ -62,6 +62,15 @@ const ATTACHMENT_SHA = createHash('sha256').update(ATTACHMENT_BODY).digest('hex'
 
 let pass = 0;
 const failures = [];
+/**
+ * Remove React's SSR text-node separators.
+ *
+ * `{a}-{b}` renders as `a<!-- -->-<!-- -->b`. The comments are how React tells
+ * two adjacent text nodes apart when it hydrates; they are invisible to a
+ * reader and must be invisible to an assertion that is standing in for one.
+ */
+const stripSsrComments = (html) => String(html ?? '').replace(/<!--[\s\S]*?-->/g, '');
+
 const check = (ok, name, detail = '') => {
   if (ok) { pass += 1; console.log(`  ok  ${name}`); return true; }
   failures.push(`${name}${detail ? ` — ${detail}` : ''}`);
@@ -94,7 +103,14 @@ function browser() {
       const res = await fetch(`${BASE}${path}`, { headers: { cookie: cookie() }, redirect: 'manual' });
       absorb(res);
       const body = res.status >= 300 && res.status < 400 ? '' : await res.text();
-      return { status: res.status, location: res.headers.get('location'), body };
+      // SSR COMMENT SEPARATORS REMOVED. React writes `<!-- -->` between two
+      // adjacent expressions in one text node, so a cell written in JSX as
+      // {job}-{code}-{n} arrives as `26-500<!-- -->-<!-- -->ACME<!-- -->-<!-- -->404`.
+      // Every assertion here reads the page the way a person does, and a person
+      // does not see the comments — without this, checking for a purchase order
+      // number on a rendered page can never pass, which is exactly how this
+      // rehearsal came to report a failure the application did not have.
+      return { status: res.status, location: res.headers.get('location'), body: stripSsrComments(body) };
     },
     /** Raw fetch keeping the session, for downloading bytes rather than HTML. */
     async raw(path) {
@@ -322,7 +338,14 @@ if (MODE === 'write') {
   // so "sent" is somebody saying they sent it from their own mailbox. Walking
   // this properly is the point: it is the real sequence Mike follows, and a
   // rehearsal that skipped it would prove less than it appears to.
-  await admin.submit(`/requests/${requestId}`, 'Draft vendor email', [['requestId', requestId]]);
+  //
+  // REACHED BY OPENING THE PAGE, not by pressing a button that no longer
+  // exists. Drafting used to be a step a person requested from the request
+  // screen; the simplification passes made the draft part of generating the
+  // order, so /requests/:id/email IS the draft. This step went on asserting the
+  // old button and failed on a workflow that had been deliberately shortened.
+  const draftPage = await admin.go(`/requests/${requestId}/email`);
+  check(draftPage.status === 200, 'the vendor email draft is prepared with the order');
   for (const [label, expected] of [
     ['Mark reviewed', 'REVIEWED'],
     ['Approve to send', 'APPROVED_TO_SEND'],

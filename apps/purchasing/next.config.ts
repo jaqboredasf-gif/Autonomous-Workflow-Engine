@@ -31,6 +31,14 @@ const nextConfig: NextConfig = {
  *   .dockerignore                   the image build never sees the file
  *   scripts/check-deployable.mjs    the package is scanned and the build fails
  *
+ * The second one runs from `postbuild`, so it is part of `npm run build` on
+ * EVERY path rather than a step somebody remembers. It used to run only in the
+ * Dockerfile, which left the Docker deployment gated and the plain Node one —
+ * the systemd unit in deploy/pcc-node.service, the path for a VM without a
+ * container runtime — resting on a line in a comment that a person could skip
+ * at 6pm. The check that catches this is worth nothing on the path that
+ * bypasses it.
+ *
  * A comment claiming a setting works when it does not is worse than no
  * setting, which is why there isn't one here.
  */

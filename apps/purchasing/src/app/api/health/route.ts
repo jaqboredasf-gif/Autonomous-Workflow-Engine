@@ -11,6 +11,13 @@
 //   environment  the configuration it needs was loaded and makes sense
 //   database     the store it was pointed at can actually be read
 //
+// It also answers "WHICH BUILD IS THIS?", because an operator comparing a
+// production instance against a fix cannot otherwise tell, and guessing from a
+// file date is how the wrong image gets blamed. `release` is whatever the
+// deployment procedure put in PCC_RELEASE — a tag, a commit, a build number.
+// UNSET IS REPORTED AS null, never invented: an installation nobody stamped is
+// an installation nobody can identify, and saying so is the useful answer.
+//
 // 200 when all three hold, 503 otherwise, so a proxy can drain an instance
 // that started against the wrong volume instead of serving from it.
 import { NextResponse } from 'next/server';
@@ -65,6 +72,9 @@ export async function GET() {
   return NextResponse.json(
     {
       status: ok ? 'ok' : 'degraded',
+      release: (process.env.PCC_RELEASE ?? '').trim() || null,
+      schema: SCHEMA_VERSION,
+      poNumbering: env.config.poNumbering || null,
       authProvider: env.config.authProvider,
       persistence: env.config.persistenceProvider,
       checks,

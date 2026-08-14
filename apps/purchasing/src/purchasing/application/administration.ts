@@ -33,10 +33,37 @@ import { isReservedLocation, ROLES, WORKSHOP_LOCATION } from '../domain/roles.mj
 // never below what PCC itself has issued, always attributable.
 // ===========================================================================
 
-/** What every (job, vendor) pair this organization counts stands at. */
+/**
+ * What every counted (job, vendor) pair stands at.
+ *
+ * `nextPoNumber` is computed HERE, through the allocator, rather than joined
+ * together in the screen. The administration table used to render
+ * `{job}-{code}-{next_value}` in JSX, which is a fourth copy of one
+ * organization's numbering rule sitting in the user interface — invisible to
+ * the numbering strategy, and wrong for any company that numbers differently.
+ * The screen now prints what it is given.
+ */
 export async function poSequences(ctx: PurchasingContext, actor: Actor) {
   await must(ctx, actor, 'admin.po_config');
-  return await ctx.poNumbers.sequences(actor.orgId);
+  const rows = await ctx.poNumbers.sequences(actor.orgId);
+  return await Promise.all(
+    rows.map(async (row: any) => ({
+      ...row,
+      // AWAITED. `preview` may answer late — see PoNumberAllocator — and an
+      // unawaited one puts a Promise in the cell where the next purchase order
+      // number goes, which renders as `[object Promise]` on a screen an
+      // administrator uses to line the counter up with the office's paper book.
+      nextPoNumber: await ctx.poNumbers.preview(
+        {
+          orgId: actor.orgId,
+          jobNumber: String(row.job_number ?? ''),
+          vendorId: String(row.vendor_id ?? ''),
+          vendorCode: String(row.vendor_code ?? '').toUpperCase(),
+        },
+        Number(row.next_value),
+      ),
+    })),
+  );
 }
 
 /**
@@ -99,10 +126,18 @@ export async function initializePoSequence(
   // accident, and the two are told apart by whether the person knew the orders
   // were there.
   if (issuedSequence > 0 && !input.acknowledgeIssued) {
+    // Awaited into a name first: interpolating the call directly would put
+    // `[object Promise]` in front of an administrator where a purchase order
+    // number belongs, in the one message whose whole job is to show them which
+    // numbers are already out on a supplier's paperwork.
+    const mostRecent = await ctx.poNumbers.preview(
+      { orgId: actor.orgId, jobNumber, vendorId: vendor.id, vendorCode: String(vendor.code).toUpperCase() },
+      issuedSequence,
+    );
     throw new PurchasingError(
       'sequence_already_issued',
       `PCC has already issued ${issuedSequence} purchase order number(s) for job ${jobNumber} with ${vendor.name}, ` +
-        `the most recent being ${ctx.poNumbers.preview({ orgId: actor.orgId, jobNumber, vendorId: vendor.id, vendorCode: String(vendor.code).toUpperCase() }, issuedSequence)}. ` +
+        `the most recent being ${mostRecent}. ` +
         'Setting this pair is still possible, but it has to be deliberate — confirm that you mean to move a sequence ' +
         'that is already in use.',
     );
@@ -143,8 +178,9 @@ export async function initializePoSequence(
     /** True when this pair was declared to have no paper history behind it. */
     declaredNew: nextValue === FIRST_SEQUENCE,
     // Shown through the allocator, which is where the organization's numbering
-    // rule is bound. This screen does not know the shape of a number.
-    nextPoNumber: ctx.poNumbers.preview(
+    // rule is bound. This screen does not know the shape of a number. Awaited:
+    // `preview` is allowed to answer late.
+    nextPoNumber: await ctx.poNumbers.preview(
       { orgId: actor.orgId, jobNumber, vendorId: vendor.id, vendorCode: String(vendor.code).toUpperCase() },
       nextValue,
     ),

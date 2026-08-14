@@ -40,6 +40,11 @@ services:
     environment:
       # Where the records are. Must be inside the mounted volume.
       PCC_DATABASE_PATH: /data/pcc.sqlite
+      # How this company numbers purchase orders. Stated, never defaulted: a
+      # production start without it refuses rather than inheriting another
+      # company's rule. Lippolis: job number + vendor code + a sequence counting
+      # from 1 within that pair — 1234-COOPER-1.
+      PCC_PO_NUMBERING: job-vendor-sequence
       # Set to 1 for the FIRST start only, then remove it. While it is unset,
       # a start that finds no database refuses rather than creating one — which
       # is what makes a wrong or unmounted volume loud instead of silent.

@@ -537,9 +537,10 @@ function SettingsModule({
                       {row.vendor_name} <span className="text-muted">({row.vendor_code})</span>
                     </td>
                     <td className="py-1 text-ink-soft">{Number(row.issued_count ?? 0)}</td>
-                    <td className="py-1 font-mono text-xs text-ink">
-                      {row.job_number}-{row.vendor_code}-{row.next_value}
-                    </td>
+                    {/* PRINTED, NOT ASSEMBLED. The organization's numbering
+                        strategy produced this string; the screen does not know
+                        that a purchase order number contains a job. */}
+                    <td className="py-1 font-mono text-xs text-ink">{row.nextPoNumber}</td>
                     {/* The same four states pcc-verify-production.mjs reports,
                         so the screen and the go/no-go check cannot disagree
                         about which pairs are still open questions. */}

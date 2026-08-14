@@ -21,12 +21,17 @@ export type AppConfig = {
    * Which PO numbering rule this installation performs — the id in the
    * organization profile's `purchasing.po_numbering`.
    *
-   * DEFAULTED, AND THE DEFAULT IS A REAL ORGANIZATION'S RULE. This build is
-   * Lippolis's installation and `job-vendor-sequence` is their established
-   * rule, so leaving it unset keeps issuing exactly the numbers already on
-   * their suppliers' paperwork. It is NOT a generic fallback: a value naming a
-   * rule this build cannot perform is refused at startup rather than
-   * approximated, and a second installation sets this to its own profile's id.
+   * REQUIRED IN PRODUCTION, DEFAULTED IN DEVELOPMENT.
+   *
+   * A production installation must STATE the rule it numbers by. Inheriting one
+   * organization's rule by silence is how a second company ends up sending a
+   * supplier purchase orders numbered in a shape nobody at that company chose —
+   * and unlike most misconfiguration, it is discovered on an invoice months
+   * later, by which point the missing decision has become operational data.
+   *
+   * Outside production the default is Lippolis's real rule, because a developer
+   * running the fixture is running Lippolis's installation and every test in
+   * this repository asserts their numbers.
    */
   poNumbering: string;
   appBaseUrl: string;
@@ -58,9 +63,18 @@ export type AppConfig = {
   };
 };
 
+import { IMPLEMENTED_IDS } from '../organization/po-numbering.mjs';
+
 const DEV_SESSION_SECRET = 'purchasing-pilot-development-secret-not-for-production';
 /** The development address. Production must replace it — see validateEnvironment. */
 const DEFAULT_APP_BASE_URL = 'http://localhost:3000';
+
+/**
+ * The numbering rule a NON-production start assumes. Lippolis's real one, not a
+ * generic placeholder: a developer running this repository is running their
+ * fixture, and every test here asserts their purchase order numbers.
+ */
+const DEV_PO_NUMBERING = 'job-vendor-sequence';
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const isProduction = env.NODE_ENV === 'production';
@@ -83,7 +97,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     authProvider,
     persistenceProvider,
-    poNumbering: (env.PCC_PO_NUMBERING ?? '').trim() || 'job-vendor-sequence',
+    // Empty in production when unset — validateEnvironment() reports it and
+    // the composition root refuses to build an allocator without a rule.
+    poNumbering: (env.PCC_PO_NUMBERING ?? '').trim() || (isProduction ? '' : DEV_PO_NUMBERING),
     appBaseUrl: env.APP_BASE_URL ?? DEFAULT_APP_BASE_URL,
     sessionSecret: env.SESSION_SECRET ?? DEV_SESSION_SECRET,
     sessionTtlSeconds: Number(env.SESSION_TTL_SECONDS ?? 60 * 60 * 12),
@@ -144,6 +160,20 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): {
   }
   if (config.isProduction && !/^https?:\/\//.test(config.appBaseUrl)) {
     error('APP_BASE_URL', 'must be an absolute URL, e.g. https://purchasing.example.internal');
+  }
+
+  // HOW THIS COMPANY NUMBERS ITS PURCHASE ORDERS IS NOT A DEFAULT.
+  //
+  // Outside production this falls back to Lippolis's rule, because that is
+  // whose fixture a developer is running. In production it must be stated: an
+  // installation that inherits a numbering rule by silence sends a supplier
+  // paperwork numbered in a shape nobody at that company chose. Both failures
+  // are errors rather than warnings, because the alternative to stopping is
+  // issuing purchase orders — and a purchase order number cannot be withdrawn.
+  if (config.isProduction && !config.poNumbering) {
+    error('PCC_PO_NUMBERING', `a production deployment must state how it numbers purchase orders — one of: ${IMPLEMENTED_IDS.join(', ')}`);
+  } else if (config.poNumbering && !IMPLEMENTED_IDS.includes(config.poNumbering)) {
+    error('PCC_PO_NUMBERING', `"${config.poNumbering}" is not a numbering rule this build can perform. Implemented: ${IMPLEMENTED_IDS.join(', ')}. Implement it in organization/po-numbering.mjs — purchasing will not approximate it.`);
   }
 
   if (env.PURCHASING_DEMO_MODE === '1' && config.isProduction) {

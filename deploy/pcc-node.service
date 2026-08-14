@@ -13,8 +13,11 @@
 #   * the BUILT application at /opt/pcc — the standalone output, which is what
 #     the Dockerfile copies:
 #       npm ci --workspaces --include-workspace-root
-#       npm run build --workspace purchasing
-#       node scripts/check-deployable.mjs          # refuses to ship a database
+#       npm run build --workspace purchasing       # refuses to finish if the
+#                                                  # package contains a database,
+#                                                  # a key or an .env — the check
+#                                                  # is part of the build, not a
+#                                                  # step you have to remember
 #       sudo rsync -a apps/purchasing/.next/standalone/ /opt/pcc/
 #       sudo rsync -a apps/purchasing/.next/static/  /opt/pcc/apps/purchasing/.next/static/
 #       sudo rsync -a apps/purchasing/public/        /opt/pcc/apps/purchasing/public/

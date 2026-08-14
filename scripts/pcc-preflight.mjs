@@ -43,6 +43,7 @@ import { declared, unknown } from '../deployment/facts.mjs';
 import { validateManifest } from '../deployment/manifest.mjs';
 import { CHECKS, nodeHostProbe, runPreflight } from '../deployment/preflight.mjs';
 import { pccManifest } from '../deployment/examples/pcc.manifest.mjs';
+import { IMPLEMENTED_IDS } from '../apps/purchasing/src/purchasing/organization/po-numbering.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -126,6 +127,30 @@ const PCC_CHECKS = [
       return probe.env.NODE_ENV === 'production'
         ? { id: this.id, status: 'BLOCKED', detail: 'PURCHASING_DEMO_MODE=1 in production — PCC will refuse to start' }
         : { id: this.id, status: 'WARNING', detail: 'PURCHASING_DEMO_MODE=1 — correct only outside production' };
+    },
+  },
+  {
+    id: 'pcc.po_numbering',
+    phase: 'REQUIRED_BEFORE_DEPLOY',
+    mutates: false,
+    describe: 'this installation states how it numbers purchase orders',
+    run(m, facts, probe) {
+      const declared = String(probe.env.PCC_PO_NUMBERING ?? '').trim();
+      if (!declared) {
+        // Not a warning. A purchase order number cannot be withdrawn once a
+        // supplier has it, so an installation that has not established its
+        // numbering rule must not reach the point of issuing one.
+        return probe.env.NODE_ENV === 'production'
+          ? { id: this.id, status: 'BLOCKED', detail: `PCC_PO_NUMBERING is not set — PCC will refuse to start. Set it to one of: ${IMPLEMENTED_IDS.join(', ')}` }
+          : { id: this.id, status: 'WARNING', detail: `PCC_PO_NUMBERING is not set — outside production this defaults to job-vendor-sequence. Production requires it.` };
+      }
+      if (!IMPLEMENTED_IDS.includes(declared)) {
+        return {
+          id: this.id, status: 'BLOCKED',
+          detail: `"${declared}" is not a numbering rule this build can perform (implemented: ${IMPLEMENTED_IDS.join(', ')}) — PCC will refuse to start rather than approximate it`,
+        };
+      }
+      return { id: this.id, status: 'PASS', detail: `purchase orders are numbered ${declared}` };
     },
   },
   {

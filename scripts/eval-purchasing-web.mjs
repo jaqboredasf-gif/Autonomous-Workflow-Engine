@@ -113,6 +113,9 @@ const server = spawn(process.execPath, ['server.js'], {
     SESSION_SECRET,
     APP_BASE_URL: BASE,
     AUTH_PROVIDER: 'local',
+    // Stated, because a production start refuses without it. Lippolis's rule —
+    // this harness asserts their purchase order numbers.
+    PCC_PO_NUMBERING: 'job-vendor-sequence',
     // Demo mode must NOT be needed for any of this to work.
     PURCHASING_DEMO_MODE: '0',
   },

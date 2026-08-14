@@ -422,8 +422,17 @@ export interface PoNumberAllocator {
    * administration screen, which has to show a person the number they are about
    * to line the counter up with. Formatting only: nothing is allocated, nothing
    * is written, and the value is never used as an order's number.
+   *
+   * AWAITABLE, THOUGH BOTH PROVIDERS ANSWER IMMEDIATELY. The formatting is pure
+   * and neither implementation touches its store, but "pure today" is not a
+   * promise the interface can make on behalf of a provider that has not been
+   * written yet — a rule needing a lookup would make it a round trip. Every
+   * caller awaits, so no call site carries a synchrony assumption that a later
+   * provider would falsify. This is what the deferred-provider gate exists to
+   * hold: it makes every port member answer late, and a call site that forgot
+   * to await renders a Promise where a purchase order number belongs.
    */
-  preview(scope: PoNumberScope, sequence: number): string;
+  preview(scope: PoNumberScope, sequence: number): string | Promise<string>;
   /**
    * The highest sequence a purchase order actually CARRIES for a pair, or 0.
    * Read from the issued orders rather than from the counter, because it is

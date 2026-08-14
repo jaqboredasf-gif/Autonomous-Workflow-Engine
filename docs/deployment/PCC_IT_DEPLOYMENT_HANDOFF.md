@@ -74,7 +74,9 @@ ones are:
 | `SESSION_SECRET` | yes | 32+ random characters, e.g. `openssl rand -base64 48`. Signs the session cookie. Changing it signs everybody out. **Treat as a secret.** |
 | `PCC_DATABASE_PATH` | yes | `/data/pcc.sqlite` |
 | `APP_BASE_URL` | yes | The address people type, e.g. `https://pcc.lippoliselectric.com` |
+| `PCC_PO_NUMBERING` | yes | How purchase orders are numbered. **Lippolis: `job-vendor-sequence`** — job number, vendor code, then a count starting at 1 for each job-and-vendor pair (`1234-COOPER-1`). PCC refuses to start without it rather than inherit another company's numbering. |
 | `PORT` | no | Default `3000` |
+| `PCC_RELEASE` | recommended | Whatever identifies this build — a git commit, a tag, a build number. It is echoed by `/api/health` so you can tell which build is running without guessing from file dates. Unset shows as `null`. |
 | `PCC_DATABASE_ALLOW_CREATE` | first install only | `1` on the very first start, then remove |
 | `PCC_ORG_NAME` | first install only | Appears on the printed purchase order |
 | `PCC_BOOTSTRAP_ADMIN_EMAIL` | first install only | The first administrator |
@@ -87,7 +89,7 @@ document it that way.
 ### First install, exactly
 
 ```bash
-cp .env.example .env          # fill in SESSION_SECRET, APP_BASE_URL
+cp .env.example .env          # fill in SESSION_SECRET, APP_BASE_URL, PCC_PO_NUMBERING
 # add, for this one start only:
 #   PCC_DATABASE_ALLOW_CREATE=1
 #   PCC_BOOTSTRAP_ADMIN_EMAIL=<the first administrator>
@@ -157,9 +159,41 @@ only: no paths, no credentials, no configuration values, no user data.
 * **503** — something is wrong; the JSON names which check failed and which variable is at fault.
 
 ```json
-{ "status": "ok", "authProvider": "local", "persistence": "local",
+{ "status": "ok", "release": "1.4.0", "schema": "0038-po-number-per-job-vendor",
+  "poNumbering": "job-vendor-sequence", "authProvider": "local", "persistence": "local",
   "checks": { "environment": {"ok": true}, "database": {"ok": true}, "migrations": {"ok": true} } }
 ```
+
+`release` answers "which build is deployed", `schema` answers "are migrations current", and
+`poNumbering` answers "which numbering rule is this installation running". None of them is a
+secret and none is a path.
+
+### 5a. The nine questions, and where each is answered
+
+Everything below is answerable without the developer.
+
+| Question | How |
+|---|---|
+| Is PCC running? | `curl -fsS http://127.0.0.1:3000/api/health/live` — 200 means the process is up |
+| Is the database reachable? | `curl -fsS .../api/health` — `checks.database.ok` |
+| Which build is deployed? | the `release` field of `/api/health` |
+| Are migrations current? | `checks.migrations.ok`; the applied version is the `schema` field |
+| Where are the logs? | `docker compose logs pcc`, or `journalctl -u pcc` for the systemd unit. Startup lines are prefixed `[pcc]` |
+| How do I restart it? | §6 |
+| What configuration is required? | §3, and `node scripts/pcc-preflight.mjs` checks the machine without changing it |
+| Is the machine ready before I start? | `node scripts/pcc-preflight.mjs --data /data --port 3000` — read-only, changes nothing |
+
+### 5b. If something is wrong
+
+| Symptom | Look at this first |
+|---|---|
+| **It will not start** | `docker compose logs pcc \| grep '\[pcc\]'`. The last line says whether the database was opened. "Nothing has been written" means the problem is a variable in §3; "The database was opened but could not be used" means permissions or the volume |
+| **Nobody can sign in** | Check the log for `no enabled sign-in credentials` (nobody has been created — set the two bootstrap variables and restart). If people exist but sign-in fails over plain HTTP, that is §4: session cookies are `Secure` and will not stick without HTTPS |
+| **One person cannot sign in** | Their account may be deactivated — check Administration → Users. Five wrong passwords locks an account briefly; it clears on its own |
+| **Generating a purchase order fails** | It needs a vendor with a code and a job. If the message mentions the sequence, the pair has paper history that has not been settled — Administration → PO numbering. If the message names `PCC_PO_NUMBERING`, the installation is misconfigured and would not have started |
+| **The vendor email draft is missing or wrong** | PCC never sends email; it prepares a draft a person copies. There is no mail server, relay or credential involved, so this is never a network problem. Check the request's own page — the draft lives at `/requests/<id>/email` |
+| **The printed PO is blank or unstyled** | The static assets did not get staged into the build. Rebuild — `npm run build` runs the staging step automatically — and check `docker compose logs` for 404s on `/_next/static` |
+| **It was fine yesterday and is slow today** | Check free disk on the data volume. Each backup is a full copy and attachments live in the database; `/data/backups` fills before `pcc.sqlite` does |
 
 Point your monitoring at it. A 503 means the instance should be drained, not restarted in a loop —
 it will keep answering 503 until the configuration is fixed. The container also has a Docker
@@ -210,10 +244,38 @@ back on its own. It is on the pilot checklist for that reason.
 
 ## 7. Updating
 
+The full procedure, in order. Steps 1 and 6 are the ones people skip and the ones that matter.
+
 ```bash
-git pull                      # or take the new image
-docker compose up -d --build
+# 1. BACK UP FIRST. Thirty seconds, and it is the only thing that makes step 7 possible.
+node scripts/pcc-backup.mjs
+
+# 2. Take the approved revision — never an arbitrary tip of main.
+git fetch && git checkout <approved tag or commit>
+
+# 3. Build. Dependencies install from the lockfile; asset staging runs automatically.
+docker compose build            # or: npm ci && npm run build --workspace purchasing
+
+# 4. Migrate — there is no separate command. Schema changes apply on start, idempotently.
+
+# 5. Restart.
+docker compose up -d
+
+# 6. Verify, before telling anybody it is done.
+curl -fsS http://127.0.0.1:3000/api/health     # status ok, and `release` is the build you deployed
+docker compose logs pcc | grep '\[pcc\]'      # must say "opening the existing purchasing database"
+
+# 7. Smoke test: sign in, raise a request, approve it, print the PO. Five minutes.
 ```
+
+If step 6 says `creating a NEW purchasing database`, **stop and do not let anyone use it** — the
+volume is not mounted and the records are still on disk where the old container left them.
+
+**Rollback is manual, and it is honest to say so.** There is no automated rollback and no
+blue/green: you redeploy the previous image or commit against the same volume, exactly as above.
+That is safe for a code-only change. Across a schema change it may not be — an older build does not
+know a newer database — which is why step 1 is a backup and why the restore procedure in §8 is the
+real rollback plan for that case.
 
 **Code updates never touch the database.** The image contains no database; the volume is not
 rebuilt; the container is replaced and the new one opens the same file. Schema changes are applied
@@ -222,9 +284,7 @@ changes structure, never records. This is tested: `scripts/eval-deployment.mjs` 
 data, the image is rebuilt from scratch and the container destroyed and recreated, and the same
 data is verified through the web interface afterwards.
 
-**Roll back** by deploying the previous image against the same volume. Take a backup first (§8) —
-a rollback across a schema change is the one case where the older code may not understand the
-newer database.
+Rollback is covered above: manual, previous revision, same volume, backup first.
 
 ---
 
@@ -390,7 +450,24 @@ Please answer these — they are what the next decisions depend on.
 | 9 | **Is there a company database server** (SQL Server, PostgreSQL, MySQL) that PCC should eventually use instead of SQLite? Version and access model? | The repository layer already supports swapping; we would rather know now than migrate twice |
 | 10 | **Microsoft 365 / Entra ID** — is there a tenant, and would you want staff signing in with their work accounts? | Would replace PCC's own passwords, and add MFA |
 | 11 | **Outbound email policy** — if PCC ever needs to send (it does not today), is there a relay or a policy against it? | Affects whether vendor email stays draft-only |
-| 12 | **Who is the operational owner** — who restarts it at 7am if it is down? | Determines how much of §6 needs to be written down for somebody else |
+| 12 | **Who holds the operational owner ROLE** — who restarts it at 7am if it is down? Name the role and its current holder, not just a person: this hands over | Determines how much of §6 needs to be written down for somebody else |
+
+---
+
+## 11a. Who owns what
+
+Stated as roles. People change; the responsibilities do not.
+
+| Responsibility | Role | Notes |
+|---|---|---|
+| Application code, migrations, releases, this document | **Application developer (AWE)** | Supplies the build and the upgrade procedure |
+| Server, OS patching, storage, network, TLS, DNS, firewall | **Lippolis IT infrastructure owner** | Currently the contact is Jose; the role outlives the individual |
+| `SESSION_SECRET` and every other production secret | **Lippolis IT infrastructure owner** | Generated by them, stored in their secret store. AWE never holds them |
+| Starting, stopping, restarting, watching health | **Operational owner** | May be the same person as above. §6 is written so it need not be |
+| Backups running, retained and *tested* | **Lippolis IT infrastructure owner** | §8. AWE supplies the commands; retention and offsite are IT's policy |
+| Deciding who may approve, order and receive | **Purchasing owner (the business)** | Administration screens, no IT involvement |
+| Vendors, jobs, users, and the paper PO sequences | **Purchasing owner (the business)** | Entered in the application |
+| Deciding the numbering rule (`PCC_PO_NUMBERING`) | **Purchasing owner**, implemented by **AWE** | Lippolis: `job-vendor-sequence`, established with Mike and Paul |
 
 ---
 

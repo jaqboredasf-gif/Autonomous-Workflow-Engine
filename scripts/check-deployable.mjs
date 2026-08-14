@@ -89,7 +89,19 @@ if (!findings.length) {
 console.error('\ncheck-deployable: FAIL — this package must not be deployed.\n');
 for (const f of findings) console.error(`  ${f.path}\n    ${f.why}`);
 console.error(
-  '\nIf this is a local build, delete the offending file(s) from the package (or build in a clean\n' +
-    'checkout). The Docker build excludes them by context (.dockerignore) and should never reach here.',
+  '\nWhat to do, depending on which build this was:\n' +
+    '\n' +
+    '  Building on a developer machine (npm run build)\n' +
+    '    Almost certainly apps/purchasing/.data/purchasing.db — your own database, which\n' +
+    '    `next build --output standalone` copied into the package. Delete the offending\n' +
+    '    file(s) from BOTH places and build again:\n' +
+    '      rm -rf apps/purchasing/.data apps/purchasing/.next\n' +
+    '    Removing it from .data alone is not enough: the stale copy already inside\n' +
+    '    .next/standalone is the one that would ship.\n' +
+    '\n' +
+    '  Building the image (docker compose build)\n' +
+    '    This should be unreachable — .dockerignore keeps these files out of the build\n' +
+    '    context entirely. If it fired here, .dockerignore has been changed or the file\n' +
+    '    is being produced during the build. Do not work around it; find out which.',
 );
 process.exit(1);

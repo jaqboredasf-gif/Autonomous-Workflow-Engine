@@ -113,7 +113,12 @@ set +a
 [ "${#SESSION_SECRET}" -ge 32 ] || fatal "SESSION_SECRET is shorter than 32 characters"
 [ -n "${PCC_DATABASE_PATH:-}" ] || fatal "PCC_DATABASE_PATH is not set"
 [ -n "${APP_BASE_URL:-}" ] || fatal "APP_BASE_URL is not set — password-reset links need it"
-echo "  ok  the four required variables are set"
+# HOW THIS COMPANY NUMBERS PURCHASE ORDERS IS NOT A DEFAULT. A purchase order
+# number cannot be withdrawn once a supplier has it, so an installation that has
+# not established its rule must not reach the point of issuing one.
+[ -n "${PCC_PO_NUMBERING:-}" ] || fatal "PCC_PO_NUMBERING is not set. Lippolis: job-vendor-sequence
+  PCC will refuse to start without it rather than inherit another company's numbering rule."
+echo "  ok  the five required variables are set"
 
 if [ -n "${PCC_BOOTSTRAP_ADMIN_PASSWORD:-}" ] && [ "$FIRST_INSTALL" = "0" ]; then
   echo "  !!  PCC_BOOTSTRAP_ADMIN_PASSWORD is set but this is not --first-install."
