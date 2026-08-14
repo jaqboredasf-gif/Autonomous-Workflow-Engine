@@ -130,6 +130,43 @@ const PCC_CHECKS = [
     },
   },
   {
+    id: 'pcc.transport_security',
+    phase: 'REQUIRED_BEFORE_DEPLOY',
+    mutates: false,
+    describe: 'the address people will type is HTTPS, or plain HTTP is a stated decision',
+    run(m, facts, probe) {
+      const base = String(probe.env.APP_BASE_URL ?? '').trim();
+      const acknowledged = String(probe.env.PCC_ALLOW_INSECURE_HTTP ?? '').trim() === '1';
+      if (!base) {
+        return { id: this.id, status: 'UNKNOWN', detail: 'APP_BASE_URL is not set — checked separately' };
+      }
+      if (/^https:\/\//i.test(base)) {
+        return acknowledged
+          ? {
+              id: this.id, status: 'WARNING',
+              detail: `APP_BASE_URL is https but PCC_ALLOW_INSECURE_HTTP is still set — it does nothing now, and it makes the environment file claim this deployment runs without TLS. Remove it.`,
+            }
+          : { id: this.id, status: 'PASS', detail: `${base} — session cookies are Secure` };
+      }
+      if (!/^http:\/\//i.test(base)) {
+        return { id: this.id, status: 'UNKNOWN', detail: `APP_BASE_URL is not an absolute URL: ${base}` };
+      }
+      // Plain HTTP. Blocked rather than warned when unacknowledged, because the
+      // consequence is not a weakness an operator can accept and move past —
+      // before this rule existed it was a total sign-in outage that every
+      // health check reported as healthy.
+      return acknowledged
+        ? {
+            id: this.id, status: 'WARNING',
+            detail: `${base} is plain HTTP, accepted deliberately (PCC_ALLOW_INSECURE_HTTP=1). Sign-in works; session cookies are not encrypted in transit. Correct only on a trusted internal network.`,
+          }
+        : {
+            id: this.id, status: 'BLOCKED',
+            detail: `${base} is plain HTTP and nothing says that was intended — PCC will refuse to start. Put it behind a reverse proxy terminating HTTPS and use the https:// address, or set PCC_ALLOW_INSECURE_HTTP=1 to record the decision.`,
+          };
+    },
+  },
+  {
     id: 'pcc.po_numbering',
     phase: 'REQUIRED_BEFORE_DEPLOY',
     mutates: false,

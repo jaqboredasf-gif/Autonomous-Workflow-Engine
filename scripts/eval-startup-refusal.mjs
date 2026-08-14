@@ -98,6 +98,12 @@ function startAndWait(env, port) {
       APP_BASE_URL: `http://127.0.0.1:${port}`,
       PCC_DATABASE_PATH: dbPath,
       PCC_ORG_NAME: 'Lippolis Electric, Inc.',
+      // These cases drive 127.0.0.1 with no TLS, and a production start over
+      // plain HTTP refuses unless the decision is stated. Stated here in the
+      // BASE environment so every case below tests the one thing it names
+      // rather than incidentally re-testing this rule. Its own case is
+      // explicit, further down, and overrides this.
+      PCC_ALLOW_INSECURE_HTTP: '1',
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -228,6 +234,28 @@ await refuses({
   expects: ['SESSION_SECRET', 'Nothing has been written', 'the database was not opened'],
 });
 
+// THE SILENT ONE. Production over plain HTTP without saying so.
+//
+// This case is not like the others: the old behaviour was not a bad refusal, it
+// was no refusal at all. PCC started, reported healthy, and set a `Secure`
+// session cookie the browser would never send back over HTTP — so every sign-in
+// succeeded and landed on the sign-in page again, for everybody, permanently,
+// with every check green. The only symptom was a phone call to the developer.
+//
+// Overrides the base environment deliberately: the absence of the flag IS the
+// case.
+await refuses({
+  name: 'production over plain HTTP, unacknowledged',
+  port: 3601,
+  env: {
+    SESSION_SECRET: GOOD_SECRET,
+    PCC_PO_NUMBERING: 'job-vendor-sequence',
+    PCC_DATABASE_ALLOW_CREATE: '1',
+    PCC_ALLOW_INSECURE_HTTP: '',
+  },
+  expects: ['APP_BASE_URL', 'plain HTTP', 'PCC_ALLOW_INSECURE_HTTP', 'Nothing has been written'],
+});
+
 // --- the database-location refusal ------------------------------------------
 // Configuration is correct; the store is not where it was said to be. Still
 // nothing written, and the message sends the reader to the volume rather than
@@ -336,6 +364,7 @@ await refuses({
       PCC_ORG_NAME: 'Lippolis Electric, Inc.',
       SESSION_SECRET: GOOD_SECRET,
       PCC_PO_NUMBERING: 'job-vendor-sequence',
+      PCC_ALLOW_INSECURE_HTTP: '1',
       PCC_DATABASE_ALLOW_CREATE: '1',
       PCC_BOOTSTRAP_ADMIN_EMAIL: 'admin@example.test',
       PCC_BOOTSTRAP_ADMIN_PASSWORD: 'ControlAdmin!2026',
@@ -362,6 +391,50 @@ await refuses({
     !output.includes('ControlAdmin!2026'),
     'the control: the bootstrap password is never printed, even on a successful start',
   );
+
+  // AND THE ACTUAL REGRESSION, driven the way a person meets it.
+  //
+  // Healthy is not the bar. The bug this whole change exists for produced a
+  // perfectly healthy instance where signing in did nothing — the cookie came
+  // back with `Secure`, the browser kept it and refused to send it over HTTP,
+  // and the next page was the sign-in page again. So the control signs in over
+  // plain HTTP and follows where it lands, which is the only assertion that
+  // would have caught it.
+  if (healthy) {
+    const signIn = await fetch(`http://127.0.0.1:${port}/api/auth/sign-in`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'admin@example.test', password: 'ControlAdmin!2026' }),
+      redirect: 'manual',
+    });
+
+    const setCookies = signIn.headers.getSetCookie?.() ?? [];
+    // Whichever cookie carries the session; the name is the server's business.
+    const session = setCookies.find((c) => /session/i.test(c.split('=')[0])) ?? setCookies[0] ?? '';
+    check(Boolean(session), 'the control: signing in over plain HTTP sets a session cookie',
+      `status ${signIn.status}, set-cookie: ${JSON.stringify(setCookies)}`);
+    check(
+      Boolean(session) && !/;\s*Secure/i.test(session),
+      'the control: and the cookie is NOT Secure, so the browser will send it back',
+      `over plain HTTP a Secure cookie is never returned and nobody can sign in. Got: ${session}`,
+    );
+
+    // Carry it to a page that requires a session. A redirect back to /sign-in
+    // is the failure wearing its everyday clothes.
+    if (session) {
+      const jar = session.split(';')[0];
+      const after = await fetch(`http://127.0.0.1:${port}/`, {
+        headers: { cookie: jar },
+        redirect: 'manual',
+      });
+      const location = after.headers.get('location') ?? '';
+      check(
+        !location.includes('/sign-in'),
+        'the control: and the session sticks — the next page is not the sign-in page again',
+        `redirected to ${location}`,
+      );
+    }
+  }
 
   child.kill('SIGTERM');
   await new Promise((r) => setTimeout(r, 1500));

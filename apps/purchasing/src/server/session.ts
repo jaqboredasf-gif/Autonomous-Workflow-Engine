@@ -236,7 +236,11 @@ export async function signIn(
   const cookieOptions = {
     httpOnly: true as const,
     sameSite: 'lax' as const,
-    secure: config.isProduction,
+    // FROM THE SCHEME OF THE ADDRESS, NOT FROM NODE_ENV — see AppConfig
+    // .cookieSecure. `Secure` on a deployment served over plain HTTP is a
+    // permanent sign-in outage for everybody, and one that every health check
+    // reports as fine.
+    secure: config.cookieSecure,
     path: '/',
     maxAge: config.sessionTtlSeconds,
   };
@@ -300,7 +304,8 @@ export async function signInAsDemoUser(userId: string): Promise<SignInOutcome> {
   );
   const store = await cookies();
   store.set(SESSION_COOKIE, token, {
-    httpOnly: true, sameSite: 'lax', secure: config.isProduction, path: '/', maxAge: config.sessionTtlSeconds,
+    // Same rule as signIn: the scheme decides, not the build mode.
+    httpOnly: true, sameSite: 'lax', secure: config.cookieSecure, path: '/', maxAge: config.sessionTtlSeconds,
   });
   return { ok: true, redirectTo: defaultWorkspaceFor(actor) };
 }

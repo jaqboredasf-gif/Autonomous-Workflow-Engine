@@ -120,6 +120,25 @@ set +a
   PCC will refuse to start without it rather than inherit another company's numbering rule."
 echo "  ok  the five required variables are set"
 
+# THE ONE THAT LOCKS EVERYBODY OUT QUIETLY. `Secure` on the session cookie
+# follows the scheme of APP_BASE_URL: over plain HTTP the browser accepts the
+# cookie and never sends it back, so every sign-in returns to the sign-in page
+# while health stays green. PCC refuses to start in that state; caught here so
+# the refusal arrives before the build rather than after it.
+case "$APP_BASE_URL" in
+  https://*) : ;;
+  http://*)
+    [ "${PCC_ALLOW_INSECURE_HTTP:-}" = "1" ] || fatal "APP_BASE_URL is plain HTTP ($APP_BASE_URL).
+  Session cookies would cross the network unencrypted, and PCC refuses to start
+  until that is a stated decision. Either:
+    * put PCC behind a reverse proxy terminating HTTPS and set APP_BASE_URL to the https:// address, or
+    * set PCC_ALLOW_INSECURE_HTTP=1 in $ENV_FILE to record that you accept plain HTTP on a trusted internal network."
+    echo "  !!  serving over plain HTTP by explicit configuration — session cookies are not encrypted"
+    echo "      in transit. Correct only on a trusted internal network; revisit when TLS is available."
+    ;;
+  *) fatal "APP_BASE_URL must be an absolute http(s) URL — got: $APP_BASE_URL" ;;
+esac
+
 if [ -n "${PCC_BOOTSTRAP_ADMIN_PASSWORD:-}" ] && [ "$FIRST_INSTALL" = "0" ]; then
   echo "  !!  PCC_BOOTSTRAP_ADMIN_PASSWORD is set but this is not --first-install."
   echo "      Remove it from $ENV_FILE once the first administrator exists."

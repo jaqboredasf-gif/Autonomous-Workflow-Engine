@@ -75,6 +75,7 @@ ones are:
 | `PCC_DATABASE_PATH` | yes | `/data/pcc.sqlite` |
 | `APP_BASE_URL` | yes | The address people type, e.g. `https://pcc.lippoliselectric.com` |
 | `PCC_PO_NUMBERING` | yes | How purchase orders are numbered. **Lippolis: `job-vendor-sequence`** — job number, vendor code, then a count starting at 1 for each job-and-vendor pair (`1234-COOPER-1`). PCC refuses to start without it rather than inherit another company's numbering. |
+| `PCC_ALLOW_INSECURE_HTTP` | only without TLS | Leave unset if PCC is behind a proxy terminating HTTPS — that is the recommended shape. Set to `1` **only** to run over plain HTTP on a trusted internal network. See §4: this is the one setting that can lock everybody out, and PCC refuses to start rather than let that happen silently. |
 | `PORT` | no | Default `3000` |
 | `PCC_RELEASE` | recommended | Whatever identifies this build — a git commit, a tag, a build number. It is echoed by `/api/health` so you can tell which build is running without guessing from file dates. Unset shows as `null`. |
 | `PCC_DATABASE_ALLOW_CREATE` | first install only | `1` on the very first start, then remove |
@@ -120,9 +121,33 @@ Browser  ──HTTPS──▶  your reverse proxy  ──HTTP──▶  PCC cont
 * **PCC does not terminate TLS and does not redirect HTTP to HTTPS.** Your proxy does both.
 * Publish the container port to `127.0.0.1` only (the supplied `docker-compose.yml` does), so the
   plain-HTTP port is not reachable from the network.
-* Forward `X-Forwarded-Proto` and `Host` as usual. PCC marks its session cookies `Secure`,
-  `HttpOnly` and `SameSite=Lax`, so it must be reached over HTTPS in production or sign-in will
-  not stick.
+* Forward `X-Forwarded-Proto` and `Host` as usual. PCC's session cookies are `HttpOnly` and
+  `SameSite=Lax` always, and `Secure` when `APP_BASE_URL` is an `https://` address.
+
+### 4a. If HTTPS is not ready on day one
+
+**This is the one setting that can lock out the entire company while every check stays green**, so
+it is worth thirty seconds now.
+
+`Secure` follows the scheme of `APP_BASE_URL`, not the deployment mode. That matters because a
+`Secure` cookie is one the browser accepts and then refuses to send back over plain HTTP — so
+sign-in succeeds, the browser lands on the sign-in page again, and it does that for everybody,
+permanently, while `/api/health` reports `200` and the log says ready. The only symptom is Mike
+unable to get in on the first morning.
+
+So PCC will not let that configuration start by accident. Two supported shapes:
+
+| Situation | What to set | What happens |
+|---|---|---|
+| **Proxy terminates HTTPS** (recommended) | `APP_BASE_URL=https://…`, nothing else | Cookies are `Secure`. Normal. |
+| **No TLS yet**, trusted internal network | `APP_BASE_URL=http://…` **and** `PCC_ALLOW_INSECURE_HTTP=1` | Sign-in works. Session cookies cross the network unencrypted; PCC warns in the startup log on every boot. |
+| `http://` with no acknowledgement | — | **PCC refuses to start** and tells you these two options. Nothing is written. |
+
+The second row is a real security trade-off and it is yours to make, not ours: anyone who can see
+the traffic can take a session. It is a reasonable bridge on an internal VLAN while a certificate is
+arranged, and it should not be the permanent answer. When TLS arrives, change `APP_BASE_URL` to the
+`https://` address and delete `PCC_ALLOW_INSECURE_HTTP` — PCC warns if you leave it behind, because
+otherwise the environment file goes on claiming the deployment has no TLS.
 * No WebSockets, no server-sent events, no long polling. A default proxy timeout is fine.
 * Uploads are small (photos of packing slips). Allow ~25 MB request bodies.
 
@@ -188,7 +213,7 @@ Everything below is answerable without the developer.
 | Symptom | Look at this first |
 |---|---|
 | **It will not start** | `docker compose logs pcc \| grep '\[pcc\]'`. The last line says whether the database was opened. "Nothing has been written" means the problem is a variable in §3; "The database was opened but could not be used" means permissions or the volume |
-| **Nobody can sign in** | Check the log for `no enabled sign-in credentials` (nobody has been created — set the two bootstrap variables and restart). If people exist but sign-in fails over plain HTTP, that is §4: session cookies are `Secure` and will not stick without HTTPS |
+| **Nobody can sign in** | Check the log for `no enabled sign-in credentials` (nobody has been created — set the two bootstrap variables and restart). If people exist and sign-in appears to succeed but returns to the sign-in page, that is §4a — but note PCC now refuses to start in that configuration, so an instance that is *running* is not in it |
 | **One person cannot sign in** | Their account may be deactivated — check Administration → Users. Five wrong passwords locks an account briefly; it clears on its own |
 | **Generating a purchase order fails** | It needs a vendor with a code and a job. If the message mentions the sequence, the pair has paper history that has not been settled — Administration → PO numbering. If the message names `PCC_PO_NUMBERING`, the installation is misconfigured and would not have started |
 | **The vendor email draft is missing or wrong** | PCC never sends email; it prepares a draft a person copies. There is no mail server, relay or credential involved, so this is never a network problem. Check the request's own page — the draft lives at `/requests/<id>/email` |

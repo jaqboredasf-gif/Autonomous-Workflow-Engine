@@ -39,6 +39,28 @@ export type AppConfig = {
   sessionTtlSeconds: number;
   demoMode: boolean;
   isProduction: boolean;
+  /**
+   * Whether the session cookie carries `Secure`.
+   *
+   * DERIVED FROM THE ADDRESS PEOPLE TYPE, NOT FROM NODE_ENV. It used to be
+   * `isProduction`, which is a statement about the build and not about the
+   * connection, and the two disagree in exactly one deployment: production
+   * served over plain HTTP. There the browser is told to keep a cookie it may
+   * only send back over HTTPS, so it never sends it back — sign-in appears to
+   * succeed and lands on the sign-in page again, forever, for everybody.
+   *
+   * Nothing catches that. Configuration is valid, `/api/health` is 200, the log
+   * says ready. The first thing anyone knows is Mike unable to sign in on the
+   * morning of go-live, with every check green.
+   *
+   * So the flag follows the scheme of APP_BASE_URL — https means Secure, and
+   * plain HTTP means the cookie works — and running production over plain HTTP
+   * at all has to be stated with PCC_ALLOW_INSECURE_HTTP. See
+   * validateEnvironment: unstated, it is refused rather than downgraded.
+   */
+  cookieSecure: boolean;
+  /** Whether IT has explicitly accepted serving production over plain HTTP. */
+  allowInsecureHttp: boolean;
   // NO databasePath HERE, deliberately. It used to sit in this object reading
   // PURCHASING_DB_PATH alone — while the deployment documentation, the
   // Dockerfile and the compose file all set PCC_DATABASE_PATH, and nothing
@@ -94,13 +116,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const persistenceProvider: PersistenceProvider =
     (env.PURCHASING_PERSISTENCE as PersistenceProvider) ?? 'local';
 
+  const appBaseUrl = env.APP_BASE_URL ?? DEFAULT_APP_BASE_URL;
+  const servedOverHttps = /^https:\/\//i.test(appBaseUrl);
+  const allowInsecureHttp = (env.PCC_ALLOW_INSECURE_HTTP ?? '').trim() === '1';
+
   return {
     authProvider,
     persistenceProvider,
     // Empty in production when unset — validateEnvironment() reports it and
     // the composition root refuses to build an allocator without a rule.
     poNumbering: (env.PCC_PO_NUMBERING ?? '').trim() || (isProduction ? '' : DEV_PO_NUMBERING),
-    appBaseUrl: env.APP_BASE_URL ?? DEFAULT_APP_BASE_URL,
+    appBaseUrl,
+    // A cookie the browser will actually send back. `Secure` is right whenever
+    // the connection is HTTPS and is a total sign-in outage when it is not, so
+    // it follows the scheme rather than the build mode.
+    cookieSecure: servedOverHttps,
+    allowInsecureHttp,
     sessionSecret: env.SESSION_SECRET ?? DEV_SESSION_SECRET,
     sessionTtlSeconds: Number(env.SESSION_TTL_SECONDS ?? 60 * 60 * 12),
     // The demo identity picker is a DEVELOPER tool. It is off unless asked for,
@@ -160,6 +191,55 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): {
   }
   if (config.isProduction && !/^https?:\/\//.test(config.appBaseUrl)) {
     error('APP_BASE_URL', 'must be an absolute URL, e.g. https://purchasing.example.internal');
+  }
+
+  // PLAIN HTTP IN PRODUCTION IS A DECISION, NOT AN OVERSIGHT.
+  //
+  // This is the failure that would have met everybody on the first morning. A
+  // production deployment served over http:// used to set `Secure` on the
+  // session cookie anyway — because the flag was read off NODE_ENV, which
+  // describes the build and not the connection. The browser accepts the cookie
+  // and then declines to send it back over HTTP, so every sign-in succeeds and
+  // lands on the sign-in page again. For everybody. Permanently.
+  //
+  // Nothing anywhere catches it: the configuration is valid, /api/health is
+  // 200, the log says ready. The only symptom is Mike unable to get in, with
+  // every check green — which is a call to the developer, and the developer is
+  // the person this whole phase exists to remove.
+  //
+  // Now the cookie follows the scheme, so PCC over plain HTTP WORKS. But it
+  // works with a session cookie crossing the network in clear text, which is a
+  // security decision that belongs to Lippolis IT and not to a default. So it
+  // must be said out loud, once, in the environment file.
+  if (config.isProduction && /^http:\/\//i.test(config.appBaseUrl)) {
+    if (!config.allowInsecureHttp) {
+      error(
+        'APP_BASE_URL',
+        `${config.appBaseUrl} is plain HTTP. Session cookies would cross the network unencrypted, so this must be ` +
+          'deliberate: put PCC (unchanged) behind a reverse proxy that terminates HTTPS and set APP_BASE_URL to the ' +
+          'https:// address — or, to run without TLS on a trusted internal network, set PCC_ALLOW_INSECURE_HTTP=1 ' +
+          'to record that decision.',
+      );
+    } else {
+      warn(
+        'PCC_ALLOW_INSECURE_HTTP',
+        'serving production over plain HTTP by explicit configuration — session cookies are not encrypted in ' +
+          'transit. Correct only on a trusted internal network, and worth revisiting once TLS is available.',
+      );
+    }
+  }
+
+  // The opposite mistake, and it is quieter: TLS is in place, the address is
+  // https, and somebody left the acknowledgement behind in the environment file
+  // from the days before it was. It changes nothing today — the flag only
+  // relaxes the check above — but it is a stale statement about the deployment,
+  // and the next person to read the file will believe it.
+  if (config.isProduction && config.allowInsecureHttp && /^https:\/\//i.test(config.appBaseUrl)) {
+    warn(
+      'PCC_ALLOW_INSECURE_HTTP',
+      `set, but APP_BASE_URL is already https (${config.appBaseUrl}). It has no effect — remove it so the ` +
+        'environment file stops claiming this deployment runs without TLS.',
+    );
   }
 
   // HOW THIS COMPANY NUMBERS ITS PURCHASE ORDERS IS NOT A DEFAULT.

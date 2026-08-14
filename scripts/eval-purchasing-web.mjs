@@ -116,6 +116,15 @@ const server = spawn(process.execPath, ['server.js'], {
     // Stated, because a production start refuses without it. Lippolis's rule —
     // this harness asserts their purchase order numbers.
     PCC_PO_NUMBERING: 'job-vendor-sequence',
+    // Stated for the same reason: a production start over plain HTTP refuses
+    // unless somebody says they meant it. This harness drives 127.0.0.1 with no
+    // TLS anywhere, which is precisely the case the flag exists to acknowledge.
+    // Without it the session cookie would carry `Secure`, the browser would
+    // never send it back, and every signed-in check below would fail as a
+    // redirect to sign-in — which is also exactly what a real deployment served
+    // over plain HTTP does, so this harness proves the fix rather than dodging
+    // the problem.
+    PCC_ALLOW_INSECURE_HTTP: '1',
     // Demo mode must NOT be needed for any of this to work.
     PURCHASING_DEMO_MODE: '0',
   },
