@@ -216,6 +216,8 @@ const FRESH_DB = join(FRESH, 'pcc.sqlite');
   const { bootstrapDatabase } = await import(join(APP, 'purchasing', 'infrastructure', 'bootstrap.ts'));
   bootstrapDatabase(fresh, {
     NODE_ENV: 'production', PCC_ORG_NAME: 'Lippolis Electric, Inc.',
+    PCC_ORG_ADDRESS: 'Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803',
+    PCC_ORG_PHONE: '(914) 738-3550',
     PCC_BOOTSTRAP_ADMIN_EMAIL: 'admin@dryrun.test', PCC_BOOTSTRAP_ADMIN_PASSWORD: 'DryRunBootstrap2026',
   }, '2026-08-18T09:00:00.000Z');
   fresh.close();

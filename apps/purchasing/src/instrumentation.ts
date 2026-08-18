@@ -76,6 +76,7 @@ export async function register() {
   // Under Supabase persistence the store is somebody else's server and its
   // reachability is a per-request fact, not a startup one.
   let databaseOpened = false;
+  let configurationRefusal = false;
   if (env.config.persistenceProvider === 'local') {
     const location = databaseLocation();
     if (!location.ok) {
@@ -113,8 +114,17 @@ export async function register() {
           );
         }
       } catch (err) {
-        fatal.push(`database: ${(err as Error).message}`);
-        console.error(`[pcc] the database could not be opened — ${(err as Error).message}`);
+        // A CONFIGURATION refusal is not a database problem, and saying so
+        // matters: "check permissions and the schema" sends IT to a filesystem
+        // that is fine while the actual fix is two lines in /etc/pcc.env.
+        const configuration = (err as any)?.pccReason === 'configuration';
+        if (configuration) configurationRefusal = true;
+        fatal.push(`${configuration ? 'configuration' : 'database'}: ${(err as Error).message}`);
+        console.error(
+          configuration
+            ? `[pcc] ${(err as Error).message}`
+            : `[pcc] the database could not be opened — ${(err as Error).message}`,
+        );
       }
     }
   }
@@ -128,9 +138,11 @@ export async function register() {
   // not exist sends them to the wrong place.
   if (fatal.length && isProduction) {
     console.error(
-      databaseOpened
-        ? `[pcc] refusing to start: ${fatal.length} problem(s) above. The database was opened but could not be used as configured — check permissions and the schema. Fix it and start again.`
-        : `[pcc] refusing to start: ${fatal.length} problem(s) above. Nothing has been written — no database was opened. Fix the path or the environment and start again.`,
+      configurationRefusal
+        ? `[pcc] refusing to start: ${fatal.length} problem(s) above. NOTHING HAS BEEN CREATED — this is configuration, not the database. Set the variables named above and start again.`
+        : databaseOpened
+          ? `[pcc] refusing to start: ${fatal.length} problem(s) above. The database was opened but could not be used as configured — check permissions and the schema. Fix it and start again.`
+          : `[pcc] refusing to start: ${fatal.length} problem(s) above. Nothing has been written — no database was opened. Fix the path or the environment and start again.`,
     );
     process.exit(1);
   }

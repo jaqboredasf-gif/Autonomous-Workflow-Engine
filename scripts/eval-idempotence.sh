@@ -36,6 +36,8 @@ VOL=pcc-idempotence-data
 IMAGE=pcc:idempotence
 PORT=${PORT:-3404}
 ORG="Idempotence Test Co."
+ORG_ADDRESS="1 Test Way, Pelham, NY 10803"
+ORG_PHONE="(914) 555-0000"
 
 export ACCEPTANCE_BASE_URL="http://localhost:${PORT}"
 export PCC_ADMIN_EMAIL="admin@idempotence.test"
@@ -82,6 +84,8 @@ start_pcc() {
     -e APP_BASE_URL="$ACCEPTANCE_BASE_URL" \
     -e PCC_ALLOW_INSECURE_HTTP=1 \
     -e PCC_ORG_NAME="$ORG" \
+    -e PCC_ORG_ADDRESS="$ORG_ADDRESS" \
+    -e PCC_ORG_PHONE="$ORG_PHONE" \
     -e PCC_PO_NUMBERING=job-vendor-sequence \
     "$@" \
     "$IMAGE" >/dev/null

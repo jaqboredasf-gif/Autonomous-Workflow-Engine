@@ -98,6 +98,8 @@ function startAndWait(env, port) {
       APP_BASE_URL: `http://127.0.0.1:${port}`,
       PCC_DATABASE_PATH: dbPath,
       PCC_ORG_NAME: 'Lippolis Electric, Inc.',
+      PCC_ORG_ADDRESS: 'Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803',
+      PCC_ORG_PHONE: '(914) 738-3550',
       // These cases drive 127.0.0.1 with no TLS, and a production start over
       // plain HTTP refuses unless the decision is stated. Stated here in the
       // BASE environment so every case below tests the one thing it names
@@ -195,6 +197,53 @@ await refuses({
   port: 3592,
   env: { SESSION_SECRET: GOOD_SECRET, PCC_DATABASE_ALLOW_CREATE: '1' },
   expects: ['PCC_PO_NUMBERING', 'must state how it numbers purchase orders', 'Nothing has been written'],
+});
+
+// THE LETTERHEAD, AND THE ONLY MOMENT IT CAN BE SET. The address and telephone
+// number print on every purchase order that reaches a supplier, they are read
+// only when the organization row is created, and no screen edits them
+// afterwards. A first start without them produced a company whose paperwork
+// carried no address for the life of the installation — PCC came up, logged
+// ready, reported healthy, and wrote nulls.
+//
+// expectDbCreated: the file exists by this point and holds SCHEMA AND ONLY
+// SCHEMA. The refusal happens before the transaction that creates the
+// organization, so setting the variables and starting again is a correct first
+// start rather than a repair.
+await refuses({
+  name: 'no company address',
+  port: 3597,
+  env: {
+    SESSION_SECRET: GOOD_SECRET, PCC_PO_NUMBERING: 'job-vendor-sequence',
+    PCC_DATABASE_ALLOW_CREATE: '1', PCC_ORG_ADDRESS: '',
+  },
+  expectDbCreated: true,
+  expects: ['PCC_ORG_ADDRESS', 'print on every purchase order', 'NOTHING HAS BEEN CREATED'],
+});
+
+await refuses({
+  name: 'no company telephone number',
+  port: 3598,
+  env: {
+    SESSION_SECRET: GOOD_SECRET, PCC_PO_NUMBERING: 'job-vendor-sequence',
+    PCC_DATABASE_ALLOW_CREATE: '1', PCC_ORG_PHONE: '',
+  },
+  expectDbCreated: true,
+  expects: ['PCC_ORG_PHONE', 'NOTHING HAS BEEN CREATED'],
+});
+
+// Both missing at once must name BOTH, not stop at the first. An operator who
+// fixes one variable, restarts, and is refused again for the other has been
+// sent round the loop by the report rather than by the configuration.
+await refuses({
+  name: 'neither address nor telephone number',
+  port: 3599,
+  env: {
+    SESSION_SECRET: GOOD_SECRET, PCC_PO_NUMBERING: 'job-vendor-sequence',
+    PCC_DATABASE_ALLOW_CREATE: '1', PCC_ORG_ADDRESS: '', PCC_ORG_PHONE: '',
+  },
+  expectDbCreated: true,
+  expects: ['PCC_ORG_ADDRESS', 'PCC_ORG_PHONE', 'NOTHING HAS BEEN CREATED'],
 });
 
 // The rule is KNOWN and this build cannot perform it. Refused rather than
@@ -362,6 +411,8 @@ await refuses({
       APP_BASE_URL: `http://127.0.0.1:${port}`,
       PCC_DATABASE_PATH: dbPath,
       PCC_ORG_NAME: 'Lippolis Electric, Inc.',
+      PCC_ORG_ADDRESS: 'Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803',
+      PCC_ORG_PHONE: '(914) 738-3550',
       SESSION_SECRET: GOOD_SECRET,
       PCC_PO_NUMBERING: 'job-vendor-sequence',
       PCC_ALLOW_INSECURE_HTTP: '1',

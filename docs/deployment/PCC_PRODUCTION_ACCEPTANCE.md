@@ -39,6 +39,150 @@ answer: is the service enabled, is the timer armed, is this a production build.
 
 ---
 
+## 0. DEPLOY ONLY THIS
+
+```
+Branch:  pcc-production
+Commit:  58068f374aa665f3c058f53b49e4e10f8f010c9b
+```
+
+**Check out the commit, not the branch.** A branch moves; an installation record that says "the
+tip of pcc-production on Tuesday" cannot be rolled back to or reasoned about. `d4fa007` and every
+earlier candidate are superseded and must not be deployed.
+
+### The whole install, in order
+
+Steps 1–4 and the reasoning behind each are in `PCC_VM_INSTALLATION_RUNBOOK.md`; this is the
+sequence itself, for the person at the keyboard.
+
+```bash
+# 1  INSPECT THE VM — read-only
+cat /etc/os-release; uname -m; nproc; free -h; df -h /
+node --version; command -v node; git --version; systemctl --version | head -1
+ss -ltnp | grep -E ':3000|:80|:443' || echo "3000 free"
+
+# 2  PREREQUISITES — Node 24 must land at /usr/bin/node, or the unit fails 203/EXEC
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
+sudo apt-get install -y nodejs git rsync
+command -v node                                    # expect /usr/bin/node
+
+# 3  CLONE
+sudo mkdir -p /srv/pcc && sudo chown "$USER" /srv/pcc
+git clone --branch pcc-production <REPOSITORY_URL> /srv/pcc && cd /srv/pcc
+
+# 4  CHECK OUT THE EXACT FROZEN COMMIT
+git checkout 58068f374aa665f3c058f53b49e4e10f8f010c9b
+git rev-parse HEAD                                 # must match, character for character
+ls Dockerfile deploy/pcc-backup.timer              # both exist = right branch
+
+# 5  PERSISTENT DIRECTORIES — service account FIRST, then what it owns
+sudo useradd --system --home /opt/pcc --shell /usr/sbin/nologin pcc
+sudo install -d -o pcc -g pcc -m 750 /var/lib/pcc /var/lib/pcc/backups /opt/pcc /opt/pcc/scripts
+
+# 6  PERMISSIONS — the config file holds the session secret
+sudo install -o root -g pcc -m 640 /dev/null /etc/pcc.env
+
+# 7  PRODUCTION ENVIRONMENT — see §0a. IT generates the secret ON THIS MACHINE
+openssl rand -base64 48
+sudo -e /etc/pcc.env
+
+# 8  DEPENDENCIES
+npm ci --workspaces --include-workspace-root
+
+# 9  MIGRATE — there is no separate step. Migrations run on start, idempotently.
+
+# 10 BUILD
+npm run build --workspace purchasing && node scripts/check-deployable.mjs
+sudo rsync -a apps/purchasing/.next/standalone/ /opt/pcc/
+sudo rsync -a apps/purchasing/.next/static/ /opt/pcc/apps/purchasing/.next/static/
+sudo rsync -a apps/purchasing/public/ /opt/pcc/apps/purchasing/public/
+sudo install -o pcc -g pcc -m 750 scripts/pcc-backup.mjs scripts/pcc-restore.mjs \
+     scripts/pcc-reset-admin.mjs scripts/pcc-storage-status.mjs /opt/pcc/scripts/
+sudo chown -R pcc:pcc /opt/pcc
+
+# 11 INSTALL THE SERVICE
+sudo cp deploy/pcc-node.service /etc/systemd/system/pcc.service
+sudo cp deploy/pcc-backup.service /etc/systemd/system/pcc-backup.service
+sudo cp deploy/pcc-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# 12 START, THEN ENABLE AT BOOT
+sudo systemctl start pcc
+journalctl -u pcc | grep '\[pcc\]'   # "creating a NEW purchasing database", once
+sudo systemctl enable pcc
+
+# 13 BACKUP TIMER
+sudo systemctl enable --now pcc-backup.timer
+systemctl list-timers pcc-backup.timer
+
+# 14 PRODUCTION VERIFICATION — must end READY, exit 0
+sudo systemd-run --quiet --pipe --wait --collect --uid=pcc \
+  --property=WorkingDirectory=/srv/pcc --property=EnvironmentFile=/etc/pcc.env \
+  /usr/bin/node scripts/pcc-verify-deployment.mjs
+
+# 15 FIRST BACKUP
+sudo systemctl start pcc-backup.service
+systemctl show pcc-backup.service -p Result --value        # success
+
+# 16 VERIFY THE ARTIFACT
+sudo -u pcc node /opt/pcc/scripts/pcc-backup.mjs --db /var/lib/pcc/pcc.sqlite --check
+
+# 17 ACCOUNT PROVISIONING — section B below, in the browser
+```
+
+**Then remove `PCC_DATABASE_ALLOW_CREATE` and `PCC_BOOTSTRAP_ADMIN_PASSWORD` from `/etc/pcc.env`
+and restart.** The log must then say *opening the existing purchasing database*.
+
+---
+
+## 0a. `/etc/pcc.env` — the handoff template
+
+Placeholders only. **No real secret belongs in this repository, in a ticket, or in a chat
+message.** `<GENERATE_SECURE_VALUE>` means generated on the server by IT, at the moment it is
+needed.
+
+```ini
+# ---- REQUIRED BEFORE FIRST START — PCC refuses to start without these ----
+NODE_ENV=production
+SESSION_SECRET=<GENERATE_SECURE_VALUE>          # openssl rand -base64 48, on this machine
+PCC_DATABASE_PATH=/var/lib/pcc/pcc.sqlite
+APP_BASE_URL=<CONFIRM_WITH_JOSE>                # https://pcc.<lippolis domain>
+PCC_PO_NUMBERING=job-vendor-sequence
+
+# The letterhead on every purchase order a supplier receives. Read ONLY when the
+# organization is created; no screen edits them afterwards, and PCC refuses to
+# start rather than create a company without them.
+PCC_ORG_NAME=Lippolis Electric, Inc.
+PCC_ORG_ADDRESS=Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803
+PCC_ORG_PHONE=(914) 738-3550
+
+# ---- FIRST START ONLY — remove both, then restart ----
+PCC_DATABASE_ALLOW_CREATE=1
+PCC_BOOTSTRAP_ADMIN_EMAIL=<CONFIRM_WITH_JOSE>   # the first administrator's real address
+PCC_BOOTSTRAP_ADMIN_PASSWORD=<GENERATE_SECURE_VALUE>   # 12+ chars, temporary, replaced at sign-in
+
+# ---- REQUIRED BEFORE USER ACCEPTANCE ----
+PCC_RELEASE=58068f374aa665f3c058f53b49e4e10f8f010c9b
+
+# ---- ONLY IF THERE IS NO TLS ON DAY ONE ----
+# A deliberate, recorded decision. PCC refuses to start on plain HTTP without it.
+# PCC_ALLOW_INSECURE_HTTP=1
+
+# ---- OPTIONAL / INTEGRATION-DEPENDENT ----
+# PORT=3000
+# SESSION_TTL_SECONDS=43200
+# There is NO email transport setting: PCC composes drafts and cannot send.
+# There is NO printer setting: printing is the browser's, on the PC Mike uses.
+```
+
+| Value | Who prepares it |
+|---|---|
+| `PCC_ORG_NAME`, `PCC_ORG_ADDRESS`, `PCC_ORG_PHONE`, `PCC_PO_NUMBERING`, `PCC_RELEASE`, `NODE_ENV`, `PCC_DATABASE_PATH` | **Already known — prepared in advance** |
+| `SESSION_SECRET`, `PCC_BOOTSTRAP_ADMIN_PASSWORD` | **Lippolis IT, on the server**, at install time |
+| `APP_BASE_URL`, `PCC_ALLOW_INSECURE_HTTP`, `PCC_BOOTSTRAP_ADMIN_EMAIL` | **Jose** — hostname, TLS decision, first administrator |
+
+---
+
 ## A. Infrastructure acceptance
 
 | # | Step | Command / where | Accept when |

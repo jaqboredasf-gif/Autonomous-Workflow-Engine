@@ -99,13 +99,48 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
   const orgId = randomUUID();
   const orgName = (env.PCC_ORG_NAME ?? '').trim() || 'Lippolis Electric, Inc.';
 
+  // THE LETTERHEAD IS NOT OPTIONAL, AND THIS IS THE ONLY MOMENT IT CAN BE SET.
+  //
+  // The address and the telephone number print on every purchase order that
+  // reaches a supplier. They are read HERE and nowhere else — once this row
+  // exists no screen edits it — so a first start without them produces a
+  // company whose paperwork carries no address and no telephone number for as
+  // long as the installation lives, fixable only by editing the row on the
+  // server. Verified by starting production without them: PCC came up, logged
+  // ready, reported healthy, and wrote nulls.
+  //
+  // Refused BEFORE the transaction that creates the organization, so nothing
+  // supplier-facing can be generated from a half-identified company. The
+  // database file already exists at this point — it is schema, and only schema.
+  // Setting the two variables and starting again creates the organization
+  // correctly, so the state this leaves behind is a database waiting for its
+  // first start, not a broken one.
+  const orgAddress = (env.PCC_ORG_ADDRESS ?? '').trim();
+  const orgPhone = (env.PCC_ORG_PHONE ?? '').trim();
+  const missing = [
+    orgAddress ? null : 'PCC_ORG_ADDRESS',
+    orgPhone ? null : 'PCC_ORG_PHONE',
+  ].filter(Boolean);
+  if (missing.length) {
+    // Tagged so the startup summary can say CONFIGURATION rather than send an
+    // operator to check filesystem permissions and the schema, which are fine.
+    throw Object.assign(new Error(
+      `${missing.join(' and ')} must be set before the first start — ` +
+        'the company address and telephone number print on every purchase order sent to a supplier, ' +
+        'they can only be set when the organization is created, and no screen edits them afterwards. ' +
+        'Nothing has been created: set them and start again. ' +
+        'Lippolis: PCC_ORG_ADDRESS="Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803", ' +
+        'PCC_ORG_PHONE="(914) 738-3550".',
+    ), { pccReason: 'configuration' as const });
+  }
+
   db.exec('begin immediate');
   try {
     db.prepare('insert into orgs (id, name, phone, address, created_at, updated_at) values (?,?,?,?,?,?)').run(
       orgId,
       orgName,
-      (env.PCC_ORG_PHONE ?? '').trim() || null,
-      (env.PCC_ORG_ADDRESS ?? '').trim() || null,
+      orgPhone,
+      orgAddress,
       now,
       now,
     );

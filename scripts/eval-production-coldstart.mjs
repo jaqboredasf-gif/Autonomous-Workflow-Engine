@@ -27,6 +27,8 @@
 //   SESSION_SECRET="$(openssl rand -hex 32)" \
 //   PCC_DATABASE_PATH=/tmp/pcc-cold/pcc.sqlite PCC_DATABASE_ALLOW_CREATE=1 \
 //   PCC_ORG_NAME="Lippolis Electric, Inc." \
+//   PCC_ORG_ADDRESS="Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803" \
+//   PCC_ORG_PHONE="(914) 738-3550" \
 //   PCC_PO_NUMBERING=job-vendor-sequence \
 //   PCC_BOOTSTRAP_ADMIN_EMAIL=admin@example.test \
 //   PCC_BOOTSTRAP_ADMIN_PASSWORD='ColdStartAdmin!2026' \

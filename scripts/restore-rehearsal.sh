@@ -39,6 +39,8 @@ IMAGE=pcc:rehearsal
 SRC_PORT=${SRC_PORT:-3402}
 DST_PORT=${DST_PORT:-3403}
 ORG="Restore Rehearsal Inc."
+ORG_ADDRESS="1 Test Way, Pelham, NY 10803"
+ORG_PHONE="(914) 555-0000"
 
 export PCC_ADMIN_EMAIL="admin@rehearsal.test"
 export PCC_ADMIN_PASSWORD="rehearsal-admin-password-2026"
@@ -94,6 +96,8 @@ docker run -d --name "$SRC_NAME" -p "127.0.0.1:${SRC_PORT}:3000" -v "${SRC_VOL}:
   -e PCC_ALLOW_INSECURE_HTTP=1 \
   -e PCC_DATABASE_ALLOW_CREATE=1 \
   -e PCC_ORG_NAME="$ORG" \
+  -e PCC_ORG_ADDRESS="$ORG_ADDRESS" \
+  -e PCC_ORG_PHONE="$ORG_PHONE" \
   -e PCC_PO_NUMBERING=job-vendor-sequence \
   -e PCC_BOOTSTRAP_ADMIN_EMAIL="$PCC_ADMIN_EMAIL" \
   -e PCC_BOOTSTRAP_ADMIN_PASSWORD="$PCC_ADMIN_PASSWORD" \
@@ -156,6 +160,8 @@ docker run -d --name "$DST_NAME" -p "127.0.0.1:${DST_PORT}:3000" -v "${DST_VOL}:
   -e APP_BASE_URL="http://localhost:${DST_PORT}" \
   -e PCC_ALLOW_INSECURE_HTTP=1 \
   -e PCC_ORG_NAME="$ORG" \
+  -e PCC_ORG_ADDRESS="$ORG_ADDRESS" \
+  -e PCC_ORG_PHONE="$ORG_PHONE" \
   -e PCC_PO_NUMBERING=job-vendor-sequence \
   "$IMAGE" >/dev/null || fatal "the restored container did not start"
 
