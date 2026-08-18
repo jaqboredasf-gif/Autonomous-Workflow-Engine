@@ -167,10 +167,23 @@ export async function requireAccess(pathname: string): Promise<Actor> {
   return actor as Actor;
 }
 
+/**
+ * Is this session held together by a password somebody else chose?
+ *
+ * The page guard above expresses this as a redirect, which is right for a
+ * browser navigation and wrong for a download or a server action — one wants a
+ * screen, the others want a refusal. Same rule, two shapes, one source: both
+ * read the flag the credential store put on the actor.
+ */
+export function mustChangePassword(actor: Actor | null): boolean {
+  return Boolean(actor?.mustChangePassword);
+}
+
 /** Where this person belongs after signing in. */
 export async function defaultWorkspace(): Promise<string> {
   const actor = await currentActor();
-  return actor ? defaultWorkspaceFor(actor) : '/sign-in';
+  if (!actor) return '/sign-in';
+  return mustChangePassword(actor) ? '/change-password' : defaultWorkspaceFor(actor);
 }
 
 // --- sign in / out ----------------------------------------------------------
@@ -251,10 +264,37 @@ export async function signIn(
   if (result.accessToken) store.set(ACCESS_TOKEN_COOKIE, result.accessToken, cookieOptions);
   if (result.refreshToken) store.set(REFRESH_TOKEN_COOKIE, result.refreshToken, cookieOptions);
 
+  // A TEMPORARY PASSWORD LANDS ON THE SCREEN THAT REPLACES IT, and `next` does
+  // not survive: honouring it would send somebody to a page that immediately
+  // bounces them here anyway, which reads as the application being broken.
+  if (mustChangePassword(actor)) return { ok: true, redirectTo: '/change-password' };
+
   // Only ever redirect INSIDE this application: an open redirect on a sign-in
   // form is a phishing primitive.
   const safeNext = next && next.startsWith('/') && !next.startsWith('//') ? next : null;
   return { ok: true, redirectTo: safeNext ?? defaultWorkspaceFor(actor) };
+}
+
+/**
+ * Reissue this browser's identity cookie for the same person.
+ *
+ * Used after a password change. It is NOT session revocation — this
+ * architecture has no session store to revoke from, and pretending otherwise
+ * would be the more dangerous claim. What actually stops an old session is that
+ * every request re-reads the person and their credential flag from the
+ * database, so an administrator's reset governs a browser that signed in
+ * yesterday on its very next request.
+ */
+export async function renewSession(userId: string): Promise<void> {
+  const config = loadConfig();
+  const token = await signSession(
+    newSessionPayload(userId, config.authProvider, config.sessionTtlSeconds),
+    config.sessionSecret,
+  );
+  const store = await cookies();
+  store.set(SESSION_COOKIE, token, {
+    httpOnly: true, sameSite: 'lax', secure: config.cookieSecure, path: '/', maxAge: config.sessionTtlSeconds,
+  });
 }
 
 export async function signOut() {

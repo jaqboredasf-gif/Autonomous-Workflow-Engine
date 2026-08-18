@@ -524,6 +524,12 @@ somewhere. Nothing else in the application knows or cares what the hostname is.
 * **`/forgot-password` gives nothing away.** It is a public page, so it answers every address the
   same way — no reset code, no confirmation that an address has an account. Recovery is an
   administrator setting a temporary password in **Administration → Users → Reset access**.
+* **A password somebody else chose must be replaced before the account works.** Any password set by
+  an administrator, by the break-glass command, or by the first-start bootstrap is marked
+  temporary: the holder can sign in and reach exactly one screen — *Choose your own password* —
+  and every other page, download and action is refused until they do. It clears when they replace
+  it, and only then. So `PCC_BOOTSTRAP_ADMIN_PASSWORD` being briefly in an environment file is a
+  way in that expires on first use, rather than a password to remember to change.
 
 ### 10a. Nobody can sign in — the way back
 
@@ -557,7 +563,8 @@ role, or re-enable an account somebody disabled on purpose (pass `--enable` to m
 explicitly). The change is written to the audit trail as
 `auth.credentials_reset_out_of_band`; the password is not.
 
-Sign in with the new password and change it from inside the application.
+Sign in with the new password. PCC will ask for a replacement before anything else opens — the
+operator who ran this command knows the one they typed, so it is a way in, not a credential.
 
 ---
 

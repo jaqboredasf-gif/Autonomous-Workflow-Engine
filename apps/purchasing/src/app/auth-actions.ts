@@ -10,7 +10,7 @@
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
-import { signIn, signOut, signInAsDemoUser, demoModeEnabled } from '../server/session.ts';
+import { signIn, signOut, signInAsDemoUser, demoModeEnabled, currentActor, renewSession } from '../server/session.ts';
 import { loadConfig } from '../purchasing/infrastructure/env.ts';
 import { authAdapter } from '../purchasing/infrastructure/auth/index.ts';
 import { getDb } from '../purchasing/infrastructure/sqlite/database.ts';
@@ -89,6 +89,60 @@ export async function forgotPasswordAction(_prev: ForgotPasswordState, formData:
   // work: which addresses have accounts here is not a stranger's business, and
   // a response that varies is an answer to that question.
   return { sent: true };
+}
+
+export type ChangePasswordState = { error: string | null } | null;
+
+/**
+ * Replace a password with one only its holder knows.
+ *
+ * NOT IN actions.ts, and that is the point: every action in that file is
+ * refused while a change is outstanding, and this is the one thing such a
+ * person must be able to do. It is also the only place `changeOwnPassword` is
+ * called, so the flag is cleared exactly when somebody proves they know the
+ * current password and picks a different one.
+ *
+ * Nothing here is returned to the browser but a message, and nothing is logged
+ * but the outcome. Neither password appears in either.
+ */
+export async function changePasswordAction(_prev: ChangePasswordState, formData: FormData): Promise<ChangePasswordState> {
+  const actor = await currentActor();
+  if (!actor) redirect('/sign-in');
+
+  const currentPassword = String(formData.get('currentPassword') ?? '');
+  const newPassword = String(formData.get('newPassword') ?? '');
+  const confirmPassword = String(formData.get('confirmPassword') ?? '');
+
+  if (!currentPassword || !newPassword) return { error: 'Fill in every box.' };
+  if (newPassword !== confirmPassword) return { error: 'The two new passwords do not match.' };
+
+  const config = loadConfig();
+  const result = await authAdapter(getDb(), config).changeOwnPassword(actor.id, currentPassword, newPassword);
+
+  if (!result.ok) {
+    log.warn('auth.password_change_failed', { userId: actor.id, reason: result.reason });
+    switch (result.reason) {
+      case 'weak_password':
+        return { error: 'Your new password must be at least 10 characters.' };
+      case 'same_password':
+        return { error: 'Choose a password different from the one you were given.' };
+      case 'unsupported':
+        return { error: 'This sign-in provider manages passwords elsewhere. Ask an administrator.' };
+      default:
+        return { error: 'That current password is not right.' };
+    }
+  }
+
+  log.info('auth.password_changed', { userId: actor.id });
+
+  // A FRESH SESSION COOKIE. There is no server-side session store to revoke —
+  // the cookie is a signed, expiring assertion — so the nearest honest thing is
+  // to reissue this browser's cookie on the credential changing. Any other
+  // browser holding an old cookie is already governed by the flag, which is
+  // re-read from the database on every request.
+  await renewSession(actor.id);
+
+  redirect('/?password_changed=1');
 }
 
 export async function demoSignInAction(formData: FormData) {

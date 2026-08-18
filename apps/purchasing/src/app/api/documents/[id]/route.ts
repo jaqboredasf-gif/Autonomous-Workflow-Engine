@@ -6,7 +6,7 @@
 import { NextResponse } from 'next/server';
 
 import { getDocumentForDownload } from '../../../../purchasing/application/queries.ts';
-import { currentActor, purchasingRequestContext } from '../../../../server/session.ts';
+import { currentActor, mustChangePassword, purchasingRequestContext } from '../../../../server/session.ts';
 import { fileDownloadResponse } from '../../../../server/file-response.ts';
 
 export const dynamic = 'force-dynamic';
@@ -15,6 +15,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const actor = await currentActor();
   if (!actor) return new NextResponse('Sign in first.', { status: 401 });
+  // The route guard is a redirect, which is meaningless to a download. Same
+  // rule, stated as a refusal: an account on a password somebody else chose
+  // reads nothing.
+  if (mustChangePassword(actor)) {
+    return new NextResponse('Change your password before using PCC.', { status: 403 });
+  }
 
   let document;
   try {

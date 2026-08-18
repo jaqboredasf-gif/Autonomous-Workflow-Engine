@@ -21,7 +21,7 @@ import { saveReviewAndDecide } from '../purchasing/application/decisions.ts';
 import * as admin from '../purchasing/application/administration.ts';
 import * as fulfilment from '../purchasing/application/fulfilment.ts';
 import * as requests from '../purchasing/application/requests.ts';
-import { currentActor, purchasingRequestContext } from '../server/session.ts';
+import { currentActor, mustChangePassword, purchasingRequestContext } from '../server/session.ts';
 import { safeFilename } from '../server/file-response.ts';
 
 type Result = { ok: true; data?: any } | { ok: false; error: string; reason?: string; details?: any };
@@ -29,6 +29,20 @@ type Result = { ok: true; data?: any } | { ok: false; error: string; reason?: st
 async function run<T>(fn: (ctx: any, actor: S.Actor) => Promise<T> | T): Promise<Result> {
   const actor = await currentActor();
   if (!actor) return { ok: false, error: 'You are signed out. Sign in again.', reason: 'no_session' };
+  // ONE SENTENCE COVERING EVERY ACTION IN THIS FILE.
+  //
+  // Route guards protect pages; this protects the writes. A person signed in on
+  // a password an administrator chose could otherwise still POST to any action
+  // here — the screen would be unreachable, the operation would not be, and the
+  // form of the attack is a saved bookmark, not a clever one. The change
+  // screen's own action lives in auth-actions.ts and does not pass through here.
+  if (mustChangePassword(actor)) {
+    return {
+      ok: false,
+      error: 'Choose your own password before using PCC.',
+      reason: 'must_change_password',
+    };
+  }
   try {
     const data = await fn(await purchasingRequestContext(), actor);
     return { ok: true, data };

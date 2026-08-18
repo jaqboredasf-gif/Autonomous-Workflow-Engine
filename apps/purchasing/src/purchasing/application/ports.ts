@@ -36,6 +36,16 @@ export type Actor = {
   isDeliveryReceiver: boolean;
   /** The job numbers this person may confirm deliveries for. Server-resolved. */
   assignedJobNumbers: string[];
+  /**
+   * This person is signed in with a password somebody else chose, and must
+   * replace it before doing anything else. Read from the credential store on
+   * every request, never from anything the browser sent.
+   *
+   * Optional because it is a property of the LOCAL credential provider: a
+   * Supabase identity has no such flag, and there it is simply absent — which
+   * routeDecision treats as false.
+   */
+  mustChangePassword?: boolean;
 };
 
 export interface Clock {
@@ -71,8 +81,21 @@ export interface AuthPort {
   signIn(email: string, password: string): Promise<AuthResult>;
   requestPasswordReset(email: string): Promise<{ ok: boolean; token?: string }>;
   resetPassword(token: string, newPassword: string): Promise<{ ok: boolean; reason?: string }>;
-  /** Administrative: invite a user, or reset access for one. */
+  /**
+   * Administrative: invite a user, or reset access for one.
+   *
+   * A password set here is one somebody ELSE chose and passed on, so a provider
+   * that can express it marks the credential as requiring replacement before
+   * the account may be used for anything.
+   */
   setPassword(userId: string, password: string): Promise<void>;
+  /**
+   * The person replaces their own password, proving they know the current one.
+   * Clears any requirement to change it.
+   */
+  changeOwnPassword(
+    userId: string, currentPassword: string, newPassword: string,
+  ): Promise<{ ok: boolean; reason?: 'invalid_credentials' | 'weak_password' | 'same_password' | 'unsupported' }>;
   setDisabled(userId: string, disabled: boolean): Promise<void>;
 }
 

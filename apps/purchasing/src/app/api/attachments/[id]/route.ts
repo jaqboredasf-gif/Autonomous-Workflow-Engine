@@ -12,7 +12,7 @@
 import { NextResponse } from 'next/server';
 
 import { getAttachmentForDownload } from '../../../../purchasing/application/queries.ts';
-import { currentActor, purchasingRequestContext } from '../../../../server/session.ts';
+import { currentActor, mustChangePassword, purchasingRequestContext } from '../../../../server/session.ts';
 import { fileDownloadResponse } from '../../../../server/file-response.ts';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +21,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const actor = await currentActor();
   if (!actor) return new NextResponse('Sign in first.', { status: 401 });
+  // See the documents route: a redirect means nothing to a download, so the
+  // same rule is stated as a refusal.
+  if (mustChangePassword(actor)) {
+    return new NextResponse('Change your password before using PCC.', { status: 403 });
+  }
 
   let attachment;
   try {

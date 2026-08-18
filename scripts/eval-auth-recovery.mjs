@@ -212,6 +212,127 @@ ok(enabled.code === 0 && /re-enabled/.test(enabled.out), '--enable re-enables it
 ok((await auth.signIn(ADMIN, NEW_PASSWORD)).ok === true, 'and the account signs in again');
 
 // ---------------------------------------------------------------------------
+console.log('--- a password somebody else chose opens nothing else ------------');
+
+const { routeDecision, PASSWORD_CHANGE_ROUTES } = await import(
+  join(APP, 'purchasing', 'domain', 'workspaces.mjs')
+);
+const { identityAdapter } = await import(join(APP, 'purchasing', 'infrastructure', 'adapters.ts'));
+const identityPort = identityAdapter(db);
+
+const TEMP_PASSWORD = 'temporary-from-the-office';
+const MINE = 'a password only mike knows';
+
+const mike = db.prepare("select id, email from users where email like 'mike%'").get();
+ok(Boolean(mike), 'the fixture has a user to act as');
+
+const flagOf = (userId) =>
+  Number(db.prepare('select must_change_password from auth_identities where user_id = ?').get(userId)
+    ?.must_change_password ?? -1);
+
+// An administrator hands out a password. This is the ONE call every
+// administrative path funnels through — invite, reset access, bootstrap.
+await auth.setPassword(mike.id, TEMP_PASSWORD);
+ok(flagOf(mike.id) === 1, 'an administratively-set password requires a change');
+
+const asMike = await identityPort.load(mike.id);
+ok(asMike.mustChangePassword === true, 'and the actor carries it, read from the credential store');
+
+ok((await auth.signIn(mike.email, TEMP_PASSWORD)).ok === true,
+   'the temporary password still SIGNS IN — the account is reachable, not locked out');
+
+// Every route a working day is made of.
+for (const path of ['/workshop', '/dashboard', '/my-requests', '/requests/new', '/admin',
+                    '/receiving', '/api/documents/any-id', '/api/materials/suggest']) {
+  const decision = routeDecision(asMike, path);
+  ok(decision.allow === false && decision.redirect === '/change-password',
+     `${path} is refused and sent to the password screen`, JSON.stringify(decision));
+  ok(decision.reason === 'must_change_password', `${path} says why`, decision.reason);
+}
+
+// And the few that must still work, or the person is trapped.
+for (const path of PASSWORD_CHANGE_ROUTES) {
+  ok(routeDecision(asMike, path).allow === true, `${path} stays open — no trap, no redirect loop`);
+}
+ok(PASSWORD_CHANGE_ROUTES.includes('/change-password'), 'the way out is one of them');
+ok(PASSWORD_CHANGE_ROUTES.includes('/api/auth/sign-out'), 'and so is signing out');
+ok(routeDecision(asMike, '/sign-in').allow === true, 'public routes are unaffected');
+
+// The refusal must not depend on the ROUTE TABLE knowing about the flag: an
+// unknown path is refused for its own reason and must not become an escape.
+ok(routeDecision(asMike, '/some/route/nobody/added').allow === false,
+   'an unknown route is still refused');
+
+console.log('--- replacing it, and what that clears ---------------------------');
+
+const wrongCurrent = await auth.changeOwnPassword(mike.id, 'not the temporary one', MINE);
+ok(wrongCurrent.ok === false && wrongCurrent.reason === 'invalid_credentials',
+   'a wrong current password is refused');
+ok(flagOf(mike.id) === 1, 'and changes nothing');
+ok((await auth.signIn(mike.email, TEMP_PASSWORD)).ok === true, 'the old password still works after a failed attempt');
+
+const tooShort = await auth.changeOwnPassword(mike.id, TEMP_PASSWORD, 'short');
+ok(tooShort.ok === false && tooShort.reason === 'weak_password', 'a password under ten characters is refused');
+
+const same = await auth.changeOwnPassword(mike.id, TEMP_PASSWORD, TEMP_PASSWORD);
+ok(same.ok === false && same.reason === 'same_password',
+   'and "changing" it to the same one is refused — the administrator would still know it');
+ok(flagOf(mike.id) === 1, 'neither refusal cleared the requirement');
+
+const changed = await auth.changeOwnPassword(mike.id, TEMP_PASSWORD, MINE);
+ok(changed.ok === true, 'the right current password and a new one succeeds');
+ok(flagOf(mike.id) === 0, 'the requirement is cleared');
+ok((await auth.signIn(mike.email, MINE)).ok === true, 'the new password signs in');
+ok((await auth.signIn(mike.email, TEMP_PASSWORD)).ok === false, 'the temporary one no longer does');
+
+const afterwards = await identityPort.load(mike.id);
+ok(afterwards.mustChangePassword === false, 'the actor is no longer flagged');
+for (const path of ['/workshop', '/my-requests', '/dashboard']) {
+  ok(routeDecision(afterwards, path).allow !== false || routeDecision(afterwards, path).reason !== 'must_change_password',
+     `${path} is no longer blocked by the password requirement`);
+}
+
+// A VOLUNTARY change does not re-arm it: the person chose this one too.
+const second = await auth.changeOwnPassword(mike.id, MINE, 'another password mike picked');
+ok(second.ok === true && flagOf(mike.id) === 0,
+   'changing a password you already chose does not demand another change');
+
+// An administrator resetting access re-arms it.
+await auth.setPassword(mike.id, 'the office reset this again');
+ok(flagOf(mike.id) === 1, 'an administrator reset requires a change again');
+
+console.log('--- the flag is not something a user can set ---------------------');
+
+// Nothing outside the credential provider may write it. If a server action or
+// an API route ever does, this fails — and that is the only way an ordinary
+// user could clear it without knowing their current password.
+const appSrc = [
+  'app/actions.ts', 'app/auth-actions.ts',
+  'purchasing/application/administration.ts', 'purchasing/application/requests.ts',
+].map((f) => readFileSync(join(APP, f), 'utf8')).join('\n');
+// WRITES, not mentions: actions.ts legitimately names `must_change_password`
+// as a refusal reason it hands back to the browser. What must not exist above
+// the credential provider is a statement that SETS it, or any other route into
+// the identity table.
+ok(!/must_change_password\s*=\s*[01]/.test(appSrc) && !/into auth_identities/.test(appSrc),
+   'no action, route or use case writes must_change_password — only the credential provider does');
+
+const providerSrc2 = readFileSync(join(APP, 'purchasing', 'infrastructure', 'auth', 'local-auth.ts'), 'utf8');
+const clears = [...providerSrc2.matchAll(/must_change_password = 0/g)].length;
+ok(clears === 1, 'and exactly one statement clears it', `${clears} found`);
+ok(/async changeOwnPassword[\s\S]*must_change_password = 0/.test(providerSrc2),
+   'that statement is inside changeOwnPassword, which verifies the current password first');
+
+// Requirement: neither password is ever returned or logged.
+const authActionsSrc = readFileSync(join(APP, 'app', 'auth-actions.ts'), 'utf8');
+const changeFn = /export async function changePasswordAction[\s\S]*?\n}/.exec(authActionsSrc)?.[0] ?? '';
+ok(changeFn !== '', 'the change action is where this check can read it');
+ok(!/log\.(info|warn|error)\([^)]*(newPassword|currentPassword|confirmPassword)/.test(changeFn),
+   'it never logs a password');
+ok(!/return \{[^}]*(newPassword|currentPassword)/.test(changeFn), 'and never returns one');
+ok(/userId: actor\.id/.test(changeFn), 'what it does log is who, not what');
+
+// ---------------------------------------------------------------------------
 db.close();
 rmSync(TMP, { recursive: true, force: true });
 

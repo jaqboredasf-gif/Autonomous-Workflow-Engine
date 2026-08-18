@@ -219,9 +219,16 @@ function createBootstrapAdministrator(
     ).run(id, orgId, name, email, now, now);
     db.prepare('insert into user_roles (user_id, role_key, granted_at) values (?,?,?)').run(id, 'ADMIN', now);
     const { hash, salt } = hashPassword(password);
+    // must_change_password = 1. THE BOOTSTRAP PASSWORD IS THE MOST EXPOSED
+    // CREDENTIAL THIS APPLICATION EVER HAS: it is typed into a file on disk,
+    // read by whoever installs, and the instructions then tell them to delete
+    // it. "Change this password" was already the first line of the install
+    // checklist; this makes it the first thing the account can do, and the only
+    // thing it can do until it is done.
     db.prepare(
-      `insert into auth_identities (user_id, email, password_hash, salt, disabled, created_at, updated_at)
-       values (?,?,?,?,0,?,?)`,
+      `insert into auth_identities
+         (user_id, email, password_hash, salt, disabled, must_change_password, created_at, updated_at)
+       values (?,?,?,?,0,1,?,?)`,
     ).run(id, email, hash, salt, now, now);
     db.exec('commit');
   } catch (err) {
@@ -232,8 +239,8 @@ function createBootstrapAdministrator(
   return {
     created: true,
     notes: [
-      `created the bootstrap administrator ${email}. Sign in, invite the real users, change this password, ` +
-        'and remove PCC_BOOTSTRAP_ADMIN_PASSWORD from the environment.',
+      `created the bootstrap administrator ${email}. Signing in will ask for a new password before ` +
+        'anything else; then invite the real users and remove PCC_BOOTSTRAP_ADMIN_PASSWORD from the environment.',
     ],
   };
 }

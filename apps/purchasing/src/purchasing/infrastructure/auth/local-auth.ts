@@ -113,20 +113,75 @@ export function localAuthAdapter(db: DatabaseSync): AuthPort {
       return { ok: true };
     },
 
+    // THIS IS THE ADMINISTRATIVE PATH, AND IT ALWAYS DEMANDS A CHANGE.
+    //
+    // Every caller is somebody setting a password for SOMEBODY ELSE: inviting a
+    // user, resetting access, the first-start bootstrap. In each case a second
+    // person now knows the password — they had to, to pass it on — so it is a
+    // way in, not a credential. `must_change_password` is set here rather than
+    // at each call site because "an administrator typed this password" is
+    // exactly the condition, and a rule spread across four callers is a rule
+    // one of them will eventually forget.
+    //
+    // The person's own change goes through changeOwnPassword, which clears it.
     async setPassword(userId: string, password: string) {
       const { hash, salt } = hashPassword(password);
       const now = new Date().toISOString();
       const existing = db.prepare('select user_id from auth_identities where user_id = ?').get(userId) as any;
       if (existing) {
-        db.prepare('update auth_identities set password_hash = ?, salt = ?, updated_at = ? where user_id = ?')
-          .run(hash, salt, now, userId);
+        db.prepare(
+          `update auth_identities
+              set password_hash = ?, salt = ?, must_change_password = 1,
+                  reset_token = null, reset_expires_at = null, updated_at = ?
+            where user_id = ?`,
+        ).run(hash, salt, now, userId);
         return;
       }
       const user = db.prepare('select email from users where id = ?').get(userId) as any;
       db.prepare(
-        `insert into auth_identities (user_id, email, password_hash, salt, disabled, created_at, updated_at)
-         values (?,?,?,?,0,?,?)`,
+        `insert into auth_identities
+           (user_id, email, password_hash, salt, disabled, must_change_password, created_at, updated_at)
+         values (?,?,?,?,0,1,?,?)`,
       ).run(userId, user.email, hash, salt, now, now);
+    },
+
+    /**
+     * The person replaces the password they were given with one only they know.
+     *
+     * The current password is required and verified here, on the server, even
+     * though the caller already holds a valid session: a session is evidence
+     * that somebody signed in, not evidence that the person at the keyboard now
+     * is the same one — an unattended screen is the ordinary case in a
+     * workshop.
+     *
+     * Ten characters is the minimum this application already applies to every
+     * password an administrator sets (administration.ts) and to `resetPassword`
+     * above. It is repeated, not raised: a change screen that demands more than
+     * the rest of the system produces people who cannot complete it.
+     */
+    async changeOwnPassword(userId: string, currentPassword: string, newPassword: string) {
+      const identity = db.prepare('select * from auth_identities where user_id = ?').get(userId) as any;
+      if (!identity || identity.disabled) return { ok: false as const, reason: 'invalid_credentials' as const };
+      if (!currentPassword || !verifyPassword(currentPassword, identity.password_hash, identity.salt)) {
+        return { ok: false as const, reason: 'invalid_credentials' as const };
+      }
+      if (!newPassword || newPassword.length < 10) {
+        return { ok: false as const, reason: 'weak_password' as const };
+      }
+      // A "new" password identical to the temporary one would satisfy the
+      // screen and defeat the entire mechanism: the administrator would still
+      // know it.
+      if (verifyPassword(newPassword, identity.password_hash, identity.salt)) {
+        return { ok: false as const, reason: 'same_password' as const };
+      }
+      const { hash, salt } = hashPassword(newPassword);
+      db.prepare(
+        `update auth_identities
+            set password_hash = ?, salt = ?, must_change_password = 0,
+                reset_token = null, reset_expires_at = null, updated_at = ?
+          where user_id = ?`,
+      ).run(hash, salt, new Date().toISOString(), userId);
+      return { ok: true as const };
     },
 
     async setDisabled(userId: string, disabled: boolean) {

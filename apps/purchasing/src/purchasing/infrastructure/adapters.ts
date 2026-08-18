@@ -56,6 +56,14 @@ export function identityAdapter(db: DatabaseSync): IdentityPort {
         db.prepare('select job_number from user_job_assignments where user_id = ? order by job_number').all(userId) as any[]
       ).map((r) => r.job_number as string);
 
+      // From the CREDENTIAL, read fresh on every request. That is what makes an
+      // administrator's reset take effect on the very next thing an already
+      // signed-in browser does, rather than at cookie expiry — the nearest
+      // thing this stateless-session architecture has to revoking a session.
+      const identity = db
+        .prepare('select must_change_password from auth_identities where user_id = ?')
+        .get(userId) as any;
+
       return {
         id: u.id,
         orgId: u.org_id,
@@ -68,6 +76,7 @@ export function identityAdapter(db: DatabaseSync): IdentityPort {
         isBackupApprover: Boolean(u.is_backup_approver),
         isDeliveryReceiver: Boolean(u.is_delivery_receiver),
         assignedJobNumbers,
+        mustChangePassword: Boolean(identity?.must_change_password),
       };
     },
     async listUsers(orgId) {

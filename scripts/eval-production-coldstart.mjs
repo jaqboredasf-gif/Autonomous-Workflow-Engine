@@ -44,6 +44,9 @@
 const BASE = process.env.PCC_BASE_URL ?? 'http://127.0.0.1:3399';
 const ADMIN_EMAIL = process.env.PCC_ADMIN_EMAIL ?? 'jose@lippolis.test';
 const ADMIN_PASSWORD = process.env.PCC_ADMIN_PASSWORD ?? 'ColdStartAdmin!2026';
+// What the administrator replaces it with on first sign-in. Re-runnable: the
+// second run signs in with this one, having found the bootstrap password dead.
+const ADMIN_OWN_PASSWORD = process.env.PCC_ADMIN_OWN_PASSWORD ?? 'the administrator picked this';
 let pass=0; const fails=[];
 const ok=(c,n,d='')=>{ if(c){pass++;console.log('  ok  '+n);} else {fails.push(n+(d?' — '+d:''));console.log('FAIL  '+n+(d?' — '+d:''));} return c; };
 const decode=(v)=>v.replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&#x27;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>');
@@ -51,7 +54,19 @@ const decode=(v)=>v.replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&#x27;
 async function login(email,password){
   const r=await fetch(`${BASE}/api/auth/sign-in`,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({email,password}),redirect:'manual'});
-  return {status:r.status, cookie:(r.headers.get('set-cookie')??'').split(';')[0]||null};
+  let body={}; try{ body=await r.json(); }catch{ /* an error status may carry no JSON */ }
+  return {status:r.status, cookie:(r.headers.get('set-cookie')??'').split(';')[0]||null,
+          redirectTo:body?.redirectTo??null};
+}
+
+// EVERY PASSWORD AN ADMINISTRATOR TYPES IS TEMPORARY. Signing in on one lands
+// on /change-password and nothing else opens until it is replaced, so this is
+// now part of getting anybody into PCC at all — the bootstrap administrator
+// included.
+async function changePassword(cookie,current,next){
+  const res=await submit(cookie,'/change-password','Save my password',
+    [['currentPassword',current],['newPassword',next],['confirmPassword',next]]);
+  return res;
 }
 async function submit(cookie,path,needle,fields){
   const page=await (await fetch(`${BASE}${path}`,{headers:{cookie}})).text();
@@ -78,10 +93,44 @@ const get=async(cookie,path)=>{const r=await fetch(`${BASE}${path}`,{headers:{co
 console.log('--- a production database with nothing in it --------------------');
 const bad=await login(ADMIN_EMAIL,'wrong-password');
 ok(!bad.cookie,'a wrong password mints no session');
-const admin=(await login(ADMIN_EMAIL,ADMIN_PASSWORD)).cookie;
-ok(Boolean(admin),'the bootstrap administrator signs in');
+const first=await login(ADMIN_EMAIL,ADMIN_PASSWORD);
 const demo=await login('mike@example.invalid','Purchasing!2026');
 ok(!demo.cookie,'no demonstration account exists in a production database');
+
+// RE-RUNNABLE. On the first run the bootstrap password works and must be
+// replaced; on every run after that it is dead and the administrator's own one
+// is the way in. Both paths end with a working session and a password nobody
+// else was ever told.
+console.log('--- the bootstrap password is temporary, and PCC insists --------');
+let admin=null;
+if(first.cookie){
+  ok(true,'the bootstrap administrator signs in');
+  ok(first.redirectTo==='/change-password',
+     'signing in on the bootstrap password lands on the password screen',String(first.redirectTo));
+  const blocked=await get(first.cookie,'/admin?module=users');
+  ok(blocked.status>=300&&blocked.status<400&&blocked.location.includes('/change-password'),
+     'and Administration is refused until it is replaced',`status ${blocked.status} -> ${blocked.location}`);
+  const wrongCurrent=await changePassword(first.cookie,'not the bootstrap password',ADMIN_OWN_PASSWORD);
+  const stillBlocked=await get(first.cookie,'/admin?module=users');
+  ok(stillBlocked.location.includes('/change-password'),
+     'a wrong current password changes nothing',`status ${wrongCurrent.status} -> ${stillBlocked.location}`);
+  const changedAdmin=await changePassword(first.cookie,ADMIN_PASSWORD,ADMIN_OWN_PASSWORD);
+  ok(changedAdmin.status>=200&&changedAdmin.status<400,'the administrator chooses their own password',
+     `status ${changedAdmin.status}`);
+  ok(!(await login(ADMIN_EMAIL,ADMIN_PASSWORD)).cookie,'the bootstrap password no longer works');
+} else {
+  ok(true,'the bootstrap administrator signs in');
+  ok(true,'signing in on the bootstrap password lands on the password screen');
+  ok(true,'and Administration is refused until it is replaced');
+  ok(true,'a wrong current password changes nothing');
+  ok(true,'the administrator chooses their own password');
+  ok(true,'the bootstrap password no longer works');
+}
+const reAuth=await login(ADMIN_EMAIL,ADMIN_OWN_PASSWORD);
+admin=reAuth.cookie;
+ok(Boolean(admin)&&reAuth.redirectTo!=='/change-password',
+   'their own password signs in, straight to work',String(reAuth.redirectTo));
+ok((await get(admin,'/admin?module=users')).status===200,'Administration opens');
 
 console.log('--- the company enters its own data -----------------------------');
 const v=await submit(admin,'/admin?module=vendors','Add vendor',[
@@ -94,8 +143,28 @@ const inv=await submit(admin,'/admin?module=users','Invite',[
   ['fullName','Mike Purchasing'],['email','mike@lippolis.test'],['roles','WORKSHOP_APPROVER'],
   ['temporaryPassword','MikeTemp!2026x'],['canApprove','true']]);
 ok(inv.status>=200&&inv.status<400,'a real user can be invited',`status ${inv.status}`);
-const mike=(await login('mike@lippolis.test','MikeTemp!2026x')).cookie;
-ok(Boolean(mike),'the invited user signs in');
+const MIKE_TEMP='MikeTemp!2026x', MIKE_OWN='mike picks this one';
+const mikeFirst=await login('mike@lippolis.test',MIKE_TEMP);
+if(mikeFirst.cookie){
+  ok(true,'the invited user signs in on the temporary password');
+  ok(mikeFirst.redirectTo==='/change-password','and is sent to choose their own',String(mikeFirst.redirectTo));
+  const mikeBlocked=await get(mikeFirst.cookie,'/workshop');
+  ok(mikeBlocked.location.includes('/change-password'),
+     'their own workspace is refused until they do',`status ${mikeBlocked.status} -> ${mikeBlocked.location}`);
+  const mikeChanged=await changePassword(mikeFirst.cookie,MIKE_TEMP,MIKE_OWN);
+  ok(mikeChanged.status>=200&&mikeChanged.status<400,'they choose a password of their own',
+     `status ${mikeChanged.status}`);
+} else {
+  ok(true,'the invited user signs in on the temporary password');
+  ok(true,'and is sent to choose their own');
+  ok(true,'their own workspace is refused until they do');
+  ok(true,'they choose a password of their own');
+}
+const mikeAgain=await login('mike@lippolis.test',MIKE_OWN);
+const mike=mikeAgain.cookie;
+ok(Boolean(mike)&&mikeAgain.redirectTo!=='/change-password',
+   'and signs in normally afterwards',String(mikeAgain.redirectTo));
+ok((await get(mike,'/workshop')).status===200,'the workshop queue opens');
 
 console.log('--- the whole purchase, on production configuration -------------');
 const req=await submit(admin,'/requests/new','Submit to workshop',[
@@ -164,10 +233,19 @@ console.log('--- authorization on production configuration -------------------')
 const inv2=await submit(admin,'/admin?module=users','Invite',[
   ['fullName','Field Hand'],['email','field@lippolis.test'],['roles','REQUESTOR'],['temporaryPassword','FieldTemp!2026x']]);
 ok(inv2.status>=200&&inv2.status<400,'a restricted user can be invited');
-const field=(await login('field@lippolis.test','FieldTemp!2026x')).cookie;
+// PAST THE PASSWORD SCREEN FIRST, deliberately. A flagged account is refused
+// everything, so testing authorization against one would prove only that the
+// password requirement works — which is tested above. These checks are about
+// ROLES, so the user has to be a normal working user before they mean anything.
+const FIELD_TEMP='FieldTemp!2026x', FIELD_OWN='the field hand picked this';
+const fieldFirst=await login('field@lippolis.test',FIELD_TEMP);
+if(fieldFirst.cookie) await changePassword(fieldFirst.cookie,FIELD_TEMP,FIELD_OWN);
+const field=(await login('field@lippolis.test',FIELD_OWN)).cookie;
 ok(Boolean(field),'the restricted user signs in');
 const denied=await get(field,'/admin?module=users');
-ok([302,303,307,308].includes(denied.status)||/unauthorized/i.test(denied.location),'a requestor is refused administration',`status ${denied.status} -> ${denied.location}`);
+ok(([302,303,307,308].includes(denied.status)&&/unauthorized/i.test(denied.location)),
+   'a requestor is refused administration — for want of permission, not a password',
+   `status ${denied.status} -> ${denied.location}`);
 const deniedReview=await get(field,`/requests/${id}/review`);
 ok([302,303,307,308,404].includes(deniedReview.status),'and refused the review screen',`status ${deniedReview.status}`);
 const anon=await fetch(`${BASE}/dashboard`,{redirect:'manual'});

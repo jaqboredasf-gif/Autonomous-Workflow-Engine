@@ -185,16 +185,22 @@ const hash = scryptSync(password, salt, SCRYPT.keylen, SCRYPT).toString('hex');
 try {
   db.exec('begin immediate');
 
+  // must_change_password = 1, for the same reason the application sets it when
+  // an administrator resets somebody: the operator running this command now
+  // knows the password. It is a way in, not a credential, and PCC will ask for
+  // a replacement before the account can do anything else.
   if (identity) {
     db.prepare(
       `update auth_identities
-          set password_hash = ?, salt = ?, reset_token = null, reset_expires_at = null, updated_at = ?
+          set password_hash = ?, salt = ?, must_change_password = 1,
+              reset_token = null, reset_expires_at = null, updated_at = ?
         where user_id = ?`,
     ).run(hash, salt, now, user.id);
   } else {
     db.prepare(
-      `insert into auth_identities (user_id, email, password_hash, salt, disabled, created_at, updated_at)
-       values (?,?,?,?,0,?,?)`,
+      `insert into auth_identities
+         (user_id, email, password_hash, salt, disabled, must_change_password, created_at, updated_at)
+       values (?,?,?,?,0,1,?,?)`,
     ).run(user.id, user.email, hash, salt, now, now);
   }
 
@@ -252,4 +258,4 @@ if (!roles.includes('ADMIN')) {
   console.log('        Run with --list to see who does.');
 }
 if (flag('enable')) console.log('  the account was re-enabled.');
-console.log('  Sign in with it now, and change the password from inside the application.');
+console.log('  Sign in with it now — PCC will ask for a new password before anything else.');

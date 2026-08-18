@@ -49,6 +49,11 @@ of 10+ characters. Job sites are needed only for a foreman who signs for deliver
 The system does not email the password — hand it over in person. There is no invitation
 lifecycle yet (no pending list, no resend); an invited user can sign in immediately.
 
+**The password you type is temporary, and PCC enforces that.** You know it, so it is a way in
+rather than a credential. The first time they sign in, PCC sends them straight to *Choose your
+own password* and refuses every other screen and every action until they have picked one. You
+never see what they choose, and neither does the log. Nothing for you to remember to chase.
+
 ## Managing access
 
 Per person, under **Manage**:
@@ -67,7 +72,8 @@ Per person, under **Manage**:
   at the counter was to give them an OFFICE or WORKSHOP_APPROVER role, which also lets them
   approve purchases and read every request in the company. Assign `WORKSHOP` instead: it
   grants shop receiving and nothing else.
-- **Reset access** — sets a new temporary password through the credential provider.
+- **Reset access** — sets a new temporary password through the credential provider. Same rule as
+  an invitation: they must replace it before PCC will let them do anything else.
 - **Disable / re-enable** — a disabled account cannot sign in, and existing sessions stop
   working on their next request, because every request re-reads the person from the database.
   You cannot disable yourself.

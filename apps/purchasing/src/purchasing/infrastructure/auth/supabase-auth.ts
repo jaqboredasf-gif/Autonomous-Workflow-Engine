@@ -154,6 +154,23 @@ export function supabaseAuthAdapter(db: DatabaseSync, config: AppConfig): AuthPo
       db.prepare('update users set auth_user_id = ? where id = ?').run(data.user.id, userId);
     },
 
+    async changeOwnPassword() {
+      // NOT IMPLEMENTED HERE, AND SAYING SO IS THE HONEST ANSWER.
+      //
+      // Supabase Auth owns the credential: a self-service change is
+      // `auth.updateUser({ password })` on a client carrying the person's own
+      // session, and there is no `must_change_password` on a Supabase identity
+      // to clear — the flag lives on `auth_identities`, which this provider
+      // does not use.
+      //
+      // Writing it blind would produce a path nothing here can exercise: no
+      // hosted project has ever been configured (see PCC_PRODUCTION_READINESS
+      // "Tenant isolation"), so it would ship as untested code that looks
+      // finished. The Lippolis pilot runs on the local provider, and the day
+      // Supabase becomes real this is a small, testable piece of that work.
+      return { ok: false, reason: 'unsupported' as const };
+    },
+
     async setDisabled(userId: string, disabled: boolean) {
       const user = db.prepare('select auth_user_id from users where id = ?').get(userId) as any;
       if (!user?.auth_user_id) return;

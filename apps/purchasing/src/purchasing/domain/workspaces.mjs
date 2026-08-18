@@ -126,7 +126,25 @@ export const PUBLIC_ROUTES = [
   '/api/auth/sign-in',
 ];
 
+/**
+ * THE ONLY PLACES A PERSON HOLDING A PASSWORD SOMEBODY ELSE CHOSE MAY GO.
+ *
+ * Deliberately three, and deliberately not `/unauthorized` or the workspace
+ * they would otherwise land on: the point is that the account does nothing
+ * until the password is replaced, and every extra exit is a way to put it off.
+ *
+ * `/change-password` is the way out. Sign-out is always allowed — trapping
+ * somebody in a screen they cannot leave produces a phone call, not a password
+ * change. The root only redirects, and redirecting it here is what stops the
+ * default workspace from being a way around this.
+ */
+export const PASSWORD_CHANGE_ROUTES = ['/change-password', '/api/auth/sign-out', '/'];
+
 export const ROUTE_GUARDS = [
+  // Reachable by anyone signed in, whether or not they are being made to change
+  // it: a person may replace a password they already chose, and forcing a
+  // change on somebody doing it voluntarily would be nonsense.
+  { prefix: '/change-password', permission: null },
   { prefix: '/admin', permission: 'admin.settings' },
   { prefix: '/workshop', permission: 'review.read_queue' },
   { prefix: '/accounting', permission: 'accounting.read' },
@@ -188,6 +206,18 @@ export function routeDecision(user, pathname) {
   if (isPublicRoute(pathname)) return { allow: true };
   if (!user) return { allow: false, redirect: '/sign-in', reason: 'no_session' };
   if (user.isActive === false) return { allow: false, redirect: '/sign-in?error=account_disabled', reason: 'account_disabled' };
+
+  // A PASSWORD SOMEBODY ELSE CHOSE OPENS NOTHING BUT THE SCREEN THAT REPLACES IT.
+  //
+  // Checked BEFORE the permission guard, so it applies to every route including
+  // the ones the person is otherwise entitled to, and checked here rather than
+  // in a page or a layout so that server actions and API routes are covered by
+  // the same sentence. The flag is read from the credential store on every
+  // request, so an administrator's reset takes hold on the account's next move
+  // rather than whenever its cookie happens to expire.
+  if (user.mustChangePassword && !PASSWORD_CHANGE_ROUTES.includes(pathname)) {
+    return { allow: false, redirect: '/change-password', reason: 'must_change_password' };
+  }
 
   const guard = guardFor(pathname);
   if (!guard) return { allow: false, redirect: '/unauthorized', reason: 'unknown_route' };

@@ -746,6 +746,15 @@ create table if not exists auth_identities (
   password_hash    text not null,
   salt             text not null,
   disabled         integer not null default 0 check (disabled in (0,1)),
+  -- A password somebody ELSE chose. Set whenever an administrator (or the
+  -- break-glass command, or the first-start bootstrap) writes a credential, and
+  -- cleared only when the person themself replaces it. While it is 1 the holder
+  -- may sign in and may do nothing else — see routeDecision in workspaces.mjs.
+  --
+  -- It belongs on the identity rather than on the user because it is a fact
+  -- about the CREDENTIAL: the same person authenticating through a different
+  -- provider has a different answer, and Supabase Auth owns its own.
+  must_change_password integer not null default 0 check (must_change_password in (0,1)),
   reset_token      text unique,
   reset_expires_at text,
   last_sign_in_at  text,
@@ -981,6 +990,16 @@ const ADDED_COLUMNS = [
   // purchase order. Invisible to the suite, which builds each database from
   // SCHEMA and therefore always has the column.
   "alter table purchase_approvals add column self_approved integer not null default 0",
+  // 0039: a credential somebody else chose must be replaced before the account
+  // can be used.
+  //
+  // DEFAULT 0 ON AN EXISTING DATABASE, DELIBERATELY. Every credential already
+  // in a live installation was either chosen by its holder or has been in use
+  // for some time; flagging them all on upgrade would meet the whole company
+  // with a password-change screen on the morning of a release nobody was told
+  // about. New administrative writes set it explicitly — see
+  // local-auth.setPassword.
+  'alter table auth_identities add column must_change_password integer not null default 0',
 ];
 
 /**
@@ -998,7 +1017,7 @@ const LATE_INDEXES = [
   'create index if not exists po_job_vendor_sequences_org_idx on po_job_vendor_sequences(org_id, job_number)',
 ];
 
-export const SCHEMA_VERSION = '0038-po-number-per-job-vendor';
+export const SCHEMA_VERSION = '0039-must-change-password';
 
 function migrate(db: DatabaseSync) {
   refreshOwnedTriggers(db);
