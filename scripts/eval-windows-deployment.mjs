@@ -317,6 +317,82 @@ check(/Restart-Computer/.test(verification.REBOOT_RECOVERY_SUCCEEDED),
   'and reboot recovery is an actual reboot, not an inference');
 
 // ---------------------------------------------------------------------------
+console.log('--- the execution package is complete and consistent ------------');
+
+const PREFLIGHT = 'scripts/preflight-windows.ps1';
+const DEPLOY = 'scripts/Deploy-PCCProduction.ps1';
+const IIS = 'scripts/Configure-PCCIIS.ps1';
+const TEMPLATE = 'config/production.env.template';
+const PACKAGE = 'docs/deployment/PCC_RDS02_EXECUTION_PACKAGE.md';
+const EVIDENCE = 'docs/deployment/PCC_PRODUCTION_EVIDENCE.md';
+
+for (const f of [PREFLIGHT, DEPLOY, IIS, TEMPLATE, PACKAGE, EVIDENCE]) {
+  check(existsSync(join(ROOT, f)), `${f} exists`);
+}
+const preflight = read(PREFLIGHT);
+const deploy = read(DEPLOY);
+const iis = read(IIS);
+const template = read(TEMPLATE);
+const pkg = read(PACKAGE);
+
+// ONE INSTALLER. The orchestrator must call the existing scripts, never grow a
+// second copy of their logic — two installers disagreeing about production is
+// the failure this whole boundary exists to prevent.
+check(/install-production\.ps1/.test(deploy), 'the entrypoint calls the existing installer');
+check(/install-backup-task\.ps1/.test(deploy), 'and the existing backup scheduler');
+check(/pcc-verify-deployment\.mjs/.test(deploy), 'and the existing verifier');
+check(/preflight-windows\.ps1/.test(deploy), 'and the preflight');
+check(!/nssm install/.test(deploy),
+  'and it registers no service of its own — that belongs to the installer');
+check(!/icacls/.test(deploy),
+  'and applies no permissions of its own');
+
+// A failure must stop the run: every step after one reports on a system that is
+// not in the state it believes.
+check(/Stop-Here/.test(deploy), 'the entrypoint stops at the first failure');
+check(/idempotent/i.test(deploy), 'and says re-running is safe');
+
+// The preflight must not become a second installer either.
+check(/changes nothing|CHANGES NOTHING/i.test(preflight), 'the preflight states it is read-only');
+check(/pcc-preflight\.mjs/.test(preflight),
+  'and delegates the PCC-level checks rather than reimplementing them');
+check(/BLOCKER/.test(preflight) && /WARNING/.test(preflight) && /PASS/.test(preflight),
+  'and classifies findings three ways');
+// The two most commonly missed IIS pieces, and the setting that makes ARR work.
+for (const probe of ['URL Rewrite', 'Application Request Routing', 'nssm', 'node']) {
+  check(preflight.includes(probe), `the preflight checks for ${probe}`);
+}
+check(/proxy.*enabled|enabled.*proxy/i.test(preflight),
+  'including whether ARR proxying is actually turned on');
+
+// The backend must never be published to the LAN.
+check(/127\.0\.0\.1:\$BackendPort/.test(iis), 'IIS proxies to the loopback interface');
+check(/preserveHostHeader/.test(iis),
+  'and preserves the host header, or password-reset links point at 127.0.0.1');
+check(/Phase Http|-Phase Https/.test(iis), 'IIS configuration works before a certificate exists');
+check(/X_FORWARDED_PROTO/.test(iis), 'and forwards the original scheme');
+
+// The template must carry no real secret and must mark what refuses.
+check(/^SESSION_SECRET=$/m.test(template), 'the template ships SESSION_SECRET empty');
+check(/^PCC_BOOTSTRAP_ADMIN_PASSWORD=$/m.test(template), 'and the bootstrap password empty');
+check(!/SESSION_SECRET=\S/.test(template), 'and no value was pasted in by accident');
+for (const v of ['PCC_ORG_ADDRESS', 'PCC_ORG_PHONE', 'PCC_PO_NUMBERING', 'PCC_DATABASE_PATH', 'APP_BASE_URL']) {
+  check(template.includes(v), `the template documents ${v}`);
+}
+
+// THE PO SEQUENCE IS PER PAIR. Asking the office for "the next PO number"
+// produces a confident answer to a question PCC does not ask.
+check(/per job ?\+ ?vendor PAIR|per \*\*job \+ vendor PAIR\*\*/i.test(pkg),
+  'the package states that PO numbering is per job+vendor pair');
+check(/no single starting PO number/i.test(pkg),
+  'and that there is no single starting number to ask for');
+check(/[Dd]o not guess/.test(pkg), 'and that numbers are never guessed');
+
+// Reboot survival is evidence, not configuration.
+check(/cannot be inferred/i.test(pkg), 'the checklist marks reboot survival as unprovable in advance');
+check(/proven: true/.test(pkg), 'and ties flipping the adapter to that observation');
+
+// ---------------------------------------------------------------------------
 console.log('--- PCC still does not send email ------------------------------');
 
 // Microsoft 365 SMTP details arriving from IT is not a reason to grow a send
