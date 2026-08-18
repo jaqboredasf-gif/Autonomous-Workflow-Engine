@@ -244,7 +244,14 @@ cat <<'NEXT'
   6. Run the restore rehearsal on this machine:
         bash scripts/restore-rehearsal.sh
 
-  7. Fill in the installation record in PCC_VM_INSTALLATION_RUNBOOK.md.
+  7. Run the production verification, and keep the output:
+        node scripts/pcc-verify-deployment.mjs
+     It must end with: READY FOR ACCEPTANCE TESTING
+
+  8. Work through docs/deployment/PCC_PRODUCTION_ACCEPTANCE.md — provision the
+     real people, run one real purchase order, reboot the VM, verify again.
+
+  9. Fill in the installation record in PCC_VM_INSTALLATION_RUNBOOK.md.
 
   NOT DONE BY THIS SCRIPT, and not by any script:
      · the purchase order sequence — it comes from the office's paper book,

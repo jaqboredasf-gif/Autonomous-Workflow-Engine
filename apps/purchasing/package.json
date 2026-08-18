@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "bash ../../scripts/eval-purchasing-domain.sh",
     "test:integration": "bash ../../scripts/eval-purchasing.sh",
-    "test": "npm run typecheck && npm run test:unit && npm run test:workflow && npm run test:providers && npm run test:isolation && npm run test:recovery && npm run test:backup && npm run test:source && npm run test:integration && npm run test:web && npm run test:refusal",
+    "test": "npm run typecheck && npm run test:unit && npm run test:workflow && npm run test:providers && npm run test:isolation && npm run test:recovery && npm run test:backup && npm run test:source && npm run test:verify && npm run test:integration && npm run test:web && npm run test:refusal",
     "test:recovery": "node ../../scripts/eval-auth-recovery.mjs",
     "test:backup": "node ../../scripts/eval-backup-operations.mjs",
     "test:web": "bash ../../scripts/eval-purchasing-web.sh",
@@ -20,7 +20,8 @@
     "test:workflow": "node ../../scripts/eval-workflow-engine.mjs",
     "test:operability": "node ../../scripts/eval-pcc-operability.mjs",
     "postbuild": "node ../../scripts/stage-standalone.mjs && node ../../scripts/check-deployable.mjs",
-    "test:source": "node ../../scripts/eval-source-of-truth.mjs"
+    "test:source": "node ../../scripts/eval-source-of-truth.mjs",
+    "test:verify": "node ../../scripts/eval-verify-deployment.mjs"
   },
   "dependencies": {
     "next": "16.2.10",

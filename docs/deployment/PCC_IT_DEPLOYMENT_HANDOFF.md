@@ -11,6 +11,13 @@ port; where that container runs is your decision, and the application has no opi
 > PCC. See `SOURCE_OF_TRUTH.md` at the repository root.
 
 
+> **After installing, and after every reboot or update, run one command:**
+> `node scripts/pcc-verify-deployment.mjs` — it checks the service, the database, the
+> configuration, storage, the credential store, the backup tooling and the backup schedule, and
+> ends with READY FOR ACCEPTANCE TESTING or NOT READY with the blocking reasons. It is read-only,
+> it never prints a secret value, and it changes nothing. The acceptance sequence that follows it
+> is `PCC_PRODUCTION_ACCEPTANCE.md`.
+
 > **Start with `PCC_IT_INSTALLATION_PACKET.md`** — one page covering what to provision, what to
 > connect, and the ten answers we need before installation. **This document is the operations
 > runbook**: start, stop, logs, update, backup, restore. The other two in this directory are

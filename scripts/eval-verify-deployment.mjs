@@ -1,0 +1,247 @@
+// ---------------------------------------------------------------------------
+// eval-verify-deployment.mjs — can the production verifier be trusted?
+//
+// It is the command Lippolis IT will run to decide whether an installation is
+// safe to put people on, so the failure that matters most is not "it missed
+// something" — it is "it said READY when it was not", or "it printed a session
+// secret into somebody's terminal scrollback", or "it modified the company's
+// database while checking it".
+//
+// So this asserts the three properties the report's usefulness rests on:
+//
+//   HONEST     it reports UNVERIFIED where it could not check, BLOCKED where it
+//              genuinely checked and found a problem, and exits non-zero only
+//              for real blockers
+//   SILENT     no secret value ever reaches the output, in either format,
+//              including the ones deliberately planted here
+//   HARMLESS   the database is byte-for-byte identical afterwards — including
+//              after the write-lock check, which is the one thing in it that
+//              touches the file in a writable mode
+//
+// Everything here runs offline against a throwaway database.
+// ---------------------------------------------------------------------------
+
+import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(HERE, '..');
+const APP = join(ROOT, 'apps', 'purchasing', 'src');
+const SCRIPT = join(ROOT, 'scripts', 'pcc-verify-deployment.mjs');
+
+let pass = 0;
+const fails = [];
+const ok = (cond, name, detail = '') => {
+  if (cond) { pass++; console.log(`  ok  ${name}`); }
+  else { fails.push(name + (detail ? ` — ${detail}` : '')); console.log(`FAIL  ${name}${detail ? ` — ${detail}` : ''}`); }
+};
+
+const TMP = mkdtempSync(join(tmpdir(), 'pcc-verify-eval-'));
+const DB = join(TMP, 'pcc.sqlite');
+
+const { openDatabase } = await import(join(APP, 'purchasing', 'infrastructure', 'sqlite', 'database.ts'));
+const { seed } = await import(join(APP, 'purchasing', 'infrastructure', 'seed.ts'));
+const db = openDatabase(DB);
+seed(db, '2026-08-18T09:00:00.000Z');
+db.close();
+
+// The planted secrets. If either of these strings appears anywhere in the
+// output, the report is a way to leak a credential into a terminal history.
+const SESSION_SECRET = 'a-very-secret-session-key-that-must-never-be-printed-0123456789';
+const BOOTSTRAP_PASSWORD = 'bootstrap-password-that-must-never-be-printed';
+
+const PROD_ENV = {
+  ...process.env,
+  NODE_ENV: 'production',
+  SESSION_SECRET,
+  PCC_DATABASE_PATH: DB,
+  APP_BASE_URL: 'https://pcc.lippolis.invalid',
+  PCC_PO_NUMBERING: 'job-vendor-sequence',
+  PCC_RELEASE: 'test-revision',
+  PCC_ALLOW_INSECURE_HTTP: '',
+};
+
+const run = (env = PROD_ENV, args = []) => {
+  try {
+    return { code: 0, out: execFileSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', env, stdio: 'pipe' }) };
+  } catch (error) {
+    return { code: error.status ?? 1, out: `${error.stdout ?? ''}${error.stderr ?? ''}` };
+  }
+};
+const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
+
+// ---------------------------------------------------------------------------
+console.log('--- it changes nothing it looks at ------------------------------');
+
+const before = sha(DB);
+const first = run();
+const after = sha(DB);
+ok(before === after, 'the database is byte-for-byte identical after a full run');
+ok(!existsSync(`${DB}-wal`) || sha(DB) === after, 'and the write-lock check left no committed change');
+
+// The verifier must not contain a statement that could change anything. A
+// read-only claim enforced by reading the source is weaker than a type system
+// and stronger than a promise in a comment.
+const src = readFileSync(SCRIPT, 'utf8');
+for (const forbidden of [/\binsert\s+into\b/i, /\bupdate\s+\w+\s+set\b/i, /\bdelete\s+from\b/i, /\bdrop\s+table\b/i]) {
+  ok(!forbidden.test(src), `the verifier contains no ${String(forbidden)} statement`);
+}
+ok(/begin immediate[\s\S]{0,200}rollback/.test(src),
+   'the only write-mode touch is an immediate transaction that is rolled back');
+
+// ---------------------------------------------------------------------------
+console.log('--- it never prints a secret ------------------------------------');
+
+const withBootstrap = run({ ...PROD_ENV, PCC_BOOTSTRAP_ADMIN_PASSWORD: BOOTSTRAP_PASSWORD });
+const jsonRun = run({ ...PROD_ENV, PCC_BOOTSTRAP_ADMIN_PASSWORD: BOOTSTRAP_PASSWORD }, ['--json']);
+
+for (const [label, result] of [['text', withBootstrap], ['json', jsonRun]]) {
+  ok(!result.out.includes(SESSION_SECRET), `${label}: the session secret is not printed`);
+  ok(!result.out.includes(BOOTSTRAP_PASSWORD), `${label}: the bootstrap password is not printed`);
+}
+ok(/secret\.SESSION_SECRET\s+present/.test(withBootstrap.out) || /"id": "secret.SESSION_SECRET"/.test(jsonRun.out),
+   'presence is reported instead of the value');
+ok(/still set — correct for the FIRST start only/.test(withBootstrap.out),
+   'a bootstrap password left behind is reported — by name, not by value');
+
+// ---------------------------------------------------------------------------
+console.log('--- honest verdicts ---------------------------------------------');
+
+// No PCC is running in this test, so the application section must BLOCK — and
+// that must be enough to fail the run, because an installation nobody can reach
+// is not ready no matter how good the database looks.
+ok(first.code === 1, 'with nothing serving, it exits non-zero');
+ok(/NOT READY/.test(first.out), 'and says NOT READY');
+ok(/process\.answering.*(BLOCKED|nothing answered)/s.test(first.out), 'because nothing answered');
+
+// The database IS there and IS fine, and the report must say so rather than
+// condemning everything because one section failed.
+ok(/PASS\s+database\.readable/.test(first.out), 'the database it can read is reported as readable');
+ok(/PASS\s+database\.writable/.test(first.out), 'and writable');
+ok(/PASS\s+auth\.can_sign_in/.test(first.out), 'the credential store is reported');
+
+// UNVERIFIED must not fail the run on its own. On this machine every systemd
+// check is UNVERIFIED, and if that counted as a failure the report could never
+// pass anywhere but Linux.
+const unverified = [...first.out.matchAll(/^\s+UNVERIFIED\s+(\S+)/gm)].map((m) => m[1]);
+ok(unverified.length > 0, 'checks that cannot run here are reported UNVERIFIED', unverified.join(', '));
+const blockingIds = /Blocking:([\s\S]*)$/.exec(first.out)?.[1] ?? '';
+ok(!unverified.some((id) => blockingIds.includes(` ${id} `)),
+   'and no UNVERIFIED check appears in the blocking list');
+
+// ---------------------------------------------------------------------------
+console.log('--- integrations are described, never assumed -------------------');
+
+ok(/CONFIGURED — PCC composes vendor email as a draft and cannot send/.test(first.out),
+   'vendor email is reported as the draft-only design it is');
+ok(/NOT CONFIGURED\s+email\.transport/.test(first.out),
+   'and the absent mail transport is NOT CONFIGURED rather than a failure');
+ok(/NOT CONFIGURED\s+printing\.direct_to_printer/.test(first.out),
+   'direct-to-printer is NOT CONFIGURED rather than claimed');
+ok(/UNVERIFIED\s+tls\.terminator/.test(first.out),
+   'what terminates TLS is UNVERIFIED — PCC cannot see in front of itself');
+
+// ---------------------------------------------------------------------------
+console.log('--- the machine-readable form ------------------------------------');
+
+const parsed = (() => { try { return JSON.parse(jsonRun.out); } catch { return null; } })();
+ok(parsed !== null, '--json emits parseable JSON');
+if (parsed) {
+  ok(parsed.ready === false, 'it reports ready: false while the application is down');
+  ok(Array.isArray(parsed.blocking) && parsed.blocking.length > 0, 'with the blockers listed');
+  ok(typeof parsed.sections === 'object' && parsed.sections.Database?.verdict,
+     'and a verdict per section', JSON.stringify(Object.keys(parsed.sections ?? {})));
+  ok(!JSON.stringify(parsed).includes(SESSION_SECRET), 'and no secret anywhere in the structure');
+}
+
+// ---------------------------------------------------------------------------
+console.log('--- misconfiguration is caught, not smoothed over ----------------');
+
+const noDb = run({ ...PROD_ENV, PCC_DATABASE_PATH: join(TMP, 'not-mounted', 'pcc.sqlite') });
+ok(noDb.code === 1 && /no database at/.test(noDb.out),
+   'a database path that does not exist BLOCKS — the volume is probably not mounted');
+ok(/volume is probably not mounted/.test(noDb.out), 'and says what that usually means');
+
+const plainHttp = run({ ...PROD_ENV, APP_BASE_URL: 'http://pcc.lippolis.invalid', PCC_ALLOW_INSECURE_HTTP: '' });
+ok(/BLOCKED\s+tls\.scheme/.test(plainHttp.out),
+   'unacknowledged plain HTTP in production BLOCKS, matching what PCC does on start');
+
+const acknowledged = run({ ...PROD_ENV, APP_BASE_URL: 'http://pcc.lippolis.invalid', PCC_ALLOW_INSECURE_HTTP: '1' });
+ok(/WARN\s+tls\.scheme/.test(acknowledged.out),
+   'and a recorded decision to run without TLS is a warning, not a blocker');
+
+const devMode = run({ ...PROD_ENV, NODE_ENV: 'development' });
+ok(/BLOCKED\s+config\.production_mode/.test(devMode.out), 'a non-production NODE_ENV BLOCKS');
+ok(/UNVERIFIED\s+config\.valid/.test(devMode.out),
+   'and the production configuration rules are reported as not applied, rather than as passing');
+
+// --strict promotes warnings, for the go/no-go moment.
+const strict = run(PROD_ENV, ['--strict']);
+ok(strict.code === 1, '--strict exits non-zero');
+ok(strict.out.split('Blocking:')[1]?.length > first.out.split('Blocking:')[1]?.length,
+   '--strict lists more blockers than the default run');
+
+// ---------------------------------------------------------------------------
+console.log('--- the acceptance sequence, and the documents that carry it -----');
+
+// The checklist is executed once, on the VM, by people who will not be reading
+// the source. Everything it tells them to run must exist, and the documents
+// that lead there must actually lead there — a runbook that names a script by
+// the wrong path is discovered at the worst possible moment.
+const acceptance = readFileSync(join(ROOT, 'docs/deployment/PCC_PRODUCTION_ACCEPTANCE.md'), 'utf8');
+
+ok(/INSTALL → CONFIGURE → VERIFY → PROVISION → REAL PO → REBOOT → VERIFY AGAIN → ACCEPT/.test(acceptance),
+   'the acceptance document states the whole sequence');
+for (const command of [
+  'pcc-verify-deployment.mjs', 'pcc-backup.mjs --db /var/lib/pcc/pcc.sqlite --check',
+  'systemctl list-timers pcc-backup.timer', 'systemctl start pcc-backup.service',
+  'journalctl -u pcc', 'pcc-reset-admin.mjs', 'restore-rehearsal.sh', 'git rev-parse HEAD',
+]) {
+  ok(acceptance.includes(command), `it tells the operator to run: ${command}`);
+}
+for (const script of ['pcc-verify-deployment.mjs', 'pcc-backup.mjs', 'pcc-reset-admin.mjs', 'restore-rehearsal.sh']) {
+  ok(existsSync(join(ROOT, 'scripts', script)), `and ${script} exists to be run`);
+}
+
+// The sections that make it an acceptance rather than a smoke test.
+for (const [heading, why] of [
+  ['## A. Infrastructure acceptance', 'install, configure, verify, backup'],
+  ['## B. Account acceptance', 'real people, forced password change'],
+  ['## C. Purchasing workflow acceptance', 'one real purchase order'],
+  ['## D. Persistence and reboot acceptance', 'the reboot nobody remembers to do'],
+  ['## E. Recovery acceptance', 'Jose at the keyboard'],
+  ['## F. Real-user acceptance', 'Mike, unaided'],
+  ['## G. Jose handoff verification', 'operation without the developer'],
+  ['## H. Operational responsibility model', 'who owns what'],
+]) {
+  ok(acceptance.includes(heading), `it covers ${why}`);
+}
+
+ok(/10 needed − 2 in stock = 8 ordered/.test(acceptance),
+   'the quantity rule is checked as the approved workflow states it');
+ok(/One click.*No second confirmation/s.test(acceptance),
+   'and the single-click order placement is checked');
+ok(/do not restore over the live database/i.test(acceptance),
+   'recovery acceptance refuses to prove restore by destroying production');
+ok(/FUTURE IMPROVEMENT[\s\S]{0,400}(No\. Do not turn these into launch blockers|\*\*No\.)/i.test(acceptance),
+   'and future improvements are explicitly not launch blockers');
+
+// The three documents that lead to it.
+for (const [doc, needle] of [
+  ['PCC_VM_INSTALLATION_RUNBOOK.md', 'pcc-verify-deployment.mjs'],
+  ['docs/deployment/PCC_IT_DEPLOYMENT_HANDOFF.md', 'pcc-verify-deployment.mjs'],
+  ['scripts/install-production.sh', 'PCC_PRODUCTION_ACCEPTANCE.md'],
+]) {
+  ok(readFileSync(join(ROOT, doc), 'utf8').includes(needle), `${doc} points at ${needle}`);
+}
+
+rmSync(TMP, { recursive: true, force: true });
+
+console.log('');
+for (const f of fails) console.log(`FAILED: ${f}`);
+console.log(`verify-deployment checks: ${pass} passed, ${fails.length} failed`);
+process.exit(fails.length ? 1 : 0);

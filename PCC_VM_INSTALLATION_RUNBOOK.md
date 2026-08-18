@@ -17,6 +17,7 @@ Everything else is reference, and none of it is required to install:
 | `docs/deployment/PCC_PRODUCTION_ARCHITECTURE.md` | What PCC is and why it is shaped this way | Installer + IT |
 | `docs/deployment/PCC_GO_LIVE_PLAN.md` | Pilot phases, rollback, the go-live gate | Installer + purchasing |
 | `docs/deployment/PCC_PRODUCTION_PILOT_CHECKLIST.md` | The boxes on pilot day | Installer + IT |
+| `docs/deployment/PCC_PRODUCTION_ACCEPTANCE.md` | **What to run after installing**: verify, provision, one real PO, reboot, verify again, accept | **Installer + IT + purchasing** |
 
 **Scripts this runbook uses** — all read-only unless stated:
 
@@ -29,6 +30,7 @@ Everything else is reference, and none of it is required to install:
 | `scripts/pcc-restore.mjs` | Restores a backup. Destructive by nature, and built to be hard to run by accident. |
 | `scripts/restore-rehearsal.sh` | Full backup→restore→verify drill in throwaway containers. |
 | `scripts/pcc-verify-production.mjs` | Is this DATABASE fit for real work? Finds demo data, vendors without a purchase order code, and every job-and-vendor pair about to issue its first number. |
+| `scripts/pcc-verify-deployment.mjs` | **Is this INSTALLATION safe and operational?** The one command to run after installing and after every reboot. Read-only; prints no secret; exits non-zero on a real blocker. |
 
 ---
 

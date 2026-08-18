@@ -175,6 +175,39 @@ check "$FIRED" "the timer starts the backup with nobody logged in" "still $BEFOR
 x 'journalctl -u pcc-backup.timer --no-pager | tail -5' >/dev/null 2>&1
 
 echo ""
+echo "--- and the production verifier reads all of that ----------------"
+# THE VERIFIER'S systemd CHECKS ARE UNVERIFIABLE ON A DEVELOPER'S MACHINE, which
+# is exactly the reason to run them here: this container has real systemd, the
+# real units, and a real database. Application checks are expected to BLOCK —
+# no PCC is running in here — so the assertions are on the specific rows rather
+# than the exit code.
+# Run it straight out of the mounted repository: /repo holds scripts, apps and
+# deploy, which is the layout the script derives its own root from.
+x 'PCC_DATABASE_PATH=/var/lib/pcc/pcc.sqlite NODE_ENV=production \
+     SESSION_SECRET=a-secret-that-must-not-be-printed-0123456789012345 \
+     APP_BASE_URL=https://pcc.invalid PCC_PO_NUMBERING=job-vendor-sequence \
+     node /repo/scripts/pcc-verify-deployment.mjs --json > /tmp/verify.json 2>/tmp/verify.err; true'
+x 'test -s /tmp/verify.json'
+check $? "the verifier runs on the server and emits a report" "$(x 'tail -5 /tmp/verify.err' 2>&1)"
+
+x 'node -e "const r=JSON.parse(require(\"node:fs\").readFileSync(\"/tmp/verify.json\",\"utf8\"));
+  const c=Object.values(r.sections).flatMap(s=>s.checks);
+  const get=id=>c.find(x=>x.id===id)?.status;
+  const need={\"timer.active\":\"PASS\",\"timer.enabled\":\"PASS\",\"timer.last_result\":\"PASS\"};
+  for(const [id,want] of Object.entries(need)){ if(get(id)!==want){ console.error(id+\" is \"+get(id)+\", wanted \"+want); process.exit(1);} }
+  process.exit(0)"'
+check $? "the verifier reports the timer as active, enabled and last-run-successful" "$(x 'cat /tmp/verify.err' 2>&1 | tail -3)"
+
+x 'grep -q "a-secret-that-must-not-be-printed" /tmp/verify.json /tmp/verify.err'
+if [ $? -ne 0 ]; then ok "and prints no secret into its report"; else bad "and prints no secret into its report" "the session secret appeared in the output"; fi
+
+x 'node -e "const r=JSON.parse(require(\"node:fs\").readFileSync(\"/tmp/verify.json\",\"utf8\"));
+  const c=Object.values(r.sections).flatMap(x=>x.checks);
+  const s=c.find(x=>x.id===\"service.active\")?.status;
+  process.exit(s===\"BLOCKED\"?0:1)"'
+check $? "and reports the absent PCC service as BLOCKED rather than assuming it is fine"
+
+echo ""
 if [ ${#fails[@]} -gt 0 ]; then
   for f in "${fails[@]}"; do echo "FAILED: $f"; done
   echo "backup timer checks: $pass passed, ${#fails[@]} failed"
