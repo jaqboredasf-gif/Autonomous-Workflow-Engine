@@ -19,13 +19,16 @@
 // Node's crypto only — no dependency, nothing to keep patched.
 // ---------------------------------------------------------------------------
 
-import { randomBytes, scryptSync, timingSafeEqual, randomUUID } from 'node:crypto';
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 
 import type { AuthPort, AuthResult } from '../../application/ports.ts';
 
+// The one definition of how a password is stored. `scripts/pcc-reset-admin.mjs`
+// writes credentials this module has to be able to verify, so it repeats these
+// parameters — and an eval signs in with a password that script wrote, which is
+// what keeps the two from drifting apart silently.
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 };
-const RESET_TTL_MS = 30 * 60 * 1000;
 
 export function hashPassword(password: string): { hash: string; salt: string } {
   const salt = randomBytes(16).toString('hex');
@@ -68,16 +71,28 @@ export function localAuthAdapter(db: DatabaseSync): AuthPort {
       return { ok: true, userId: identity.user_id };
     },
 
-    async requestPasswordReset(email: string) {
-      const identity = findIdentity(email);
-      // Always report success: whether an address has an account is not public.
-      if (!identity) return { ok: true };
-      const token = randomUUID();
-      db.prepare('update auth_identities set reset_token = ?, reset_expires_at = ? where user_id = ?')
-        .run(token, new Date(Date.now() + RESET_TTL_MS).toISOString(), identity.user_id);
-      // The pilot has no mail transport, so the token is returned to the caller
-      // for an admin to hand over. Supabase sends the email itself.
-      return { ok: true, token };
+    // THIS PROVIDER ISSUES NO RESET TOKEN, AND THAT IS THE FIX.
+    //
+    // It used to mint one on any anonymous request and hand it back to the
+    // caller, which put it on the screen of whoever typed the address — a live
+    // 30-minute credential for somebody else's account, handed to a stranger.
+    // Worse, it was returned ONLY when the address existed, so it also answered
+    // the question the uniform failure message above exists to refuse: whether
+    // an address has an account here.
+    //
+    // Nothing consumed it either. There is no reset-password page: the whole
+    // token path was surface with no use, and the working recovery route is,
+    // and was, an administrator setting a new password in Administration
+    // (`setPassword`, below) — or, when nobody can sign in at all,
+    // `scripts/pcc-reset-admin.mjs` run on the server by whoever holds shell
+    // access.
+    //
+    // So: no token is minted, no row is written, and an anonymous caller
+    // learns nothing. `resetPassword` below is left intact and correct for the
+    // day a token is issued deliberately — by an administrator, to a person
+    // they can identify — but nothing issues one today.
+    async requestPasswordReset(_email: string) {
+      return { ok: true };
     },
 
     async resetPassword(token: string, newPassword: string) {

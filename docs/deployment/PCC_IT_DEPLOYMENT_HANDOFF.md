@@ -459,6 +459,43 @@ somewhere. Nothing else in the application knows or cares what the hostname is.
   you plan to run more than one instance.
 * The container runs as a non-root user (uid 1000).
 * There is no MFA and no SSO today. See §12.
+* **`/forgot-password` gives nothing away.** It is a public page, so it answers every address the
+  same way — no reset code, no confirmation that an address has an account. Recovery is an
+  administrator setting a temporary password in **Administration → Users → Reset access**.
+
+### 10a. Nobody can sign in — the way back
+
+The one case Administration cannot fix is the administrator's own account. If the last
+administrator password is lost after `PCC_BOOTSTRAP_ADMIN_PASSWORD` has been removed from the
+environment — which is what §3 tells you to do — PCC is running and healthy with no way in.
+
+Recovery is a command **on the server**, run by whoever already has shell access to the machine and
+the database file. It grants no authority that person did not already have.
+
+```bash
+# who holds the ADMIN role in this database
+node scripts/pcc-reset-admin.mjs --db /data/pcc.sqlite --list
+
+# set a new password for one of them (12 characters or more)
+node scripts/pcc-reset-admin.mjs --db /data/pcc.sqlite \
+     --email <their address> --password '<a new long password>'
+```
+
+On the Docker deployment, the runtime image carries only the application, so run it the same way §8
+runs the backup — a throwaway Node container with the volume and the repository's `scripts`
+directory mounted:
+
+```bash
+docker run --rm -v pcc-data:/data -v /path/to/repo/scripts:/scripts:ro --user 1000:1000 \
+  node:24-bookworm-slim node /scripts/pcc-reset-admin.mjs --db /data/pcc.sqlite --list
+```
+
+It does not need PCC to be stopped. It will **not** create a database, create a person, grant a
+role, or re-enable an account somebody disabled on purpose (pass `--enable` to make that decision
+explicitly). The change is written to the audit trail as
+`auth.credentials_reset_out_of_band`; the password is not.
+
+Sign in with the new password and change it from inside the application.
 
 ---
 

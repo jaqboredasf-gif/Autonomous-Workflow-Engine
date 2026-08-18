@@ -64,20 +64,31 @@ export async function signOutAction() {
   redirect('/sign-in?signed_out=1');
 }
 
-export type ForgotPasswordState = { sent: boolean; token?: string | null; error?: string | null } | null;
+// NO `token` FIELD, DELIBERATELY, AND IT MUST NOT COME BACK.
+//
+// This state is returned to an UNAUTHENTICATED browser. It used to carry the
+// reset token for the local provider, which meant anybody who could reach the
+// sign-in page could read a live credential for anybody else's account — the
+// administrator's included — by typing their address. See local-auth.ts.
+//
+// The type is the guard: with nowhere to put a token, the action cannot leak
+// one by accident, and an eval asserts this file never reads `.token`.
+export type ForgotPasswordState = { sent: boolean; error?: string | null } | null;
 
 export async function forgotPasswordAction(_prev: ForgotPasswordState, formData: FormData): Promise<ForgotPasswordState> {
   const email = String(formData.get('email') ?? '');
   if (!email.trim()) return { sent: false, error: 'Enter your email address.' };
 
   const config = loadConfig();
-  const result = await authAdapter(getDb(), config).requestPasswordReset(email);
-  log.info('auth.password_reset_requested', { email });
+  await authAdapter(getDb(), config).requestPasswordReset(email);
+  // The precise outcome goes to the server log, where the people who operate
+  // PCC can see it and a stranger cannot.
+  log.info('auth.password_reset_requested', { email, provider: config.authProvider });
 
-  // The pilot's provider has no mail transport, so it hands the token back for
-  // an admin to pass on in person. Supabase sends the email itself and returns
-  // no token — the screen says so either way.
-  return { sent: true, token: config.authProvider === 'local' ? (result.token ?? null) : null };
+  // ONE ANSWER, WHETHER OR NOT THE ADDRESS EXISTS. Same shape, same words, same
+  // work: which addresses have accounts here is not a stranger's business, and
+  // a response that varies is an answer to that question.
+  return { sent: true };
 }
 
 export async function demoSignInAction(formData: FormData) {
