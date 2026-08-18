@@ -145,6 +145,24 @@ check(/already exists — reconfiguring it in place/i.test(installer),
   'an existing service is reconfigured rather than duplicated');
 
 // ---------------------------------------------------------------------------
+console.log('--- the running version is knowable -----------------------------');
+
+// "Exactly what version is running at Lippolis?" must be answerable months
+// later by somebody who was not there. /api/health reports PCC_RELEASE; the
+// build stamps it; the installer passes it to the service.
+const stage = read('scripts/stage-standalone.mjs');
+check(/RELEASE/.test(stage), 'the build writes a RELEASE file into the artifact');
+check(/rev-parse/.test(stage), 'stamped from the commit, not from a file date');
+check(/-dirty/.test(stage),
+  'an artifact built from uncommitted changes says so — it cannot be reproduced from a commit');
+check(/PCC_RELEASE=\$release/.test(installer),
+  'the installer passes the release to the service');
+check(/running release/.test(installer),
+  'and reads it back from the running process, not from the disk it copied');
+check(/no RELEASE file/.test(installer),
+  'a hand-assembled artifact with no RELEASE is called out rather than installed silently');
+
+// ---------------------------------------------------------------------------
 console.log('--- least privilege ---------------------------------------------');
 
 // The Windows equivalent of `install -d -o pcc -g pcc -m 750`.

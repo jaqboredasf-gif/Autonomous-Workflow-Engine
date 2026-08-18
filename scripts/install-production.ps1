@@ -157,6 +157,24 @@ no build artifact at: $Artifact
 }
 Ok "artifact present at $Artifact"
 
+# WHICH VERSION IS ABOUT TO BE INSTALLED. stage-standalone.mjs stamps this at
+# build time; it is what /api/health reports as `release` and what an
+# installation record has to name months later. A missing RELEASE file means
+# somebody assembled the artifact by hand, which is worth saying out loud.
+$releaseFile = Join-Path $Artifact 'RELEASE'
+$release = ''
+if (Test-Path -LiteralPath $releaseFile -PathType Leaf) {
+  $release = (Get-Content -LiteralPath $releaseFile -Raw).Trim()
+  Ok "release: $release"
+  if ($release -match '-dirty') {
+    Warn "this artifact was built from a DIRTY working tree — it cannot be reproduced"
+    Warn "from a commit. Acceptable for a trial; not for the installation of record."
+  }
+} else {
+  Warn "the artifact carries no RELEASE file, so /api/health will report release: null."
+  Warn "Rebuild with: node scripts\stage-standalone.mjs"
+}
+
 # --- 4. configuration -------------------------------------------------------
 # Read the env file WITHOUT echoing values: this output gets pasted into tickets
 # and installation records.
@@ -334,7 +352,9 @@ Run {
   & nssm set $ServiceName Description         "PCC — purchasing requests, approvals and purchase orders." | Out-Null
   & nssm set $ServiceName Start               SERVICE_AUTO_START | Out-Null
   & nssm set $ServiceName ObjectName          $ServiceAcct   | Out-Null
-  & nssm set $ServiceName AppEnvironmentExtra "PCC_ENV_FILE=$envAbs" | Out-Null
+  # PCC_RELEASE is what /api/health reports, so "which version is running?" is
+  # answered by the running process rather than by a file date on disk.
+  & nssm set $ServiceName AppEnvironmentExtra "PCC_ENV_FILE=$envAbs" "PCC_RELEASE=$release" | Out-Null
   # Crashes restart; deliberate refusals do not. A configuration refusal exits 1,
   # and restarting it would bury the one line that says what is wrong.
   & nssm set $ServiceName AppExit Default     Restart        | Out-Null
@@ -390,6 +410,14 @@ try {
 
 $svc = Get-Service -Name $ServiceName
 Ok "service '$ServiceName' is $($svc.Status), start type $($svc.StartType)"
+
+# The installed version, read back from the RUNNING process rather than from
+# the disk it was copied from. This line belongs in the installation record.
+if ($ready.release) {
+  Ok "running release: $($ready.release)"
+} else {
+  Warn "the running process reports no release — /api/health says release: null"
+}
 
 # --- 11. what this script will not do for you ------------------------------
 @"

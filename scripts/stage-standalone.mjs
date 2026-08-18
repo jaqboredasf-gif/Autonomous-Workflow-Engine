@@ -21,7 +21,8 @@
 // Node rather than shell because the operating system of the build machine is
 // not settled — Jose may build on Windows.
 // ---------------------------------------------------------------------------
-import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -55,6 +56,33 @@ for (const { from, to, required } of copies) {
   mkdirSync(dirname(to), { recursive: true });
   cpSync(from, to, { recursive: true });
   console.log(`[pcc] staged ${from.replace(`${APP}/`, '')} -> standalone`);
+}
+
+// --- the release identifier -------------------------------------------------
+// "EXACTLY WHAT VERSION IS RUNNING AT LIPPOLIS?" has to be answerable from the
+// server, months later, by somebody who was not present when it was installed.
+// /api/health already reports `release` from PCC_RELEASE — but nothing set it,
+// so it answered null, and the question fell back to comparing file dates,
+// which is how the wrong build gets blamed.
+//
+// So the build stamps it. The commit is the identity; the date is for humans
+// reading a ticket. `-dirty` is deliberate and load-bearing: an artifact built
+// from uncommitted changes cannot be reproduced from a commit, and production
+// should say so out loud rather than name a commit that does not describe it.
+const git = (...args) => {
+  const r = spawnSync('git', args, { cwd: join(APP, '..', '..'), encoding: 'utf8' });
+  return r.status === 0 ? (r.stdout ?? '').trim() : '';
+};
+const sha = git('rev-parse', '--short', 'HEAD') || 'unknown';
+const dirty = git('status', '--porcelain') ? '-dirty' : '';
+const builtAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+const release = `${sha}${dirty} ${builtAt}`;
+
+writeFileSync(join(STANDALONE, 'RELEASE'), `${release}\n`, 'utf8');
+console.log(`[pcc] release: ${release}`);
+if (dirty) {
+  console.log('[pcc] WARNING: built from a dirty working tree. This artifact cannot be');
+  console.log('[pcc]          reproduced from a commit. Commit first for a production release.');
 }
 
 console.log('[pcc] standalone output is complete and can be started, copied or imaged as one directory');
