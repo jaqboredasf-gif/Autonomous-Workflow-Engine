@@ -37,8 +37,9 @@
 //
 //   --base-url  where PCC answers. Default: $APP_BASE_URL, then localhost:$PORT
 //   --db        the live database. Default: $PCC_DATABASE_PATH
-//   --service   the systemd unit PCC runs as. Default: pcc
-//   --timer     the backup timer unit. Default: pcc-backup.timer
+//   --service   the service PCC runs as — systemd unit or Windows service. Default: pcc
+//   --timer     the backup timer unit (Linux). Default: pcc-backup.timer
+//   --task      the backup scheduled task (Windows). Default: PCC Nightly Backup
 //   --json      machine-readable, for whatever monitoring already exists
 //   --strict    treat every warning as a blocker
 //
@@ -69,6 +70,8 @@ const port = process.env.PORT ?? '3000';
 const baseUrl = (arg('base-url') ?? process.env.APP_BASE_URL ?? `http://127.0.0.1:${port}`).replace(/\/+$/, '');
 const serviceUnit = arg('service') ?? 'pcc';
 const timerUnit = arg('timer') ?? 'pcc-backup.timer';
+// The Windows equivalent of the timer unit: a Task Scheduler task name.
+const taskName = arg('task') ?? 'PCC Nightly Backup';
 
 // ---------------------------------------------------------------------------
 // Results.
@@ -102,6 +105,30 @@ const systemctl = (...args) => {
   return { ok: r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim(), missing: r.error != null };
 };
 const haveSystemd = process.platform === 'linux' && !systemctl('--version').missing;
+
+// --- Windows service supervision -------------------------------------------
+// The same three questions systemd answers — is it running, does it come back
+// at boot, is it a production build — asked of the Service Control Manager.
+//
+// `sc.exe` rather than Get-Service: no PowerShell process to spawn per query,
+// and a stable output format that has not changed in twenty years.
+const sc = (...args) => {
+  const r = spawnSync('sc.exe', args, { encoding: 'utf8', timeout: 20000 });
+  return { ok: r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim(), missing: r.error != null };
+};
+const haveWindowsServices = process.platform === 'win32' && !sc('query', 'Schedule').missing;
+
+// NSSM keeps the supervised command in the registry, not in BINARY_PATH_NAME —
+// that points at nssm.exe for every service it manages, so reading it would
+// tell us nothing about which application is being run.
+const nssmParam = (service, name) => {
+  const r = spawnSync('reg.exe', [
+    'query', `HKLM\\SYSTEM\\CurrentControlSet\\Services\\${service}\\Parameters`, '/v', name,
+  ], { encoding: 'utf8', timeout: 20000 });
+  if (r.status !== 0) return null;
+  const m = new RegExp(`${name}\\s+REG_[A-Z_]+\\s+(.*)`).exec(r.stdout ?? '');
+  return m ? m[1].trim() : null;
+};
 
 // ---------------------------------------------------------------------------
 // APPLICATION — is it answering, and is it the production build?
@@ -201,9 +228,27 @@ const haveSystemd = process.platform === 'linux' && !systemctl('--version').miss
     } else {
       add('Application', 'runtime.production_mode', 'PASS', 'the unit starts a production build');
     }
+  } else if (haveWindowsServices) {
+    const app = nssmParam(serviceUnit, 'Application');
+    const params = nssmParam(serviceUnit, 'AppParameters');
+    const text = `${app ?? ''} ${params ?? ''}`.trim();
+    if (!text) {
+      add('Application', 'runtime.production_mode', 'UNVERIFIED',
+          `could not read the supervised command for ${serviceUnit}`,
+          `sc.exe qc ${serviceUnit} — and check it was installed with nssm`);
+    } else if (/next\s+dev|npm\s+run\s+dev/.test(text)) {
+      add('Application', 'runtime.production_mode', 'BLOCKED',
+          `${serviceUnit} starts a DEVELOPMENT server`,
+          'Production runs the standalone build: node apps\\purchasing\\server.js');
+    } else if (/server\.js/.test(text)) {
+      add('Application', 'runtime.production_mode', 'PASS', 'the service starts a production build');
+    } else {
+      add('Application', 'runtime.production_mode', 'UNVERIFIED',
+          `the service runs something unrecognised: ${text}`);
+    }
   } else {
     add('Application', 'runtime.production_mode', 'UNVERIFIED',
-        'no systemd here — run this on the server to check how PCC is started');
+        'no service manager here — run this on the server to check how PCC is started');
   }
 
   // SUPERVISION. A PCC that answers today but is not enabled comes back from a
@@ -217,9 +262,44 @@ const haveSystemd = process.platform === 'linux' && !systemctl('--version').miss
     add('Application', 'service.enabled', /enabled/.test(enabled.out) ? 'PASS' : 'BLOCKED',
         `systemctl is-enabled ${serviceUnit} → ${enabled.out || 'unknown'}`,
         /enabled/.test(enabled.out) ? null : `sudo systemctl enable ${serviceUnit} — otherwise PCC does not come back from a reboot`);
+  } else if (haveWindowsServices) {
+    const q = sc('query', serviceUnit);
+    if (!q.ok && /1060/.test(q.out)) {
+      add('Application', 'service.active', 'BLOCKED',
+          `there is no Windows service named ${serviceUnit}`,
+          'PCC is answering but nothing supervises it — it will not come back from a reboot. ' +
+          'Install it: .\\scripts\\install-production.ps1');
+      add('Application', 'service.enabled', 'BLOCKED', `no service named ${serviceUnit}`);
+    } else {
+      const running = /STATE\s+:\s+4\s+RUNNING/.test(q.out);
+      add('Application', 'service.active', running ? 'PASS' : 'BLOCKED',
+          `sc query ${serviceUnit} → ${running ? 'RUNNING' : (q.out.match(/STATE\s+:\s+\d+\s+(\w+)/)?.[1] ?? 'unknown')}`,
+          running ? null : `sc query ${serviceUnit} — and read the refusal in the service's err.log`);
+
+      const cfg = sc('qc', serviceUnit);
+      const auto = /START_TYPE\s+:\s+2\s+AUTO_START/.test(cfg.out);
+      add('Application', 'service.enabled', auto ? 'PASS' : 'BLOCKED',
+          `sc qc ${serviceUnit} → ${cfg.out.match(/START_TYPE\s+:\s+\d+\s+(\w+)/)?.[1] ?? 'unknown'}`,
+          auto ? null : `sc config ${serviceUnit} start= auto — otherwise PCC does not come back from a reboot`);
+
+      // THE REFUSAL INVARIANT. A configuration refusal exits 1, and a supervisor
+      // that restarts it loops forever and buries the one line saying what is
+      // wrong. This is the Windows half of RestartPreventExitStatus=1, and it is
+      // silently absent if somebody recreated the service by hand.
+      const exit1 = nssmParam(serviceUnit, 'AppExit');
+      if (exit1 === null) {
+        add('Application', 'service.refusal_policy', 'UNVERIFIED',
+            'could not read the exit policy — was the service created by install-production.ps1?');
+      } else {
+        add('Application', 'service.refusal_policy', /Exit/i.test(exit1) ? 'PASS' : 'BLOCKED',
+            `exit policy: ${exit1}`,
+            /Exit/i.test(exit1) ? null
+              : `nssm set ${serviceUnit} AppExit 1 Exit — otherwise a configuration refusal restarts forever`);
+      }
+    }
   } else {
-    add('Application', 'service.active', 'UNVERIFIED', 'no systemd here — check on the server');
-    add('Application', 'service.enabled', 'UNVERIFIED', 'no systemd here — check on the server');
+    add('Application', 'service.active', 'UNVERIFIED', 'no service manager here — check on the server');
+    add('Application', 'service.enabled', 'UNVERIFIED', 'no service manager here — check on the server');
   }
 }
 
@@ -485,10 +565,43 @@ const haveSystemd = process.platform === 'linux' && !systemctl('--version').miss
     const timers = systemctl('list-timers', timerUnit, '--all', '--no-pager');
     add('Backup schedule', 'timer.next_run', timers.ok && /pcc-backup/.test(timers.out) ? 'PASS' : 'UNVERIFIED',
         timers.ok && /pcc-backup/.test(timers.out) ? 'the timer is listed and reports a next run' : 'not listed');
+  } else if (haveWindowsServices) {
+    // schtasks rather than Get-ScheduledTask, for the same reason as sc.exe:
+    // no PowerShell to spawn, and a format that parses.
+    const q = spawnSync('schtasks.exe', ['/query', '/tn', taskName, '/fo', 'LIST', '/v'],
+      { encoding: 'utf8', timeout: 20000 });
+    const out = `${q.stdout ?? ''}${q.stderr ?? ''}`;
+    if (q.status !== 0) {
+      add('Backup schedule', 'timer.active', 'BLOCKED',
+          `there is no scheduled task named "${taskName}"`,
+          'Nothing is backing PCC up. Create it: .\\scripts\\install-backup-task.ps1 -DataDir <data> -Repo <install path>');
+      add('Backup schedule', 'timer.enabled', 'BLOCKED', 'no scheduled task');
+      add('Backup schedule', 'timer.last_result', 'BLOCKED', 'no scheduled task');
+    } else {
+      const enabled = /Scheduled Task State:\s*Enabled/i.test(out) || /Status:\s*Ready/i.test(out);
+      add('Backup schedule', 'timer.active', enabled ? 'PASS' : 'BLOCKED',
+          `the task "${taskName}" is ${enabled ? 'enabled' : 'DISABLED'}`,
+          enabled ? null : `schtasks /change /tn "${taskName}" /enable`);
+      add('Backup schedule', 'timer.enabled', enabled ? 'PASS' : 'BLOCKED',
+          enabled ? 'it will run on its schedule' : 'it will not run');
+
+      const result = /Last Result:\s*(-?\d+)/i.exec(out)?.[1];
+      const ran = /Last Run Time:\s*(.+)/i.exec(out)?.[1]?.trim();
+      const neverRan = !ran || /^N\/A|11\/30\/1999/i.test(ran);
+      add('Backup schedule', 'timer.last_result',
+          neverRan ? 'UNVERIFIED' : result === '0' ? 'PASS' : 'BLOCKED',
+          neverRan ? 'the backup task has not run yet' : `last run: ${ran}, result ${result}`,
+          neverRan || result === '0' ? null
+            : 'Read the log: Get-Content C:\\ProgramData\\pcc\\logs\\pcc-backup.log -Tail 40');
+
+      const next = /Next Run Time:\s*(.+)/i.exec(out)?.[1]?.trim();
+      add('Backup schedule', 'timer.next_run', next && !/N\/A/i.test(next) ? 'PASS' : 'UNVERIFIED',
+          next ? `next run: ${next}` : 'no next run reported');
+    }
   } else {
-    add('Backup schedule', 'timer.active', 'UNVERIFIED', 'no systemd here — check on the server');
-    add('Backup schedule', 'timer.enabled', 'UNVERIFIED', 'no systemd here — check on the server');
-    add('Backup schedule', 'timer.last_result', 'UNVERIFIED', 'no systemd here — check on the server');
+    add('Backup schedule', 'timer.active', 'UNVERIFIED', 'no service manager here — check on the server');
+    add('Backup schedule', 'timer.enabled', 'UNVERIFIED', 'no service manager here — check on the server');
+    add('Backup schedule', 'timer.last_result', 'UNVERIFIED', 'no service manager here — check on the server');
   }
 }
 
