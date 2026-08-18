@@ -7,11 +7,18 @@ Companion documents: `PCC_PRODUCTION_EVIDENCE.md` (fill in as you go),
 
 | | |
 |---|---|
-| Commit | `0e208ab` |
-| Artifact | `PCC-0e208ab.zip` |
+| Commit | whatever `apps/purchasing/RELEASE` in the artifact says — it is stamped at build time |
+| Artifact | `PCC-<commit>.zip`, with `PCC-<commit>.zip.sha256` beside it |
 | Server | LIPELE-RDS02 · 192.168.10.152 · Windows Server 2019 Standard |
 | Backend | `127.0.0.1:3000` — loopback only |
 | Front door | IIS, HTTPS 443, LAN only |
+
+> The commit and checksum are deliberately **not** written into this document.
+> They change with every build, and a runbook carrying a stale hash is worse
+> than one carrying none — somebody verifies against it, it does not match, and
+> the deployment stops for the wrong reason. The artifact carries its own
+> identity in `RELEASE`; record both in `PCC_PRODUCTION_EVIDENCE.md` §1 on the
+> day.
 
 ---
 
@@ -23,7 +30,7 @@ Stop at the first failure. Every step is idempotent; re-running after a fix is s
 
 | # | Action | Expected | If it fails |
 |---|---|---|---|
-| 1 | Copy `PCC-0e208ab.zip` to the server; verify `sha256` | matches `4411acd6b907…` | re-copy; a bad transfer is not a deployment |
+| 1 |  Copy `PCC-<commit>.zip` to the server; verify against its `.sha256` file | hash matches | re-copy; a bad transfer is not a deployment |
 | 2 | Right-click → Properties → **Unblock** → extract to `C:\pcc-artifact` | files present | |
 | 3 | `New-Item -ItemType Directory -Force -Path C:\ProgramData\pcc\data` | created | **the installer will not create this** — deliberate |
 | 4 | Copy `config\production.env.template` → `C:\ProgramData\pcc\pcc.env`, fill in | every value | see §3 |
@@ -35,7 +42,7 @@ Stop at the first failure. Every step is idempotent; re-running after a fix is s
 | # | Action | Expected | If it fails |
 |---|---|---|---|
 | 7 | `.\scripts\Deploy-PCCProduction.ps1 -FirstInstall -Artifact C:\pcc-artifact` | runs steps 1–4, ends INSTALLED | it stops at the failing step and names it |
-| 8 | Read the release line | `0e208ab <timestamp>`, **no `-dirty`** | a dirty artifact is not the installation of record |
+| 8 | Read the release line | the expected commit, **no `-dirty`** | a dirty artifact is not the installation of record |
 | 9 | `Invoke-RestMethod http://127.0.0.1:3000/api/health` | `status: ok` | `Get-Content C:\ProgramData\pcc\logs\pcc.err.log -Tail 50` |
 
 ### CONFIGURE
@@ -154,7 +161,7 @@ before Jack stops being around every day.
 | Is the service there? | `Get-Service pcc` | Running |
 | Will it survive a reboot? | `sc qc pcc` | `START_TYPE : 2 AUTO_START` |
 | Is the app healthy? | `Invoke-RestMethod http://127.0.0.1:3000/api/health` | `status: ok` |
-| **Which version is running?** | same command, read `release` | `0e208ab <timestamp>` |
+| **Which version is running?** | same command, read `release` | the commit from `RELEASE` |
 | Is IIS up? | `Get-Service W3SVC` | Running |
 | Where are the app logs? | `Get-Content C:\ProgramData\pcc\logs\pcc.err.log -Tail 50` | |
 | Where are IIS logs? | `C:\inetpub\logs\LogFiles` | |
