@@ -10,20 +10,26 @@
 // one fact (`service.manager`). Adding Windows or a managed platform later
 // means adding a file here, not editing the core.
 //
-// ONE REAL ADAPTER EXISTS. Linux/systemd, because that is what PCC actually
-// deployed to. The others are named so the shape is visible and are absent so
-// the shape stays honest: an adapter written for a platform nobody has used is
-// a guess with a filename.
+// TWO ADAPTERS EXIST; ONE HAS A DEPLOYMENT BEHIND IT. Linux/systemd was
+// written from a PCC installation that happened. Windows was written against a
+// named, confirmed target — LIPELE-RDS02, Windows Server 2019 — that has not
+// been installed to yet, and it says so in its own `proven: false`. The
+// distinction matters more than the file count: `adapterFor` answering `ok`
+// means "the mechanics are written down", never "this has worked somewhere".
+// Ask `provenAdapters()` for the stronger claim.
+//
+// The remaining names are absent so the shape stays honest: an adapter written
+// for a platform nobody has a target on is a guess with a filename.
 // ---------------------------------------------------------------------------
 
 import { linuxSystemd } from './linux-systemd.mjs';
+import { windowsService } from './windows-service.mjs';
 
 const ADAPTERS = {
   systemd: linuxSystemd,
+  'windows-service': windowsService,
   // 'docker-compose':  not yet written — PCC ships a compose file, but the
   //                    adapter shape has not been exercised against it.
-  // 'windows-service': not yet written. Deliberately: no Windows deployment has
-  //                    been performed, and writing it now would encode guesses.
   // 'platform-managed': not yet written.
 };
 
@@ -47,3 +53,17 @@ export function adapterFor(serviceManager) {
 }
 
 export const SUPPORTED_SERVICE_MANAGERS = Object.keys(ADAPTERS);
+
+/**
+ * The adapters with a completed deployment behind them.
+ *
+ * Kept separate from SUPPORTED_SERVICE_MANAGERS because the two answer
+ * different questions, and conflating them is how "we have a Windows adapter"
+ * becomes "Windows works". A report that wants to claim proven mechanics should
+ * read this one.
+ */
+export function provenAdapters() {
+  return Object.entries(ADAPTERS)
+    .filter(([, adapter]) => adapter.proven !== false)
+    .map(([name]) => name);
+}

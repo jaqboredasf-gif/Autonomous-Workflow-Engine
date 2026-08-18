@@ -28,7 +28,7 @@ const { record, readiness, currentFor, EVIDENCE_KINDS } = await import(join(D, '
 const { runPreflight, hostProbe, CHECKS } = await import(join(D, 'preflight.mjs'));
 const { runCleanInstall } = await import(join(D, 'clean-install.mjs'));
 const { resolveResponsibilities, unownedDomains, RESPONSIBILITY_DOMAINS } = await import(join(D, 'responsibilities.mjs'));
-const { adapterFor, SUPPORTED_SERVICE_MANAGERS } = await import(join(D, 'adapters/index.mjs'));
+const { adapterFor, SUPPORTED_SERVICE_MANAGERS, provenAdapters } = await import(join(D, 'adapters/index.mjs'));
 const { generateHandoff } = await import(join(D, 'handoff.mjs'));
 const { pccManifest } = await import(join(D, 'examples/pcc.manifest.mjs'));
 const { org002Manifest } = await import(join(D, 'examples/org-002-synthetic.manifest.mjs'));
@@ -404,11 +404,17 @@ console.log('--- responsibilities: no Jose required -------------------------');
 console.log('--- adapters: the core has no OS opinions ----------------------');
 
 check(adapterFor('systemd').ok, 'systemd has an adapter');
-check(!adapterFor('windows-service').ok, 'windows does not — and says so rather than pretending');
-check(!adapterFor('platform-managed').ok, 'nor does a managed platform');
-check(/no adapter for/.test(adapterFor('windows-service').reason), 'the gap is explained');
+check(adapterFor('windows-service').ok, 'so does windows-service, now that there is a named target');
+check(!adapterFor('platform-managed').ok, 'a managed platform does not — and says so rather than pretending');
+check(/no adapter for/.test(adapterFor('platform-managed').reason), 'the gap is explained');
 check(!adapterFor(null).ok, 'an unknown service manager yields no adapter');
-eq(SUPPORTED_SERVICE_MANAGERS, ['systemd'], 'exactly one adapter has a real deployment behind it');
+eq(SUPPORTED_SERVICE_MANAGERS, ['systemd', 'windows-service'], 'two adapters have written mechanics');
+// The invariant this file has always defended is NOT "one adapter exists" — it
+// is that having mechanics is never mistaken for having deployed. Windows has
+// an adapter and no completed installation, and that has to stay legible.
+eq(provenAdapters(), ['systemd'], 'exactly one adapter has a real deployment behind it');
+check(adapterFor('windows-service').adapter.proven === false,
+  'the windows adapter admits it is unproven until an installation says otherwise');
 {
   const unit = adapterFor('systemd').adapter.unit({
     app: 'pcc', description: 'PCC', installPath: '/opt/pcc', dataPath: '/var/lib/pcc',
