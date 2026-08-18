@@ -174,13 +174,26 @@ file too, so `/api/health` reports which build is running.
 
 **The application and its data must be separable.** Updating PCC must never touch its records.
 
+**Branch A (container):**
+
 ```bash
 sudo install -d -o 1000 -g 1000 -m 750 /var/lib/pcc              # 6, 7: persistent data
 sudo install -d -o 1000 -g 1000 -m 750 /var/lib/pcc/backups      # 8: backups
 ```
 
-`1000:1000` is the `node` user the container runs as. On Branch B use the service account you
-create in Step 11 instead.
+`1000:1000` is the `node` user the container runs as.
+
+**Branch B (Node directly) — CREATE THE SERVICE ACCOUNT FIRST.** `useradd --system` allocates an
+id below 1000 (996 on the dry run), so a data directory created as `1000:1000` belongs to somebody
+else entirely and PCC exits with *the database could not be opened — unable to open database file*.
+That is the refusal working correctly, and it is avoidable:
+
+```bash
+sudo useradd --system --home /opt/pcc --shell /usr/sbin/nologin pcc
+sudo install -d -o pcc -g pcc -m 750 /var/lib/pcc                # 6, 7: persistent data
+sudo install -d -o pcc -g pcc -m 750 /var/lib/pcc/backups        # 8: backups
+sudo install -d -o pcc -g pcc -m 750 /opt/pcc                    # where the build is staged
+```
 
 | Path | What lives there | Survives a redeploy? |
 |---|---|---|
@@ -236,9 +249,24 @@ print on every purchase order.**
 
 **Then run the preflight.** It is read-only, changes nothing, and prints no secret values:
 
+**Branch B**, using systemd's own parser so the check sees exactly the environment the service
+will see — `PCC_ORG_NAME=Lippolis Electric, Inc.` contains spaces, and every shell idiom that
+rebuilds an environment from a file (`env $(... | xargs)`) splits it into arguments and dies with
+`env: 'Electric,': No such file or directory`:
+
 ```bash
-sudo -u \#1000 env $(sudo cat /etc/pcc.env | grep -v '^#' | xargs) \
-  node scripts/pcc-preflight.mjs --data /var/lib/pcc --port 3000
+cd /srv/pcc
+sudo systemd-run --quiet --pipe --wait --collect --uid=pcc \
+  --property=WorkingDirectory=/srv/pcc --property=EnvironmentFile=/etc/pcc.env \
+  /usr/bin/node scripts/pcc-preflight.mjs --data /var/lib/pcc --port 3000
+```
+
+Without systemd, or on Branch A, the portable form — one `export` per line, so a value with spaces
+stays one value:
+
+```bash
+sudo -u pcc bash -c 'set -a; while IFS= read -r l; do case "$l" in ""|\#*) continue;; esac; \
+  export "$l"; done < /etc/pcc.env; exec node scripts/pcc-preflight.mjs --data /var/lib/pcc --port 3000'
 ```
 
 Every **FAIL** must be fixed before continuing. Read the **WARNING**s.
@@ -255,6 +283,9 @@ docker compose build            # runs check-deployable.mjs; the build FAILS if 
 
 **Branch B:**
 
+The service account and `/opt/pcc` already exist from Step 6–8. If they do not, `chown pcc:pcc`
+here fails with `invalid user` and the install stops halfway.
+
 ```bash
 cd /srv/pcc
 npm ci --workspaces --include-workspace-root
@@ -263,7 +294,20 @@ node scripts/check-deployable.mjs
 sudo rsync -a apps/purchasing/.next/standalone/ /opt/pcc/
 sudo rsync -a apps/purchasing/.next/static/     /opt/pcc/apps/purchasing/.next/static/
 sudo rsync -a apps/purchasing/public/           /opt/pcc/apps/purchasing/public/
+sudo install -o pcc -g pcc -m 750 scripts/pcc-backup.mjs scripts/pcc-restore.mjs \
+     scripts/pcc-reset-admin.mjs scripts/pcc-storage-status.mjs /opt/pcc/scripts/
 sudo chown -R pcc:pcc /opt/pcc
+```
+
+**Confirm Node is where the unit expects it.** `deploy/pcc-node.service` runs `/usr/bin/node`,
+which is where the NodeSource package in Step 4 puts it. If Node was installed another way — nvm,
+`/usr/local/bin`, a snap — the service fails with `status=203/EXEC` and no explanatory line, which
+is the least helpful failure in this document:
+
+```bash
+command -v node                              # must be /usr/bin/node
+# if it is elsewhere, either symlink it or edit ExecStart in the unit:
+sudo ln -sf "$(command -v node)" /usr/bin/node
 ```
 
 ## Step 11 — Initialize and start
@@ -283,7 +327,7 @@ docker compose logs pcc | grep '\[pcc\]'
 **Branch B:**
 
 ```bash
-sudo useradd --system --home /opt/pcc --shell /usr/sbin/nologin pcc   # if not done
+# the service account was created in Step 6-8
 sudo cp deploy/pcc-node.service /etc/systemd/system/pcc.service
 sudo systemctl daemon-reload && sudo systemctl start pcc
 journalctl -u pcc | grep '\[pcc\]'

@@ -15,9 +15,21 @@ proves nothing.
 **One command underpins every VERIFY step:**
 
 ```bash
-sudo -u pcc --preserve-env=PCC_DATABASE_PATH \
-  env $(grep -v '^#' /etc/pcc.env | xargs) \
-  node /srv/pcc/scripts/pcc-verify-deployment.mjs
+cd /srv/pcc
+sudo systemd-run --quiet --pipe --wait --collect --uid=pcc \
+  --property=WorkingDirectory=/srv/pcc --property=EnvironmentFile=/etc/pcc.env \
+  /usr/bin/node scripts/pcc-verify-deployment.mjs
+```
+
+systemd reads `/etc/pcc.env` with the same parser the service uses, so the check cannot see a
+different environment from the one PCC runs in. **Do not rebuild the environment with
+`env $(… | xargs)`** — `PCC_ORG_NAME=Lippolis Electric, Inc.` contains spaces, and that idiom
+splits it into arguments and fails with `env: 'Electric,': No such file or directory`. Without
+systemd, one `export` per line:
+
+```bash
+sudo -u pcc bash -c 'set -a; while IFS= read -r l; do case "$l" in ""|\#*) continue;; esac; \
+  export "$l"; done < /etc/pcc.env; exec node /srv/pcc/scripts/pcc-verify-deployment.mjs'
 ```
 
 It is read-only, prints no secret value, and exits non-zero on a genuine blocker. Everything it
@@ -34,8 +46,8 @@ answer: is the service enabled, is the timer armed, is this a production build.
 | A1 | Install PCC | `PCC_VM_INSTALLATION_RUNBOOK.md`, Steps 1–12. **Clone `--branch pcc-production`** | The runbook's own checks pass |
 | A2 | Configure environment and secrets | `/etc/pcc.env`, from `.env.example`. `SESSION_SECRET` generated **on the server** by IT | `PCC_DATABASE_PATH`, `APP_BASE_URL`, `PCC_PO_NUMBERING`, `SESSION_SECRET`, `PCC_RELEASE` all set |
 | A3 | Start PCC | `sudo systemctl enable --now pcc` | `systemctl is-active pcc` → `active` |
-| A4 | **Run production verification** | the command above | `OVERALL: READY FOR ACCEPTANCE TESTING`, exit 0 |
-| A5 | Confirm health from another machine | `curl -fsS https://<address>/api/health` | `"status":"ok"`, and `release` matches the deployed commit |
+| A4 | **Run production verification** | the command above | `OVERALL: READY FOR ACCEPTANCE TESTING`, exit 0. On a fresh install `database.fit_for_production` warns that the company's data has not been entered yet — that is section B/C, not a fault |
+| A5 | Confirm health from another machine | `curl -fsS https://<address>/api/health` | `"status":"ok"`, and `release` matches the deployed commit. **Do this from a workstation** — the public name often does not resolve on the server itself, and verification warns rather than blocks when only the local address answers |
 | A6 | Confirm the database is where it should be | verification `Database:` section | Path is the persistent volume, **not** inside `/srv/pcc` |
 | A7 | Install and arm the backup timer | `PCC_IT_DEPLOYMENT_HANDOFF.md` §8a | `systemctl list-timers pcc-backup.timer` shows a next run |
 | A8 | Run one backup by hand | `sudo systemctl start pcc-backup.service` | `systemctl show pcc-backup.service -p Result --value` → `success` |

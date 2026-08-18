@@ -186,6 +186,59 @@ ok(strict.out.split('Blocking:')[1]?.length > first.out.split('Blocking:')[1]?.l
    '--strict lists more blockers than the default run');
 
 // ---------------------------------------------------------------------------
+console.log('--- the two things the deployment dry run found ------------------');
+
+// FOUND BY INSTALLING PCC ON A FRESH LINUX SERVER, following the runbook.
+//
+// 1. A correctly installed, healthy PCC reported "nothing answered", because
+//    APP_BASE_URL is the name people type and it does not resolve FROM the
+//    server. The report cried wolf on its first outing.
+// 2. The same installation reported NOT READY at the exact step the checklist
+//    says to verify it, because a database with no vendors cannot issue a
+//    purchase order — which is true, and is what sections B and C are for.
+//
+// Both would have been discovered on the VM, in front of Jose.
+
+// The database here has a seeded fixture, so it is NOT the fresh case: vendors
+// and jobs exist. A fitness failure on it must still BLOCK.
+const provisioned = run();
+ok(/WARN\s+process\.answering|BLOCKED\s+process\.answering/.test(provisioned.out),
+   'with nothing serving anywhere, the application section still reports a problem');
+
+// The fresh case: an installed, empty database — exactly what exists between
+// the end of installation and the start of provisioning.
+const FRESH = mkdtempSync(join(tmpdir(), 'pcc-verify-fresh-'));
+const FRESH_DB = join(FRESH, 'pcc.sqlite');
+{
+  const fresh = openDatabase(FRESH_DB);
+  // The application's own production bootstrap: roles, locations, templates,
+  // one administrator. No vendors, no jobs, no requests — the company's.
+  const { bootstrapDatabase } = await import(join(APP, 'purchasing', 'infrastructure', 'bootstrap.ts'));
+  bootstrapDatabase(fresh, {
+    NODE_ENV: 'production', PCC_ORG_NAME: 'Lippolis Electric, Inc.',
+    PCC_BOOTSTRAP_ADMIN_EMAIL: 'admin@dryrun.test', PCC_BOOTSTRAP_ADMIN_PASSWORD: 'DryRunBootstrap2026',
+  }, '2026-08-18T09:00:00.000Z');
+  fresh.close();
+}
+const freshRun = run({ ...PROD_ENV, PCC_DATABASE_PATH: FRESH_DB });
+ok(/WARN\s+database\.fit_for_production/.test(freshRun.out),
+   'a freshly installed, unprovisioned database WARNS rather than blocking',
+   /\s+database\.fit_for_production.*/.exec(freshRun.out)?.[0]?.trim());
+ok(/not been entered yet/.test(freshRun.out),
+   'and says the company data has not been entered yet');
+ok(/section B, then C/.test(freshRun.out), 'pointing at the acceptance step that enters it');
+ok(!/database\.fit_for_production/.test(/Blocking:([\s\S]*)$/.exec(freshRun.out)?.[1] ?? ''),
+   'so it does not appear in the blocking list on a correct installation');
+
+// And a database that HAS data but fails fitness still blocks — the fresh-case
+// exemption must not become a way to launch on a broken one.
+const seeded = run();
+ok(!/WARN\s+database\.fit_for_production/.test(seeded.out) || /warning\(s\)/.test(seeded.out),
+   'a database with data in it is judged on its contents, not exempted');
+
+rmSync(FRESH, { recursive: true, force: true });
+
+// ---------------------------------------------------------------------------
 console.log('--- the acceptance sequence, and the documents that carry it -----');
 
 // The checklist is executed once, on the VM, by people who will not be reading
@@ -238,6 +291,28 @@ for (const [doc, needle] of [
 ]) {
   ok(readFileSync(join(ROOT, doc), 'utf8').includes(needle), `${doc} points at ${needle}`);
 }
+
+// THE IDIOM THAT KILLED THE DOCUMENTED COMMAND ON THE DRY RUN. Any environment
+// rebuilt from the file with `env $(... | xargs)` dies on the first value
+// containing a space, and PCC_ORG_NAME — which prints on every purchase order —
+// is "Lippolis Electric, Inc.".
+for (const doc of ['PCC_VM_INSTALLATION_RUNBOOK.md', 'docs/deployment/PCC_PRODUCTION_ACCEPTANCE.md']) {
+  const text = readFileSync(join(ROOT, doc), 'utf8');
+  const broken = [...text.matchAll(/^.*env \$\((?!\s*#).*xargs\).*$/gm)]
+    .map((m) => m[0].trim())
+    // Prose ABOUT the broken idiom is not the broken idiom. The real commands
+    // never contain the ellipsis character; the warning against them does.
+    // Prose ABOUT the broken idiom is not the broken idiom: the warning against
+    // it necessarily quotes it. Real commands are inside a fenced block and are
+    // not backticked mid-sentence.
+    .filter((line) => !/`env \$\(/.test(line) && !line.includes('…'));
+  ok(broken.length === 0, `${doc} never rebuilds the environment with env $(… | xargs)`, broken.join(' | '));
+  ok(/systemd-run/.test(text), `${doc} uses systemd's own parser instead`);
+}
+const runbook2 = readFileSync(join(ROOT, 'PCC_VM_INSTALLATION_RUNBOOK.md'), 'utf8');
+ok(/useradd --system[\s\S]{0,400}install -d -o pcc -g pcc[\s\S]{0,200}\/var\/lib\/pcc/.test(runbook2),
+   'the runbook creates the service account BEFORE the directories it must own');
+ok(/status=203\/EXEC/.test(runbook2), 'and names the symptom when node is not at /usr/bin/node');
 
 rmSync(TMP, { recursive: true, force: true });
 

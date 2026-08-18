@@ -107,27 +107,51 @@ const haveSystemd = process.platform === 'linux' && !systemctl('--version').miss
 // APPLICATION — is it answering, and is it the production build?
 // ---------------------------------------------------------------------------
 {
-  let live = null;
-  try {
-    const r = await fetch(`${baseUrl}/api/health/live`, { redirect: 'manual' });
-    live = { status: r.status, body: await r.text() };
-  } catch (err) {
-    live = { error: err.message };
-  }
+  // TWO ADDRESSES, BECAUSE THEY ANSWER TWO DIFFERENT QUESTIONS.
+  //
+  // APP_BASE_URL is what people type, and checking it is the point. But on a
+  // real server it very often does not resolve FROM the server — split-horizon
+  // DNS, a name that only exists on the office network, a proxy in front. Found
+  // on the deployment dry run: a correctly installed, healthy PCC reported
+  // "nothing answered", which is the report crying wolf on its first outing.
+  //
+  // So: if the local address answers and the public one does not, PCC IS UP and
+  // what is wrong is name resolution or the proxy — a warning naming exactly
+  // that, checked from a workstation. Only both failing is a blocker.
+  const localUrl = `http://127.0.0.1:${port}`;
+  const probe = async (url) => {
+    try {
+      const r = await fetch(`${url}/api/health/live`, { redirect: 'manual' });
+      return { status: r.status, body: await r.text() };
+    } catch (err) {
+      return { error: err.message };
+    }
+  };
 
-  if (live?.error) {
-    add('Application', 'process.answering', 'BLOCKED', `nothing answered at ${baseUrl} — ${live.error}`,
-        `Check the service: systemctl status ${serviceUnit}; journalctl -u ${serviceUnit} -n 50`);
-  } else if (live.status === 200 && /alive/.test(live.body)) {
+  const configured = await probe(baseUrl);
+  const localOnly = baseUrl === localUrl ? configured : await probe(localUrl);
+  const answered = (p) => !p.error && p.status === 200 && /alive/.test(p.body);
+
+  let live = configured;
+  if (answered(configured)) {
     add('Application', 'process.answering', 'PASS', `${baseUrl} is serving`);
+  } else if (answered(localOnly)) {
+    live = localOnly;
+    add('Application', 'process.answering', 'WARN',
+        `PCC is serving on ${localUrl}, but ${baseUrl} did not answer from this machine`,
+        'The application is up. This is DNS or the reverse proxy, not PCC — confirm the address from a workstation before letting people use it.');
+  } else if (configured.error) {
+    add('Application', 'process.answering', 'BLOCKED', `nothing answered at ${baseUrl} or ${localUrl} — ${configured.error}`,
+        `Check the service: systemctl status ${serviceUnit}; journalctl -u ${serviceUnit} -n 50`);
   } else {
-    add('Application', 'process.answering', 'BLOCKED', `${baseUrl}/api/health/live answered ${live.status}`);
+    add('Application', 'process.answering', 'BLOCKED', `${baseUrl}/api/health/live answered ${configured.status}`);
   }
 
-  if (!live?.error) {
+  const healthBase = answered(configured) ? baseUrl : answered(localOnly) ? localUrl : null;
+  if (healthBase) {
     let health = null;
     try {
-      const r = await fetch(`${baseUrl}/api/health`, { redirect: 'manual' });
+      const r = await fetch(`${healthBase}/api/health`, { redirect: 'manual' });
       health = { status: r.status, body: await r.json() };
     } catch (err) {
       health = { error: err.message };
@@ -247,14 +271,42 @@ const haveSystemd = process.platform === 'linux' && !systemctl('--version').miss
   }
 
   // FITNESS OF THE CONTENTS — delegated, not reimplemented.
+  //
+  // WITH ONE DISTINCTION THIS REPORT HAS TO MAKE AND THAT ONE DOES NOT.
+  // pcc-verify-production asks whether the database is ready to ISSUE PURCHASE
+  // ORDERS, so on a freshly installed server it correctly says no: there are no
+  // vendors yet, because entering them is a later step performed by the office
+  // in Administration. Found on the deployment dry run — a perfectly installed
+  // machine reported NOT READY at the moment the checklist says to verify it,
+  // which would teach the operator that the gate is noise on day one.
+  //
+  // An EMPTY database is an installation waiting for its data. A database with
+  // data in it that still fails fitness is a real problem — demo rows, a vendor
+  // with no purchase order code, an unresolved paper sequence. So the fresh case
+  // warns and points at the acceptance step that fills it in; every other case
+  // blocks, exactly as before.
   const fitness = runNode('pcc-verify-production.mjs', dbPath ? ['--db', dbPath] : []);
   const problems = /NOT READY — (\d+) problem/.exec(fitness.out)?.[1] ?? null;
+  let unprovisioned = false;
+  if (fitness.code !== 0 && dbPath && existsSync(dbPath)) {
+    try {
+      const db = new DatabaseSync(dbPath, { readOnly: true });
+      const n = (t) => db.prepare(`select count(*) as n from ${t}`).get().n;
+      unprovisioned = n('vendors') === 0 && n('jobs') === 0 && n('purchase_requests') === 0;
+      db.close();
+    } catch { unprovisioned = false; }
+  }
   add('Database', 'database.fit_for_production',
-      fitness.code === 0 ? (/warning\(s\)/.test(fitness.out) ? 'WARN' : 'PASS') : 'BLOCKED',
+      fitness.code === 0 ? (/warning\(s\)/.test(fitness.out) ? 'WARN' : 'PASS') : unprovisioned ? 'WARN' : 'BLOCKED',
       fitness.code === 0
         ? (/warning\(s\)/.test(fitness.out) ? 'no blocking problems, with warnings — run pcc-verify-production.mjs to read them' : 'no demonstration data; every pilot setting configured')
-        : `pcc-verify-production reports ${problems ?? 'a'} problem(s)`,
-      fitness.code === 0 ? null : `node scripts/pcc-verify-production.mjs${dbPath ? ` --db ${dbPath}` : ''}`);
+        : unprovisioned
+          ? 'the database is installed and empty — the company\'s vendors, jobs and people have not been entered yet'
+          : `pcc-verify-production reports ${problems ?? 'a'} problem(s)`,
+      fitness.code === 0 ? null
+        : unprovisioned
+          ? 'Expected on a fresh installation. Enter them in Administration — PCC_PRODUCTION_ACCEPTANCE.md section B, then C.'
+          : `node scripts/pcc-verify-production.mjs${dbPath ? ` --db ${dbPath}` : ''}`);
 }
 
 // ---------------------------------------------------------------------------
