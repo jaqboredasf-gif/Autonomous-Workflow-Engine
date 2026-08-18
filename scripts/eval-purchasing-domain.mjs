@@ -44,7 +44,7 @@ const PO = {
 const { domainEvent, events } = await import(join(DOMAIN, 'events.mjs'));
 const { ACTIVITY_ACTIONS, NOTIFICATION_EVENTS, buildTimeline, describeActivity } =
   await import(join(DOMAIN, 'activity.mjs'));
-const { EXTERNAL_SEND_ENABLED, composeDraft, renderStoredTemplate } =
+const { EXTERNAL_SEND_ENABLED, composeDraft, renderStoredTemplate, TEMPLATES } =
   await import(join(DOMAIN, 'email.mjs'));
 // The draft state machine now runs on the AWE engine; its rules are asserted
 // through the engine's own decide() rather than a second guard function.
@@ -393,6 +393,44 @@ check(draft.body.includes('24-118') && draft.body.includes('2026-08-07') && draf
 check(draft.body.includes('$1,555.20'), 'the vendor body carries the exact total');
 eq(draft.status, 'GENERATED', 'a composed draft starts as GENERATED');
 eq(draft.externalSendEnabled, false, 'a composed draft records that sending is disabled');
+
+// NO PRICE LINE ON AN UNPRICED ORDER, AND THE TEMPLATE THE DATABASE HOLDS IS
+// THE ONE THAT MATTERS.
+//
+// Lippolis removed estimated cost from the workflow, so the total is zero on
+// every real order — and this template printed "Estimated total: $0.00" to the
+// supplier, which reads as an order quoted at nothing rather than an order with
+// no quote. Found by generating a real draft against the physical PO form.
+//
+// Both halves are checked, because fixing only the first one fixed nothing: a
+// draft is rendered from the admin-editable row in email_templates, which is
+// DERIVED from this function with placeholders substituted in, so a version
+// that kept the line "for the placeholder case" still seeded a template that
+// rendered $0.00 for every real order.
+const unpriced = composeDraft('VENDOR_PURCHASE_ORDER', {
+  org: { name: 'Lippolis Electric', phone: '(914) 738-3550' },
+  purchaseOrder: { poNumber: '26-001-GRAYBAR-1', estimatedTotalCents: 0 },
+  request: { requestNumber: 'PR-01001', jobNumber: '26-001', needByDate: '2026-08-20', needByTime: '07:00', deliveryMethod: 'DELIVERY', deliveryLocationName: 'Job site', requestorName: 'Dave' },
+  vendorContact: { name: 'Counter' },
+  items: [{ description: '1in EMT coupling', finalOrderQty: 8 * K, unit: 'ea' }],
+  to: ['orders@example.invalid'], draftKey: 'po:26-001-GRAYBAR-1:vendor', sender: { name: 'Mike' },
+});
+check(!unpriced.body.includes('$0.00'), 'an unpriced vendor order quotes no total to the supplier');
+check(!/total/i.test(unpriced.body), 'and carries no total line at all');
+check(unpriced.body.includes('8 ea') && unpriced.body.includes('1in EMT coupling'),
+      'while still carrying what the supplier is being asked for');
+check(draft.body.includes('$1,555.20'), 'a priced order still carries its total');
+
+const derivedVendorTemplate = TEMPLATES.VENDOR_PURCHASE_ORDER({
+  org: { name: '@@org.name@@', phone: '@@org.phone@@' },
+  purchaseOrder: { poNumber: '@@purchaseOrder.poNumber@@', estimatedTotalCents: '@@purchaseOrder.estimatedTotal@@' },
+  request: { jobNumber: '@@request.jobNumber@@', needByDate: '@@d@@', needByTime: '@@t@@', deliveryMethod: 'DELIVERY', deliveryLocationName: '@@loc@@' },
+  vendorContact: { name: '@@vendorContact.name@@' },
+  items: '@@itemsTable@@',
+  sender: { name: '@@sender.name@@' },
+}).body;
+check(!/total/i.test(derivedVendorTemplate),
+      'and the template seeded into the database carries no total line either');
 
 const stored = renderStoredTemplate(
   { subject: 'PO {{purchaseOrder.poNumber}}', body: 'Job {{request.jobNumber}}\n{{itemsTable}}\nTotal {{purchaseOrder.estimatedTotal}}\n{{unknown.placeholder}}' },

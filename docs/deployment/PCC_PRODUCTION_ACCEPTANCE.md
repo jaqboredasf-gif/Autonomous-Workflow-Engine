@@ -44,7 +44,7 @@ answer: is the service enabled, is the timer armed, is this a production build.
 | # | Step | Command / where | Accept when |
 |---|---|---|---|
 | A1 | Install PCC | `PCC_VM_INSTALLATION_RUNBOOK.md`, Steps 1–12. **Clone `--branch pcc-production`** | The runbook's own checks pass |
-| A2 | Configure environment and secrets | `/etc/pcc.env`, from `.env.example`. `SESSION_SECRET` generated **on the server** by IT | `PCC_DATABASE_PATH`, `APP_BASE_URL`, `PCC_PO_NUMBERING`, `SESSION_SECRET`, `PCC_RELEASE` all set |
+| A2 | Configure environment and secrets | `/etc/pcc.env`, from `.env.example`. `SESSION_SECRET` generated **on the server** by IT | `PCC_DATABASE_PATH`, `APP_BASE_URL`, `PCC_PO_NUMBERING`, `SESSION_SECRET`, `PCC_RELEASE` all set — **and `PCC_ORG_NAME` / `PCC_ORG_ADDRESS` / `PCC_ORG_PHONE`, which print on every supplier's copy and are read only on the first start** |
 | A3 | Start PCC | `sudo systemctl enable --now pcc` | `systemctl is-active pcc` → `active` |
 | A4 | **Run production verification** | the command above | `OVERALL: READY FOR ACCEPTANCE TESTING`, exit 0. On a fresh install `database.fit_for_production` warns that the company's data has not been entered yet — that is section B/C, not a fault |
 | A5 | Confirm health from another machine | `curl -fsS https://<address>/api/health` | `"status":"ok"`, and `release` matches the deployed commit. **Do this from a workstation** — the public name often does not resolve on the server itself, and verification warns rather than blocks when only the local address answers |
@@ -99,10 +99,10 @@ a controlled real order is a better test than an invented one, and the paperwork
 | C6 | Check the quantity actually ordered | **10 needed − 2 in stock = 8 ordered**, and all three numbers are visible |
 | C7 | Approve → PO generated | Lands on the purchase order with the print dialogue open |
 | C8 | Check the PO number | `job + vendor + sequence`, e.g. `1234-COOPER-1`. **If the office already wrote paper POs for this job and vendor, the pair must have been set in Administration first** |
-| C9 | Check the printed contents | Job, vendor, item, all three quantities, PO number, company details — everything Mike needs on the workshop copy |
+| C9 | Check the printed contents | Job, vendor, item, all three quantities (**job qty · shop · qty ord.**), the blank **qty rec.** column, PO number, and the Lippolis letterhead with address and telephone — everything Mike needs on the workshop copy |
 | C10 | Print it on the workshop printer | A usable physical copy, from the browser, on the PC Mike actually uses |
 | C11 | Generate the vendor email draft | Draft exists and names the PO |
-| C12 | Check recipient and content | Correct vendor address and body. **PCC cannot send** — it is sent from a person's own mailbox |
+| C12 | Check recipient and content | Correct vendor address and body. **No price or total appears** — Lippolis does not quote up front, and a `$0.00` line to a supplier is a defect. **PCC cannot send**; it is sent from a person's own mailbox |
 | C13 | Mark the order placed | **One click.** No second confirmation |
 | C14 | Check the status | Shows as ordered, in the right queue |
 | C15 | Open receiving | The simplified flow — no re-entry of the order |

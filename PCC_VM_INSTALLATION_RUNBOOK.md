@@ -244,8 +244,21 @@ Set `PCC_DATABASE_PATH=/data/pcc.sqlite` on Branch A (the container's view of th
 
 Also set for the first start only, and **removed immediately afterwards**:
 `PCC_DATABASE_ALLOW_CREATE=1`, `PCC_BOOTSTRAP_ADMIN_EMAIL`, `PCC_BOOTSTRAP_ADMIN_PASSWORD` (12+
-characters). Optional but wanted: `PCC_ORG_NAME`, `PCC_ORG_PHONE`, `PCC_ORG_ADDRESS` — **these
-print on every purchase order.**
+characters). **`PCC_ORG_NAME`, `PCC_ORG_PHONE`, `PCC_ORG_ADDRESS` — set all three, on the FIRST START.** They
+print as the letterhead on every purchase order that reaches a supplier, and they are read **only**
+when the database is created: there is no screen that edits them afterwards, so a first start
+without them means every PO goes out with no address and no telephone number until somebody
+changes the row by hand on the server. From the company's own form:
+
+```
+PCC_ORG_NAME=Lippolis Electric, Inc.
+PCC_ORG_ADDRESS=Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803
+PCC_ORG_PHONE=(914) 738-3550
+```
+
+`PCC_ORG_ADDRESS` is one free-text line, which is where the licence description belongs — the
+paper form carries it under the company name. `pcc-verify-production.mjs` warns when either the
+address or the telephone number is missing.
 
 **Then run the preflight.** It is read-only, changes nothing, and prints no secret values:
 

@@ -109,7 +109,32 @@ export const TEMPLATES = {
       'Order:',
       orderTable(ctx.items),
       '',
-      `Estimated total: ${money(ctx.purchaseOrder.estimatedTotalCents)}`,
+      // NO PRICE LINE ON AN UNPRICED ORDER.
+      //
+      // Lippolis removed estimated cost from the workflow — accounting prices
+      // from the vendor's invoice afterwards — so this line rendered
+      // "Estimated total: $0.00" on every real purchase order email. To the
+      // supplier reading it that is not an absent price, it is a price: an
+      // order quoted at nothing, on the document they work from. The printed
+      // sheet and the PDF both already suppress money when none was recorded;
+      // this template was the one place the removed field leaked back out to a
+      // vendor.
+      //
+      // OMITTED FROM THE DERIVED TEMPLATE TOO, and that is the half that
+      // matters. A draft is rendered from the admin-editable row in
+      // email_templates, which is generated from this function with
+      // placeholders substituted in — so a version that kept the line "for the
+      // placeholder case" fixed nothing: the seeded template still carried
+      // `Estimated total: {{purchaseOrder.estimatedTotal}}`, and every real
+      // draft still rendered $0.00. Verified by generating one.
+      //
+      // The value is still exposed as {{purchaseOrder.estimatedTotal}}, so an
+      // administrator who wants a total can put the line back in the template.
+      // What PCC will not do is write it there by default on a workflow that
+      // deliberately does not price orders up front.
+      Number(ctx.purchaseOrder.estimatedTotalCents ?? 0) > 0
+        ? `Estimated total: ${money(ctx.purchaseOrder.estimatedTotalCents)}`
+        : '',
       '',
       'Please confirm receipt of this order, the price, and the expected delivery or',
       'pickup date. The signed purchase order is attached as a PDF.',

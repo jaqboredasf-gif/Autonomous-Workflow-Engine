@@ -74,9 +74,14 @@ export default async function PoPage({
           {/* FIRST-CLASS, and first in the row: he prints every PO and files the
               vendor's receipt against the paper. */}
           <PrintButton />
+          {/* NAMED FOR WHAT IT IS. The sheet below is the WORKSHOP copy and
+              carries the three quantities; the PDF is the VENDOR copy, which
+              deliberately shows only what the supplier is selling — Lippolis
+              stock levels are not Graybar's business. Two documents, one page,
+              so the button says which one it hands you. */}
           {doc ? (
             <a href={`/api/documents/${doc.id}`} className={secondaryButtonClass}>
-              Download PDF
+              Download vendor PDF
             </a>
           ) : null}
           {/* The vendor email is reachable FROM the purchase order, which is
