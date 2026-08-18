@@ -219,6 +219,70 @@ handoff is finished.
 
 ---
 
+## I. If installation fails — the rollback plan
+
+**Agreed before installation day, so nobody is inventing a recovery under pressure.**
+
+The governing rule: **the database is never the thing we roll back.** `/var/lib/pcc` is not touched
+by any step below. Everything else — the checkout, the build, the units, the environment file — is
+replaceable, and rolling any of it back costs minutes.
+
+| Failure | What it looks like | Do this |
+|---|---|---|
+| **Application will not start** | `systemctl status pcc` → `failed`; the journal names a variable | Read `journalctl -u pcc -n 30`. PCC refuses with the reason. Fix `/etc/pcc.env`, `systemctl restart pcc`. **Nothing was written** — the refusal happens before the database is created |
+| **`status=203/EXEC`, no explanation** | The unit fails instantly, journal says nothing | Node is not at `/usr/bin/node`. `sudo ln -sf "$(command -v node)" /usr/bin/node`, or edit `ExecStart` |
+| **"the database could not be opened"** | Starts, then refuses | Ownership. `sudo chown -R pcc:pcc /var/lib/pcc`, restart. The database is fine |
+| **Migration fails** | Journal names the migration; `/api/health` is 503 with `migrations: false` | **Stop.** `systemctl stop pcc`. Restore the pre-upgrade backup into a *throwaway* copy and confirm the old schema opens, then redeploy the previous revision (below). Do not re-run the migration hoping |
+| **Bad environment configuration** | Health 503, or sign-in never sticks | The 503 detail names the variable, never its value. Sign-in not sticking on `http://` is TLS/`APP_BASE_URL` — see §4a of the handoff |
+| **A bad revision** | It starts, but behaves wrongly | Redeploy the previous commit. This is why `PCC_RELEASE` and the installation record exist |
+| **Suspected database corruption** | Health 503; `--check` fails | Do **not** restore over the live file first. Take a copy, run `node scripts/pcc-backup.mjs --db <copy> --check`. Restore only with `pcc-restore.mjs --force`, which moves the live database aside as `.replaced-<timestamp>` rather than deleting it |
+| **Works locally, not through the hostname** | `curl 127.0.0.1:3000/api/health` is fine; the browser is not | Not PCC. Proxy, DNS or firewall. Verification says exactly this and warns rather than blocks |
+
+**Redeploying the previous revision** — the application only, never the data:
+
+```bash
+cd /srv/pcc && git checkout <previous-commit>
+npm ci --workspaces --include-workspace-root && npm run build --workspace purchasing
+sudo rsync -a --delete apps/purchasing/.next/standalone/ /opt/pcc/
+sudo rsync -a apps/purchasing/.next/static/ /opt/pcc/apps/purchasing/.next/static/
+sudo rsync -a apps/purchasing/public/ /opt/pcc/apps/purchasing/public/
+sudo chown -R pcc:pcc /opt/pcc && sudo systemctl restart pcc
+```
+
+Update `PCC_RELEASE` to match, and re-run the verification.
+
+> **A schema migration is the one thing that does not roll back by redeploying.** Take a backup
+> before every update — `sudo systemctl start pcc-backup.service` — so the previous schema is
+> always one restore away. It takes seconds and it is the difference between a rollback and an
+> incident.
+
+**Abandoning the installation entirely** is safe and leaves nothing behind but the records:
+`systemctl disable --now pcc pcc-backup.timer`, remove the units and `/srv/pcc` and `/opt/pcc`.
+Leave `/var/lib/pcc` and `/etc/pcc.env` alone.
+
+---
+
+## J. Deployment evidence
+
+Fill this in **as it happens**, not afterwards from memory. It is the auditable record that PCC
+crossed into production, and it is deliberately short.
+
+| # | Evidence | Value |
+|---|---|---|
+| 1 | Deployed commit (`git rev-parse HEAD`) | |
+| 2 | Installation date and time, and who performed it | |
+| 3 | Verification result (A4) — paste the OVERALL line | |
+| 4 | `systemctl is-enabled pcc` / `is-active pcc` | |
+| 5 | First successful backup — filename and `--check` output | |
+| 6 | First real authenticated user, and that they set their own password | |
+| 7 | First real PO number issued | |
+| 8 | Reboot verification (D6, D7) — PCC returned unaided, verification re-run | |
+| 9 | Known unresolved issues, classed as in section F | |
+
+Keep the terminal output of items 3, 5 and 8. Everything else is one line.
+
+---
+
 ## Acceptance decision
 
 | | |
