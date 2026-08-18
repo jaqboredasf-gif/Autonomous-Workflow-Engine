@@ -14,7 +14,7 @@ PCC makes no outbound calls: no email transport, no API integrations, no third-p
 | | |
 |---|---|
 | **Purpose** | Signs the session cookie. It is what makes a signed-in browser's claim to be Mike verifiable, and it is the only thing standing between a forged cookie and an administrator session. |
-| **Who creates it** | **Jack**, at install time: `openssl rand -base64 48` |
+| **Who creates it** | **Lippolis IT / infrastructure administrator**, at install time: `openssl rand -base64 48`. Generated on the server by whoever will hold it — a secret somebody else generated and sent is a secret that has been in a message. |
 | **Who stores it** | **Lippolis IT**, in whatever secret store already exists. A root-owned `/etc/pcc.env` with mode `640` is acceptable for this pilot — say so and it gets documented that way. |
 | **Where PCC expects it** | The `SESSION_SECRET` environment variable, supplied at runtime. Never baked into the image; the build fails if a `.env` reaches it. |
 | **Can PCC start without it?** | **No.** In production the startup preflight refuses and exits non-zero, naming the variable. This is deliberate — the fallback would be a known development value, which is worse than not starting. |
@@ -30,7 +30,7 @@ PCC makes no outbound calls: no email transport, no API integrations, no third-p
 | | |
 |---|---|
 | **Purpose** | The password for the single administrator account created on the very first start, so that somebody can sign in and invite the real users. |
-| **Who creates it** | **Jack**, at install time — a temporary value, 12+ characters. |
+| **Who creates it** | **Lippolis IT / infrastructure administrator**, at install time — a temporary value, 12+ characters. |
 | **Who stores it** | Nobody, beyond the install. It is typed into `/etc/pcc.env` for one start, used, changed at first sign-in, and **removed from the environment**. |
 | **Where PCC expects it** | The `PCC_BOOTSTRAP_ADMIN_PASSWORD` environment variable, alongside `PCC_BOOTSTRAP_ADMIN_EMAIL`. |
 | **Can PCC start without it?** | **Yes** — and it will come up with **nobody able to sign in**, saying so loudly in the log. That is deliberate: an installation nobody can sign into is a phone call, whereas an installation anybody can sign into is a breach. |

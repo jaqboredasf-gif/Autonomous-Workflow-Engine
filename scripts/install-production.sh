@@ -230,15 +230,28 @@ cat <<'NEXT'
 
   4. REBOOT THE VM and confirm PCC comes back with nobody logging in.
 
-  5. Take the first backup, and run the restore rehearsal on this machine:
+  5. Turn on the nightly verified backup — 01:30, keeps 30, fails loudly:
+        sudo cp deploy/pcc-backup-docker.service \
+                /etc/systemd/system/pcc-backup.service
+        sudo cp deploy/pcc-backup.timer /etc/systemd/system/
+        sudo sh -c 'echo PCC_REPO=$(pwd) > /etc/pcc-backup.env'
+        sudo systemctl daemon-reload
+        sudo systemctl enable --now pcc-backup.timer
+        sudo systemctl start pcc-backup.service   # one now, to prove it works
+        systemctl list-timers pcc-backup.timer
+     See PCC_IT_DEPLOYMENT_HANDOFF.md §8a. Offsite copies stay yours.
+
+  6. Run the restore rehearsal on this machine:
         bash scripts/restore-rehearsal.sh
 
-  6. Fill in the installation record in PCC_VM_INSTALLATION_RUNBOOK.md.
+  7. Fill in the installation record in PCC_VM_INSTALLATION_RUNBOOK.md.
 
   NOT DONE BY THIS SCRIPT, and not by any script:
      · the purchase order sequence — it comes from the office's paper book,
        and PCC refuses to issue a PO until an administrator sets it
      · HTTPS, DNS, the reverse proxy, the firewall — Lippolis IT
-     · the backup schedule — Lippolis IT's platform
+     · installing units — step 3 and step 5 need root and are IT's to run
+     · offsite copies, retention policy and encryption of the backups this
+       schedule produces — Lippolis IT's existing platform
 
 NEXT

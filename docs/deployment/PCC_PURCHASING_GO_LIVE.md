@@ -175,7 +175,8 @@ purchasing carries on exactly as it does today.
 2. Take the next number for that job and that vendor from the paper book.
 3. **Write down every paper PO number issued while PCC was down, with its job and vendor.** This is
    the important one.
-4. Tell Jack that PCC is down.
+4. Tell the operational owner that PCC is down — the role named on the installation record, not
+   a particular person. They restart it and escalate to Lippolis IT if it does not come back.
 
 **When PCC comes back**, before anybody uses it again, we set each affected job-and-vendor pair
 *above* the highest number issued on paper for that pair. That leaves a gap, which is harmless. A

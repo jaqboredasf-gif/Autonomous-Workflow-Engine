@@ -227,7 +227,7 @@ decision. Nothing on this page is waiting on more code.
 
 ## 6. What each party does next
 
-### Jack — application owner
+### Application owner (AWE) — currently Jack
 
 1. Hand `PCC_IT_INSTALLATION_PACKET.md` to Jose and get the ten answers.
 2. On the VM, once it exists: install, run Phase A, install a supervision unit, reboot it.

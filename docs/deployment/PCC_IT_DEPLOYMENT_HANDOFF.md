@@ -7,6 +7,10 @@ about, and what we still need from you.
 Nothing here prescribes a hosting provider. PCC is an ordinary Linux container that listens on a
 port; where that container runs is your decision, and the application has no opinion about it.
 
+> **The branch to clone is `pcc-production`.** The repository's default branch does not contain
+> PCC. See `SOURCE_OF_TRUTH.md` at the repository root.
+
+
 > **Start with `PCC_IT_INSTALLATION_PACKET.md`** — one page covering what to provision, what to
 > connect, and the ten answers we need before installation. **This document is the operations
 > runbook**: start, stop, logs, update, backup, restore. The other two in this directory are
@@ -338,8 +342,64 @@ exactly what happens at five o'clock on the day of a pilot. This looks at the ro
 
 ## 8. Backup and restore
 
-PCC does not implement backup scheduling, retention, encryption or offsite copies. It gives you one
-command that produces one good file; point your existing backup system at the output directory.
+PCC takes one verified backup on a schedule, and keeps the last 30. It does **not** implement
+encryption or offsite copies: point your existing backup system at the output directory, because a
+copy that lives on the same disk as the database is not a backup of the disk failing.
+
+### 8a. The schedule — what runs, when, and where it lands
+
+| | |
+|---|---|
+| What | `systemd` timer `pcc-backup.timer`, starting `pcc-backup.service` |
+| When | **01:30 every night**, local time, ±5 minutes. If the machine was off, it runs when it comes back (`Persistent=true`) |
+| What it runs | `scripts/pcc-backup.mjs` — the same command a person runs by hand. There is no separate scheduled-backup code |
+| Where backups land | **`/var/lib/pcc/backups`** on the Node path; **`/data/backups` inside the `pcc-data` volume** on the Docker path |
+| Retention | **The last 30 files.** Older ones are deleted; the copy just written and verified never is, and without `--keep` nothing is deleted at all |
+| Disk | Attachments live inside the database, so every backup is a FULL copy — 30 nights of a 400 MB database is 12 GB. Run `node scripts/pcc-storage-status.mjs` to see the real numbers, and lower `--keep` in the unit if the disk says so |
+| On failure | The unit exits non-zero and stays `failed` — visible in `systemctl --failed`, in `systemctl status`, and as the last result in `systemctl list-timers`. It does **not** retry in a loop; the timer brings it back the next night |
+| Offsite | Yours. Collect the backup directory with whatever already runs |
+
+**Install it** (once, at deployment — `scripts/install-production.sh` prints these too):
+
+```bash
+# The four operational commands, on a bare Node install — no build, no node_modules.
+sudo install -d -o pcc -g pcc -m 750 /opt/pcc/scripts
+sudo install -o pcc -g pcc -m 750 \
+     scripts/pcc-backup.mjs scripts/pcc-restore.mjs \
+     scripts/pcc-reset-admin.mjs scripts/pcc-storage-status.mjs \
+     /opt/pcc/scripts/
+sudo install -d -o pcc -g pcc -m 750 /var/lib/pcc/backups
+
+# The unit that matches your deployment path — ONE of these two:
+sudo cp deploy/pcc-backup.service        /etc/systemd/system/pcc-backup.service   # Node path
+sudo cp deploy/pcc-backup-docker.service /etc/systemd/system/pcc-backup.service   # Docker path
+
+sudo cp deploy/pcc-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now pcc-backup.timer
+```
+
+**Operate it** — ordinary `systemctl`, nothing bespoke:
+
+```bash
+systemctl list-timers pcc-backup.timer     # when it last ran, when it runs next
+systemctl status pcc-backup.service        # how the last run ended
+sudo systemctl start pcc-backup.service    # run one NOW — same unit, same code
+journalctl -u pcc-backup -n 20             # what the last run said
+journalctl -u pcc-backup --since yesterday # every line since yesterday
+```
+
+**Verify the latest backup** — this is a different question from "did the timer fire", and worth
+asking after any incident. Strictly read-only, safe on a live system:
+
+```bash
+node /opt/pcc/scripts/pcc-backup.mjs --db /var/lib/pcc/pcc.sqlite --check
+```
+
+It opens the newest backup, runs an integrity check, prints the organization / request / purchase
+order counts and how old the file is, and **exits non-zero if the file is not usable**. Pass a path
+instead of `--check` alone to check a specific file. On the Docker path, run it the same way the
+backup runs — see the `docker run` form below, with `--check` in place of `--out`.
 
 **Do not simply copy `pcc.sqlite`.** The database runs in WAL mode: at any moment most recent
 transactions live in the `-wal` file, not the main one. On the test system the main file was 4 KB
@@ -360,10 +420,12 @@ docker run --rm \
 Uses SQLite's online backup, so the application keeps serving. The output is a single
 timestamped, already-checkpointed `.sqlite` file, and the script **verifies what it wrote**
 (integrity check plus row counts) and exits non-zero if it is not usable. `--keep N` prunes older
-backups; omit it to keep everything.
+backups, never the one it just wrote; omit it to keep everything.
 
-Run it from cron or your scheduler — nightly is sensible for this volume of work — and copy
-`/data/backups` offsite with whatever you already use.
+**This is the command §8a runs on a timer.** Run it by hand when you want one now — or, better,
+`sudo systemctl start pcc-backup.service`, which runs this exact command through the unit so the
+result lands in the journal with every other backup. Copy `/data/backups` offsite with whatever you
+already use.
 
 ### Restore (PCC must be stopped)
 

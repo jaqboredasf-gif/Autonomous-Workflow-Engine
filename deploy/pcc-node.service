@@ -42,6 +42,17 @@ Documentation=file:///opt/pcc/docs/deployment/PCC_IT_DEPLOYMENT_HANDOFF.md
 After=network-online.target
 Wants=network-online.target
 
+# FIVE FAILURES IN FIVE MINUTES IS A BROKEN DEPLOYMENT, NOT A BLIP — stop
+# restarting and leave the unit failed, so somebody looks at it.
+#
+# These two belong in [Unit], and they were in [Service], where systemd IGNORES
+# them: `systemd-analyze verify` says "Unknown key 'StartLimitIntervalSec' in
+# section [Service], ignoring". So the rate limit this deployment believed it
+# had did not exist, and a PCC crash-looping on a bad database would have
+# restarted every five seconds for as long as anybody left it.
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
 [Service]
 Type=simple
 User=pcc
@@ -67,9 +78,8 @@ ExecStart=/usr/bin/node apps/purchasing/server.js
 Restart=on-failure
 RestartPreventExitStatus=1
 RestartSec=5s
-# Five failures in five minutes is a broken deployment, not a blip.
-StartLimitBurst=5
-StartLimitIntervalSec=300
+# The start-rate limit that goes with this lives in [Unit] above — see the note
+# there. It was here, where systemd ignores it.
 
 # Logs go to stdout/stderr as JSON lines; the journal collects them.
 #   journalctl -u pcc -f

@@ -39,7 +39,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function arg(name, fallback = null) {
   const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+  const value = i >= 0 ? process.argv[i + 1] : undefined;
+  // A following flag is not this flag's value: `--check --db /x` must not read
+  // "--db" as the file to check.
+  return value && !value.startsWith('--') ? value : fallback;
 }
 
 const dbPath =
@@ -47,6 +50,78 @@ const dbPath =
   process.env.PCC_DATABASE_PATH ??
   process.env.PURCHASING_DB_PATH ??
   join(ROOT, 'apps', 'purchasing', '.data', 'purchasing.db');
+
+/**
+ * Open a backup file and decide whether it is USABLE, rather than merely
+ * present. Integrity check plus the row counts an operator can recognize.
+ *
+ * ONE DEFINITION, used twice: immediately after writing a backup, and by
+ * `--check`, which is how somebody answers "is last night's backup good?"
+ * without restoring it. A second implementation of this would be a second
+ * opinion about what a good backup is.
+ */
+function verifyBackupFile(path) {
+  const check = new DatabaseSync(path, { readOnly: true });
+  try {
+    const integrity = check.prepare('pragma integrity_check').get();
+    const result = String(Object.values(integrity ?? {})[0] ?? '');
+    if (result !== 'ok') throw new Error(`integrity check said: ${result}`);
+    const orgs = check.prepare('select count(*) as n from orgs').get();
+    const requests = check.prepare('select count(*) as n from purchase_requests').get();
+    const orders = check.prepare('select count(*) as n from purchase_orders').get();
+    const size = statSync(path).size;
+    return {
+      summary:
+        `integrity ok, ${(size / 1024 / 1024).toFixed(1)} MB, ` +
+        `${orgs.n} organization(s), ${requests.n} request(s), ${orders.n} purchase order(s)`,
+    };
+  } finally {
+    try { check.close(); } catch { /* closing a failed open is not an error worth reporting */ }
+  }
+}
+
+const newestBackupIn = (dir) => {
+  if (!existsSync(dir)) return null;
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith('.sqlite'))
+    .map((f) => ({ path: join(dir, f), at: statSync(join(dir, f)).mtimeMs }))
+    .sort((a, b) => b.at - a.at);
+  return files[0]?.path ?? null;
+};
+
+// --- --check: verify an existing backup, and write nothing ------------------
+//
+// STRICTLY READ-ONLY, and it is the answer to the question the timer cannot
+// answer on its own. `systemctl list-timers` says the backup RAN; this says the
+// file it produced can be opened, passes an integrity check, and contains the
+// company's records. Those are different claims.
+if (process.argv.includes('--check')) {
+  const requested = arg('check');
+  const checkDir = arg('out') ?? join(dirname(dbPath), 'backups');
+  const path = !requested || requested === 'latest' ? newestBackupIn(checkDir) : requested;
+
+  if (!path) {
+    console.error(`pcc-backup: no backup found in ${checkDir}`);
+    console.error('Nothing has been verified, because there is nothing there.');
+    process.exit(1);
+  }
+  if (!existsSync(path)) {
+    console.error(`pcc-backup: no such backup: ${path}`);
+    process.exit(1);
+  }
+  try {
+    const { summary } = verifyBackupFile(path);
+    const age = (Date.now() - statSync(path).mtimeMs) / 3600000;
+    console.log(`pcc-backup: ${path}`);
+    console.log(`pcc-backup: verified — ${summary}`);
+    console.log(`pcc-backup: taken ${age < 1 ? 'less than an hour' : `${Math.floor(age)} hour(s)`} ago`);
+    process.exit(0);
+  } catch (err) {
+    console.error(`pcc-backup: ${path} FAILED verification — ${err.message}`);
+    console.error('pcc-backup: treat this backup as unusable and take a new one.');
+    process.exit(1);
+  }
+}
 
 if (!existsSync(dbPath)) {
   console.error(`pcc-backup: no database at ${dbPath}`);
@@ -90,20 +165,9 @@ try {
 // Verify what was written rather than trusting that it was. A backup nobody
 // has opened is a hypothesis.
 try {
-  const check = new DatabaseSync(target, { readOnly: true });
-  const integrity = check.prepare('pragma integrity_check').get();
-  const result = String(Object.values(integrity ?? {})[0] ?? '');
-  if (result !== 'ok') throw new Error(`integrity check said: ${result}`);
-  const orgs = check.prepare('select count(*) as n from orgs').get();
-  const requests = check.prepare('select count(*) as n from purchase_requests').get();
-  const orders = check.prepare('select count(*) as n from purchase_orders').get();
-  check.close();
-  const size = statSync(target).size;
+  const { summary } = verifyBackupFile(target);
   console.log(`pcc-backup: wrote ${target}`);
-  console.log(
-    `pcc-backup: verified — integrity ok, ${(size / 1024 / 1024).toFixed(1)} MB, ` +
-      `${orgs.n} organization(s), ${requests.n} request(s), ${orders.n} purchase order(s)`,
-  );
+  console.log(`pcc-backup: verified — ${summary}`);
 } catch (err) {
   console.error(`pcc-backup: the file was written but FAILED verification — ${(err).message}`);
   console.error(`pcc-backup: treat ${target} as unusable.`);
@@ -117,8 +181,20 @@ if (Number.isInteger(keep) && keep > 0) {
     .filter((f) => f.endsWith('.sqlite'))
     .map((f) => ({ f, at: statSync(join(outDir, f)).mtimeMs }))
     .sort((a, b) => b.at - a.at);
-  for (const old of mine.slice(keep)) {
+  // THE BACKUP THIS RUN JUST WROTE AND VERIFIED IS NEVER A CANDIDATE.
+  //
+  // It is already excluded by being the newest, so this is belt and braces —
+  // and the brace is worth having, because the failure it guards against is
+  // retention deleting the only good copy on a machine whose clock moved, and
+  // nothing about that failure is recoverable or noisy.
+  for (const old of mine.slice(keep).filter((x) => join(outDir, x.f) !== target)) {
     unlinkSync(join(outDir, old.f));
     console.log(`pcc-backup: removed ${old.f} (keeping ${keep})`);
   }
+  const remaining = readdirSync(outDir).filter((f) => f.endsWith('.sqlite')).length;
+  console.log(`pcc-backup: ${remaining} backup(s) retained in ${outDir}`);
+} else {
+  // Said out loud, because "no retention" and "retention I forgot to set" look
+  // identical on a disk that is filling up.
+  console.log(`pcc-backup: retention not requested (--keep) — every backup in ${outDir} is kept`);
 }

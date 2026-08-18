@@ -1,7 +1,10 @@
 # PCC — VM installation runbook
 
-**This is the authoritative installation document.** It starts where Jose has provisioned a VM and
-given Jack access, and ends with a verified running PCC and a signed installation record.
+**This is the authoritative installation document.** It starts where a VM has been provisioned and
+access granted, and ends with a verified running PCC and a signed installation record.
+
+> **Clone `--branch pcc-production`.** The repository's default branch does not contain PCC. See
+> `SOURCE_OF_TRUTH.md` at the repository root — it is one page and it is the first thing to read.
 
 Everything else is reference, and none of it is required to install:
 
@@ -9,11 +12,11 @@ Everything else is reference, and none of it is required to install:
 |---|---|---|
 | `docs/deployment/PCC_IT_INSTALLATION_PACKET.md` | What to provision and connect | **Jose / IT** |
 | `docs/deployment/PCC_PURCHASING_GO_LIVE.md` | The PO number, pilot users, jobs, vendors | **Mike / purchasing** |
-| `docs/deployment/PCC_SECRETS_CHECKLIST.md` | The two secrets, who makes them, what rotation costs | Jack |
-| `docs/deployment/PCC_IT_DEPLOYMENT_HANDOFF.md` | Day-to-day operations: start, stop, logs, update, backup, restore | Jack + IT |
-| `docs/deployment/PCC_PRODUCTION_ARCHITECTURE.md` | What PCC is and why it is shaped this way | Jack |
-| `docs/deployment/PCC_GO_LIVE_PLAN.md` | Pilot phases, rollback, the go-live gate | Jack |
-| `docs/deployment/PCC_PRODUCTION_PILOT_CHECKLIST.md` | The boxes on pilot day | Jack |
+| `docs/deployment/PCC_SECRETS_CHECKLIST.md` | The two secrets, who makes them, what rotation costs | **Lippolis IT** |
+| `docs/deployment/PCC_IT_DEPLOYMENT_HANDOFF.md` | Day-to-day operations: start, stop, logs, update, backup, restore | **Lippolis IT / operational owner** |
+| `docs/deployment/PCC_PRODUCTION_ARCHITECTURE.md` | What PCC is and why it is shaped this way | Installer + IT |
+| `docs/deployment/PCC_GO_LIVE_PLAN.md` | Pilot phases, rollback, the go-live gate | Installer + purchasing |
+| `docs/deployment/PCC_PRODUCTION_PILOT_CHECKLIST.md` | The boxes on pilot day | Installer + IT |
 
 **Scripts this runbook uses** — all read-only unless stated:
 
@@ -146,16 +149,24 @@ node --version                              # must print v24.x or later
 
 ## Step 5 — Obtain the approved PCC version
 
+> **THE BRANCH IS `pcc-production`, AND IT IS NOT THE DEFAULT.** A plain `git clone` gives you
+> `main`, which does not contain the purchasing application at all — no `apps/purchasing`, no
+> Dockerfile, no deployment units. There is also a branch named
+> `claude/purchasing-control-center`, which sounds right, is eight days older, and has none of the
+> packaging. `--branch pcc-production` is not optional. See `SOURCE_OF_TRUTH.md`.
+
 ```bash
 sudo mkdir -p /srv/pcc && sudo chown "$USER" /srv/pcc
-git clone <repository-url> /srv/pcc
+git clone --branch pcc-production <repository-url> /srv/pcc
 cd /srv/pcc
+ls Dockerfile deploy/pcc-backup.timer       # both must exist — if not, wrong branch
 git checkout <approved-commit-or-tag>
 git rev-parse HEAD                          # RECORD THIS — it is the deployed version
 ```
 
 Deploy a specific commit or tag, never a moving branch. The commit hash is what makes the
-installation record meaningful and a rollback possible.
+installation record meaningful and a rollback possible. Put it in `PCC_RELEASE` in the environment
+file too, so `/api/health` reports which build is running.
 
 ## Step 6–8 — Create the production directories
 
@@ -420,7 +431,7 @@ Node 24 process directly and wrapping it as a service with NSSM or `sc.exe` (Bra
 with a Windows service in place of the systemd unit). Data paths become Windows paths;
 `PCC_DATABASE_PATH` must still be absolute and on a disk that is backed up.
 
-**Tell Jack the OS before installation day**, and this branch will be written properly and tested
+**Tell the installer the OS before installation day**, and this branch will be written properly and tested
 first. Do not improvise it on the day.
 
 ---

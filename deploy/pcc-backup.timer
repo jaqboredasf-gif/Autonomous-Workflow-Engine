@@ -1,0 +1,39 @@
+# ---------------------------------------------------------------------------
+# pcc-backup.timer — when the backup happens.
+#
+# ONE TIMER FOR BOTH DEPLOYMENT PATHS. It starts `pcc-backup.service`, and that
+# name is either the Node unit (deploy/pcc-backup.service) or the Docker unit
+# (deploy/pcc-backup-docker.service, installed under this name). The schedule
+# does not care which.
+#
+#   sudo cp deploy/pcc-backup.service deploy/pcc-backup.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now pcc-backup.timer
+#   systemctl list-timers pcc-backup.timer
+# ---------------------------------------------------------------------------
+
+[Unit]
+Description=Nightly verified backup of the Purchasing Control Center database
+Documentation=file:///opt/pcc/docs/deployment/PCC_IT_DEPLOYMENT_HANDOFF.md
+
+[Timer]
+# 01:30 every night, LOCAL TIME. Purchasing is a working-hours system: nobody
+# is raising a request at half past one, and a backup taken then is a clean cut
+# between one working day and the next. Local rather than UTC on purpose — the
+# thing being protected is a day's work, and the day is the one the office had.
+OnCalendar=*-*-* 01:30:00
+
+# Spread the start by up to five minutes. One machine does not need it; a
+# hypervisor with several VMs waking at exactly 01:30 does.
+RandomizedDelaySec=5min
+
+# IF THE MACHINE WAS OFF AT 01:30, BACK UP WHEN IT COMES BACK.
+# A VM that is rebooted for patching on the night the disk fails is exactly the
+# case a backup exists for, and a timer that silently skipped that night is not
+# a backup schedule.
+Persistent=true
+
+Unit=pcc-backup.service
+
+[Install]
+WantedBy=timers.target

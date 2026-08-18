@@ -1,0 +1,98 @@
+# ---------------------------------------------------------------------------
+# pcc-backup.service — one verified backup, on the NODE deployment path.
+#
+# USE THIS ONE if PCC runs from deploy/pcc-node.service (no container runtime).
+# For the Docker path, install deploy/pcc-backup-docker.service under this same
+# name instead — the timer starts `pcc-backup.service` either way, so only one
+# of the two is ever present on a machine.
+#
+# IT RUNS THE SAME COMMAND A PERSON RUNS. There is no scheduled-backup code
+# path: this unit executes scripts/pcc-backup.mjs, which takes a consistent
+# online copy with SQLite's own VACUUM INTO and then REOPENS what it wrote and
+# checks it. A backup that cannot be verified exits non-zero and the unit fails.
+#
+# WHAT HAS TO EXIST FIRST:
+#
+#   * the operational scripts on the host, readable by the service account:
+#       sudo install -d -o pcc -g pcc -m 750 /opt/pcc/scripts
+#       sudo install -o pcc -g pcc -m 750 \
+#            scripts/pcc-backup.mjs scripts/pcc-restore.mjs \
+#            scripts/pcc-reset-admin.mjs scripts/pcc-storage-status.mjs \
+#            /opt/pcc/scripts/
+#     (Those four need nothing but Node — no build, no node_modules, no repo.)
+#   * /etc/pcc.env, which already names PCC_DATABASE_PATH
+#   * the backup directory, owned by the service account:
+#       sudo install -d -o pcc -g pcc -m 750 /var/lib/pcc/backups
+#
+#   sudo cp deploy/pcc-backup.service deploy/pcc-backup.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now pcc-backup.timer
+#
+# INSPECT IT, TRIGGER IT, READ IT — ordinary systemctl, nothing bespoke:
+#
+#   systemctl list-timers pcc-backup.timer     when it last ran and next runs
+#   systemctl status pcc-backup.service        the result of the last run
+#   sudo systemctl start pcc-backup.service    run one NOW, same unit, same code
+#   journalctl -u pcc-backup                   every line it has ever printed
+#   journalctl -u pcc-backup -n 20             just the last run
+# ---------------------------------------------------------------------------
+
+[Unit]
+Description=Purchasing Control Center — verified database backup
+Documentation=file:///opt/pcc/docs/deployment/PCC_IT_DEPLOYMENT_HANDOFF.md
+# The backup reads the live database; it does not need PCC to be running, and
+# must not be skipped because PCC is down. No Requires=, deliberately.
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=pcc
+Group=pcc
+
+# PCC_DATABASE_PATH comes from here — the same file the application reads, so
+# the backup cannot end up pointed at a different database than the one being
+# served. Mode 640, root:pcc.
+EnvironmentFile=/etc/pcc.env
+
+# RETENTION IS 30 COPIES, and it is a decision worth reading twice: attachments
+# live inside the database, so each backup is a FULL copy. Thirty nights of a
+# 400 MB database is 12 GB. `pcc-storage-status.mjs` reports the real numbers
+# for this machine; lower --keep if the disk says so.
+#
+# The script never deletes the backup it just wrote and verified, and with no
+# --keep at all it deletes nothing. Offsite copies and long-term retention are
+# Lippolis IT's existing platform's job — this makes the file it collects.
+ExecStart=/usr/bin/node /opt/pcc/scripts/pcc-backup.mjs \
+    --db ${PCC_DATABASE_PATH} \
+    --out /var/lib/pcc/backups \
+    --keep 30
+
+# FAIL LOUDLY. A backup that quietly stopped working is worse than none,
+# because somebody stopped worrying about it. A non-zero exit leaves the unit
+# in `failed` — visible in `systemctl --failed`, in `systemctl status`, and as
+# the last result in `systemctl list-timers`.
+#
+# No Restart= : this is a scheduled job, and retrying a failed backup in a loop
+# turns one alert into a full journal. The timer brings it back tomorrow.
+SuccessExitStatus=0
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pcc-backup
+
+# It reads one file and writes into one directory. Nothing else.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/pcc
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+# It makes no network connections at all.
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+# Deliberately NOT WantedBy=multi-user.target: this unit is started by
+# pcc-backup.timer, and enabling the service itself would run a backup at boot
+# and never again.

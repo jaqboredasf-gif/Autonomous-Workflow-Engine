@@ -6,6 +6,10 @@ page, plus the ten answers we need before installation can start.
 This is the front door. The full operations runbook — start, stop, logs, update, backup, restore —
 is `PCC_IT_DEPLOYMENT_HANDOFF.md`, and nothing here contradicts it.
 
+> **The branch to clone is `pcc-production`.** The repository's default branch does not contain
+> PCC. See `SOURCE_OF_TRUTH.md` at the repository root.
+
+
 **What PCC is:** an internal web application replacing the paper purchase-request workflow. One
 Linux container, one port, one data directory. No outbound network, no email sending, no
 background jobs, no external services.

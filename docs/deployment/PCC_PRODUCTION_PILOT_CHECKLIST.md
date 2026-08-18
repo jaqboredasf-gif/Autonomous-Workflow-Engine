@@ -1,6 +1,6 @@
 # PCC — production pilot checklist
 
-For **Jack + Lippolis IT**, worked top to bottom on the day. Nothing here is optional in the sense
+For the **installer + Lippolis IT**, worked top to bottom on the day. Nothing here is optional in the sense
 of "probably fine": every unchecked box in §1–§4 is a way the pilot fails in front of Mike.
 
 Two commands do most of the verification for you:
@@ -22,7 +22,7 @@ go/no-go list.
 
 ## 1. Infrastructure — IT
 
-- [ ] Server or VM exists, named, and Jack knows its hostname/IP
+- [ ] Server or VM exists, named, and the installer knows its hostname/IP
 - [ ] OS and version recorded: ______________________
 - [ ] Docker (or Podman) installed and a non-root user can run containers
 - [ ] Persistent storage mounted for the database, path recorded: ______________________
@@ -43,7 +43,7 @@ go/no-go list.
       readiness — a config error must not become a restart loop
 - [ ] Log retention configured (the compose file caps at 5 × 10 MB)
 
-## 2. Application — Jack
+## 2. Application — the installer
 
 - [ ] `.env` created from `.env.example`, never committed
 - [ ] `NODE_ENV=production`
@@ -62,7 +62,7 @@ go/no-go list.
 - [ ] After that restart the log says `opening the existing purchasing database` — if it ever says
       *creating* again, **stop**: the volume is not mounted where PCC is looking
 
-## 3. Company configuration — Mike / the office, entered by Jack
+## 3. Company configuration — Mike / the office, entered by the installer
 
 Everything in this section is real company information. **None of it may be guessed.** Where a
 value is not yet known, leave the box unchecked and record it as a blocker rather than inventing a
@@ -117,7 +117,7 @@ order ever been written by hand for this job and this vendor?*
 - [ ] Mike has copied a draft into his own mail client once and sent it successfully
 - [ ] Decision recorded on whether sending should ever be automated: ______________________
 
-## 4. Data — Jack
+## 4. Data — the installer
 
 - [ ] `node scripts/pcc-verify-production.mjs --db /data/pcc.sqlite --strict` **exits 0**
 - [ ] No `@example.invalid` accounts
