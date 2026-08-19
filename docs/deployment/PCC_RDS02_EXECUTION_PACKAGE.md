@@ -276,3 +276,53 @@ documented rollback. No CI/CD platform required.
 > **DNS:** nothing yet. When ready, an internal A record `pcc.lippoliselectric.com → 192.168.10.152`. One line of config on our side; no rebuild.
 >
 > **Internet exposure:** none.
+
+---
+
+## 8. RDS02 proof register
+
+The twenty things that can only be proven on the server. Each row is a command,
+what a pass looks like, what a failure looks like, and what to do about it.
+Written so somebody who is not Jack can execute it.
+
+Record every result in `PCC_PRODUCTION_EVIDENCE.md`. Nothing here is a pass
+because it "should" work.
+
+| # | Proof | Command | PASS | FAIL | Remediation |
+|---|---|---|---|---|---|
+| 1 | PowerShell preflight | `.\scripts\preflight-windows.ps1` | `READY TO INSTALL`, 0 blockers | any BLOCKER line | each blocker names its own fix; clear and re-run |
+| 2 | Node version | `node --version` | `v24.x` or higher | v20/v22, or not found | install Node 24 LTS x64 MSI |
+| 3 | NSSM present | `nssm version` | prints a version | not recognised | place `nssm.exe` in `C:\Program Files\nssm`, add to PATH |
+| 4 | Service registration | `.\scripts\Deploy-PCCProduction.ps1 -FirstInstall` | ends `INSTALLED` | stops at a named step | the step names the fix; re-run (idempotent) |
+| 5 | Service startup | `Get-Service pcc` | `Status: Running` | `Stopped` | `Get-Content C:\ProgramData\pcc\logs\pcc.err.log -Tail 50` — a refusal exits 1 and stays stopped by design |
+| 6 | Service restart | `nssm restart pcc` then `Get-Service pcc` | `Running` within 30s | stays `Stopped` | read err.log; a configuration refusal names the variable |
+| 7 | Automatic startup | `sc qc pcc` | `START_TYPE : 2 AUTO_START` | `DEMAND_START` | `sc config pcc start= auto` |
+| 8 | Refusal policy | `nssm get pcc AppExit 1` | `Exit` | `Restart` | `nssm set pcc AppExit 1 Exit` — otherwise a misconfiguration loops forever |
+| 9 | **Reboot survival** | `Restart-Computer`; sign in to nothing; `(Get-Service pcc).Status` | `Running` | `Stopped` | check 7, then err.log |
+| 10 | IIS site | `.\scripts\Configure-PCCIIS.ps1 -Phase Http` | ends `PCC is reachable at http://192.168.10.152/` | proxy error | it checks the backend first — if that is healthy, the fault is IIS |
+| 11 | ARR proxying | `Get-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/proxy' -Name enabled` | `True` | `False` | re-run Configure-PCCIIS.ps1 |
+| 12 | HTTPS binding | `.\scripts\Configure-PCCIIS.ps1 -Phase Https -CertThumbprint <tp>` | reachable on `https://` | binding error | check the thumbprint exists in `LocalMachine\My` and is unexpired |
+| 13 | Firewall 443 open | from another machine: `Test-NetConnection <host> -Port 443` | `TcpTestSucceeded: True` | False | Jose opens 443 inbound from the LAN |
+| 14 | **Backend 3000 restricted** | from another machine: `Test-NetConnection 192.168.10.152 -Port 3000` | **`TcpTestSucceeded: False`** | True | **stop — a plain-HTTP sign-in form is on the network.** Confirm PCC binds `127.0.0.1` and no firewall rule opens 3000 |
+| 15 | Backup task | `.\scripts\install-backup-task.ps1 -DataDir C:\ProgramData\pcc\data -Repo "C:\Program Files\pcc" -EnvFile C:\ProgramData\pcc\pcc.env -RunNow` | task created, exits 0 | non-zero LastTaskResult | `Get-Content C:\ProgramData\pcc\logs\pcc-backup.log -Tail 40` |
+| 16 | Backup verified | `node scripts\pcc-backup.mjs --db C:\ProgramData\pcc\data\pcc.sqlite --check` | `verified — integrity ok` with org/request/PO counts | `FAILED verification` | take a new backup; treat the old one as unusable |
+| 17 | **Restore proof** | stop service; `node scripts\pcc-restore.mjs --from <backup> --db <scratch path> --force` | `restored … N request(s) readable` | refusal | **restore refuses while the app is answering** — stop the service first. That refusal is correct. |
+| 18 | Production login | browse to the site, sign in as each real user | dashboard; first sign-in forces a password change | sign-in loops back to the sign-in page | `APP_BASE_URL` scheme does not match how you reached it — the cookie is `Secure` and is not being returned |
+| 19 | Printer | open a generated PO, print | legible on the office printer | no printer / wrong tray | Windows printer configuration; not PCC |
+| 20 | Production transaction | request → review → approve → PO → draft read → ordered → receive → complete | status `COMPLETED`, PO number matches the paper book | any refusal | the refusal names the reason; do not work around it |
+
+**Rollback**
+
+| Situation | Action |
+|---|---|
+| New version misbehaves, data untouched | reinstall the previous artifact: `Deploy-PCCProduction.ps1 -Artifact <old>` (no `-FirstInstall`). The data directory is never touched by an install. |
+| Data affected | stop service → `pcc-restore.mjs --from <pre-update backup> --force` → start → health |
+| Configuration broke it | restore the previous `pcc.env` and `nssm restart pcc` |
+| Cannot recover | the database file is self-contained: copy the newest verified backup off the server and escalate |
+
+**Proven locally before RDS02, so a failure here is environmental rather than logical:**
+backup creation and verification, restore into a clean instance, application start
+on a restored database, byte-identical state across a backup→destroy→restore
+round trip, database initialization and refusal to re-initialize, import
+convergence, every authorization path, the full purchase-order lifecycle, and
+every refusal listed in §9 of the readiness audit.
