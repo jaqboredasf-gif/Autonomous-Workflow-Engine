@@ -139,6 +139,22 @@ function authzView(request: any) {
     // own job site, every time. It failed closed, which is the safe direction
     // and the reason it was survivable, but the feature could not work.
     jobNumber: request.jobNumber,
+    // REQUIRED FOR THE SAME REASON, and missing for longer.
+    //
+    // mayReceiveAt() decides on the DESTINATION, not only the job: material
+    // delivered to the shop counter is signed for by whoever holds the workshop
+    // assignment, and NOT by a foreman assigned only to the job the material is
+    // destined for — he is not standing there. Without this field that rule
+    // could not be evaluated here, so `must()` and `allowed()` answered the
+    // question with the destination missing while transitionTo() and
+    // queries.ts answered it with the destination in hand.
+    //
+    // The two disagreed exactly where it mattered: `must()` waved a job-site
+    // foreman past the gate for a workshop delivery, and the state machine then
+    // refused him with "recordPartialReceipt requires receiving.record" — a
+    // message naming the permission rather than the reason. It failed closed,
+    // so nothing was ever wrongly received; what it cost was a truthful refusal.
+    deliveryLocationKind: request.deliveryLocationKind ?? null,
   };
 }
 

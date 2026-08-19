@@ -795,6 +795,75 @@ console.log('--- home is a permission decision, not a constant ---------------')
   }
 }
 
+
+// ===========================================================================
+// THE THREE PATHS MUST ANSWER THE SAME QUESTION.
+//
+// `receiving.record` is decided in three places: must()/allowed() build an
+// authzView of the request, transitionTo() hands authorize() the raw record,
+// and queries.ts passes {jobNumber, locationKind} explicitly. They only agree
+// if the view carries everything mayReceiveAt() reads.
+//
+// It did not. `deliveryLocationKind` was absent from authzView, so must() let a
+// job-site foreman past the gate for a workshop delivery and the state machine
+// then refused him — naming the permission instead of the reason. It failed
+// closed, so nothing was wrongly received; the cost was a truthful refusal.
+//
+// This asserts the view carries the fields rather than trusting a comment, and
+// that the decision is identical whichever path asks.
+// ===========================================================================
+{
+  const { mayReceiveAt } = roles;
+  const source = readFileSync(
+    join(ROOT, 'apps/purchasing/src/purchasing/application/context.ts'), 'utf8',
+  );
+  const view = source.slice(source.indexOf('function authzView'));
+  const viewBody = view.slice(0, view.indexOf('\n}'));
+
+  for (const field of ['jobNumber', 'deliveryLocationKind']) {
+    check(viewBody.includes(field),
+      `authzView carries ${field} — mayReceiveAt() reads it, and dropping it silently changes the answer`);
+  }
+
+  // The same decision, asked the three ways, for the case that exposed it.
+  const foreman = user({
+    id: 'u-fm', roles: ['FOREMAN'], assignedJobNumbers: ['24-118'], isDeliveryReceiver: true,
+  });
+  // Same org as the actor: a cross-org record is refused for a different reason
+  // entirely, which would make every comparison below agree vacuously.
+  const record = request({
+    status: 'ORDERED', jobNumber: '24-118', deliveryLocationKind: 'WORKSHOP',
+  });
+
+  // path 1 — what queries.ts does
+  const viaQuery = mayReceiveAt(foreman, {
+    jobNumber: record.jobNumber, locationKind: record.deliveryLocationKind ?? null,
+  });
+  // path 2 — what transitionTo() does: the raw record
+  const viaTransition = authorize(foreman, 'receiving.record', { request: record }).ok;
+  // path 3 — what must()/allowed() do: the view. Rebuilt here field-for-field,
+  // because importing a .ts module into this suite is the thing it avoids.
+  const viaView = authorize(foreman, 'receiving.record', {
+    request: {
+      id: record.id, orgId: record.orgId, requestorId: record.requestorId,
+      createdBy: record.createdBy, status: record.status, jobNumber: record.jobNumber,
+      deliveryLocationKind: record.deliveryLocationKind ?? null,
+    },
+  }).ok;
+
+  check(viaQuery === false, 'a job-site foreman may not receive a WORKSHOP delivery');
+  check(viaTransition === viaQuery, 'the transition path agrees with the query path');
+  check(viaView === viaQuery, 'the authzView path agrees with the query path');
+  check(viaView === viaTransition && viaTransition === viaQuery,
+    'all three paths return the same decision — the disagreement that produced '
+    + '"recordPartialReceipt requires receiving.record" cannot recur');
+
+  // And the direction that must keep working: his own site, delivered to site.
+  const onSite = { ...record, deliveryLocationKind: 'JOBSITE' };
+  check(authorize(foreman, 'receiving.record', { request: onSite }).ok,
+    'and a foreman still signs for what lands on his own job site');
+}
+
 // ===========================================================================
 console.log('');
 console.log(`authorization checks: ${pass} passed, ${failures.length} failed`);
