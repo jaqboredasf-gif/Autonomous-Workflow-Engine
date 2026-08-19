@@ -116,7 +116,11 @@ const skip = (stage, what) => { results.push({ stage, status: 'skipped', what })
 // A refusal that says the record is already there is the importer's own
 // contract being met, not a failure: re-running must converge. Anything else
 // is a real error and stops the run.
-const ALREADY = /already exists|already in use|duplicate/i;
+// Narrow ON PURPOSE. This must match only the APPLICATION refusing a record it
+// already holds — never this script's own "duplicated in this file" or
+// "appears twice", which are operator mistakes in the spreadsheet and have to
+// be reported. A broader pattern silently swallowed a duplicated job number.
+const ALREADY = /already exists|already in use/i;
 const bad = (stage, line, what, why) => {
   if (ALREADY.test(String(why))) { skip(stage, `${what} (${String(why).trim()})`); return; }
   errors++;
