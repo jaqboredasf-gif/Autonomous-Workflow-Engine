@@ -132,7 +132,7 @@ systemctl --version                          # is systemd the supervisor?
 |---|---|
 | Linux, Docker or Podman available | **Branch A — Linux + container runtime** *(preferred: this is what the image and compose file were written for)* |
 | Linux, no container runtime permitted | **Branch B — Linux, Node directly** |
-| Windows Server | **Branch C — stop and read §Branch C before doing anything** |
+| Windows Server | **Branch C — the Lippolis target. Go to §Branch C now; Steps 4–8 below are Linux.** |
 
 ## Step 4 — Install dependencies
 
@@ -479,16 +479,31 @@ Fill in the installation record below, completely, and keep it with the project.
 
 ---
 
-## Branch C — Windows Server
+## Branch C — Windows Server — **THIS IS THE LIPPOLIS TARGET**
 
-**Stop.** Nothing in PCC assumes Linux, but no Windows installation has been performed or tested,
-and this runbook will not pretend otherwise.
+**Do not follow Branch A or B on Windows, and do not stop here either.** The target server is
+`LIPELE-RDS02` · `192.168.10.152` · **Windows Server 2019 Standard**, and Windows has its own
+tooling, its own runbook and its own test suite:
 
-If the VM is Windows Server, the realistic options are Docker Desktop / Windows containers using
-the same image and compose file (in which case Branch A applies almost unchanged), or running the
-Node 24 process directly and wrapping it as a service with NSSM or `sc.exe` (Branch B's shape,
-with a Windows service in place of the systemd unit). Data paths become Windows paths;
-`PCC_DATABASE_PATH` must still be absolute and on a disk that is backed up.
+| For | Read / run |
+|---|---|
+| **The step-by-step install** | **`docs/deployment/PCC_RDS02_EXECUTION_PACKAGE.md`** — operational, read it with the server in front of you |
+| Preflight, before anything | `scripts/preflight-windows.ps1` |
+| The install itself | `scripts/install-production.ps1` |
+| The IIS front door (HTTPS 443, LAN only) | `scripts/Configure-PCCIIS.ps1` |
+| Scheduled backups | `scripts/install-backup-task.ps1` |
+| Post-install verification | `scripts/pcc-verify-deployment.mjs` |
+| What the tooling guarantees | `scripts/eval-windows-deployment.mjs` — 133 checks, offline |
+
+The shape: PCC runs as a Windows service on `127.0.0.1:3000`, **loopback only**, with IIS in front
+terminating HTTPS on 443 for the LAN. Data paths are Windows paths; `PCC_DATABASE_PATH` must still
+be absolute and on a disk that is backed up (`C:\ProgramData\pcc\data`).
+
+> **This section previously said "Stop — no Windows installation has been performed or tested."**
+> That was true when it was written and was left behind when the Windows tooling landed on the same
+> day. An installer following the authoritative runbook would have halted on the only platform that
+> matters. The Windows path is now built and covered by its own suite; what remains untested is the
+> *server*, not the *tooling*, and §Branch C is no longer the place that claim lives.
 
 **Tell the installer the OS before installation day**, and this branch will be written properly and tested
 first. Do not improvise it on the day.

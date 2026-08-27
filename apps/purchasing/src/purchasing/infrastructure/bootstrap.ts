@@ -123,6 +123,36 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
   // Constrained to the shape an identifier can safely have in a path, a URL and
   // a filename, because it appears in all three. A generated UUID remains the
   // default, so an installation that says nothing behaves exactly as before.
+  // WHAT KIND OF INSTALLATION IS THIS?
+  //
+  // Stamped into the database at creation, once, because the alternative is
+  // that nothing can tell a rehearsal from the real thing. This is not
+  // hypothetical: the deployment rehearsal for this application builds the
+  // production artifact, starts it with the real company name and the real
+  // organization id, and drives real purchases through it. The resulting file
+  // is byte-for-byte the shape of production and contains no production
+  // evidence whatsoever. Point the case-study reader at it and it will report
+  // Lippolis executions that never happened.
+  //
+  // FAILS CLOSED. Only an explicit PCC_ENVIRONMENT=production counts as
+  // production. A rehearsal that forgets to declare itself is treated as a
+  // rehearsal, which is the harmless mistake; a production install that forgets
+  // is refused as evidence until somebody says so out loud, which is the
+  // recoverable one. There is deliberately no inference from NODE_ENV — the
+  // rehearsal sets NODE_ENV=production too, because it must.
+  const environment = (env.PCC_ENVIRONMENT ?? '').trim().toLowerCase() || 'unstamped';
+  if (!['production', 'rehearsal', 'development', 'unstamped'].includes(environment)) {
+    throw new Error(
+      `PCC_ENVIRONMENT must be production, rehearsal or development. Got ${JSON.stringify(environment)}.`);
+  }
+  db.prepare(
+    `insert into schema_meta (key, value) values ('environment', ?)
+       on conflict(key) do nothing`,
+  ).run(environment);
+  if (environment !== 'production') {
+    notes.push(`environment "${environment}" — this database is NOT production and its records are not evidence`);
+  }
+
   const declaredOrgId = (env.PCC_ORG_ID ?? '').trim();
   if (declaredOrgId && !/^[a-z][a-z0-9_-]{1,62}$/.test(declaredOrgId)) {
     throw new Error(

@@ -44,6 +44,9 @@ const PA = await import(P('adapters/purchasing.mjs'));
 const LIP = await import(P('baselines/lippolis-purchasing.mjs'));
 const { ACTIVITY_ACTIONS } = await import(join(ROOT, 'apps/purchasing/src/purchasing/domain/activity.mjs'));
 
+const { readFileSync: _rfs } = await import('node:fs');
+const readFileSyncTop = (p) => _rfs(p, 'utf8');
+
 let pass = 0;
 const failures = [];
 const notes = [];
@@ -1104,6 +1107,61 @@ console.log('--- a whole purchase, driven through the real use cases -----------
   eq(unpricedActions(LIP.lippolisPurchasingTouchStandard, PA.PRICEABLE_ACTIONS), [],
     'the Lippolis touch standard names every anchor, so nothing is silently free');
   note(`${PA.PRICEABLE_ACTIONS.length} anchors priced out of ${ACTIVITY_ACTIONS.length} audit actions`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('--- synthetic evidence cannot pass as production ------------------');
+
+// THE CONTAMINATION RISK, and it is not hypothetical. The deployment rehearsal
+// builds the production artifact, starts it with the real company name and the
+// real organization id, and drives real purchases through it. The database it
+// leaves behind is indistinguishable from production by inspection — same
+// schema, same org, same shape — and contains nothing that ever happened.
+{
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const APP = join(ROOT, 'apps', 'purchasing', 'src');
+  const { openDatabase } = await import(join(APP, 'purchasing/infrastructure/sqlite/database.ts'));
+  const { environmentOf } = await import(P('adapters/purchasing-sqlite.mjs'));
+
+  const fresh = () => openDatabase(join(mkdtempSync(join(tmpdir(), 'proof-env-')), 'e.db'));
+
+  const unstamped = fresh();
+  eq(environmentOf(unstamped), 'unstamped',
+    'a database that never declared itself is "unstamped" — never assumed to be production');
+  unstamped.close();
+
+  for (const declared of ['production', 'rehearsal', 'development']) {
+    const db = fresh();
+    db.prepare(`insert into schema_meta (key, value) values ('environment', ?)
+                  on conflict(key) do nothing`).run(declared);
+    eq(environmentOf(db), declared, `a database that declares "${declared}" reports it`);
+    db.close();
+  }
+
+  // The stamp is written once and never overwritten. An installation cannot be
+  // promoted to production after the fact by restarting it with a new variable
+  // — the records were made under whatever it was at the time.
+  {
+    const db = fresh();
+    const put = (v) => db.prepare(`insert into schema_meta (key, value) values ('environment', ?)
+                                     on conflict(key) do nothing`).run(v);
+    put('rehearsal');
+    put('production');
+    eq(environmentOf(db), 'rehearsal',
+      'and a later start cannot promote a rehearsal database to production');
+    db.close();
+  }
+
+  // The reader is the gate, not the caller's discipline.
+  const source = readFileSyncTop(join(ROOT, 'scripts/proof-case-study.mjs'));
+  check(source.includes("environment !== 'production'"),
+    'the case-study command refuses a database that is not declared production');
+  check(source.includes('allowNonproduction'),
+    'and reading one anyway takes an explicit flag');
+  check(source.includes('NOT EVIDENCE'),
+    'and stamps the output when that flag is used, so it cannot be quoted by accident');
+  note('a rehearsal database is refused as evidence unless asked for by name, and then labelled');
 }
 
 // ---------------------------------------------------------------------------

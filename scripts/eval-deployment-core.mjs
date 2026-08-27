@@ -92,10 +92,18 @@ check(validateManifest(org002Manifest).ok, 'and so is the synthetic one');
 console.log('--- derivation: inferred, and labelled as inferred --------------');
 
 {
+  // Fixtures, not the real manifest. This asserts the DERIVATION, and tying it
+  // to whichever OS Lippolis happens to run made a correct change to the target
+  // platform look like a broken rule.
+  const onLinuxManifest = { ...pccManifest, hosting: { ...pccManifest.hosting, os: declared('linux', 'fixture') } };
+  const linuxFacts = resolve(onLinuxManifest);
+  eq(linuxFacts['service.manager'].value, 'systemd', 'linux derives systemd');
+  eq(linuxFacts['service.manager'].state, 'DERIVED', 'and it is labelled DERIVED, not declared');
+  check(/hosting.os/.test(linuxFacts['service.manager'].source), 'and it says what it was derived from');
+
   const facts = resolve(pccManifest);
-  eq(facts['service.manager'].value, 'systemd', 'linux derives systemd');
-  eq(facts['service.manager'].state, 'DERIVED', 'and it is labelled DERIVED, not declared');
-  check(/hosting.os/.test(facts['service.manager'].source), 'and it says what it was derived from');
+  eq(facts['service.manager'].value, 'windows-service',
+    'and the real target — LIPELE-RDS02, Windows Server 2019 — derives windows-service');
 }
 {
   // The synthetic organization is the test: a managed platform must NOT derive
@@ -124,8 +132,21 @@ console.log('--- blockers: not every unknown stops everything ----------------')
 
   check(canPass(pccManifest, 'REQUIRED_BEFORE_BUILD'), 'PCC can still be built');
   check(!canPass(pccManifest, 'REQUIRED_BEFORE_GO_LIVE'), 'PCC cannot go live');
-  eq(furthestReachablePhase(pccManifest), 'DEPLOY_ONLY',
-    'PCC can be deployed but not gone live on — which is exactly where it is');
+
+  // BUILD_ONLY, and that became true on 2026-08-27 rather than being a
+  // regression. Two facts are written into the database when it is CREATED and
+  // never again — the environment stamp and the declared organization id — so
+  // an install that starts without them produces records that are permanently
+  // refused as evidence and an org id no baseline can be written against.
+  // Neither is correctable afterwards, which is precisely what
+  // REQUIRED_BEFORE_DEPLOY means.
+  eq(furthestReachablePhase(pccManifest), 'BUILD_ONLY',
+    'PCC can be built, and must not be installed until the measurement facts are set on the server');
+  const deployBlockers = blockersForPhase(pccManifest, 'REQUIRED_BEFORE_DEPLOY').map((x) => x.path);
+  check(deployBlockers.includes('measurement.environment'),
+    'and the environment stamp is named as a deploy blocker');
+  check(deployBlockers.includes('measurement.org_id_declared'),
+    'and so is the declared organization id');
 }
 {
   // A missing runtime floor stops the build; a missing monitoring tool does not.
@@ -262,8 +283,9 @@ for (const secret of ['sk_live_51H8xKlAbCdEfGhIjKlMn', 'ghp_AbCdEfGhIjKlMnOpQrSt
   eq(r.status, 'UNKNOWN', 'a linux service manager checked from macOS is UNKNOWN, not a failure');
   check(/target machine/.test(r.detail), 'and it says to run it on the target');
 
+  const linuxTarget = { ...pccManifest, hosting: { ...pccManifest.hosting, os: declared('linux', 'fixture') } };
   const onLinux = hostProbe({ platform: 'linux', commandAvailable: () => false });
-  const r2 = (await runPreflight(pccManifest, { probe: onLinux })).results.find((x) => x.id === 'service.manager_available');
+  const r2 = (await runPreflight(linuxTarget, { probe: onLinux })).results.find((x) => x.id === 'service.manager_available');
   eq(r2.status, 'BLOCKED', 'but on the target itself a missing service manager IS a failure');
 }
 
@@ -431,7 +453,8 @@ console.log('--- handoff generated from state -------------------------------');
   const doc = generateHandoff(pccManifest, { evidenceLog: fullLog, environment: 'lippolis-vm', version: 'v1' });
   check(/network\.hostname/.test(doc), 'the generated handoff lists the outstanding hostname');
   check(/_not established_/.test(doc), 'and marks unestablished facts as such');
-  check(/systemctl enable/.test(doc), 'and carries an install plan from the adapter');
+  check(/sc\.exe|New-Service|nssm|windows-service/i.test(doc),
+    'and carries an install plan from the adapter for the platform actually targeted');
   check(!/hunter2|BEGIN PRIVATE KEY/.test(doc), 'and leaks no secret');
   check(/env:SESSION_SECRET/.test(doc), 'a secret REFERENCE is printed, which is safe and useful');
 }
@@ -455,7 +478,8 @@ console.log('--- the model describes PCC correctly --------------------------');
 
   const b = blockersForPhase(pccManifest, 'REQUIRED_BEFORE_GO_LIVE').map((x) => x.path);
   check(b.includes('network.hostname'), 'and it is the go-live blocker it actually is');
-  eq(furthestReachablePhase(pccManifest), 'DEPLOY_ONLY', 'PCC is deployable, not live — which is true today');
+  eq(furthestReachablePhase(pccManifest), 'BUILD_ONLY',
+    'PCC is buildable; installing it before the measurement facts are set would waste the first records');
 }
 
 console.log('');

@@ -35,18 +35,22 @@ export const pccManifest = {
 
   hosting: {
     environment: declared('on-prem-vm', 'organization_it'),
-    // DECLARED, not verified. Nobody has run `uname` on the machine — the VM
-    // has not been provisioned. The distinction is the point of the model.
-    os: declared('linux', 'organization_it'),
+    // WINDOWS, and this was wrong until 2026-08-27. It said `linux`, which made
+    // the model derive `systemd` for a machine that has never had it — the
+    // target is LIPELE-RDS02, Windows Server 2019 Standard, named in
+    // docs/deployment/PCC_RDS02_EXECUTION_PACKAGE.md. Still DECLARED rather
+    // than verified: nobody has run `systeminfo` on the machine, and the
+    // distinction is the point of the model.
+    os: declared('windows', 'organization_it:LIPELE-RDS02 · Windows Server 2019 Standard'),
     admin_access: declared(true, 'organization_it'),
-    install_path: declared('/opt/pcc', 'awe_default'),
+    install_path: declared('C:\\pcc', 'awe_default:windows'),
     cpu: declared(2, 'awe:architecture — single-writer store, cores buy nothing'),
     memory_gb: declared(2, 'awe:architecture'),
     disk_gb: declared(20, 'awe:architecture — attachments and full-copy backups drive growth, not records'),
   },
 
   storage: {
-    data_path: declared('/var/lib/pcc', 'awe_default'),
+    data_path: declared('C:\\ProgramData\\pcc\\data', 'awe_default:windows — PCC_RDS02_EXECUTION_PACKAGE.md'),
     filesystem: declared('local', 'awe:sqlite requires it'),
     backed_up_by_customer: unknown('the backup platform has not been named'),
   },
@@ -54,18 +58,18 @@ export const pccManifest = {
   network: {
     // THE OUTSTANDING BLOCKER. Left as an explicit UNKNOWN carrying its reason,
     // which is what lets it appear in a report instead of as a silence.
-    hostname: unknown('not yet chosen by Lippolis IT'),
-    exposure: declared('internal', 'organization_it'),
-    port: declared(3000, 'awe_default'),
-    reverse_proxy: unknown('depends on what Lippolis already runs'),
+    hostname: unknown('not yet chosen by Lippolis IT — the server answers on 192.168.10.152 today'),
+    exposure: declared('internal', 'organization_it:LAN only'),
+    port: declared(3000, 'awe_default:loopback only, IIS is the front door'),
+    reverse_proxy: declared('iis', 'organization_it:IIS terminates HTTPS on 443 — PCC_RDS02_EXECUTION_PACKAGE.md'),
     tls_owner: declared('CUSTOMER_IT', 'organization_it'),
   },
 
   database: {
     engine: declared('sqlite', 'awe:pilot decision — removes a database server from IT'),
-    location: declared('/var/lib/pcc/pcc.sqlite', 'awe_default'),
+    location: declared('C:\\ProgramData\\pcc\\data\\pcc.sqlite', 'awe_default:windows'),
     migrations_mode: declared('on-startup', 'application'),
-    backup_destination: declared('/var/lib/pcc/backups', 'awe_default'),
+    backup_destination: declared('C:\\ProgramData\\pcc\\backups', 'awe_default:windows'),
   },
 
   service: {
@@ -93,8 +97,17 @@ export const pccManifest = {
     required_env: ['NODE_ENV', 'SESSION_SECRET', 'PCC_DATABASE_PATH', 'APP_BASE_URL'],
   },
 
+  // The two facts that are written into the database once, when it is created,
+  // and can never be corrected afterwards. Both are UNKNOWN because the first
+  // start has not happened — which is exactly when they must be right.
+  measurement: {
+    environment: unknown('PCC_ENVIRONMENT is not yet set on the server — an install that omits it produces records that are refused as evidence'),
+    org_id_declared: unknown('PCC_ORG_ID is not yet set on the server — without it the org id is a generated UUID no baseline can be written against'),
+    baseline_registered: declared(true, 'awe:proof/baselines/lippolis-purchasing.mjs exists for orgId lippolis, with every duration UNAVAILABLE until measured'),
+  },
+
   secrets: {
-    store: declared('/etc/pcc.env', 'awe_default'),
+    store: declared('C:\\ProgramData\\pcc\\pcc.env', 'awe_default:windows'),
     session_secret: declared('env:SESSION_SECRET', 'awe:reference only'),
   },
 

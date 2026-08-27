@@ -92,6 +92,25 @@ export const FIELDS = {
   'operations.monitoring':       { class: 'optional', blocks: 'NON_BLOCKING', owner: 'MONITORING', desc: 'Something that can poll a URL.' },
   'operations.restart_owner':    { class: 'required', blocks: 'REQUIRED_BEFORE_GO_LIVE', owner: 'CUSTOMER_IT', desc: 'Who acts when it stops. Asked least, matters most.' },
 
+  // --- measurement: the facts that cannot be fixed after first start --------
+  //
+  // Both are written into the database when it is CREATED and never again, so
+  // getting either wrong is not a configuration mistake that somebody corrects
+  // next week — it is a permanent property of the installation's records. They
+  // belong in this model for exactly the reason the letterhead does.
+  'measurement.environment': {
+    class: 'required', blocks: 'REQUIRED_BEFORE_DEPLOY', owner: 'AWE',
+    desc: 'production | rehearsal | development. Stamped once, at database creation. Anything but production is refused as evidence, and a real install that forgets is refused too.',
+  },
+  'measurement.org_id_declared': {
+    class: 'required', blocks: 'REQUIRED_BEFORE_DEPLOY', owner: 'AWE',
+    desc: 'Is PCC_ORG_ID set? Undeclared means a generated UUID, which no baseline can be written against in advance and which a restore does not reproduce.',
+  },
+  'measurement.baseline_registered': {
+    class: 'optional', blocks: 'NON_BLOCKING', owner: 'AWE',
+    desc: 'Is a proof baseline registered for this organization id? Not a go-live blocker — PCC works without measurement — but until it is true nothing the deployment does can be valued.',
+  },
+
   // --- secrets: references only --------------------------------------------
   'secrets.store':          { class: 'required',   blocks: 'REQUIRED_BEFORE_DEPLOY', owner: 'CREDENTIALS', desc: 'Where secret values live. Not a value.' },
   'secrets.session_secret': { class: 'secret-ref', blocks: 'REQUIRED_BEFORE_DEPLOY', owner: 'CREDENTIALS', desc: 'Reference only.' },

@@ -27,6 +27,23 @@ import { overheadTouches, toExecutionRecord } from './purchasing.mjs';
  * @param {string} spec.baselineId  which baseline these executions are measured against
  * @returns {{ records: Array, adminTouches: Array, requestsRead: number }}
  */
+/**
+ * What kind of installation wrote this database?
+ *
+ * `unstamped` for anything created before the stamp existed, or by an install
+ * that did not declare itself. Never guessed from the data: a rehearsal is
+ * built to look exactly like production, so the only honest answer comes from
+ * something the installation said about itself at creation.
+ */
+export function environmentOf(db) {
+  try {
+    const row = db.prepare(`select value from schema_meta where key = 'environment'`).get();
+    return row?.value ?? 'unstamped';
+  } catch {
+    return 'unstamped';
+  }
+}
+
 export function readExecutions(db, { orgId, from, to, baselineId }) {
   if (!orgId) throw new Error('readExecutions needs an orgId — evidence is organization-bound');
   if (!from || !to) throw new Error('readExecutions needs a period');
@@ -97,7 +114,7 @@ export function readExecutions(db, { orgId, from, to, baselineId }) {
      where org_id = ? and at >= ? and at < ?
   `).all(orgId, from, to).map(camel));
 
-  return { records, adminTouches, requestsRead: requests.length };
+  return { records, adminTouches, requestsRead: requests.length, environment: environmentOf(db) };
 }
 
 function camel(row) {

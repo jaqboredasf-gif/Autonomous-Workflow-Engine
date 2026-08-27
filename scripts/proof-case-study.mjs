@@ -18,6 +18,17 @@
 //   --explain print the audit chain behind the hours figure: every execution,
 //             every baseline step, every source.
 //   --json    machine-readable, for a dashboard or AXIS.
+//   --allow-nonproduction  report from a database that has not declared itself
+//             production. REQUIRED for a rehearsal or development file, and the
+//             output is stamped so the result cannot be mistaken for evidence.
+//
+// A DATABASE MUST PROVE IT IS PRODUCTION. The deployment rehearsal builds the
+// production artifact, starts it with the real company name and the real
+// organization id, and drives real purchases through it — so the file it leaves
+// behind is indistinguishable from production by inspection. Only the
+// environment the installation stamped at creation can tell them apart, and
+// anything that is not explicitly `production` is refused here unless somebody
+// asks for it by name.
 //
 // IT WILL NOT invent a baseline. If nobody has measured how Lippolis bought
 // material before PCC, this prints NOT MEASURABLE against every value figure
@@ -68,11 +79,21 @@ const db = new DatabaseSync(dbPath, { readOnly: true });
 
 // The read is a module (proof/adapters/purchasing-sqlite.mjs), not inline SQL,
 // so the suite exercises the same statements this command runs.
-const { records, adminTouches, requestsRead } = readExecutions(db, {
+const { records, adminTouches, requestsRead, environment } = readExecutions(db, {
   orgId: args.org, from, to, baselineId: org.baselineId,
 });
 
 db.close();
+
+if (environment !== 'production' && !args.allowNonproduction) {
+  fail(
+    `This database declares itself "${environment}", not "production".\n` +
+    'Its records are not evidence about a real organization, and a rehearsal database is built to\n' +
+    'look exactly like production — same artifact, same company name, same organization id.\n\n' +
+    'To read it anyway: --allow-nonproduction (the output will be stamped as such).\n' +
+    'To make a real installation report as production: set PCC_ENVIRONMENT=production before its\n' +
+    'FIRST start. The stamp is written once, when the database is created.');
+}
 
 // --- the projection ------------------------------------------------------
 const study = caseStudy({
@@ -92,8 +113,15 @@ const study = caseStudy({
 });
 
 if (args.json) {
-  console.log(JSON.stringify(args.explain ? explain(study) : study, replacer, 2));
+  console.log(JSON.stringify({ environment, ...(args.explain ? explain(study) : study) }, replacer, 2));
 } else {
+  if (environment !== 'production') {
+    console.log('='.repeat(72));
+    console.log(`NOT EVIDENCE — this database declares itself "${environment}", not "production".`);
+    console.log('Everything below describes a rehearsal. Do not quote it.');
+    console.log('='.repeat(72));
+    console.log('');
+  }
   console.log(render(study));
   console.log('');
   console.log(`Requests read:                                                    ${requestsRead}`);
@@ -132,6 +160,7 @@ function parseArgs(argv) {
     if (!a.startsWith('--')) continue;
     const key = a.slice(2);
     if (['explain', 'json'].includes(key)) { out[key] = true; continue; }
+    if (key === 'allow-nonproduction') { out.allowNonproduction = true; continue; }
     out[key] = argv[++i];
   }
   return out;
