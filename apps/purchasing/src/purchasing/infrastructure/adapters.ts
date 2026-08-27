@@ -146,7 +146,12 @@ export function identityAdapter(db: DatabaseSync): IdentityPort {
  * lives. The pilot appends to purchase_activity_log with a per-request sequence
  * so the timeline is stable even when two events share a timestamp.
  */
-export function auditAdapter(db: DatabaseSync, clock: Clock): AuditPort {
+/**
+ * @param interactionId identifies the single act that produced these rows —
+ *   one purchasing context, which is one HTTP request, which is one thing a
+ *   person did. Supplied by the composition root, never invented here.
+ */
+export function auditAdapter(db: DatabaseSync, clock: Clock, interactionId?: string): AuditPort {
   return {
     async record(orgId: string, actor: Actor | null, event: any) {
       const seqRow = db
@@ -155,20 +160,22 @@ export function auditAdapter(db: DatabaseSync, clock: Clock): AuditPort {
       db.prepare(
         `insert into purchase_activity_log
            (id, org_id, request_id, actor_id, actor_name, action, entity_type, entity_id,
-            previous_values, new_values, notes, at, seq)
-         values (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            previous_values, new_values, notes, at, seq, interaction_id)
+         values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
         uuid(), orgId, event.requestId ?? null, actor?.id ?? null, actor?.name ?? 'system',
         event.action, event.entityType, event.entityId ?? null,
         event.before === null || event.before === undefined ? null : JSON.stringify(event.before),
         event.after === null || event.after === undefined ? null : JSON.stringify(event.after),
         event.notes ?? null, clock.now(), Number(seqRow?.m ?? 0) + 1,
+        interactionId ?? null,
       );
     },
 
     async timelineFor(requestId: string) {
       return (db.prepare('select * from purchase_activity_log where request_id = ? order by at, seq').all(requestId) as any[]).map((t) => ({
-        id: t.id, at: t.at, seq: t.seq, actorId: t.actor_id, actorName: t.actor_name,
+        id: t.id, at: t.at, seq: t.seq, interactionId: t.interaction_id ?? null,
+        actorId: t.actor_id, actorName: t.actor_name,
         action: t.action, entityType: t.entity_type, entityId: t.entity_id,
         previousValues: t.previous_values ? JSON.parse(t.previous_values) : null,
         newValues: t.new_values ? JSON.parse(t.new_values) : null,

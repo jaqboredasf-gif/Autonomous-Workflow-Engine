@@ -9,6 +9,7 @@
 // screen changes.
 // ---------------------------------------------------------------------------
 
+import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 
 import type { PurchasingContext } from './application/context.ts';
@@ -46,6 +47,11 @@ export function selectedProvider(config = loadConfig()): 'local' | 'supabase' {
  */
 export function purchasingContext(db: DatabaseSync = getDb(), now?: string): PurchasingContext {
   const clock = systemClock(now);
+  // ONE IDENTIFIER PER CONTEXT, and a context is built once per HTTP request —
+  // so every audit row a single act produces carries the same one. This is what
+  // lets the measurement layer count what a PERSON did instead of what the
+  // database wrote, without inferring it from how fast the timestamps arrive.
+  const interactionId = randomUUID();
   const reference = sqliteReferenceRepository(db);
   const catalog = sqliteItemCatalogRepository(db);
   return {
@@ -76,7 +82,7 @@ export function purchasingContext(db: DatabaseSync = getDb(), now?: string): Pur
     // Credentials: Supabase Auth in production, the local scrypt store for the
     // pilot. Chosen once, here, by configuration.
     auth: authAdapter(db, loadConfig()),
-    audit: auditAdapter(db, clock),
+    audit: auditAdapter(db, clock, interactionId),
     notifications: notificationAdapter(db, clock),
     documents: documentAdapter(db),
     renderer: pdfRenderer(),

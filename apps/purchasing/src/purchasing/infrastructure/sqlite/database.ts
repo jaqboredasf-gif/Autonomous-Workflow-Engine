@@ -990,6 +990,28 @@ const ADDED_COLUMNS = [
   // purchase order. Invisible to the suite, which builds each database from
   // SCHEMA and therefore always has the column.
   "alter table purchase_approvals add column self_approved integer not null default 0",
+  // 0040: WHICH SINGLE ACT WROTE THIS ROW.
+  //
+  // The audit trail records domain events, and one thing a person does writes
+  // several of them: submitting a request writes `request.submitted` four
+  // times, and receiving writes a receipt and closes the request. Counting rows
+  // therefore over-states human work by roughly 2.8x, and the measurement layer
+  // was reduced to inferring interactions from timestamp proximity — which
+  // works for a person using a browser and fails for anything faster. An
+  // automated client drove a complete purchase in 271 milliseconds, and the
+  // heuristic folded eleven interactions into six. That error runs in the
+  // direction that FLATTERS us: fewer interactions means less human time means
+  // more hours returned.
+  //
+  // So one identifier per purchasing context — which is built once per HTTP
+  // request, and therefore once per thing a person did. Exact where the
+  // heuristic was approximate, and it makes a replay indistinguishable from
+  // what it is rather than indistinguishable from a fast human.
+  //
+  // NULLABLE, because rows written before this column exist and are not being
+  // rewritten. The measurement layer falls back to the timing heuristic for
+  // them and records that it did.
+  'alter table purchase_activity_log add column interaction_id text',
   // 0039: a credential somebody else chose must be replaced before the account
   // can be used.
   //
@@ -1017,7 +1039,7 @@ const LATE_INDEXES = [
   'create index if not exists po_job_vendor_sequences_org_idx on po_job_vendor_sequences(org_id, job_number)',
 ];
 
-export const SCHEMA_VERSION = '0039-must-change-password';
+export const SCHEMA_VERSION = '0040-audit-interaction-id';
 
 function migrate(db: DatabaseSync) {
   refreshOwnedTriggers(db);

@@ -233,10 +233,32 @@ export const MAX_ANCHORS_PER_INTERACTION = 3;
 /**
  * Human interactions, from the audit trail.
  *
- * Anchors only, de-duplicated within one transaction, represented by the FIRST
- * anchor in the group — which is the one that names the screen the person was
- * looking at. The rows collapsed into it are kept on `note`, so a reader
- * tracing a figure can still see every audit row it rests on.
+ * TWO PATHS, and the first one is exact.
+ *
+ *   interaction_id present  — every row a single act wrote carries one id,
+ *                             minted per purchasing context, which is built
+ *                             once per HTTP request. Grouping is then a fact
+ *                             rather than an inference, and it is immune to how
+ *                             fast anything runs.
+ *
+ *   interaction_id absent   — rows written before schema 0040. Falls back to
+ *                             the timing heuristic below, which is right for a
+ *                             person and wrong for a machine, so the fallback
+ *                             is REPORTED (`heuristic: true`) rather than used
+ *                             silently.
+ *
+ * ONE KNOWN IMPRECISION, in the safe direction. A context is built per `run()`
+ * call, and one server action may call `run()` more than once: the new-request
+ * form creates and then submits, so a single click mints two ids and counts as
+ * two interactions. That OVER-states human time, which under-states hours
+ * returned, so it is left alone rather than fixed with request-scoped storage.
+ * The field protocol already tells the observer these two are usually one
+ * screen and to price the second at close to nothing.
+ *
+ * Anchors only either way, represented by the FIRST anchor in the group — the
+ * one that names the screen the person was looking at. The rows folded into it
+ * are kept on `note`, so a reader tracing a figure still sees every audit row
+ * it rests on.
  */
 export function interactionsFrom(activity = []) {
   const anchors = activity
@@ -249,6 +271,18 @@ export function interactionsFrom(activity = []) {
     })
     .sort((a, b) => String(a.at).localeCompare(String(b.at)) || (a.seq ?? 0) - (b.seq ?? 0));
 
+  // EXACT PATH. One group per interaction_id, in first-seen order.
+  if (anchors.length && anchors.every((a) => a.interactionId)) {
+    const groups = new Map();
+    for (const row of anchors) {
+      const g = groups.get(row.interactionId);
+      if (g) { g.collapsed.push(row.action); continue; }
+      groups.set(row.interactionId, { ...row, collapsed: [], heuristic: false });
+    }
+    return [...groups.values()];
+  }
+
+  // FALLBACK. See above: correct for a browser, wrong for a replay.
   const out = [];
   for (const row of anchors) {
     const last = out.at(-1);
@@ -263,9 +297,21 @@ export function interactionsFrom(activity = []) {
         continue;
       }
     }
-    out.push({ ...row, lastAt: Number.isFinite(t) ? t : 0, collapsed: [] });
+    out.push({ ...row, lastAt: Number.isFinite(t) ? t : 0, collapsed: [], heuristic: true });
   }
   return out;
+}
+
+/**
+ * Did this activity trail have to be interpreted, or could it be read?
+ *
+ * Exposed so a case study can say that some of its interaction counts rest on
+ * timing rather than on recorded fact — the difference between MEASURED and
+ * INFERRED, which is exactly the kind of thing this system refuses to blur.
+ */
+export function interactionCountingIsExact(activity = []) {
+  const anchors = interactionsFrom(activity);
+  return anchors.length > 0 && anchors.every((a) => !a.heuristic);
 }
 
 /**
@@ -402,7 +448,10 @@ export function toExecutionRecord({ request, activity = [], lines = [], baseline
     // observation session fills it — this is where it arrives, and the
     // arithmetic upstream already prefers it.
     observedMinutes: a.observedMinutes ?? null,
-    note: a.collapsed.length ? `one interaction; also recorded ${a.collapsed.join(', ')}` : null,
+    note: [
+      a.collapsed.length ? `one interaction; also recorded ${a.collapsed.join(', ')}` : null,
+      a.heuristic ? 'grouped by timing — this row predates the interaction id' : null,
+    ].filter(Boolean).join('; ') || null,
   }));
 
   // A retry, in purchasing terms, is a clarification round: the request went

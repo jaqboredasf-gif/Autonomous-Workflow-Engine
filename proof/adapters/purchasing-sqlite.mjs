@@ -44,8 +44,16 @@ export function readExecutions(db, { orgId, from, to, baselineId }) {
      order by created_at
   `).all(orgId, from, to);
 
+  // `interaction_id` is what makes counting human interactions exact rather
+  // than inferred from timing — see ANCHOR_ACTIONS in ./purchasing.mjs. It is
+  // selected defensively because a database written before schema 0040 does
+  // not have the column, and an old database is still evidence.
+  const hasInteractionId = db.prepare(
+    `select count(*) as n from pragma_table_info('purchase_activity_log') where name = 'interaction_id'`
+  ).get()?.n > 0;
   const activityFor = db.prepare(`
-    select action, actor_id, at, seq from purchase_activity_log
+    select action, entity_type, actor_id, at, seq${hasInteractionId ? ', interaction_id' : ''}
+      from purchase_activity_log
      where org_id = ? and request_id = ? order by at, seq
   `);
 

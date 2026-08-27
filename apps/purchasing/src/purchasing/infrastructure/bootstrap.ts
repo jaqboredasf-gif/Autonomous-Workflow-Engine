@@ -96,7 +96,45 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
     };
   }
 
-  const orgId = randomUUID();
+  // THE ORGANIZATION'S IDENTITY, AND WHY IT MAY BE DECLARED.
+  //
+  // This was `randomUUID()` and nothing else, which was correct for a tenant
+  // key and wrong for everything that has to refer to this organization from
+  // OUTSIDE the database. Two consequences, neither visible until the day they
+  // cost something:
+  //
+  //   * Measurement cannot be prepared in advance. A baseline records what a
+  //     named organization's work cost before AWE (proof/baselines/), and it is
+  //     bound to an org id. If that id is not knowable until after first start,
+  //     no baseline can exist on the day the first real purchase happens — and
+  //     that purchase is then unmeasurable for ever, because a baseline written
+  //     afterwards cannot govern work that predates it.
+  //
+  //   * Continuity does not survive a reinstall. Restore into a fresh database,
+  //     or rebuild the VM, and a new UUID is minted. Every baseline, every
+  //     frozen case study and every historical claim silently stops matching
+  //     the organization they were about.
+  //
+  // So the id may be DECLARED, and generated only when it is not. A declared id
+  // is a deliberate, stable, human-readable name for the tenant — `lippolis` —
+  // that the environment file carries beside the letterhead, and that a restore
+  // reproduces exactly.
+  //
+  // Constrained to the shape an identifier can safely have in a path, a URL and
+  // a filename, because it appears in all three. A generated UUID remains the
+  // default, so an installation that says nothing behaves exactly as before.
+  const declaredOrgId = (env.PCC_ORG_ID ?? '').trim();
+  if (declaredOrgId && !/^[a-z][a-z0-9_-]{1,62}$/.test(declaredOrgId)) {
+    throw new Error(
+      `PCC_ORG_ID must be lowercase letters, digits, hyphen or underscore, starting with a letter ` +
+      `(2-63 characters). Got: ${JSON.stringify(declaredOrgId)}. It is the tenant's permanent ` +
+      `identity — it appears in evidence, baselines and backups — so it is validated rather than ` +
+      `accepted and regretted.`);
+  }
+  const orgId = declaredOrgId || randomUUID();
+  if (declaredOrgId) {
+    notes.push(`organization id declared as "${declaredOrgId}" — measurement and baselines can be prepared against it, and a restore reproduces it`);
+  }
   const orgName = (env.PCC_ORG_NAME ?? '').trim() || 'Lippolis Electric, Inc.';
 
   // THE LETTERHEAD IS NOT OPTIONAL, AND THIS IS THE ONLY MOMENT IT CAN BE SET.

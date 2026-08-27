@@ -20,10 +20,22 @@
 // payload. See application/context.ts. The assertion below pins TWO, and the
 // point is that a second press adds none.
 //
-// Run it against the same server as eval-production-coldstart.mjs, after it:
+// Run it against the same server as eval-production-coldstart.mjs, AFTER it:
 //
 //   PCC_BASE_URL=http://127.0.0.1:3399 PCC_DATABASE_PATH=/tmp/pcc-cold/pcc.sqlite \
 //     node scripts/eval-production-idempotency.mjs
+//
+// THE PASSWORDS ARE THE ONES COLD-START LEAVES BEHIND, not the ones it started
+// with. Since migration 0039 every password an administrator types is
+// temporary: signing in on one lands on /change-password and nothing else
+// opens until it is replaced. Cold-start therefore ends with the administrator
+// on PCC_ADMIN_OWN_PASSWORD and Mike on PCC_MIKE_PASSWORD, and this suite has
+// to start from there.
+//
+// It did not, and the failure was a TypeError on a null form rather than a
+// sentence — which is how a broken production-verification sequence stays
+// broken: the first suite passes, the second crashes in a way that reads like
+// a bug in the suite, and somebody moves on. Both are fixed below.
 // ---------------------------------------------------------------------------
 const BASE = process.env.PCC_BASE_URL ?? 'http://127.0.0.1:3399';
 const DB_PATH = process.env.PCC_DATABASE_PATH ?? '/tmp/pcc-prod/data/pcc.sqlite';
@@ -50,11 +62,25 @@ async function formOn(cookie,path,needle){
 function bodyOf(parts){const b='----idem';let s='';for(const[n,v]of parts)s+=`--${b}\r\nContent-Disposition: form-data; name="${n}"\r\n\r\n${v}\r\n`;return{body:s+`--${b}--\r\n`,b};}
 const post=(cookie,path,parts)=>{const{body,b}=bodyOf(parts);return fetch(`${BASE}${path}`,{method:'POST',headers:{cookie,'Content-Type':`multipart/form-data; boundary=${b}`},body,redirect:'manual'});};
 
-const admin=await login(process.env.PCC_ADMIN_EMAIL ?? 'jose@lippolis.test', process.env.PCC_ADMIN_PASSWORD ?? 'ColdStartAdmin!2026');
-const mike=await login('mike@lippolis.test','MikeTemp!2026x');
+// Defaults match what eval-production-coldstart.mjs LEAVES, not what it was
+// handed. Override either if this is pointed at a real staging host.
+const admin=await login(
+  process.env.PCC_ADMIN_EMAIL ?? 'admin@example.test',
+  process.env.PCC_ADMIN_OWN_PASSWORD ?? process.env.PCC_ADMIN_PASSWORD ?? 'the administrator picked this');
+const mike=await login(
+  process.env.PCC_MIKE_EMAIL ?? 'mike@lippolis.test',
+  process.env.PCC_MIKE_PASSWORD ?? 'mike picks this one');
+
+// A sign-in that did not produce a cookie has to say so here. Every assertion
+// below reads a page as that user, and without the cookie they all fail as
+// "the page did not contain the form", which points at the application instead
+// of at the credential that was actually wrong.
+if(!admin) { console.error('the administrator could not sign in — run eval-production-coldstart.mjs against this server first, or set PCC_ADMIN_OWN_PASSWORD'); process.exit(2); }
+if(!mike) { console.error('mike@lippolis.test could not sign in — run eval-production-coldstart.mjs against this server first, or set PCC_MIKE_PASSWORD'); process.exit(2); }
 
 // Raise + approve a fresh request so we have one to hammer.
 const newParts=await formOn(admin,'/requests/new','Submit to workshop');
+if(!newParts){ console.error('the new-request form was not on /requests/new for the administrator. Signed in, but the page did not carry it — check that this account still holds request.create.'); process.exit(2); }
 const raise=[...newParts.filter(([n])=>!['jobNumber','itemDescription','itemQty','itemUnit','needByDate','needByTime','submit'].includes(n)),
   ['jobNumber','26-001'],['itemDescription','Idempotency probe'],['itemQty','6'],['itemUnit','ea'],
   ['needByDate','2026-08-25'],['needByTime','07:00'],['submit','now']];

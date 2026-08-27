@@ -1058,16 +1058,40 @@ console.log('--- a whole purchase, driven through the real use cases -----------
   eq(human.record.executionOutcome, 'COMPLETED', 'and execution success is recorded separately');
   eq(human.record.cycle.elapsed.provenance, 'MEASURED', 'and the AWE-era cycle time is measured');
 
-  // MACHINE SPEED. A replay, a backfill or a migration writes the whole
-  // purchase in milliseconds. Collapsing it into one cheap interaction would
-  // OVER-state hours returned, so the cap has to hold.
+  // MACHINE SPEED. A replay, a backfill or an automated client writes the whole
+  // purchase in milliseconds. Under the timing heuristic that collapsed eleven
+  // interactions into six — an error in the direction that FLATTERS us, because
+  // fewer interactions means less human time means more hours returned.
+  //
+  // Since schema 0040 every row carries the id of the context that wrote it, so
+  // grouping is a recorded fact and speed is irrelevant. The two runs must now
+  // agree EXACTLY; anything less means the heuristic is back.
   const machine = await wholePurchase(1);
   eq(machine.auditRows, human.auditRows, 'the same purchase writes the same rows at any speed');
-  check(machine.record.humanTouches.length >= 4,
-    `a machine-speed replay does not collapse into one free interaction (got ${machine.record.humanTouches.length})`);
-  check(machine.record.humanTouches.length <= human.record.humanTouches.length,
-    'though it does under-count, which is why the cap exists and why a replay is not evidence');
+  eq(machine.record.humanTouches.length, human.record.humanTouches.length,
+    'and the same number of human interactions — speed cannot change what a person did');
+  eq(machine.record.humanTouches.map((t) => t.action), human.record.humanTouches.map((t) => t.action),
+    'right down to which screens they were');
+  check(!machine.record.humanTouches.some((t) => (t.note ?? '').includes('grouped by timing')),
+    'and none of it was inferred from timing');
   note(`machine-speed replay of the same purchase: ${machine.record.humanTouches.length} interactions vs 11 at human speed`);
+
+  // The fallback still has to work, because rows written before schema 0040
+  // exist and are still evidence — but it must SAY that it was used.
+  {
+    const stripped = human.record.humanTouches.length;
+    const legacy = PA.interactionsFrom([
+      { action: 'request.created', entityType: 'purchase_request', actorId: 'u1', at: '2026-09-01T09:00:00.000Z', seq: 1 },
+      { action: 'request.submitted', entityType: 'purchase_request', actorId: 'u1', at: '2026-09-01T09:00:00.010Z', seq: 2 },
+      { action: 'review.saved', entityType: 'purchase_review', actorId: 'u2', at: '2026-09-01T09:30:00.000Z', seq: 3 },
+    ]);
+    eq(legacy.length, 2, 'without an interaction id the timing fallback still groups a purchase');
+    check(legacy.every((g) => g.heuristic), 'and every group says it was inferred rather than recorded');
+    check(stripped > 0, 'while current data needs no inference at all');
+    eq(PA.interactionCountingIsExact([
+      { action: 'request.created', entityType: 'purchase_request', actorId: 'u1', at: '2026-09-01T09:00:00.000Z', seq: 1, interactionId: 'i1' },
+    ]), true, 'interactionCountingIsExact reports which of the two paths was taken');
+  }
 }
 
 {
