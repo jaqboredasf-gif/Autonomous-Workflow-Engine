@@ -157,13 +157,34 @@ export const lippolisPurchasingBaseline = defineBaseline({
 /**
  * What one interaction with PCC costs a human.
  *
- * Also unmeasured, and declared action by action rather than left absent, so
- * that `unpricedActions()` reports a complete list of what needs timing and the
- * suite can assert that the list matches purchasing's actual vocabulary.
+ * PRICED PER SCREEN, NOT PER AUDIT ROW. One complete purchase writes 31 rows to
+ * `purchase_activity_log` and is 11 things a person did — see ANCHOR_ACTIONS in
+ * `proof/adapters/purchasing.mjs`. Only anchors appear here, because only an
+ * anchor is something somebody can be watched doing.
  *
- * The fastest honest route to filling this in is a single timed session with
- * one purchaser doing a normal morning's work: it produces MEASURED durations
- * for the actions that occur, and leaves the rest visibly unpriced.
+ * THE ELEVEN THAT MATTER FIRST. A normal purchase — raised, reviewed, approved,
+ * ordered, received, closed — touches exactly these, in this order:
+ *
+ *    1  request.created                the foreman fills in the request
+ *    2  request.submitted              and sends it (often the same click)
+ *    3  review.saved                   the purchaser records stock and vendor
+ *    4  decision.approved              and approves
+ *    5  po.generated                   the purchase order is issued
+ *    6  email.draft_generated          the vendor email is drafted
+ *    7  email.draft_reviewed           somebody reads it
+ *    8  email.draft_approved_to_send   and approves it
+ *    9  email.marked_sent              and records that it went
+ *   10  order.placed                   the order is marked placed
+ *   11  receipt.recorded               the material is signed for
+ *
+ * Timing those eleven screens once, with one purchaser, over one normal
+ * morning, is the whole measurement. The remaining entries below are the
+ * exception paths; they are worth pricing second, and a purchase that hits one
+ * of them is simply unvaluable until they are.
+ *
+ * Also unmeasured today, and declared action by action rather than left absent,
+ * so `unpricedActions()` reports a complete list of what still needs timing and
+ * the suite can assert the list matches purchasing's real vocabulary.
  */
 const UNPRICED = { minutes: null, provenance: 'UNAVAILABLE' };
 
@@ -177,45 +198,56 @@ export const lippolisPurchasingTouchStandard = defineTouchStandard({
   // Null, deliberately: an interaction nobody has priced is unknown, not free.
   defaultMinutes: null,
   actions: {
+    // --- the happy path: price these first ---------------------------------
     'request.created': UNPRICED,
-    'request.updated': UNPRICED,
     'request.submitted': UNPRICED,
-    'request.item_added': UNPRICED,
-    'request.item_updated': UNPRICED,
-    'request.item_removed': UNPRICED,
-    'request.attachment_added': UNPRICED,
-    'request.note_added': UNPRICED,
-    'request.cancelled': UNPRICED,
-    'clarification.requested': UNPRICED,
-    'clarification.answered': UNPRICED,
-    'review.stock_recorded': UNPRICED,
-    'review.quantity_changed': UNPRICED,
-    'review.vendor_selected': UNPRICED,
-    'review.cost_changed': UNPRICED,
-    'review.substitute_set': UNPRICED,
     'review.saved': UNPRICED,
     'decision.approved': UNPRICED,
-    'decision.rejected': UNPRICED,
     'po.generated': UNPRICED,
-    'po.document_generated': UNPRICED,
     'email.draft_generated': UNPRICED,
     'email.draft_reviewed': UNPRICED,
     'email.draft_approved_to_send': UNPRICED,
     'email.marked_sent': UNPRICED,
+    'order.placed': UNPRICED,
+    'receipt.recorded': UNPRICED,
+
+    // --- exception and administrative paths: price these second ------------
+    'request.updated': UNPRICED,
+    'request.cancelled': UNPRICED,
+    'request.note_added': UNPRICED,
+    'request.attachment_added': UNPRICED,
+    'clarification.requested': UNPRICED,
+    'clarification.answered': UNPRICED,
+    'decision.rejected': UNPRICED,
     'email.draft_cancelled': UNPRICED,
     'email.draft_failed': UNPRICED,
-    'order.placed': UNPRICED,
     'order.tracking_updated': UNPRICED,
-    'receipt.recorded': UNPRICED,
-    'receipt.partial': UNPRICED,
-    'receipt.completed': UNPRICED,
-    'inventory.observed': UNPRICED,
-    'inventory.adjusted': UNPRICED,
     'request.completed': UNPRICED,
+    'accounting.actual_cost_recorded': UNPRICED,
+    'inventory.observed': UNPRICED,
     'authz.denied': UNPRICED,
     'validation.rejected_fields': UNPRICED,
-    'accounting.actual_cost_recorded': UNPRICED,
   },
 });
+
+/**
+ * The eleven screens a normal purchase touches, in order.
+ *
+ * Exported so the field protocol, the suite and any future observation tool all
+ * read one list rather than three that drift.
+ */
+export const LIPPOLIS_HAPPY_PATH_SCREENS = Object.freeze([
+  'request.created',
+  'request.submitted',
+  'review.saved',
+  'decision.approved',
+  'po.generated',
+  'email.draft_generated',
+  'email.draft_reviewed',
+  'email.draft_approved_to_send',
+  'email.marked_sent',
+  'order.placed',
+  'receipt.recorded',
+]);
 
 export default lippolisPurchasingBaseline;

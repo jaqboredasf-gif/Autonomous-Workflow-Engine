@@ -776,10 +776,8 @@ const act = (action, at, actorId = 'u1') => ({ action, at, actorId, seq: 1 });
   eq(LIP.lippolisPurchasingBaseline.labourRate.known, false, 'nor is the labour rate');
   eq(LIP.lippolisPurchasingBaseline.cycle.known, false, 'nor the pre-AWE cycle time');
 
-  const still = PA.unmappedActions(ACTIVITY_ACTIONS);
-  const unpriced = unpricedActions(LIP.lippolisPurchasingTouchStandard, ACTIVITY_ACTIONS);
-  check(unpriced.length <= 8,
-    `the touch standard names purchasing's vocabulary (unnamed: ${unpriced.join(', ') || 'none'})`);
+  eq(unpricedActions(LIP.lippolisPurchasingTouchStandard, PA.PRICEABLE_ACTIONS), [],
+    'the touch standard names every action that could be a human interaction');
 
   const r = PA.toExecutionRecord({
     request: req(), activity: [act('request.created', '2026-09-01T09:00:00Z')],
@@ -954,6 +952,134 @@ console.log('--- the read, against a real purchasing database -----------------'
 
   db.close();
   note(`end-to-end read verified against a real SCHEMA database in ${dir}`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('--- a whole purchase, driven through the real use cases -----------');
+
+// THE REHEARSAL. Not a fixture: one complete purchase driven through
+// apps/purchasing/src/server/service.ts — the same functions the website calls —
+// against a throwaway database, then read back through the proof adapter.
+//
+// It exists because of a defect no unit test would have found. The audit trail
+// records DOMAIN EVENTS, and a three-line purchase writes 31 of them for 11
+// times a person touched the software. Pricing one interaction per row inflated
+// AWE-era human handling by about 2.8x, which under-states hours returned, and
+// no amount of baseline fieldwork would have corrected it — the error was on
+// the other side of the subtraction.
+{
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const APP = join(ROOT, 'apps', 'purchasing', 'src');
+  const { openDatabase } = await import(join(APP, 'purchasing/infrastructure/sqlite/database.ts'));
+  const { seed } = await import(join(APP, 'purchasing/infrastructure/seed.ts'));
+  const S = await import(join(APP, 'server/service.ts'));
+  const { readExecutions } = await import(P('adapters/purchasing-sqlite.mjs'));
+
+  async function wholePurchase(intervalMs) {
+    const db = openDatabase(join(mkdtempSync(join(tmpdir(), 'proof-e2e-')), 'e2e.db'));
+    seed(db, '2026-09-01T08:00:00.000Z');
+    let clock = Date.parse('2026-09-01T08:00:00.000Z');
+    // Rows inside one service call share a timestamp, as they do in production
+    // to within a millisecond. `intervalMs` is how far apart the CALLS are, and
+    // it is the whole point: a person is minutes apart, a replay is not.
+    const ctx = () => S.context(db, new Date((clock += intervalMs)).toISOString());
+
+    const users = Object.fromEntries(await Promise.all(
+      db.prepare('select id, email from users').all()
+        .map(async (u) => [u.email.split('@')[0], await S.loadActor(db, u.id)])));
+    const { mike, dave: foreman } = users;
+    const jobsite = (await S.listDeliveryLocations(ctx(), foreman)).find((l) => l.kind === 'JOBSITE');
+    const graybar = (await S.listVendors(ctx(), mike)).find((v) => v.name.startsWith('Graybar'));
+
+    const created = await S.createRequest(ctx(), foreman, {
+      jobNumber: '24-118', needByDate: '2026-09-10', needByTime: '07:00',
+      deliveryLocationId: jobsite.id, deliveryMethod: 'DELIVERY',
+      reason: 'Fixture rough-in, second floor.',
+      items: [
+        { description: '2x4 LED troffer, 4000K', qty: '20', unit: 'ea' },
+        { description: '12/2 MC cable', qty: '500', unit: 'ft' },
+        { description: '4-square box, 2-1/8 deep', qty: '40', unit: 'ea' },
+      ],
+    });
+    await S.submitRequest(ctx(), foreman, created.id);
+    const detail = await S.getRequestDetail(ctx(), mike, created.id);
+    await S.saveReview(ctx(), mike, created.id, {
+      workshopNotes: 'Two troffers on the shelf.',
+      lines: detail.originalItems.map((it, i) => ({
+        requestItemId: it.id,
+        usableStock: i === 0 ? '2' : '0',
+        approvedQty: String(it.requestedQty / 1000),
+        finalOrderQty: i === 0 ? '18' : String(it.requestedQty / 1000),
+        vendorId: graybar.id, estimatedUnitCost: '86.40',
+      })),
+    });
+    await S.decide(ctx(), mike, created.id, 'APPROVE', { notes: 'Four stay on the shelf.' });
+    await S.generatePurchaseOrder(ctx(), mike, created.id);
+    const draft = await S.generateVendorEmailDraft(ctx(), mike, created.id);
+    await S.advanceEmailDraft(ctx(), mike, draft.id, 'REVIEWED');
+    await S.advanceEmailDraft(ctx(), mike, draft.id, 'APPROVED_TO_SEND');
+    await S.advanceEmailDraft(ctx(), mike, draft.id, 'SENT');
+    await S.markOrdered(ctx(), mike, created.id, { notes: 'Called it in.' });
+    await S.receiveEverything(ctx(), mike, created.id, {
+      receivedDate: '2026-09-08', packingSlipNumber: 'PS-9912',
+    });
+
+    const orgId = db.prepare('select org_id from purchase_requests where id = ?').get(created.id).org_id;
+    const auditRows = db.prepare(
+      'select action from purchase_activity_log where request_id = ?').all(created.id).length;
+    const { records } = readExecutions(db, {
+      orgId, from: '2026-01-01T00:00:00Z', to: '2027-01-01T00:00:00Z', baselineId: 'lippolis_purchasing_v0',
+    });
+    const record = records.find((r) => r.scopeKey === `purchase_request:${created.id}`);
+    db.close();
+    return { auditRows, record };
+  }
+
+  const human = await wholePurchase(180_000);           // three minutes between screens
+
+  check(human.auditRows >= 25, `one purchase writes a lot of audit rows (${human.auditRows})`);
+  eq(human.record.humanTouches.length, 11,
+    `and is ELEVEN human interactions, not ${human.auditRows}`);
+  note(`one complete purchase: ${human.auditRows} audit rows, 11 human interactions`);
+
+  const seen = human.record.humanTouches.map((t) => t.action);
+  eq(seen, [...LIP.LIPPOLIS_HAPPY_PATH_SCREENS],
+    'and they are exactly the eleven screens the touch standard prices, in order');
+
+  // Every consequence row is accounted for, and none of them was charged as a
+  // separate act.
+  check(human.record.humanTouches.some((t) => (t.note ?? '').includes('request.submitted')),
+    'a repeated action inside one transaction is folded in, not counted four times');
+  check(human.record.humanTouches.at(-1).note?.includes('request.completed'),
+    'receiving records a receipt AND closes the request in one click, and is priced once');
+
+  eq(human.record.objectiveResult, 'ACHIEVED', 'the objective is tested from the real receipt');
+  eq(human.record.executionOutcome, 'COMPLETED', 'and execution success is recorded separately');
+  eq(human.record.cycle.elapsed.provenance, 'MEASURED', 'and the AWE-era cycle time is measured');
+
+  // MACHINE SPEED. A replay, a backfill or a migration writes the whole
+  // purchase in milliseconds. Collapsing it into one cheap interaction would
+  // OVER-state hours returned, so the cap has to hold.
+  const machine = await wholePurchase(1);
+  eq(machine.auditRows, human.auditRows, 'the same purchase writes the same rows at any speed');
+  check(machine.record.humanTouches.length >= 4,
+    `a machine-speed replay does not collapse into one free interaction (got ${machine.record.humanTouches.length})`);
+  check(machine.record.humanTouches.length <= human.record.humanTouches.length,
+    'though it does under-count, which is why the cap exists and why a replay is not evidence');
+  note(`machine-speed replay of the same purchase: ${machine.record.humanTouches.length} interactions vs 11 at human speed`);
+}
+
+{
+  // Every purchasing action is classified as an anchor, a consequence, or
+  // organization overhead. An unclassified one would default to free.
+  const unclassified = PA.unclassifiedInteractionActions(ACTIVITY_ACTIONS);
+  eq(unclassified, [], `every action is an anchor, a consequence or overhead (loose: ${unclassified.join(', ')})`);
+  const overlap = PA.PRICEABLE_ACTIONS.filter((a) => PA.CONSEQUENCE_ACTIONS.includes(a));
+  eq(overlap, [], 'and nothing is both an anchor and a consequence');
+  eq(unpricedActions(LIP.lippolisPurchasingTouchStandard, PA.PRICEABLE_ACTIONS), [],
+    'the Lippolis touch standard names every anchor, so nothing is silently free');
+  note(`${PA.PRICEABLE_ACTIONS.length} anchors priced out of ${ACTIVITY_ACTIONS.length} audit actions`);
 }
 
 // ---------------------------------------------------------------------------

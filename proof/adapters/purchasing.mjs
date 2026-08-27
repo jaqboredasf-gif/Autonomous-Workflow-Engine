@@ -95,6 +95,179 @@ export const TOUCH_KIND_BY_ACTION = Object.freeze({
   'accounting.actual_cost_recorded': 'ROUTINE',
 });
 
+// ---------------------------------------------------------------------------
+// AUDIT ROWS ARE NOT HUMAN INTERACTIONS
+//
+// The defect this section exists to remove, measured rather than supposed. One
+// complete purchase — three line items, raised, reviewed, approved, ordered,
+// received and closed — writes THIRTY-ONE rows to purchase_activity_log, none
+// of them system-written, for ELEVEN times a person touched the software.
+//
+// The trail is not wrong. It is a faithful record of DOMAIN EVENTS, and it has
+// to be: recording stock once per line is what makes a review auditable, and
+// recording `po.generated` against both the request and the order is what lets
+// either be traced. But a domain event is not a unit of human work, and pricing
+// one interaction per row inflates AWE-era human handling by about 2.8x — which
+// UNDER-states hours returned, and which no amount of baseline fieldwork would
+// have corrected, because the error is on the other side of the subtraction.
+//
+// It is also unmeasurable in the field. Nobody can stopwatch `review.stock_
+// recorded` separately from `review.saved`: they are one person pressing Save
+// on one screen. A touch standard has to be priceable by watching somebody
+// work, and that means its unit must be the SCREEN, not the event.
+//
+// So one action per interaction is declared the ANCHOR — the row that stands
+// for "a person pressed the button" — and every other row in the same
+// transaction is a consequence of it. Anchors are priced; consequences are
+// free, because they cost the human nothing beyond the anchor they came with.
+//
+// DESIGN IT TWICE. The alternative was to group rows by actor and timestamp
+// proximity and call each cluster an interaction. It needs no table, and it was
+// rejected: the window is a magic number that decides the answer, and the
+// rehearsal proved it degenerates — driven at machine speed, every row in the
+// purchase collapsed into two clusters. An anchor table is explicit, testable
+// against the whole vocabulary by `unmappedActions()`, and immune to how fast
+// anybody works. The timing rule below survives only as a de-duplicator inside
+// one transaction, where it decides nothing about which work counted.
+// ---------------------------------------------------------------------------
+
+/**
+ * The action that stands for a human interaction, and the entity it is
+ * recorded against.
+ *
+ * `entityType: '*'` means any. Where an action is recorded twice in one
+ * transaction against two different entities — `po.generated` lands on both the
+ * request and the order — the anchor names the one that represents the act,
+ * and the echo is a consequence.
+ */
+export const ANCHOR_ACTIONS = Object.freeze({
+  'request.created': 'purchase_request',
+  'request.submitted': 'purchase_request',
+  'request.updated': 'purchase_request',
+  'request.cancelled': 'purchase_request',
+  'request.note_added': 'purchase_request',
+  'request.attachment_added': 'purchase_request_attachment',
+  'clarification.requested': 'purchase_request',
+  'clarification.answered': 'purchase_request',
+  'review.saved': 'purchase_review',
+  'decision.approved': 'purchase_request',
+  'decision.rejected': 'purchase_request',
+  'po.generated': 'purchase_order',
+  'email.draft_generated': 'purchase_email_draft',
+  'email.draft_reviewed': 'purchase_email_draft',
+  'email.draft_approved_to_send': 'purchase_email_draft',
+  'email.marked_sent': 'purchase_email_draft',
+  'email.draft_cancelled': 'purchase_email_draft',
+  'email.draft_failed': 'purchase_email_draft',
+  'order.placed': 'purchase_request',
+  'order.tracking_updated': 'purchase_request',
+  'receipt.recorded': 'purchase_receipt',
+  'request.completed': 'purchase_request',
+  'accounting.actual_cost_recorded': 'purchase_order',
+  'inventory.observed': 'inventory_observation',
+  'authz.denied': 'purchase_request',
+  'validation.rejected_fields': 'purchase_request',
+});
+
+/**
+ * Rows that are consequences of an anchor, not acts of their own.
+ *
+ * Listed rather than inferred, so that a new purchasing action forces a
+ * decision instead of defaulting into whichever bucket is quieter.
+ */
+export const CONSEQUENCE_ACTIONS = Object.freeze([
+  'request.item_added',
+  'request.item_updated',
+  'request.item_removed',
+  'review.stock_recorded',
+  'review.quantity_changed',
+  'review.vendor_selected',
+  'review.cost_changed',
+  'review.substitute_set',
+  'po.document_generated',
+  'receipt.partial',
+  'receipt.completed',
+  'inventory.adjusted',
+]);
+
+/**
+ * Two anchors this close together, by one person, are one interaction.
+ *
+ * A second is a very long time for a server transaction and far too short for a
+ * human: reaching a second PCC screen means a navigation and a form submit, and
+ * nobody does that in under a second. So this collapses only what one click
+ * produced — the new-request form that creates AND submits, or receiving that
+ * records a receipt AND closes the request — and never merges two things a
+ * person actually did separately.
+ *
+ * It de-duplicates. It never decides whether work happened.
+ */
+export const INTERACTION_WINDOW_MS = 1000;
+
+/**
+ * The most anchors one click is allowed to have produced.
+ *
+ * The window above is safe for a person using a browser and NOT safe for a
+ * machine: a migration, a backfill or a replay writes a whole purchase in
+ * milliseconds, and everything would collapse into one interaction. That error
+ * runs in the dangerous direction — fewer interactions means fewer human
+ * minutes means MORE hours returned — so it is capped rather than trusted.
+ *
+ * Three is generous. The largest genuine one-click group in the application is
+ * the new-request form, which creates and submits, and receiving, which records
+ * a receipt and closes the request. Beyond that the collapse stops and the next
+ * anchor starts a new interaction, which counts the work as separate and costs
+ * us hours we might have claimed. That is the correct way round.
+ *
+ * The cap counts DISTINCT actions. A repeat of one action inside the window is
+ * always folded in, whatever the count, because it is a duplicate record rather
+ * than a second act: submitting a request writes `request.submitted` four times
+ * — the domain statement, the queue entry, and both state transitions — and
+ * nobody pressed Submit four times.
+ *
+ * Proven by the rehearsal in the suite: the same purchase driven at machine
+ * speed and at human speed must not differ by more than this bound.
+ */
+export const MAX_ANCHORS_PER_INTERACTION = 3;
+
+/**
+ * Human interactions, from the audit trail.
+ *
+ * Anchors only, de-duplicated within one transaction, represented by the FIRST
+ * anchor in the group — which is the one that names the screen the person was
+ * looking at. The rows collapsed into it are kept on `note`, so a reader
+ * tracing a figure can still see every audit row it rests on.
+ */
+export function interactionsFrom(activity = []) {
+  const anchors = activity
+    .filter((a) => a.actorId)
+    .filter((a) => !OVERHEAD_ACTIONS.includes(a.action))
+    .filter((a) => {
+      const entity = ANCHOR_ACTIONS[a.action];
+      if (entity === undefined) return false;
+      return entity === '*' || a.entityType === undefined || a.entityType === entity;
+    })
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)) || (a.seq ?? 0) - (b.seq ?? 0));
+
+  const out = [];
+  for (const row of anchors) {
+    const last = out.at(-1);
+    const t = Date.parse(row.at);
+    const sameBurst = last && last.actorId === row.actorId && Number.isFinite(t) &&
+      t - last.lastAt <= INTERACTION_WINDOW_MS;
+    if (sameBurst) {
+      const distinct = new Set([last.action, ...last.collapsed]);
+      if (distinct.has(row.action) || distinct.size < MAX_ANCHORS_PER_INTERACTION) {
+        last.lastAt = t;
+        last.collapsed.push(row.action);
+        continue;
+      }
+    }
+    out.push({ ...row, lastAt: Number.isFinite(t) ? t : 0, collapsed: [] });
+  }
+  return out;
+}
+
 /**
  * Administrative and directory actions. Recorded, auditable, and DELIBERATELY
  * not charged against any one request: creating a vendor is setup for the whole
@@ -218,19 +391,19 @@ export function toExecutionRecord({ request, activity = [], lines = [], baseline
   const objective = materialObjective(request, lines);
   const outcome = executionOutcomeOf(request);
 
-  const touches = activity
-    .filter((a) => a.actorId)                                   // machine rows carry no actor
-    .filter((a) => !OVERHEAD_ACTIONS.includes(a.action))        // organization setup, not this request
-    .map((a) => humanTouch({
-      action: a.action,
-      actorId: a.actorId,
-      at: a.at,
-      kind: TOUCH_KIND_BY_ACTION[a.action] ?? 'ROUTINE',
-      // PCC has no duration column. When one exists — or when a timed
-      // observation session fills it — this is where it arrives, and the
-      // arithmetic upstream already prefers it.
-      observedMinutes: a.observedMinutes ?? null,
-    }));
+  // ONE TOUCH PER INTERACTION, not per audit row. See ANCHOR_ACTIONS above:
+  // a three-line purchase writes thirty-one rows for eleven things a person did.
+  const touches = interactionsFrom(activity).map((a) => humanTouch({
+    action: a.action,
+    actorId: a.actorId,
+    at: a.at,
+    kind: TOUCH_KIND_BY_ACTION[a.action] ?? 'ROUTINE',
+    // PCC has no duration column. When one exists — or when a timed
+    // observation session fills it — this is where it arrives, and the
+    // arithmetic upstream already prefers it.
+    observedMinutes: a.observedMinutes ?? null,
+    note: a.collapsed.length ? `one interaction; also recorded ${a.collapsed.join(', ')}` : null,
+  }));
 
   // A retry, in purchasing terms, is a clarification round: the request went
   // back to the requestor and came again. Counted so the ledger can charge the
@@ -296,6 +469,23 @@ export function unmappedActions(activityActions) {
   return activityActions.filter(
     (a) => !Object.hasOwn(TOUCH_KIND_BY_ACTION, a) && !OVERHEAD_ACTIONS.includes(a));
 }
+
+/**
+ * Actions that are neither an anchor, a consequence, nor organization overhead.
+ *
+ * A new purchasing action has to be classified as one of the three, and this is
+ * what makes forgetting impossible: an unclassified action would otherwise
+ * default to free, which is the direction that flatters us.
+ */
+export function unclassifiedInteractionActions(activityActions) {
+  return activityActions.filter((a) =>
+    !Object.hasOwn(ANCHOR_ACTIONS, a) &&
+    !CONSEQUENCE_ACTIONS.includes(a) &&
+    !OVERHEAD_ACTIONS.includes(a));
+}
+
+/** The actions a touch standard has to price: the anchors, and only those. */
+export const PRICEABLE_ACTIONS = Object.freeze(Object.keys(ANCHOR_ACTIONS));
 
 /**
  * What PCC would have to record for the figures above to improve, stated as
