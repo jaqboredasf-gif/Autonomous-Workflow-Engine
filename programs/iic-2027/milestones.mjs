@@ -1,6 +1,13 @@
 // ---------------------------------------------------------------------------
 // milestones.mjs — dated TARGETS, and the evidence each one would need.
 //
+// DATES ARE DERIVED FROM VERIFIED COMPETITION FACTS, not from a comfortable
+// reading of the calendar. See programs/iic-2027/competition-intelligence.md:
+// the 9th annual kicked off 6 February 2026 and ran its final on 30 April 2026,
+// with a one-minute video as the first of three spring milestones. So the
+// evidence deadline is JANUARY 2027, not April — the version of this file that
+// said April was quietly assuming a quarter of runway that does not exist.
+//
 // These are targets, not achievements, and the distinction is enforced rather
 // than trusted: a milestone has no `done` field. Whether it has been met is
 // computed from the same facts the readiness scorecard reads, so a milestone
@@ -76,18 +83,60 @@ export const MILESTONES = Object.freeze([
     met: (f) => (f.discovery?.designPartnerCandidates ?? 0) >= 2,
   },
 
-  // --- February 2027 -------------------------------------------------------
+  // --- January 2027 --------------------------------------------------------
+  //
+  // THE REAL DEADLINE, and it is a quarter earlier than this file first said.
+  //
+  // Verified from Iona's own pages (programs/iic-2027/competition-intelligence.md,
+  // retrieved 2026-08-27): the 9th annual kicked off 6 February 2026 and ran its
+  // final on 30 April 2026, with three milestones across the spring semester and
+  // a 1-minute video as the FIRST of them. So the evidence that appears in the
+  // submission has to be collected and frozen before the February kickoff — not
+  // gathered through April, which is what an earlier reading of "April 2027"
+  // assumed and which would have left five months of runway on the table.
   {
-    at: '2027-02', id: 'external_deployment',
+    at: '2027-01', id: 'external_deployment',
     target: 'A second deployment, at an organization that is not the first.',
     evidence: 'a case study for a second orgId',
     met: (f) => (f.usage?.organizations ?? 0) >= 2,
   },
   {
-    at: '2027-02', id: 'first_revenue',
-    target: 'First external revenue.',
-    evidence: 'a paying customer',
-    met: (f) => (f.revenue?.payingCustomers ?? 0) >= 1,
+    at: '2027-01', id: 'quantified_roi',
+    target: 'Customer ROI quantified from evidence rather than asserted.',
+    evidence: 'a case study with a known labourValueCents at MODERATE confidence or better',
+    met: (f) => Boolean(f.proof?.moneyMeasurable) && ['MODERATE', 'HIGH'].includes(f.proof?.confidence),
+  },
+  {
+    at: '2027-01', id: 'repeatable_deployment',
+    target: 'A repeatable deployment story: the second installation did not require rebuilding the capability.',
+    evidence: 'the redeployability measurement, plus a second organization proven',
+    met: (f) => Boolean(f.repeatability?.secondOrganizationProven) && (f.repeatability?.profileHonouredPercent ?? 0) >= 75,
+  },
+  {
+    at: '2027-01', id: 'evidence_frozen',
+    target: 'The strongest evidence is frozen: a dated, reproducible case study nobody edits afterwards.',
+    evidence: 'a case study exported with its period, baseline version, touch-standard version and confidence recorded',
+    met: (f) => Boolean(f.narrative?.evidenceFrozen),
+  },
+
+  // --- February 2027: the kickoff, and Milestone 1 -------------------------
+  //
+  // Milestone 1 is a ONE-MINUTE VIDEO, and it is scored twice: as a milestone
+  // and as the basis of the $1,000 Fan Favourite, which is decided on public
+  // engagement. It is due within weeks of the kickoff, it is the first thing
+  // anybody sees, and it is therefore the highest-leverage artifact in the whole
+  // competition.
+  {
+    at: '2027-02', id: 'registered',
+    target: 'Registered for the 10th annual challenge, with the real dates confirmed from Iona.',
+    evidence: 'the UNKNOWN table in competition-intelligence.md is filled in from a reply or the kickoff',
+    met: (f) => Boolean(f.competition?.datesConfirmed) && Boolean(f.competition?.registered),
+  },
+  {
+    at: '2027-02', id: 'milestone_one_video',
+    target: 'Milestone 1: the one-minute video pitch, built on frozen evidence.',
+    evidence: 'the video exists and every figure in it traces to a frozen case study',
+    met: (f) => Boolean(f.narrative?.oneMinuteExists) && Boolean(f.narrative?.evidenceFrozen),
   },
   {
     at: '2027-02', id: 'pricing_tested',
@@ -96,31 +145,36 @@ export const MILESTONES = Object.freeze([
     met: (f) => Boolean(f.businessModel?.pricingTested),
   },
   {
-    at: '2027-02', id: 'quantified_roi',
-    target: 'Customer ROI quantified from evidence rather than asserted.',
-    evidence: 'a case study with a known labourValueCents at MODERATE confidence or better',
-    met: (f) => Boolean(f.proof?.moneyMeasurable) && ['MODERATE', 'HIGH'].includes(f.proof?.confidence),
-  },
-  {
-    at: '2027-02', id: 'repeatable_deployment',
-    target: 'A repeatable deployment story: the second installation did not require rebuilding the capability.',
-    evidence: 'the redeployability measurement, plus a second organization proven',
-    met: (f) => Boolean(f.repeatability?.secondOrganizationProven) && (f.repeatability?.profileHonouredPercent ?? 0) >= 75,
+    at: '2027-02', id: 'first_revenue',
+    target: 'First external revenue.',
+    evidence: 'a paying customer',
+    met: (f) => (f.revenue?.payingCustomers ?? 0) >= 1,
   },
 
-  // --- April 2027 ----------------------------------------------------------
+  // --- March 2027: Milestones 2 and 3 --------------------------------------
   {
-    at: '2027-04', id: 'evidence_frozen',
-    target: 'The strongest evidence is frozen: a dated, reproducible case study nobody edits afterwards.',
-    evidence: 'a case study exported with its period, baseline version and confidence recorded',
-    met: (f) => Boolean(f.narrative?.evidenceFrozen),
+    at: '2027-03', id: 'milestone_two_summary',
+    target: 'Milestone 2: the executive summary.',
+    evidence: 'the document exists',
+    met: (f) => Boolean(f.narrative?.executiveSummaryExists),
   },
   {
+    at: '2027-03', id: 'milestone_three_deck',
+    target: 'Milestone 3: the pitch slide deck.',
+    evidence: 'the deck exists',
+    met: (f) => Boolean(f.narrative?.deckExists),
+  },
+
+  // --- April/May 2027: the final -------------------------------------------
+  // Finalists are notified by mid-April; the final pitch is the first week of
+  // May. Whether a live demo is permitted at the final is UNKNOWN, so a backup
+  // that needs no network is planned for regardless.
+  {
     at: '2027-04', id: 'pitch_ready',
-    target: 'One-minute pitch, executive summary, deck, live demo, backup demo, judge Q&A.',
+    target: 'Live demo, backup demo and written answers to the hardest judge questions.',
     evidence: 'each artifact exists',
-    met: (f) => Boolean(f.narrative?.oneMinuteExists) && Boolean(f.narrative?.executiveSummaryExists)
-             && Boolean(f.demo?.liveDemoExists) && Boolean(f.demo?.backupExists),
+    met: (f) => Boolean(f.demo?.liveDemoExists) && Boolean(f.demo?.backupExists)
+             && (f.narrative?.judgeQuestionsAnswered ?? 0) >= 10,
   },
   {
     at: '2027-04', id: 'rehearsed',

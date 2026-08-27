@@ -97,5 +97,6 @@ before PCC.
 **That is the correct output.** The alternative — a plausible number typed into a baseline file by
 somebody who has not watched the work — is what this package exists to make impossible.
 
-To change it: `docs/proof/BASELINE_METHODOLOGY.md` §8. Three of the five items there need nobody's
-morning.
+To change it: **`docs/proof/LIPPOLIS_BASELINE_FIELD_PROTOCOL.md`** — the errand list, in the order
+to do it, with the people to ask and the sample sizes. `docs/proof/BASELINE_METHODOLOGY.md` is the
+method behind it. Three of the five items need nobody's morning.

@@ -73,6 +73,12 @@ introduced this directory, derived from the repository with no production databa
 
 September 2026 targets: **4/4 met.** December 2026: 0/5.
 
+**The deadline is earlier than this directory first assumed.** Verified from Iona's own pages on
+2026-08-27: the 9th annual kicked off 6 February 2026 and ran its final on 30 April 2026, with a
+one-minute video as the first of three spring milestones. So evidence has to be **frozen by
+January 2027**, not gathered through April. See `competition-intelligence.md`; `milestones.mjs` has
+been corrected.
+
 ---
 
 ## The rule for this directory

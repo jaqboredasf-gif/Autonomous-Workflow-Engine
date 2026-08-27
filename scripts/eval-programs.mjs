@@ -219,7 +219,14 @@ console.log('--- milestones are computed, never ticked ------------------------'
     'and no later target is met by them, which is what a target means');
 
   const months = M.status({}).months.map((m) => m.at);
-  eq(months, ['2026-09', '2026-12', '2027-02', '2027-04'], 'four dated checkpoints');
+  eq(months, ['2026-09', '2026-12', '2027-01', '2027-02', '2027-03', '2027-04'],
+    'the checkpoints follow the verified competition calendar');
+  // The evidence deadline is January, ahead of the February kickoff. A plan
+  // that puts evidence-gathering after the kickoff has misread the calendar.
+  const frozen = M.MILESTONES.find((m) => m.id === 'evidence_frozen');
+  const video = M.MILESTONES.find((m) => m.id === 'milestone_one_video');
+  check(frozen.at < video.at, 'evidence is frozen BEFORE the first milestone is due, not after');
+  eq(video.at, '2027-02', 'and the one-minute video lands at the February kickoff');
 }
 
 // ---------------------------------------------------------------------------

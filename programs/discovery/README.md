@@ -9,6 +9,12 @@ stage tracking deals optimises for closing rather than for learning.
 
 ---
 
+**To run the first five conversations, read `CAMPAIGN.md`** — who to talk to, how to reach them,
+the interview with the trade vocabulary in it, and what to do in the hour afterwards. This file is
+the record format; that one is the errand.
+
+---
+
 ## The record
 
 `interview.mjs`. Small, and one field does the work: **`patternTags`**, a snake_case controlled
