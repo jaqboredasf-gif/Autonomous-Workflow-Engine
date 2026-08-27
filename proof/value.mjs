@@ -255,20 +255,24 @@ export function valueOf(record, { baselines, touchStandards }) {
 }
 
 function pickStandard(touchStandards, record) {
-  for (const s of touchStandards ?? []) {
-    if (s.capability === record.capability && s.orgId !== record.orgId && s.id === s.id) {
-      // Only a THROW is safe here. Skipping it silently would price this
-      // organization's work at another's rates the moment somebody widened a
-      // query, and the result would look entirely plausible.
-      if (touchStandards.some((o) => o.orgId === record.orgId && o.capability === record.capability)) continue;
-      throw new Error(
-        `tenant violation: execution ${record.id} belongs to ${record.orgId} but the only touch standard for ` +
-        `${record.capability} belongs to ${s.orgId}`);
-    }
+  const all = touchStandards ?? [];
+  const forCapability = all.filter((s) => s.capability === record.capability);
+  const mine = forCapability.filter((s) => s.orgId === record.orgId);
+  const foreign = forCapability.filter((s) => s.orgId !== record.orgId);
+
+  // A foreign standard sitting BESIDE this organization's own is a widened
+  // query, and is filtered out below. A foreign standard that is the ONLY one
+  // for this capability is a tenant boundary about to be crossed, and only a
+  // throw is safe: skipping it would leave the execution unpriced, which reads
+  // as missing evidence rather than as a leak somebody nearly caused.
+  if (mine.length === 0 && foreign.length > 0) {
+    throw new Error(
+      `tenant violation: execution ${record.id} belongs to ${record.orgId} but the only touch standard for ` +
+      `${record.capability} belongs to ${foreign[0].orgId}`);
   }
+
   const at = String(record.startedAt);
-  const candidates = (touchStandards ?? []).filter((s) =>
-    s.orgId === record.orgId && s.capability === record.capability &&
+  const candidates = mine.filter((s) =>
     String(s.effectiveFrom) <= at && (s.effectiveTo === null || at < String(s.effectiveTo)));
   return candidates.sort((a, b) => String(a.effectiveFrom).localeCompare(String(b.effectiveFrom))).at(-1) ?? null;
 }
