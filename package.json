@@ -12,7 +12,11 @@
   "scripts": {
     "pcc:dev": "bash scripts/pcc-dev.sh",
     "pcc:dev-user": "node scripts/provision-local-tenants.mjs",
-    "pcc:e2e": "node scripts/eval-purchasing-e2e.mjs"
+    "pcc:e2e": "node scripts/eval-purchasing-e2e.mjs",
+    "proof": "node scripts/eval-proof.mjs",
+    "proof:case-study": "node scripts/proof-case-study.mjs",
+    "programs": "node scripts/eval-programs.mjs",
+    "readiness": "node scripts/iic-readiness.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"

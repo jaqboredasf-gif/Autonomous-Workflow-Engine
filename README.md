@@ -13,9 +13,21 @@ apps/purchasing/    Next.js purchasing-control DEMO — material requests, appro
                     printable POs, supplier email drafts. Standalone prototype:
                     no database, no credentials, nothing is sent. See its README.
 packages/shared/    Shared TypeScript types + domain constants
+capability/         What a capability DOES, and how one organization differs from
+                    another. Contract + per-organization profiles.
+deployment/         What a deployment must be able to DEMONSTRATE before handover.
+                    Readiness is derived from evidence; nothing sets ready = true.
+proof/              What a capability was WORTH. Baseline, objective success,
+                    hours returned, economic value — every figure graded and
+                    sourced, and unknown left unknown. See proof/README.md.
+programs/           Time-boxed programs that read the above and store no truth of
+                    their own: the readiness scorecard, customer discovery.
 supabase/           Postgres migrations, RLS policies
 docs/               Roadmap, API contract
 ```
+
+> **Which branch is PCC?** Read `SOURCE_OF_TRUTH.md` before cloning anything. The
+> description of `apps/purchasing/` above predates the production line and is stale.
 
 ## Getting started
 
