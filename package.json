@@ -18,7 +18,8 @@
     "programs": "node scripts/eval-programs.mjs",
     "readiness": "node scripts/iic-readiness.mjs",
     "deployment-gate": "node scripts/pcc-deployment-gate.mjs",
-    "rehearse": "bash scripts/rehearse-locally.sh"
+    "rehearse": "bash scripts/rehearse-locally.sh",
+    "plan": "node scripts/awe-plan.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"
