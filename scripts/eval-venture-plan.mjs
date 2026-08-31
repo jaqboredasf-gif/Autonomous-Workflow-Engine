@@ -525,8 +525,8 @@ console.log('--- against the repository as it actually is ---------------------'
     'and it names the deployment gate', p.highestLeverage.action);
   eq(p.founderHighestLeverage.claim, 'problem_economic',
     'the founder action is to measure the baseline');
-  check(/BASELINE_FIELD_PROTOCOL/.test(p.founderHighestLeverage.action),
-    'and it names the protocol to follow');
+  check(/BASELINE_DAY\.md/.test(p.founderHighestLeverage.action),
+    'and it names the operational checklist rather than the methodology — the founder is going to a building, not reading a design');
   check(/interview/i.test(p.founderHighestLeverage.thenNext?.action ?? ''),
     'with customer discovery next after it');
 

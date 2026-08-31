@@ -38,7 +38,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { baselineStep, defineBaseline, defineTouchStandard } from '../baseline.mjs';
-import { labourRateFrom, stepFromObservations } from './ingest.mjs';
+import { cycleFrom, labourRateFrom, stepFromObservations } from './ingest.mjs';
 
 /**
  * WHAT WAS ACTUALLY OBSERVED, if anything has been.
@@ -180,8 +180,13 @@ export const lippolisPurchasingBaseline = defineBaseline({
   // Elapsed time of the old process, end to end. Also unmeasured. Dated paper
   // purchase orders and packing slips could establish it as HISTORICAL_RECORD
   // without anybody watching anything.
-  cycleHours: null,
-  cycleProvenance: 'UNAVAILABLE',
+  ...(() => {
+    // Elapsed time the old process took, from the dates on filed paper POs.
+    // A different question from handling time and answerable without
+    // interrupting anybody — see cycleFrom() in ingest.mjs.
+    const c = cycleFrom(OBSERVATIONS.cycle);
+    return { cycleHours: c.hours, cycleProvenance: c.provenance, cycleSources: c.sources };
+  })(),
   // What an hour of the relevant people's time costs, fully loaded. Payroll
   // knows; nobody has asked.
   ...(() => {

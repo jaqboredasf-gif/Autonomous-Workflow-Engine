@@ -1,0 +1,16 @@
+# ONE ROW PER TIMED STEP. Fill this in as you watch. Nothing else.
+#
+# step      request_intake | clarification | stock_check | approval_handling
+#           po_preparation | vendor_communication | tracking_and_filing
+# seconds   what the stopwatch said. Seconds, not minutes — no arithmetic in the field.
+# who       the person doing the work (Mike, Karen, Rick...)
+# ref       what this was about, so it can be found again: a PO number, a job
+#           number, "phone call from Dave 10:42" — anything a person could check.
+# covers    how many ORDERS that one timing covered. Blank = 1.
+#           Filing a week's packing slips in one sitting: one row, covers = 12.
+# method    observed | from_paper | told_me      (blank = observed)
+# date      YYYY-MM-DD. Blank = the date in the observation file.
+# note      anything unusual. Optional.
+#
+# Lines starting with # are ignored. Do not use quotes or commas inside a field.
+step,seconds,who,ref,covers,method,date,note

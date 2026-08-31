@@ -7,12 +7,23 @@ production observation, the denominator, the hours-returned arithmetic, the evid
 audit trace and the acceptance gate all exist and are tested. What is missing is that nobody has
 watched how Lippolis bought material before PCC, and PCC has not run a real purchase.
 
-Run this to see where it stands, at any time:
+## → On the day, carry `docs/proof/BASELINE_DAY.md`, not this page.
+
+That is the two-page checklist: what to bring, what to ask for, exactly when to start and stop the
+stopwatch, and what to run afterwards. **This page is the why; that one is the how.**
 
 ```bash
-node scripts/baseline-observations.mjs     # what is observed, what is next
-npm run plan                               # the single highest-leverage action
+npm run baseline           # where it stands, and the next hour of work
+npm run baseline:import    # turn the field sheets into evidence
+npm run plan               # the single highest-leverage action
 ```
+
+**One thing changed since this page was first written, and it matters on the day.** It used to say
+"time each of the seven steps five times, in one morning". That is not physically executable:
+filing happens in fragments over days and the approver is a different person, so an installer
+following it literally would have got to 11am and improvised. `BASELINE_DAY.md` says which steps
+are watched, which are timed as a batch and divided, and which are asked for — and that coming back
+short on the hard ones is a normal first pass rather than a failure.
 
 **Total interruption to Lippolis staff across everything below: about ninety minutes, once.**
 

@@ -410,7 +410,11 @@ console.log('--- THE JUDGE: "were employees just faster that day?" -------------
 {
   // Answerable only with the spread and the sample size, which the ingestion
   // layer records and the baseline carries in its note.
-  const o = (m) => observation({ minutes: m, method: 'DIRECT_OBSERVATION', observedBy: 'Jack', at: '2026-09-03', ref: `PO 1234-COOPER-${m}` });
+  // Distinct refs: two observations of the SAME purchase order on the same day
+  // are one observation, and ingest.mjs refuses them — which it did to the
+  // first version of this fixture, correctly.
+  let n = 0;
+  const o = (m) => observation({ minutes: m, method: 'DIRECT_OBSERVATION', observedBy: 'Jack', at: '2026-09-03', ref: `PO 1234-COOPER-${++n}` });
   const st = stepFromObservations({ id: 'po_preparation', label: 'x', observations: [o(4), o(6), o(6), o(7), o(15)] });
   eq(st.minutes.provenance, 'MEASURED', 'five timed observations are MEASURED');
   near(present(st.minutes), 6, 'and the MEDIAN is used, so one unusual morning does not set the figure');
@@ -623,7 +627,10 @@ console.log('--- the observation file is validated, not trusted ----------------
   check(doc.labourRate.centsPerHour === null, 'and no labour rate has been supplied');
 
   const todo = outstanding(doc, { expectSteps: steps });
-  eq(todo.length, 8, 'so eight things are outstanding: seven steps and the rate');
+  eq(todo.length, 9,
+    'so nine things are outstanding: seven steps, the paper POs for elapsed time, and the rate');
+  check(todo.some((t) => /paper POs/.test(t.step)),
+    'including the filing-cabinet afternoon, which interrupts nobody');
 
   // The refusals.
   throws(() => observation({ minutes: 6, method: 'GUESS', observedBy: 'J', at: 'x', ref: 'y' }),
@@ -641,7 +648,9 @@ console.log('--- the observation file is validated, not trusted ----------------
   eq(METHODS.EMPLOYEE_ESTIMATE.grade, 'SELF_REPORTED', 'being told is SELF_REPORTED');
 
   // A step that happens on a quarter of requests contributes a quarter.
-  const o = (m) => ({ minutes: m, method: 'DIRECT_OBSERVATION', observedBy: 'J', at: 'd', ref: 'r' });
+  // Distinct refs, because the same thing observed twice is one observation.
+  let k = 0;
+  const o = (m) => ({ minutes: m, method: 'DIRECT_OBSERVATION', observedBy: 'J', at: 'd', ref: `r${++k}` });
   const scaled = stepFromObservations({ id: 'clarification', label: 'x', appliesToShare: 0.25, observations: [o(8), o(8), o(8), o(8), o(8)] });
   near(present(scaled.minutes), 2, 'eight minutes on a quarter of requests contributes two');
   check(/25% of units/.test(scaled.note), 'and the note says so');
@@ -681,6 +690,12 @@ console.log('--- the whole chain, from a filled-in observation file ------------
       tracking_and_filing:  { observations: timed(9), appliesToShare: 1 },
     },
   };
+  // Elapsed time comes from the filing cabinet, so a complete file has it too.
+  doc.cycle = { observations: Array.from({ length: 18 }, (_, i) => ({
+    ref: `PO-${i}`, raisedAt: '2026-06-01',
+    receivedAt: new Date(Date.parse('2026-06-01') + ((i % 9) + 1) * 86_400_000).toISOString().slice(0, 10),
+    method: 'HISTORICAL_RECORD',
+  })) };
   eq(validate(doc, { expectSteps: STEP_IDS }), [], 'a fully populated observation file validates');
   eq(outstanding(doc, { expectSteps: STEP_IDS }), [], 'and nothing is outstanding');
 

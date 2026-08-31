@@ -1,35 +1,25 @@
 {
   "_README": [
-    "Lippolis purchasing baseline — what was actually observed.",
+    "Lippolis purchasing baseline \u2014 what was actually observed.",
     "",
-    "THIS FILE IS THE ONLY WAY A NUMBER GETS INTO THE BASELINE. Do not edit",
-    "proof/baselines/lippolis-purchasing.mjs to add a duration; it reads this.",
+    "YOU DO NOT NORMALLY EDIT THIS FILE BY HAND. Fill in the two field sheets:",
+    "  proof/baselines/observations/field/handling.csv   (one row per timed step)",
+    "  proof/baselines/observations/field/cycle.csv      (one row per filed paper PO)",
+    "then run:  npm run baseline:import",
     "",
-    "Every observation needs: minutes, method, observedBy, at, ref.",
-    "  method: DIRECT_OBSERVATION | HISTORICAL_RECORD | EMPLOYEE_ESTIMATE",
-    "  ref:    what a skeptical reader goes and looks at — a PO number, a file,",
-    "          a person and a date. '6 minutes' with nothing to check is a memory.",
-    "",
-    "Five timed observations make a step MEASURED. Fewer is capped below it,",
-    "however carefully it was timed. One employee estimate among four timings",
-    "makes the whole step SELF_REPORTED — the weakest input sets the grade.",
-    "",
-    "appliesToShare: what fraction of purchases this step happens on. Clarification",
-    "taking 8 minutes on a quarter of requests contributes 2, not 8.",
+    "That command converts the sheets into this file, refuses anything malformed,",
+    "and never overwrites work it did not produce.",
     "",
     "Everything is empty today, and that is the correct state: nobody has yet",
     "watched how Lippolis bought material before PCC. Empty means UNAVAILABLE,",
     "which makes every value figure downstream read NOT MEASURABLE.",
     "",
-    "Validate with:  node scripts/baseline-observations.mjs"
+    "Check where it stands:  npm run baseline"
   ],
-
   "baselineId": "lippolis_purchasing_v0",
   "orgId": "lippolis",
-
   "reviewedBy": null,
   "reviewedAt": null,
-
   "labourRate": {
     "centsPerHour": null,
     "method": null,
@@ -37,14 +27,37 @@
     "at": null,
     "note": "Fully loaded: wage plus payroll tax, insurance and overhead. From payroll or Paul, in writing. One email; every money figure waits on it."
   },
-
   "steps": {
-    "request_intake":       { "observations": [], "appliesToShare": 1 },
-    "clarification":        { "observations": [], "appliesToShare": 1 },
-    "stock_check":          { "observations": [], "appliesToShare": 1 },
-    "approval_handling":    { "observations": [], "appliesToShare": 1 },
-    "po_preparation":       { "observations": [], "appliesToShare": 1 },
-    "vendor_communication": { "observations": [], "appliesToShare": 1 },
-    "tracking_and_filing":  { "observations": [], "appliesToShare": 1 }
+    "request_intake": {
+      "observations": [],
+      "appliesToShare": 1
+    },
+    "clarification": {
+      "observations": [],
+      "appliesToShare": 1
+    },
+    "stock_check": {
+      "observations": [],
+      "appliesToShare": 1
+    },
+    "approval_handling": {
+      "observations": [],
+      "appliesToShare": 1
+    },
+    "po_preparation": {
+      "observations": [],
+      "appliesToShare": 1
+    },
+    "vendor_communication": {
+      "observations": [],
+      "appliesToShare": 1
+    },
+    "tracking_and_filing": {
+      "observations": [],
+      "appliesToShare": 1
+    }
+  },
+  "cycle": {
+    "observations": []
   }
 }

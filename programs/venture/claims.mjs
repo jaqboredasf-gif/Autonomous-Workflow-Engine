@@ -145,7 +145,7 @@ export const CLAIMS = Object.freeze([
       return at('UNAVAILABLE', 'nothing has been measured and no method is written down',
         { missing: ['a baseline methodology', 'observed handling times'] });
     },
-    nextAction: () => 'Carry out docs/proof/LIPPOLIS_BASELINE_FIELD_PROTOCOL.md, starting with items 2 and 3 — the dated paper POs — which need a filing cabinet and nobody\'s morning. It must happen BEFORE the first real purchase runs through PCC: a baseline cannot govern work that predates it, so those purchases would be permanently unvaluable. The sequencing is docs/proof/FIRST_REAL_PROOF_ACTIVATION.md.',
+    nextAction: () => 'Run `npm run baseline`, then take docs/proof/BASELINE_DAY.md to Lippolis. Start with the filing cabinet — 15 paper POs with their raised and received dates interrupt nobody. It must happen BEFORE the first real purchase runs through PCC: a baseline cannot govern work that predates it, so those purchases would be permanently unvaluable.',
   },
 
   {

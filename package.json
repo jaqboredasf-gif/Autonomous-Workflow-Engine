@@ -20,7 +20,9 @@
     "deployment-gate": "node scripts/pcc-deployment-gate.mjs",
     "rehearse": "bash scripts/rehearse-locally.sh",
     "plan": "node scripts/awe-plan.mjs",
-    "baseline": "node scripts/baseline-observations.mjs"
+    "baseline": "node scripts/baseline-observations.mjs",
+    "baseline:import": "node scripts/baseline-import.mjs",
+    "baseline:freeze": "node scripts/baseline-freeze.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"

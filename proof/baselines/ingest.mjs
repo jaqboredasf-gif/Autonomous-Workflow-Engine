@@ -98,7 +98,31 @@ function median(values) {
  * `ref` is what makes this evidence rather than a note: the thing a skeptical
  * reader goes and looks at. A PO number, a file, a date and a person.
  */
-export function observation({ minutes, method, observedBy, at, ref, subject = null, note = null }) {
+export function observation({ minutes, seconds, covers = 1, method, observedBy, at, ref, subject = null, note = null }) {
+  // WORK DONE IN BATCHES IS STILL PER-ORDER WORK. Filing is the clearest case:
+  // nobody files one packing slip, they file the week's in one sitting. Timing
+  // that sitting and dividing by how many it covered is a MEASUREMENT of the
+  // per-order cost — and without this column the only options were to skip the
+  // step, or to ask somebody what they thought it took, which would drag the
+  // whole baseline down to SELF_REPORTED.
+  if (!(Number.isInteger(covers) && covers >= 1)) {
+    throw new Error(`an observation covers a whole number of units, at least 1, got ${JSON.stringify(covers)}`);
+  }
+  // SECONDS ARE THE FIELD UNIT. A stopwatch reads 01:32, and asking somebody
+  // standing in an office to write 1.53 forces arithmetic at the exact moment
+  // they are trying to watch what happens next. It also silently coarsens the
+  // short steps: a 90-second stock check written as "2 minutes" is a 33% error
+  // in the direction that flatters us.
+  if (seconds !== undefined && seconds !== null) {
+    if (minutes !== undefined && minutes !== null) {
+      throw new Error('an observation gives seconds or minutes, not both — one of them is a transcription error');
+    }
+    if (!(Number.isFinite(seconds) && seconds >= 0)) {
+      throw new Error(`an observation needs seconds as a non-negative number, got ${JSON.stringify(seconds)}`);
+    }
+    minutes = seconds / 60;
+  }
+  if (Number.isFinite(minutes) && covers > 1) minutes /= covers;
   if (!METHODS[method]) {
     throw new Error(
       `unknown observation method ${JSON.stringify(method)}. ` +
@@ -115,7 +139,7 @@ export function observation({ minutes, method, observedBy, at, ref, subject = nu
       'an observation must name what was observed — a purchase order number, a file, a person and a date. ' +
       '"6 minutes" with nothing to go and look at is a memory, not evidence.');
   }
-  return Object.freeze({ minutes, method, observedBy, at, ref, subject, note });
+  return Object.freeze({ minutes, covers, method, observedBy, at, ref, subject, note });
 }
 
 /**
@@ -140,6 +164,27 @@ export function stepFromObservations({ id, label, observations = [], appliesToSh
   }
 
   const obs = observations.map(observation);
+
+  // THE SAME THING OBSERVED TWICE IS ONE OBSERVATION. A row pasted twice, or
+  // the same purchase order timed on two visits, would otherwise raise the
+  // sample count toward MEASURED without adding any evidence — which is the
+  // cheapest possible way to buy a stronger grade by accident.
+  const byRef = new Map();
+  for (const o of obs) {
+    const key = `${o.ref}::${o.at}`;
+    const seen = byRef.get(key);
+    if (!seen) { byRef.set(key, o); continue; }
+    if (seen.minutes !== o.minutes) {
+      throw new Error(
+        `step ${id}: ${JSON.stringify(o.ref)} on ${o.at} is recorded twice with different durations ` +
+        `(${(seen.minutes * 60).toFixed(0)}s and ${(o.minutes * 60).toFixed(0)}s). ` +
+        'One of them is wrong and the file cannot decide which. Check the sheet and remove or correct one.');
+    }
+    throw new Error(
+      `step ${id}: ${JSON.stringify(o.ref)} on ${o.at} appears twice. ` +
+      'A duplicated row raises the sample count without adding evidence — remove one.');
+  }
+
   const raw = median(obs.map((o) => o.minutes));
 
   // A STEP THAT HAPPENS ON ONE REQUEST IN FOUR IS NOT A FULL STEP OF THE
@@ -158,7 +203,9 @@ export function stepFromObservations({ id, label, observations = [], appliesToSh
     kind: METHODS[o.method].kind,
     ref: o.ref,
     at: o.at,
-    note: `${o.minutes} min, ${o.method.toLowerCase().replace(/_/g, ' ')}, recorded by ${o.observedBy}` +
+    note: `${(o.minutes * 60).toFixed(0)}s per unit` +
+      (o.covers > 1 ? ` (a batch of ${o.covers}, timed whole and divided)` : '') +
+      `, ${o.method.toLowerCase().replace(/_/g, ' ')}, recorded by ${o.observedBy}` +
       (o.subject ? `, performed by ${o.subject}` : ''),
   }));
 
@@ -202,6 +249,69 @@ export function labourRateFrom(spec) {
 }
 
 /**
+ * ELAPSED TIME THE OLD PROCESS TOOK, END TO END.
+ *
+ * A DIFFERENT QUESTION FROM HANDLING TIME, and the one the paper purchase
+ * orders answer without interrupting anybody: a PO raised on the 3rd and
+ * received on the 11th took eight days, of which almost none was labour.
+ *
+ * THIS HAD NOWHERE TO GO. The field kit asked the founder to spend an afternoon
+ * recording the raised and received dates of twenty-five paper POs, and the
+ * observation schema had no field for them — so the whole afternoon's output
+ * would have been retyped into nothing. It lands here.
+ *
+ * Counted in DAYS because that is what the paperwork says, and converted to
+ * hours because that is the unit the ledger compares against.
+ */
+export function cycleFrom(spec) {
+  if (!spec || !Array.isArray(spec.observations) || spec.observations.length === 0) {
+    return { hours: null, provenance: 'UNAVAILABLE', sources: [] };
+  }
+  const rows = spec.observations.map((o) => {
+    if (!METHODS[o.method]) throw new Error(`cycle: unknown method ${JSON.stringify(o.method)}`);
+    if (!o.ref) throw new Error('cycle: every observation must name the purchase order it came from');
+    const days = o.days ?? daysBetween(o.raisedAt, o.receivedAt);
+    if (!(Number.isFinite(days) && days >= 0)) {
+      throw new Error(`cycle: ${o.ref} has no usable duration — give days, or raisedAt and receivedAt`);
+    }
+    return { ...o, days };
+  });
+
+  // The MEDIAN, because vendor lead time has a long tail: one back-ordered item
+  // sitting for six weeks would drag a mean far above anything typical.
+  const days = median(rows.map((r) => r.days));
+  const grade = rows.map((r) => METHODS[r.method].grade).reduce(weakest, 'MEASURED');
+
+  return {
+    hours: days * 24,
+    provenance: rows.length < CYCLE_FLOOR ? 'SELF_REPORTED' : grade,
+    sources: rows.map((r) => source({
+      kind: METHODS[r.method].kind,
+      ref: r.ref,
+      at: r.receivedAt ?? null,
+      note: `${r.days} day(s) from raised to received`,
+    })),
+    samples: rows.length,
+  };
+}
+
+function daysBetween(a, b) {
+  if (!a || !b) return NaN;
+  return (Date.parse(b) - Date.parse(a)) / 86_400_000;
+}
+
+/**
+ * Below this many purchase orders, an elapsed-time median means little.
+ *
+ * FIFTEEN, and higher than the handling-time floor of five on purpose: vendor
+ * lead time is the most variable quantity in this process — a counter pickup is
+ * an hour and a back-ordered switchgear is three weeks — so the median needs
+ * more observations before it stops moving. This is the field protocol's own
+ * number, and reading the dates off fifteen filed POs interrupts nobody.
+ */
+export const CYCLE_FLOOR = 15;
+
+/**
  * Validate an observation file without building anything.
  *
  * Returns every problem rather than throwing on the first, because a founder
@@ -233,6 +343,9 @@ export function validate(doc, { expectSteps = [] } = {}) {
   if (doc.labourRate) {
     try { labourRateFrom(doc.labourRate); } catch (e) { at('labourRate', e.message); }
   }
+  if (doc.cycle) {
+    try { cycleFrom(doc.cycle); } catch (e) { at('cycle', e.message); }
+  }
   return problems;
 }
 
@@ -251,8 +364,18 @@ export function outstanding(doc, { expectSteps = [] } = {}) {
       rows.push({ step: id, have: n, need: MEASURED_FLOOR, because: `graded ${grades.reduce(weakest, 'MEASURED')} — the weakest observation sets it` });
     }
   }
+  const cycleSamples = doc?.cycle?.observations?.length ?? 0;
+  if (cycleSamples < CYCLE_FLOOR) {
+    rows.push({
+      step: 'cycle (paper POs)', have: cycleSamples, need: CYCLE_FLOOR,
+      because: `${CYCLE_FLOOR - cycleSamples} more filed PO(s) with a raised and a received date. Interrupts nobody.`,
+    });
+  }
   if (!doc?.labourRate?.centsPerHour) {
-    rows.push({ step: 'labourRate', have: 0, need: 1, because: 'one email to payroll; every money figure waits on it' });
+    rows.push({
+      step: 'labourRate', have: 0, need: 1,
+      because: 'one email to payroll. OPTIONAL — hours returned does not wait on it; only the money figure does',
+    });
   }
   return rows;
 }
