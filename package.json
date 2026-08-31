@@ -19,7 +19,8 @@
     "readiness": "node scripts/iic-readiness.mjs",
     "deployment-gate": "node scripts/pcc-deployment-gate.mjs",
     "rehearse": "bash scripts/rehearse-locally.sh",
-    "plan": "node scripts/awe-plan.mjs"
+    "plan": "node scripts/awe-plan.mjs",
+    "baseline": "node scripts/baseline-observations.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"

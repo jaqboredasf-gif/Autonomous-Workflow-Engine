@@ -31,6 +31,7 @@ import { present } from './provenance.mjs';
 export function caseStudy({
   orgId, orgName, capability, capabilityLabel,
   records, baselines, touchStandards, from, to, overheads = [],
+  census = null,
 }) {
   const total = aggregate({ orgId, records, baselines, touchStandards, from, to, overheads, capability });
 
@@ -57,6 +58,9 @@ export function caseStudy({
     organization: { id: orgId, name: orgName },
     capability: { id: capability, label: capabilityLabel },
     period: total.period,
+
+    // --- who is in the denominator, and who is missing from it ------------
+    denominator: denominator(total, census),
 
     // --- what happened --------------------------------------------------
     executions: total.considered,
@@ -107,11 +111,155 @@ export function caseStudy({
     confidence: total.confidence,
     coverage: total.coverage,
     gradeMix: total.gradeMix,
+    evidenceClasses: evidenceClasses(baselinesUsed, total),
     evidenceSources: evidenceSources(total),
     unknown: Object.freeze(unknown),
 
     /** The ledger this was projected from, for anything that needs to drill in. */
     ledger: total,
+  });
+}
+
+/**
+ * EVERY ELIGIBLE UNIT OF WORK, ACCOUNTED FOR.
+ *
+ * THE FAILURE THIS EXISTS AGAINST is not dishonesty; it is arithmetic that
+ * cannot see what it was not given. `aggregate()` counts the records it is
+ * handed. Hand it the twenty-six purchases that went well and it reports
+ * twenty-six, at high coverage, with no field anywhere reading "and four
+ * others". Nobody has to decide to cherry-pick for a case study to be
+ * cherry-picked.
+ *
+ * So the population is established from the SOURCE — a count over the
+ * eligibility predicate, taken by the adapter before any record is read — and
+ * every eligible unit lands in exactly one bucket here. `reconciled` is false
+ * when the buckets do not add up to the census, and a case study that does not
+ * reconcile cannot be graded DEFENSIBLE however good its numbers are.
+ *
+ * A census of `null` is not an error and is not a pass: it means nobody
+ * established the population, and it is reported as `UNESTABLISHED`.
+ */
+function denominator(total, census) {
+  const outcomes = total.executionOutcomes;
+  const objectives = total.objectiveResults;
+
+  const completed = outcomes.COMPLETED ?? 0;
+  const failed = outcomes.FAILED ?? 0;
+  const refused = outcomes.REFUSED ?? 0;
+  const abandoned = outcomes.ABANDONED ?? 0;
+
+  const buckets = Object.freeze({
+    // The workflow ran AND the organization got what it wanted.
+    objectiveAchieved: objectives.ACHIEVED ?? 0,
+    // The workflow ran and the organization did not.
+    objectiveNotAchieved: objectives.NOT_ACHIEVED ?? 0,
+    // Ran, and the objective cannot be tested yet. NOT a success.
+    objectiveNotYetTestable: objectives.UNKNOWN ?? 0,
+    // Ran, and the right answer was "no" — a declined request is not a failure.
+    objectiveNotApplicable: objectives.NOT_APPLICABLE ?? 0,
+  });
+
+  const reachedLedger = total.unitsOfWork;
+  const eligible = census?.eligible ?? null;
+  // Retries collapse into the unit of work they retried, so the census counts
+  // attempts and the ledger counts units. The difference is stated, not netted.
+  const collapsed = total.duplicatesCollapsed.reduce((t, c) => t + (c.attempts - 1), 0);
+  const accountedFor = reachedLedger + collapsed;
+
+  return Object.freeze({
+    established: census !== null,
+    rule: census?.rule ?? null,
+    source: census?.source ?? null,
+    eligible,
+    reachedLedger,
+    retriesFoldedIn: collapsed,
+    accountedFor,
+    missing: eligible === null ? null : eligible - accountedFor,
+    reconciled: eligible === null ? false : eligible === accountedFor,
+
+    // How the units that DID reach the ledger ended, by both questions the
+    // model keeps apart. Reported together so a reader cannot see one without
+    // the other.
+    executionOutcomes: Object.freeze({ completed, failed, refused, abandoned }),
+    objectiveOutcomes: buckets,
+
+    // And which of them produced a value figure. `notValued` carries the
+    // ledger's own reason codes, so "excluded" is never a silent bucket.
+    valued: total.valued,
+    notValued: total.excluded,
+    coverage: total.coverage,
+  });
+}
+
+/**
+ * HOW EACH PART OF THE BASELINE WAS OBTAINED, kept apart.
+ *
+ * A reader is entitled to know that "nineteen minutes per purchase" is four
+ * minutes somebody timed, nine minutes derived from dated paperwork and six
+ * minutes Mike remembered — because those three deserve different amounts of
+ * belief and averaging them into one number destroys that information for good.
+ *
+ * NO NEW TAXONOMY. The classes are the existing provenance grade paired with
+ * the existing source kind, named in the words a person would use:
+ *
+ *   MEASURED             somebody observed it happening, with a clock
+ *   HISTORICALLY_DERIVED computed from records that already existed
+ *   EMPLOYEE_ESTIMATED   somebody's account of their own work
+ *   INFERRED             derived from other quantities in this system
+ *   UNKNOWN              nobody has established it
+ *
+ * Inventing a second five-word scale beside proof/provenance.mjs would
+ * guarantee the two drift, so this is a projection of that one rather than a
+ * rival to it.
+ */
+export function classOf(quantity) {
+  if (!quantity || !quantity.known) return 'UNKNOWN';
+  const kinds = new Set((quantity.sources ?? []).map((s) => s.kind));
+  switch (quantity.provenance) {
+    case 'MEASURED':
+      return kinds.has('OBSERVED_TIMING') || kinds.has('SYSTEM_RECORD') ? 'MEASURED' : 'MEASURED';
+    case 'ESTIMATED':
+      return kinds.has('HISTORICAL_RECORD') || kinds.has('SAMPLED_MEASUREMENT')
+        ? 'HISTORICALLY_DERIVED' : 'EMPLOYEE_ESTIMATED';
+    case 'SELF_REPORTED':
+      return 'EMPLOYEE_ESTIMATED';
+    case 'INFERRED':
+      return 'INFERRED';
+    default:
+      return 'UNKNOWN';
+  }
+}
+
+export const EVIDENCE_CLASSES = Object.freeze([
+  'MEASURED', 'HISTORICALLY_DERIVED', 'EMPLOYEE_ESTIMATED', 'INFERRED', 'UNKNOWN',
+]);
+
+function evidenceClasses(baselinesUsed, total) {
+  const byClass = Object.fromEntries(EVIDENCE_CLASSES.map((c) => [c, { steps: 0, minutes: 0 }]));
+
+  for (const b of baselinesUsed) {
+    for (const step of b.steps) {
+      const cls = classOf(step.minutes);
+      byClass[cls].steps += 1;
+      if (step.minutes.known) byClass[cls].minutes += step.minutes.value;
+    }
+  }
+
+  const totalMinutes = Object.values(byClass).reduce((t, c) => t + c.minutes, 0);
+  return Object.freeze({
+    // The BASELINE's composition, which is where the belief actually rests:
+    // the AWE-era side is machine-recorded, so the argument is always about
+    // what the old process cost.
+    baseline: Object.freeze(Object.fromEntries(EVIDENCE_CLASSES.map((c) => [c, Object.freeze({
+      ...byClass[c],
+      shareOfBaseline: totalMinutes ? byClass[c].minutes / totalMinutes : null,
+    })]))),
+    // The single word for the whole baseline: its weakest known part.
+    weakest: EVIDENCE_CLASSES.filter((c) => c !== 'UNKNOWN')
+      .reverse().find((c) => byClass[c].steps > 0) ?? 'UNKNOWN',
+    unknownSteps: byClass.UNKNOWN.steps,
+    // The headline figure's own grade, for the reader who reads nothing else.
+    headline: classOf(total.grossHoursReturned),
   });
 }
 

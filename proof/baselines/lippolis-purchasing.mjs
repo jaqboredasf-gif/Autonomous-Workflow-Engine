@@ -33,7 +33,57 @@
 // attempt to do so fails at import rather than shipping a fiction.
 // ---------------------------------------------------------------------------
 
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { baselineStep, defineBaseline, defineTouchStandard } from '../baseline.mjs';
+import { labourRateFrom, stepFromObservations } from './ingest.mjs';
+
+/**
+ * WHAT WAS ACTUALLY OBSERVED, if anything has been.
+ *
+ * The header above says: do not edit a number into this file without also
+ * editing its provenance and adding a source. That is correct, and it is an
+ * instruction — the kind somebody follows at 11pm by typing a plausible six and
+ * moving on, because `quantity()` accepts any figure that carries *a* source.
+ *
+ * So observations live in a JSON file the founder fills in over several days,
+ * and `ingest.mjs` is the only path from that file to a duration. It refuses an
+ * observation with no observer, no date or nothing to go and look at; it caps a
+ * step below MEASURED when fewer than five occurrences were timed; and the
+ * weakest method sets the grade for the whole step.
+ *
+ * An absent or empty file leaves every step exactly as it was declared below —
+ * UNAVAILABLE — which is the correct state of the world until somebody watches
+ * the work.
+ */
+const OBSERVATIONS = (() => {
+  const path = join(dirname(fileURLToPath(import.meta.url)), 'observations', 'lippolis-purchasing.json');
+  if (!existsSync(path)) return { steps: {} };
+  return JSON.parse(readFileSync(path, 'utf8'));
+})();
+
+/**
+ * The declared shape of a step, with any observations folded in.
+ *
+ * The shape — which steps exist, who performs them, what to watch for — is
+ * code, because it is an argument about the process. The durations are data,
+ * because they are observations. Keeping them apart is what stops a busy
+ * evening turning the second into the first.
+ */
+function step({ id, label, performedBy, note }) {
+  const observed = OBSERVATIONS.steps?.[id];
+  if (!observed || !(observed.observations?.length)) {
+    return baselineStep({ id, label, minutes: null, provenance: 'UNAVAILABLE', performedBy, note });
+  }
+  return stepFromObservations({
+    id, label, performedBy,
+    observations: observed.observations,
+    appliesToShare: observed.appliesToShare ?? 1,
+    note,
+  });
+}
 
 const ORG = 'lippolis';
 
@@ -51,59 +101,45 @@ const ORG = 'lippolis';
  * enormously and invisibly.
  */
 export const LIPPOLIS_PURCHASING_STEPS = [
-  baselineStep({
+  step({
     id: 'request_intake',
     label: 'Taking the request from the field',
-    minutes: null,
-    provenance: 'UNAVAILABLE',
     performedBy: 'office or workshop',
     note: 'Observe: a foreman phones or texts what a job needs; somebody writes it down. Time from the call connecting to the note being complete.',
   }),
-  baselineStep({
+  step({
     id: 'clarification',
     label: 'Going back for missing detail',
-    minutes: null,
-    provenance: 'UNAVAILABLE',
     performedBy: 'office or workshop',
     note: 'Observe on the subset of requests that need it, and record the SHARE of requests that need it — a step that happens on one request in four is not a full step of the average.',
   }),
-  baselineStep({
+  step({
     id: 'stock_check',
     label: 'Checking what the workshop already holds',
-    minutes: null,
-    provenance: 'UNAVAILABLE',
     performedBy: 'workshop',
     note: 'Observe: walking the shelves, or asking somebody who knows. This is the step PCC replaced with a recorded number, so it is the one most likely to show a real difference.',
   }),
-  baselineStep({
+  step({
     id: 'approval_handling',
     label: 'Getting the purchase approved',
-    minutes: null,
-    provenance: 'UNAVAILABLE',
     performedBy: 'workshop approver',
     note: 'HANDLING time only — the minutes the approver is occupied, not the hours the paper sits on a desk. The waiting belongs in the cycle-time figure, not here.',
   }),
-  baselineStep({
+  step({
     id: 'po_preparation',
     label: 'Writing the purchase order',
-    minutes: null,
-    provenance: 'UNAVAILABLE',
     performedBy: 'office',
     note: 'Observe: finding the next number for that job and vendor, filling the form, checking the job address. Paper POs exist for this — sample them.',
   }),
-  baselineStep({
+  step({
     id: 'vendor_communication',
     label: 'Telling the vendor',
-    minutes: null,
-    provenance: 'UNAVAILABLE',
     performedBy: 'office',
     note: 'Observe: composing the email or making the call. Excludes waiting for the vendor to answer.',
   }),
-  baselineStep({
+  step({
     id: 'tracking_and_filing',
     label: 'Chasing the order and filing the paperwork',
-    minutes: null,
-    provenance: 'UNAVAILABLE',
     performedBy: 'office',
     note: 'Observe across the life of one order: the chases, the packing slip, the filing. Likely the most under-estimated step, because it happens in fragments.',
   }),
@@ -148,9 +184,16 @@ export const lippolisPurchasingBaseline = defineBaseline({
   cycleProvenance: 'UNAVAILABLE',
   // What an hour of the relevant people's time costs, fully loaded. Payroll
   // knows; nobody has asked.
-  labourRateCentsPerHour: null,
-  labourRateProvenance: 'UNAVAILABLE',
-  reviewedBy: null,
+  ...(() => {
+    const rate = labourRateFrom(OBSERVATIONS.labourRate);
+    return {
+      labourRateCentsPerHour: rate.centsPerHour,
+      labourRateProvenance: rate.provenance,
+      labourRateSources: rate.sources,
+    };
+  })(),
+  reviewedBy: OBSERVATIONS.reviewedBy ?? null,
+  reviewedAt: OBSERVATIONS.reviewedAt ?? null,
   reviewedAt: null,
 });
 

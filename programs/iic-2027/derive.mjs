@@ -169,6 +169,29 @@ export function approvedCommit() {
   };
 }
 
+/**
+ * How far the baseline evidence has actually got.
+ *
+ * Counted from the observation file rather than from the baseline module,
+ * because the module reports UNAVAILABLE either way — whether nobody has
+ * started or whether four of seven steps are done. The founder's next hour
+ * depends on which.
+ */
+export function baselineObservations() {
+  const path = 'proof/baselines/observations/lippolis-purchasing.json';
+  if (!existsSync(R(path))) return { file: null, stepsObserved: 0, stepsTotal: 0, observations: 0, labourRate: false, reviewed: false };
+  const doc = JSON.parse(readFileSync(R(path), 'utf8'));
+  const steps = Object.values(doc.steps ?? {});
+  return {
+    file: path,
+    stepsTotal: steps.length,
+    stepsObserved: steps.filter((s) => (s.observations?.length ?? 0) > 0).length,
+    observations: steps.reduce((t, s) => t + (s.observations?.length ?? 0), 0),
+    labourRate: Boolean(doc.labourRate?.centsPerHour),
+    reviewed: Boolean(doc.reviewedBy),
+  };
+}
+
 /** Customer discovery, counted from the interview records. */
 export async function deriveDiscovery() {
   const { summarize } = await import(R('programs/discovery/interview.mjs'));
@@ -203,6 +226,10 @@ export async function deriveProof({ db = null, org = null, warn = () => {} } = {
   const base = {
     architectureOperational: existsSync(R('proof/index.mjs')) && existsSync(R('scripts/eval-proof.mjs')),
     baselineMethodologyExists: existsSync(R('docs/proof/BASELINE_METHODOLOGY.md')),
+    caseStudyStandardExists: existsSync(R('proof/case-study-standard.mjs')),
+    baselineObservations: baselineObservations(),
+    caseStudyGrade: 'NOT_READY',
+    caseStudyBlockers: [],
     baselineFieldProtocolExists: existsSync(R('docs/proof/LIPPOLIS_BASELINE_FIELD_PROTOCOL.md')),
     capabilityNeutral: existsSync(R('proof/organization.mjs')) && existsSync(R('scripts/eval-tegg-generalization.mjs')),
     secondCapabilityAdapter: existsSync(R('proof/adapters/tegg.mjs')),
@@ -265,6 +292,15 @@ export async function deriveProof({ db = null, org = null, warn = () => {} } = {
     from: first, to,
   });
 
+  // HOW MUCH OF THIS COULD BE SAID OUT LOUD. Read from the standard rather
+  // than re-derived here, so the plan and the case-study command cannot report
+  // different grades for the same evidence.
+  const { gradeCaseStudy } = await import(R('proof/case-study-standard.mjs'));
+  const graded = gradeCaseStudy(study, {
+    environment,
+    humanTouchRecordComplete: records.every((r) => r.humanTouchesComplete !== false),
+  });
+
   return {
     proof: {
       ...base,
@@ -274,6 +310,8 @@ export async function deriveProof({ db = null, org = null, warn = () => {} } = {
       moneyMeasurable: study.labourValueCents.known,
       confidence: study.confidence.level,
       valuedUnits: study.ledger.valued,
+      caseStudyGrade: graded.grade,
+      caseStudyBlockers: graded.failed.map((f) => f.wanted),
     },
     usage: {
       executions: Number(span.n),

@@ -79,7 +79,7 @@ const db = new DatabaseSync(dbPath, { readOnly: true });
 
 // The read is a module (proof/adapters/purchasing-sqlite.mjs), not inline SQL,
 // so the suite exercises the same statements this command runs.
-const { records, adminTouches, requestsRead, environment } = readExecutions(db, {
+const { records, adminTouches, requestsRead, census, environment } = readExecutions(db, {
   orgId: args.org, from, to, baselineId: org.baselineId,
 });
 
@@ -106,14 +106,28 @@ const study = caseStudy({
   touchStandards: org.touchStandards,
   from,
   to,
+  // THE POPULATION, counted at the source rather than inferred from the records
+  // above. Without it the arithmetic reports the size of whatever it was handed
+  // and looks complete, which is how a case study comes to describe only the
+  // purchases that went well with nobody having decided to cheat.
+  census,
   // Administrative work in the period is a period cost. It is COLLECTED here
   // and left unpriced, so it shows as an unmeasured overhead — which correctly
   // refuses a net hours figure — rather than being quietly omitted.
   overheads: [],
 });
 
+// HOW MUCH OF THIS MAY BE SAID OUT LOUD. The projection is unconditional — it
+// reports whatever the evidence shows, including nothing — and the standard
+// grades it separately. Two different questions, kept apart on purpose.
+const { gradeCaseStudy, renderGrade } = await import(join(ROOT, 'proof/case-study-standard.mjs'));
+const grade = gradeCaseStudy(study, {
+  environment,
+  humanTouchRecordComplete: records.every((r) => r.humanTouchesComplete !== false),
+});
+
 if (args.json) {
-  console.log(JSON.stringify({ environment, ...(args.explain ? explain(study) : study) }, replacer, 2));
+  console.log(JSON.stringify({ environment, grade, ...(args.explain ? explain(study) : study) }, replacer, 2));
 } else {
   if (environment !== 'production') {
     console.log('='.repeat(72));
@@ -123,6 +137,9 @@ if (args.json) {
     console.log('');
   }
   console.log(render(study));
+  console.log('');
+  console.log('='.repeat(72));
+  console.log(renderGrade(grade, study));
   console.log('');
   console.log(`Requests read:                                                    ${requestsRead}`);
   console.log(`Administrative interactions in period (unpriced period overhead): ${adminTouches.length}`);

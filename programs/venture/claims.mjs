@@ -233,11 +233,23 @@ export const CLAIMS = Object.freeze([
       const p = f.proof ?? {};
       if (!p.architectureOperational) return at('UNAVAILABLE', 'no proof architecture exists', { missing: ['a proof layer'] });
       if (!p.baselineMeasured || !p.moneyMeasurable) {
+        const obs = p.baselineObservations ?? {};
+        const progress = obs.stepsTotal
+          ? `${obs.stepsObserved}/${obs.stepsTotal} baseline steps observed, ${obs.observations} observation(s) recorded`
+          : 'no observation file';
         return at('UNAVAILABLE',
-          'the architecture computes value and refuses to state one, because no measured baseline and no production executions exist yet',
-          { have: ['proof/ operational and adversarially tested'],
+          'the architecture computes value and refuses to state one, because no measured baseline and no production executions exist yet ' +
+          `(${progress})`,
+          { have: ['proof/ operational and adversarially tested', 'a frozen case-study standard'],
             missing: ['a measured baseline', 'production executions'],
-            provenance: ['scripts/eval-proof.mjs'] });
+            provenance: ['scripts/eval-case-study-001.mjs'] });
+      }
+      // The standard has already graded it. Reporting a second opinion here
+      // would be a second answer to the only question that matters.
+      if (p.caseStudyGrade === 'NOT_READY' || p.caseStudyGrade === 'PARTIAL') {
+        return at('ESTIMATED',
+          `Case Study #001 grades ${p.caseStudyGrade}: ${(p.caseStudyBlockers ?? [])[0] ?? 'evidence is incomplete'}`,
+          { have: [`${p.valuedUnits} valued units`], missing: p.caseStudyBlockers ?? [] });
       }
       if (p.confidence === 'NONE' || p.confidence === 'LOW') {
         return at('ESTIMATED', `value is computed at ${p.confidence} confidence over ${p.valuedUnits} unit(s) of work`,

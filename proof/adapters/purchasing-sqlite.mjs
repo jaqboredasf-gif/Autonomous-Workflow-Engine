@@ -49,6 +49,25 @@ export function readExecutions(db, { orgId, from, to, baselineId }) {
   if (!from || !to) throw new Error('readExecutions needs a period');
   if (!baselineId) throw new Error('readExecutions needs the baseline these executions are measured against');
 
+  // THE CENSUS, taken before anything is read, by a separate COUNT over the
+  // same predicate.
+  //
+  // WHY A SECOND QUERY IS NOT REDUNDANT. The ledger counts the records it is
+  // handed. Hand it a filtered subset and it reports the subset's size and
+  // looks complete — which is precisely how a case study ends up describing
+  // only the purchases that went well, with nobody having decided to cheat.
+  // This number comes from the database, and `caseStudy()` refuses to call
+  // itself defensible when it disagrees with the number of units of work that
+  // reached the ledger.
+  const census = {
+    eligible: Number(db.prepare(
+      `select count(*) as n from purchase_requests
+        where org_id = ? and created_at >= ? and created_at < ?`,
+    ).get(orgId, from, to)?.n ?? 0),
+    rule: 'every purchase request raised by this organization in the period, whatever became of it',
+    source: `purchase_requests where org_id = ${JSON.stringify(orgId)} and created_at in [${from}, ${to})`,
+  };
+
   // The period is decided by when the request was RAISED, matching the ledger's
   // stated boundary convention: an execution belongs to the period it started
   // in, so work spanning a month boundary is counted once and in one place.
@@ -114,7 +133,13 @@ export function readExecutions(db, { orgId, from, to, baselineId }) {
      where org_id = ? and at >= ? and at < ?
   `).all(orgId, from, to).map(camel));
 
-  return { records, adminTouches, requestsRead: requests.length, environment: environmentOf(db) };
+  return {
+    records,
+    adminTouches,
+    requestsRead: requests.length,
+    census: Object.freeze(census),
+    environment: environmentOf(db),
+  };
 }
 
 function camel(row) {
