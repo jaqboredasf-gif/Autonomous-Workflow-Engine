@@ -17,7 +17,8 @@ Everything else is reference, and none of it is required to install:
 | `docs/deployment/PCC_PRODUCTION_ARCHITECTURE.md` | What PCC is and why it is shaped this way | Installer + IT |
 | `docs/deployment/PCC_GO_LIVE_PLAN.md` | Pilot phases, rollback, the go-live gate | Installer + purchasing |
 | `docs/deployment/PCC_PRODUCTION_PILOT_CHECKLIST.md` | The boxes on pilot day | Installer + IT |
-| `docs/deployment/PCC_PRODUCTION_ACCEPTANCE.md` | **What to run after installing**: verify, provision, one real PO, reboot, verify again, accept | **Installer + IT + purchasing** |
+| `docs/deployment/PCC_RDS02_EXECUTION_PACKAGE.md` | **THE LIPPOLIS PATH — Windows Server.** Install, configure, verify, reboot, acceptance, rollback | **Installer + IT + purchasing** |
+| `docs/deployment/PCC_PRODUCTION_ACCEPTANCE.md` | What to run after installing **on Linux** (Branch A/B): verify, provision, one real PO, reboot, verify again, accept. **Not the Windows path** | Installer + IT + purchasing |
 
 **Scripts this runbook uses** — all read-only unless stated:
 
@@ -95,17 +96,27 @@ Hand this section to Jose. Nothing here is already answered by the repository.
 Work top to bottom. **Record every answer in the installation record (§ Evidence) as you go** —
 filling it in afterwards from memory is how a deployment becomes undocumented.
 
-## Step 1 — Identify the VM
+## Step 1 — Identify the VM, and choose the branch **before running anything else**
+
+**This is the first command, and its answer decides which of the next twenty steps apply.** Steps
+2 and 3 below are Linux commands; on Windows Server they do not exist and running them is the point
+at which an installer starts improvising.
 
 ```bash
-uname -a                                   # Linux: kernel and architecture
-cat /etc/os-release                        # Linux: distribution and version
-# Windows Server: systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
+uname -a && cat /etc/os-release            # Linux: kernel, distribution, version
+```
+```powershell
+systeminfo | findstr /B /C:"OS Name" /C:"OS Version"    # Windows Server
 ```
 
-**Record the OS and version.** Everything after Step 4 branches on it.
+| What you found | Go to |
+|---|---|
+| **Windows Server** | **§Branch C, now.** It is the Lippolis target and it has its own runbook, its own tooling and its own suite. **Steps 2–22 below are Linux and do not apply.** |
+| Linux | Step 2, below |
 
-## Step 2 — Confirm CPU, RAM and disk
+**Record the OS and version in the installation record before continuing.**
+
+## Step 2 — Confirm CPU, RAM and disk *(Linux — Windows: §Branch C)*
 
 ```bash
 nproc                                      # vCPU count        (expect 2)
@@ -117,7 +128,7 @@ lsblk                                      # is the data disk separate?
 If the allocation differs from what was asked for, record what it actually is and carry on —
 PCC will run on less. Note it as a warning in the record rather than stopping.
 
-## Step 3 — Confirm the available runtime
+## Step 3 — Confirm the available runtime *(Linux — Windows: §Branch C)*
 
 ```bash
 docker --version && docker compose version   # Branch A
@@ -126,15 +137,14 @@ node --version                               # Branch B — must be v24 or later
 systemctl --version                          # is systemd the supervisor?
 ```
 
-**Choose the branch now:**
+**Choose between A and B:**
 
 | What you found | Branch |
 |---|---|
 | Linux, Docker or Podman available | **Branch A — Linux + container runtime** *(preferred: this is what the image and compose file were written for)* |
 | Linux, no container runtime permitted | **Branch B — Linux, Node directly** |
-| Windows Server | **Branch C — the Lippolis target. Go to §Branch C now; Steps 4–8 below are Linux.** |
 
-## Step 4 — Install dependencies
+## Step 4 — Install dependencies *(Linux — Windows: §Branch C)*
 
 **Branch A:** nothing. The image carries Node 24 and every dependency. Docker is the only
 requirement, and Step 3 confirmed it.
@@ -489,11 +499,24 @@ tooling, its own runbook and its own test suite:
 |---|---|
 | **The step-by-step install** | **`docs/deployment/PCC_RDS02_EXECUTION_PACKAGE.md`** — operational, read it with the server in front of you |
 | Preflight, before anything | `scripts/preflight-windows.ps1` |
-| The install itself | `scripts/install-production.ps1` |
+| The install itself | `scripts/install-production.ps1` (driven by `scripts/Deploy-PCCProduction.ps1`) |
 | The IIS front door (HTTPS 443, LAN only) | `scripts/Configure-PCCIIS.ps1` |
 | Scheduled backups | `scripts/install-backup-task.ps1` |
-| Post-install verification | `scripts/pcc-verify-deployment.mjs` |
-| What the tooling guarantees | `scripts/eval-windows-deployment.mjs` — 133 checks, offline |
+| Post-install verification | `scripts/pcc-verify-deployment.mjs` (`--service pcc`) |
+| **Acceptance** | `PCC_RDS02_EXECUTION_PACKAGE.md` §1 VERIFY/REBOOT and §5. **Not** `PCC_PRODUCTION_ACCEPTANCE.md`, which is the Linux sequence |
+| Rollback | `PCC_RDS02_EXECUTION_PACKAGE.md` §6. **Not** `PCC_PRODUCTION_HANDOFF.md` §rollback, which is the Linux path |
+| What the tooling guarantees | `scripts/eval-windows-deployment.mjs` — offline |
+
+**Set `PCC_ENVIRONMENT=production` and `PCC_ORG_ID=lippolis` before the first start.** Both are
+written into the database at creation and never again, every later start is checked against them,
+and neither can be corrected afterwards. See §3 of the execution package.
+
+**What is NOT scripted on Windows, and must be done by hand:** the restore rehearsal.
+The scripted drill builds throwaway Docker containers and does not run on RDS02.
+`scripts/pcc-backup.mjs` and `scripts/pcc-restore.mjs` are plain Node and do, so the drill is
+manual — back up, restore into a scratch path, start the application on the restored copy — as
+step 27 of the execution package. Record it in the installation record either way; an unrehearsed
+restore is a restore nobody has performed.
 
 The shape: PCC runs as a Windows service on `127.0.0.1:3000`, **loopback only**, with IIS in front
 terminating HTTPS on 443 for the LAN. Data paths are Windows paths; `PCC_DATABASE_PATH` must still

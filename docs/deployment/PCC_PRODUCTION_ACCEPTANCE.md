@@ -1,8 +1,21 @@
-# PCC — production acceptance
+# PCC — production acceptance *(Linux — Branch A / B)*
 
-**What this is.** The sequence run **on the Lippolis VM**, in order, once. It starts where
-`PCC_VM_INSTALLATION_RUNBOOK.md` finishes and ends with a signed decision: PCC is accepted for
-real purchasing, or it is not and the reasons are written down.
+> ## ⚠ THE LIPPOLIS TARGET IS WINDOWS. THIS DOCUMENT IS NOT ITS PATH.
+>
+> `LIPELE-RDS02` is **Windows Server 2019 Standard**. Every command below is Linux —
+> `systemd-run`, `sudo -u pcc`, `/etc/pcc.env`, `rsync`, `useradd` — and none of them exists there.
+>
+> **Windows acceptance is `docs/deployment/PCC_RDS02_EXECUTION_PACKAGE.md`:** §1 for
+> INSTALL → CONFIGURE → VERIFY → REBOOT, §5 for the Mike/Rick acceptance script, §6 for rollback.
+> It ends at the same place this does — a signed decision — using the tooling Windows actually has.
+>
+> This document remains authoritative for a **Linux** installation (Branch A or B), and it is
+> where the reasoning behind each check is written down, so it is worth reading on either platform.
+> Do not run its commands on RDS02.
+
+**What this is.** The sequence run on a **Linux** PCC VM, in order, once. It starts where
+`PCC_VM_INSTALLATION_RUNBOOK.md` Branch A or B finishes and ends with a signed decision: PCC is
+accepted for real purchasing, or it is not and the reasons are written down.
 
 ```
 INSTALL → CONFIGURE → VERIFY → PROVISION → REAL PO → REBOOT → VERIFY AGAIN → ACCEPT

@@ -138,6 +138,8 @@ Full detail in `config/production.env.template`. Summary:
 | Setting | Who | Secret | Refuses to start |
 |---|---|---|---|
 | `NODE_ENV`, `PORT`, `HOSTNAME` | deployment | no | `NODE_ENV` yes |
+| `PCC_ENVIRONMENT` | deployment | no | **permanent — see below** |
+| `PCC_ORG_ID` | deployment | no | **permanent — see below** |
 | `PCC_ORG_NAME` | business | no | no |
 | `PCC_ORG_ADDRESS`, `PCC_ORG_PHONE` | business | no | **yes** |
 | `PCC_PO_NUMBERING` | business | no | **yes** |
@@ -148,6 +150,25 @@ Full detail in `config/production.env.template`. Summary:
 | `SESSION_SECRET` | **generated on the server** | **yes** | **yes** |
 | `PCC_BOOTSTRAP_ADMIN_*` | Jack/deployment | password: **yes** | first start only |
 | `PCC_RELEASE` | **set by the installer** | no | no |
+
+> ### The two that cannot be corrected next week
+>
+> `PCC_ENVIRONMENT` and `PCC_ORG_ID` are written into the database **when it is created and never
+> again**, and every later start is checked against them. Getting either wrong is not a
+> configuration mistake somebody fixes on Tuesday — it is a permanent property of the installation's
+> records, and the only remedy is a new database.
+>
+> * **`PCC_ENVIRONMENT=production`.** Set it, exactly, for this install. It is what makes these
+>   records admissible as evidence of what PCC did for Lippolis. Unset, the database stamps itself
+>   `unstamped` and every figure ever produced from it reads `NOT EVIDENCE`. It has no relationship
+>   to `NODE_ENV`, which the rehearsal also sets to `production` because it must.
+> * **`PCC_ORG_ID=lippolis`.** Set it, exactly. Unset, the organization id is a random UUID nobody
+>   can predict, and no baseline — which is what makes a saving measurable rather than asserted —
+>   can be written until after the first real purchase has already happened unmeasured.
+>
+> A start that disagrees with what the database already says **refuses to start and changes
+> nothing**. That is deliberate: a refusal is a phone call, and test rows inside production
+> evidence are permanent.
 
 ---
 

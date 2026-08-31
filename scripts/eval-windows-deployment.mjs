@@ -393,6 +393,94 @@ check(/cannot be inferred/i.test(pkg), 'the checklist marks reboot survival as u
 check(/proven: true/.test(pkg), 'and ties flipping the adapter to that observation');
 
 // ---------------------------------------------------------------------------
+console.log('--- the authoritative documents route Windows to Windows --------');
+
+// THE DEFECT THIS SECTION HOLDS CLOSED. The Windows tooling and the Windows
+// runbook can both be correct while the AUTHORITATIVE documents still walk an
+// installer down the Linux path, because those documents were written when
+// Linux was the only path and nothing tests prose. §Branch C once said "Stop —
+// no Windows installation has been performed", on the only platform we ship to.
+// It was fixed. These assertions are what stop it, or something like it,
+// happening again the next time a document is edited.
+
+const RUNBOOK = 'PCC_VM_INSTALLATION_RUNBOOK.md';
+const ACCEPTANCE = 'docs/deployment/PCC_PRODUCTION_ACCEPTANCE.md';
+const runbook = read(RUNBOOK);
+const acceptance = read(ACCEPTANCE);
+
+// 1. The platform is decided BEFORE any Linux command runs. Step 3 used to hold
+//    the branch table, which put `nproc`, `free -h`, `lsblk` and `df -h` in
+//    front of a Windows installer before anybody told them not to run them.
+const step1 = runbook.slice(runbook.indexOf('## Step 1'), runbook.indexOf('## Step 2'));
+check(/Windows Server/.test(step1) && /Branch C/.test(step1),
+  'Step 1 sends a Windows installer to Branch C');
+const beforeBranchC = runbook.slice(runbook.indexOf('## Step 2'), runbook.indexOf('## Step 4'));
+for (const linuxOnly of ['nproc', 'free -h', 'lsblk', 'systemctl --version']) {
+  check(beforeBranchC.includes(linuxOnly), `Step 2-3 still carries ${linuxOnly} (Linux only)`);
+}
+for (const step of ['## Step 2', '## Step 3', '## Step 4']) {
+  const heading = runbook.slice(runbook.indexOf(step), runbook.indexOf(step) + 90);
+  check(/Linux/.test(heading) && /Branch C/.test(heading),
+    `${step} names itself as the Linux path in its own heading`);
+}
+
+// 2. §Branch C does not stop, and does not send anybody to Linux tooling.
+const branchC = runbook.slice(runbook.indexOf('## Branch C'), runbook.indexOf('# Installation record'));
+check(branchC.length > 500, 'Branch C is a procedure rather than a note');
+check(/THIS IS THE LIPPOLIS TARGET/.test(branchC), 'and says so');
+check(!/^\s*\*\*Stop\b/m.test(branchC), 'and does not tell the installer to stop');
+for (const bad of ['systemctl', 'useradd', 'rsync', '/opt/pcc', '/var/lib/pcc']) {
+  check(!branchC.includes(bad), `Branch C never mentions ${bad}`);
+}
+for (const named of ['preflight-windows.ps1', 'install-production.ps1', 'Configure-PCCIIS.ps1',
+  'install-backup-task.ps1', 'pcc-verify-deployment.mjs', 'PCC_RDS02_EXECUTION_PACKAGE.md']) {
+  check(branchC.includes(named), `Branch C names ${named}`);
+}
+for (const named of ['scripts/preflight-windows.ps1', 'scripts/install-production.ps1',
+  'scripts/Configure-PCCIIS.ps1', 'scripts/install-backup-task.ps1',
+  'scripts/pcc-verify-deployment.mjs', 'scripts/Deploy-PCCProduction.ps1',
+  'docs/deployment/PCC_RDS02_EXECUTION_PACKAGE.md']) {
+  check(existsSync(join(ROOT, named)), `and ${named} exists`);
+}
+
+// 3. THE LINUX ACCEPTANCE DOCUMENT MUST NOT CLAIM THE LIPPOLIS VM. It opens
+//    with `systemd-run --uid=pcc` against `/etc/pcc.env`; on RDS02 that is
+//    three commands that do not exist, in the document the runbook calls "what
+//    to run after installing".
+check(/Linux/.test(acceptance.slice(0, 400)),
+  'the acceptance document names its platform in its own title');
+check(/PCC_RDS02_EXECUTION_PACKAGE\.md/.test(acceptance.slice(0, 2000)),
+  'and sends a Windows reader to the execution package before its first command');
+check(/Windows Server 2019/.test(acceptance.slice(0, 2000)),
+  'naming the platform the target actually is');
+check(/systemd-run/.test(acceptance), 'while remaining the real Linux procedure');
+check(/PCC_PRODUCTION_ACCEPTANCE\.md/.test(branchC) && /Not\*\*/.test(branchC),
+  'and Branch C says which acceptance document is NOT its own');
+
+// 4. The two facts that cannot be corrected after first start reach the person
+//    filling in the environment file on the day.
+check(/PCC_ENVIRONMENT/.test(branchC) && /PCC_ORG_ID/.test(branchC),
+  'Branch C names the two settings that are permanent at creation');
+check(/PCC_ENVIRONMENT/.test(pkg) && /PCC_ORG_ID/.test(pkg),
+  'and the execution package carries them in its configuration table');
+check(/never again|permanent/i.test(pkg),
+  'and says they cannot be corrected later');
+
+// 5. What is NOT scripted on Windows is stated rather than left to be found.
+check(/restore rehearsal/i.test(branchC) && /must be done by hand/i.test(branchC),
+  'Branch C admits the restore rehearsal is not scripted on Windows');
+check(existsSync(join(ROOT, 'scripts/restore-rehearsal.sh')) && /docker/i.test(read('scripts/restore-rehearsal.sh')),
+  'and the scripted drill it excludes is genuinely Docker-only');
+
+// 6. The one POSIX call in the operational scripts is guarded, because its
+//    failure message named a command Windows does not have.
+const restore = read('scripts/pcc-restore.mjs');
+check(/process\.platform !== 'win32'/.test(restore),
+  'pcc-restore does not attempt chown on Windows');
+check(/inherits the directory ACL/.test(restore),
+  'and says what happens there instead');
+
+// ---------------------------------------------------------------------------
 console.log('--- PCC still does not send email ------------------------------');
 
 // Microsoft 365 SMTP details arriving from IT is not a reason to grow a send
