@@ -89,6 +89,20 @@ export const EXCLUSION_REASONS = Object.freeze([
  */
 export function observedHumanMinutes(record, standard) {
   const touches = chargeableTouches(record);
+  // A PARTIAL TRAIL CANNOT BE SUMMED, WITH OR WITHOUT ROWS. If the capability
+  // does not record every human action, the touches it did record are a subset,
+  // and any total built from a subset under-counts human time — which
+  // over-states hours returned. Refused before the zero-touch rule below, which
+  // would otherwise read a silent instrument as a silent workflow.
+  if (record.humanTouchesComplete === false) {
+    return quantity({
+      value: null, unit: 'minutes', provenance: 'UNAVAILABLE',
+      basis: `${record.capability} does not record every human action against an execution, `
+        + `so the ${touches.length} interaction(s) on ${record.scopeKey} are a subset — `
+        + 'unrecorded human work is unknown, not free',
+    });
+  }
+
   if (touches.length === 0) {
     // A genuinely untouched execution. Zero, and MEASURED — the audit log
     // recording no human rows IS the measurement, and this is the one place a

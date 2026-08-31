@@ -166,6 +166,25 @@ export function executionRecord({
   startedAt, endedAt,
   executionOutcome, refusalReason = null, errorCode = null,
   humanTouches = [],
+  // IS THE HUMAN-TOUCH LIST COMPLETE FOR THIS EXECUTION?
+  //
+  // The arithmetic treats an empty touch list as a MEASURED zero, on the
+  // grounds that an audit log recording no human rows IS the measurement. That
+  // is true of PCC, whose activity log writes a row for every human action, and
+  // it is a property of THAT CAPABILITY'S INSTRUMENTATION rather than of this
+  // model.
+  //
+  // Generalizing the proof layer to a second capability found the seam. TEGG's
+  // run ledger records that a human action was REQUIRED — it does not record
+  // who performed one, or when. An adapter that emitted no touches for such a
+  // run would be read as "no human involved", which is the largest possible
+  // saving, from a capability that cannot see its own humans. That error runs
+  // in the direction that flatters us, so it is refused rather than defaulted.
+  //
+  // `true` keeps every existing caller exactly as it was. A capability whose
+  // trail is partial says so, and its human minutes are UNAVAILABLE — not zero
+  // — until it records the actor and the moment.
+  humanTouchesComplete = true,
   retries = 0,
   objective = null,
   outcomes = [],
@@ -204,6 +223,7 @@ export function executionRecord({
     startedAt, endedAt,
     executionOutcome, refusalReason, errorCode,
     humanTouches: Object.freeze([...humanTouches]),
+    humanTouchesComplete,
     retries,
     objective,
     outcomes: Object.freeze([...outcomes]),
