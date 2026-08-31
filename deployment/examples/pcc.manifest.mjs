@@ -10,7 +10,45 @@
 // is wrong or too abstract. That check is in scripts/eval-deployment-core.mjs.
 // ---------------------------------------------------------------------------
 
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { declared, unknown, verified } from '../facts.mjs';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/**
+ * The approved release, READ FROM THE APPROVAL RECORD rather than typed here.
+ *
+ * The runbook requires a specific approved commit, and approval is a person's
+ * signature — not something this file, or any code, can grant itself. So
+ * deployment/APPROVED_RELEASE.md is the source of truth: it names a candidate
+ * and carries an unsigned approval block, and the moment a person fills that
+ * block in, this fact becomes known and the deployment gate moves past
+ * BUILD_ONLY with no code change at all.
+ *
+ * An unsigned record is not an approval, and is reported as one would hope: a
+ * candidate exists, nobody has signed it.
+ */
+function approvedVersion() {
+  const path = join(ROOT, 'deployment/APPROVED_RELEASE.md');
+  if (!existsSync(path)) {
+    return unknown('no approval record exists — deployment/APPROVED_RELEASE.md names the candidate and carries the signature block');
+  }
+  const text = readFileSync(path, 'utf8');
+  const commit = /^-\s*\*\*Commit\*\*:\s*`([0-9a-f]{7,40})`/m.exec(text)?.[1] ?? null;
+  const rawSigner = /^-\s*\*\*Approved by\*\*:\s*(.*)$/m.exec(text)?.[1]?.trim() ?? '';
+  const signedBy = rawSigner && !/^_+$/.test(rawSigner) ? rawSigner : null;
+
+  if (!commit) return unknown('deployment/APPROVED_RELEASE.md exists and names no candidate commit');
+  if (!signedBy) {
+    return unknown(
+      `${commit} is proposed in deployment/APPROVED_RELEASE.md and nobody has signed it — ` +
+      'approval is a person\'s decision, and the runbook requires a specific approved commit');
+  }
+  return declared(commit, `approval:deployment/APPROVED_RELEASE.md, signed by ${signedBy}`);
+}
 
 export const pccManifest = {
   manifest_version: 0.1,
@@ -22,12 +60,9 @@ export const pccManifest = {
 
   application: {
     id: 'pcc',
-    // UNKNOWN, and it is a real blocker rather than an omission. The runbook
-    // requires a specific commit or tag to be approved and recorded — "deploy a
-    // specific commit, never a moving branch" — and nobody has named one. This
-    // carried a stale build tag from two schema versions ago, which reads like
-    // an answer and is not one.
-    version: unknown('no commit has been approved for deployment — the runbook requires a specific commit or tag, recorded in the installation record and in PCC_RELEASE'),
+    // Read from the approval record. Writing a version here before the
+    // signature exists would be the code approving its own release.
+    version: approvedVersion(),
     repository: 'AWE-Purchasing',
   },
 
@@ -112,8 +147,26 @@ export const pccManifest = {
   // and can never be corrected afterwards. Both are UNKNOWN because the first
   // start has not happened — which is exactly when they must be right.
   measurement: {
-    environment: unknown('PCC_ENVIRONMENT is not yet set on the server — an install that omits it produces records that are refused as evidence'),
-    org_id_declared: unknown('PCC_ORG_ID is not yet set on the server — without it the org id is a generated UUID no baseline can be written against'),
+    // VERIFIED, and the word is exact: not "we will remember", but "the
+    // application refuses". A first production start without either variable
+    // throws before the transaction that creates the organization, so the
+    // outcome these fields existed to prevent — an installation that quietly
+    // stamps itself `unstamped`, or mints a UUID no baseline can be written
+    // against, and says nothing until somebody asks for the first month's
+    // figures — is no longer reachable.
+    //
+    // They were UNKNOWN while the only protection was somebody reading the
+    // template. That was the right answer then. What changed is the mechanism,
+    // not the confidence.
+    //
+    // The residual — whether the VALUE in the server's file is the right one —
+    // is an install-time check, not a build-time fact. pcc-verify-deployment
+    // answers it on the machine, and the deployment gate reports it as
+    // "not checkable from here" rather than pretending otherwise.
+    environment: verified('production',
+      'application:bootstrap.ts refuses a first production start without PCC_ENVIRONMENT — scripts/eval-evidence-provenance.mjs'),
+    org_id_declared: verified(true,
+      'application:bootstrap.ts refuses a first production start without PCC_ORG_ID — scripts/eval-evidence-provenance.mjs'),
     baseline_registered: declared(true, 'awe:proof/baselines/lippolis-purchasing.mjs exists for orgId lippolis, with every duration UNAVAILABLE until measured'),
   },
 

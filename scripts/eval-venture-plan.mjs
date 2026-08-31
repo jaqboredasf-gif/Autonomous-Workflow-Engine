@@ -24,7 +24,7 @@
 //   node scripts/eval-venture-plan.mjs
 // ---------------------------------------------------------------------------
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -538,6 +538,68 @@ console.log('--- against the repository as it actually is ---------------------'
   check(p.notYet.some((n) => n.claim === 'path_beyond_wedge'), 'the long-range claim is named as not-yet');
 
   notes.push(`repository today: gate ${p.currentGate.n}, engineering=${p.highestLeverage.claim}, founder=${p.founderHighestLeverage.claim}`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('--- the founder actions point at procedures that exist -----------');
+{
+  // A PLAN THAT NAMES A DOCUMENT THAT DOES NOT EXIST is worse than one that
+  // says "go and think about it", because somebody spends twenty minutes
+  // looking for it first. Every artifact the two recommended actions name is
+  // checked here against the tree.
+  const facts = await deriveFacts();
+  const p = plan(facts);
+  const said = `${p.highestLeverage.action} ${p.founderHighestLeverage.action} ${p.founderHighestLeverage.thenNext?.action ?? ''}`;
+  const named = [...said.matchAll(/[\w./-]+\.(?:mjs|md|sh|ps1)/g)].map((m) => m[0]);
+  check(named.length > 0, `${named.length} artifact(s) are named by the recommended actions`);
+  for (const f of named) {
+    check(existsSync(R(f)) || existsSync(R(join('scripts', f))), `${f} exists`);
+  }
+
+  // PHASE ORDER, which is the expensive thing to get wrong: a baseline
+  // measured after the first production purchase cannot govern it.
+  const activation = readFileSync(R('docs/proof/FIRST_REAL_PROOF_ACTIVATION.md'), 'utf8');
+  check(/BEFORE the first real purchase/i.test(activation),
+    'the activation procedure states the one ordering rule');
+  check(/permanently unvaluable|permanently unmeasurable/i.test(activation),
+    'and what it costs to get the order wrong');
+  for (const section of ['BEFORE DEPLOYMENT', 'DURING DEPLOYMENT', 'AFTER DEPLOYMENT']) {
+    check(activation.includes(section), `it covers ${section}`);
+  }
+  for (const threshold of ['10 valued units', '30']) {
+    check(activation.includes(threshold), `it names the ${threshold} sample floor`);
+  }
+  check(/confidenceOf\(\)/.test(activation),
+    'and attributes the floor to the code that enforces it, not to an opinion');
+  for (const grade of ['MEASURED', 'ESTIMATED', 'SELF_REPORTED', 'INFERRED', 'UNAVAILABLE']) {
+    check(activation.includes(grade), `it separates ${grade} evidence from the rest`);
+  }
+  check(/PCC_ENVIRONMENT/.test(activation) && /PCC_ORG_ID/.test(activation),
+    'and names the two settings that cannot be corrected after the first start');
+
+  // THE DISCOVERY TRACK, reusing what exists rather than a second CRM.
+  const campaign = readFileSync(R('programs/discovery/CAMPAIGN.md'), 'utf8');
+  const { interview } = await import(R('programs/discovery/interview.mjs'));
+  const record = interview({
+    id: 'x', at: '2026-09-01', organization: 'Someone Electric', role: 'office manager',
+    workflow: 'buying material', pain: 'x', frequency: 'daily', currentTools: ['paper'],
+    humanTimeStated: '20 minutes', failureModes: ['wrong item'], economicConsequence: 'crew idle',
+    existingWorkaround: 'phone the supplier', willingnessToChange: 'OPEN_IF_PROVEN',
+    willingnessToPay: 'NOT_ASKED', patternTags: ['material_arrives_wrong'], designPartnerInterest: true,
+  });
+  // Every field the campaign asks the interviewer to capture must survive into
+  // the record, or the conversation is a memory rather than evidence.
+  for (const field of ['workflow', 'pain', 'frequency', 'currentTools', 'humanTimeStated',
+    'failureModes', 'economicConsequence', 'existingWorkaround', 'willingnessToChange',
+    'willingnessToPay', 'patternTags', 'designPartnerInterest']) {
+    check(record[field] !== undefined, `an interview record captures ${field}`);
+  }
+  check(/two different organizations|2\+ \*different organizations\*|counts \*\*organizations\*\*/i.test(campaign),
+    'the campaign says a pattern needs two different organizations, not two people');
+  check(/not electrical/i.test(campaign),
+    'and that the first five must include one outside the trade Lippolis is in');
+  check(!/pipeline|deal stage|close rate/i.test(campaign), 'and it is not a sales process');
+  notes.push('both founder actions name procedures that exist and cover what they claim to');
 }
 
 console.log('');

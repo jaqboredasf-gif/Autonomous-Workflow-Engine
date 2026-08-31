@@ -321,6 +321,44 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
   // first start, not a broken one.
   const orgAddress = (env.PCC_ORG_ADDRESS ?? '').trim();
   const orgPhone = (env.PCC_ORG_PHONE ?? '').trim();
+
+  // THE TWO THAT DECIDE WHETHER ANY OF THIS IS EVIDENCE, refused on the same
+  // terms as the letterhead and for the same reason: both are written into the
+  // database when it is created and no screen edits them afterwards.
+  //
+  // Without this, an install that simply forgot PCC_ENVIRONMENT succeeded. It
+  // came up, logged ready, reported healthy, and stamped itself `unstamped` —
+  // and every purchase order the company raised from that day was refused as
+  // evidence for the life of the installation, with nothing at any point
+  // saying so. The failure is silent, permanent, and only discovered when
+  // somebody asks for the first month's figures.
+  //
+  // The same applies to PCC_ORG_ID: undeclared, the organization id is a random
+  // UUID, and a baseline — which is what makes a saving measurable rather than
+  // asserted — cannot be written against an id nobody can predict. So the first
+  // real purchases would be permanently unmeasurable.
+  //
+  // ONLY AT CREATION. An established installation is not asked again; it
+  // already answered, and assertDatabaseIdentity() checks that every later
+  // start agrees with what it said.
+  const permanent = [
+    declaredEnvironment(env) ? null : 'PCC_ENVIRONMENT',
+    (env.PCC_ORG_ID ?? '').trim() ? null : 'PCC_ORG_ID',
+  ].filter(Boolean);
+  if (permanent.length) {
+    throw Object.assign(new Error(
+      `${permanent.join(' and ')} must be set before the first start — ` +
+        'both are written into the database when it is created and never again, and no screen ' +
+        'edits them afterwards. Nothing has been created: set them and start again.\n' +
+        '  PCC_ENVIRONMENT=production makes these records admissible as evidence of what PCC did. ' +
+        'Unset, the database stamps itself "unstamped" and every figure ever produced from it ' +
+        'reads NOT EVIDENCE. It is unrelated to NODE_ENV, which a rehearsal also sets to production.\n' +
+        '  PCC_ORG_ID is the tenant\'s permanent name — Lippolis: lippolis. Unset, the id is a ' +
+        'random UUID no baseline can be written against, so the first real purchases would be ' +
+        'permanently unmeasurable.',
+    ), { pccReason: 'configuration' as const });
+  }
+
   const missing = [
     orgAddress ? null : 'PCC_ORG_ADDRESS',
     orgPhone ? null : 'PCC_ORG_PHONE',

@@ -215,7 +215,11 @@ const FRESH_DB = join(FRESH, 'pcc.sqlite');
   // one administrator. No vendors, no jobs, no requests — the company's.
   const { bootstrapDatabase } = await import(join(APP, 'purchasing', 'infrastructure', 'bootstrap.ts'));
   bootstrapDatabase(fresh, {
-    NODE_ENV: 'production', PCC_ORG_NAME: 'Lippolis Electric, Inc.',
+    // The two that are written once at creation. A production first start
+    // refuses without them, because an installation that omits either is
+    // permanently unmeasurable and says nothing about it at the time.
+    NODE_ENV: 'production', PCC_ENVIRONMENT: 'production', PCC_ORG_ID: 'lippolis',
+    PCC_ORG_NAME: 'Lippolis Electric, Inc.',
     PCC_ORG_ADDRESS: 'Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803',
     PCC_ORG_PHONE: '(914) 738-3550',
     PCC_BOOTSTRAP_ADMIN_EMAIL: 'admin@dryrun.test', PCC_BOOTSTRAP_ADMIN_PASSWORD: 'DryRunBootstrap2026',

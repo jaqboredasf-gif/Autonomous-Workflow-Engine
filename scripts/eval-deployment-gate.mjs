@@ -171,16 +171,33 @@ console.log('--- PCC today: BUILD_ONLY, and why -------------------------------'
 eq(result.verdict, 'BUILD_ONLY',
   'PCC can be built and cannot yet be correctly installed');
 
+const byId0 = Object.fromEntries(result.checks.map((c) => [c.id, c]));
 const deployBlockers = result.blockers.filter((b) => b.phase === 'REQUIRED_BEFORE_DEPLOY');
 check(deployBlockers.length > 0, 'and something concrete says why');
-for (const path of ['measurement.environment', 'measurement.org_id_declared']) {
-  const b = result.blockers.find((x) => x.path === path);
-  check(!!b, `${path} is an outstanding blocker`);
-  check(b && b.phase === 'REQUIRED_BEFORE_DEPLOY', `${path} blocks the install, not go-live`);
-  check(b && b.kind === 'DEPLOYMENT_CONFIG', `${path} is a deployment-time configuration blocker`);
-  check(b && /cannot|refused|no baseline|not yet/i.test(b.reason),
-    `${path} says what goes wrong if it is skipped`);
+
+// THE ONE THING LEFT IS A SIGNATURE. The two measurement facts were deploy
+// blockers until the application began refusing a first production start
+// without them; the outcome they guarded is now unreachable, so they are
+// verified rather than outstanding. What remains is an approved commit, which
+// is a person's decision and must not be something the code can grant itself.
+{
+  const version = result.blockers.find((b) => b.path === 'application.version');
+  check(!!version, 'the approved commit is an outstanding blocker');
+  check(version && version.phase === 'REQUIRED_BEFORE_DEPLOY', 'it blocks the install, not go-live');
+  check(version && version.kind === 'DEPLOYMENT_CONFIG', 'it is a deployment-time configuration blocker');
+  check(version && /APPROVED_RELEASE\.md/.test(version.reason),
+    'and it names the record a person signs', version?.reason);
+  check(version && /nobody has signed|no approval record|names no candidate/.test(version.reason),
+    'saying exactly what is missing', version?.reason);
 }
+for (const path of ['measurement.environment', 'measurement.org_id_declared']) {
+  check(!result.blockers.some((b) => b.path === path),
+    `${path} is no longer a blocker — the application refuses a start without it`);
+}
+// And the mechanism that retired them is itself a gate check, because a
+// guarantee that stops being tested is a guarantee that stops.
+eq(byId0['measurement.identity_enforced_at_startup']?.status, 'PASS',
+  'the startup identity enforcement is checked by the gate');
 
 // The go-live blockers are all external, which is the honest shape of this
 // deployment: what remains after AWE's work is Lippolis's decisions.

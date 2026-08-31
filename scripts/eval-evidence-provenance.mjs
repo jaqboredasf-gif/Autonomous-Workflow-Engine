@@ -222,18 +222,56 @@ console.log('--- the organization id is permanent -----------------------------'
   db.close();
 }
 {
-  // The installation that already exists: created before an id could be
-  // declared, so it holds a UUID. Declaring the slug afterwards is exactly the
-  // mistake that makes every baseline match nothing, and it is caught.
-  const { db } = installed({ NODE_ENV: 'production', PCC_ENVIRONMENT: 'production',
-    PCC_ORG_NAME: LIPPOLIS.PCC_ORG_NAME, PCC_ORG_ADDRESS: LIPPOLIS.PCC_ORG_ADDRESS,
-    PCC_ORG_PHONE: LIPPOLIS.PCC_ORG_PHONE });
-  const minted = db.prepare('select id from orgs limit 1').get().id;
-  check(/^[0-9a-f-]{36}$/.test(minted), 'an installation that declares no id still mints a UUID');
+  // A FIRST PRODUCTION START WITHOUT THEM IS NOW REFUSED, and this used to be
+  // the test that an undeclared id "still mints a UUID". It did, and that was
+  // the trap: the installation came up, logged ready, reported healthy, and was
+  // permanently unmeasurable because no baseline can be keyed on an id nobody
+  // could predict. The old assertion described a defect accurately.
+  for (const [omit, wanted] of [['PCC_ENVIRONMENT', 'PCC_ENVIRONMENT'], ['PCC_ORG_ID', 'PCC_ORG_ID']]) {
+    const env = prod();
+    delete env[omit];
+    const p = path();
+    const db = openDatabase(p);
+    refuses(() => bootstrapDatabase(db, env, '2026-08-01T09:00:00Z'),
+      `${wanted} must be set before the first start`,
+      `a first production start without ${omit} refuses`);
+    eq(db.prepare('select count(*) as n from orgs').get().n, 0,
+      `  and no organization was created without ${omit}`);
+    db.close();
+  }
+  {
+    // Both missing must name BOTH. An operator who fixes one, restarts, and is
+    // refused again for the other has been sent round the loop by the report.
+    const env = prod();
+    delete env.PCC_ENVIRONMENT; delete env.PCC_ORG_ID;
+    const db = openDatabase(path());
+    let message = '';
+    try { bootstrapDatabase(db, env, '2026-08-01T09:00:00Z'); } catch (e) { message = e.message; }
+    check(message.includes('PCC_ENVIRONMENT') && message.includes('PCC_ORG_ID'),
+      'a start missing both names both, not just the first');
+    check(message.includes('NOT EVIDENCE') && message.includes('permanently unmeasurable'),
+      'and says what each one costs if it is skipped');
+    db.close();
+  }
+}
+{
+  // The installation that ALREADY EXISTS, created before an id could be
+  // declared, so it holds a UUID. Nothing can create one of these any more, so
+  // it is constructed the way the real one is shaped. Declaring the slug
+  // afterwards is the mistake that makes every baseline match nothing.
+  const { db } = installed(prod());
+  const legacy = '9f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d';
+  // Rows in other tables point at the org id, so the rewrite happens with the
+  // foreign keys off, the way a real historical database simply arrived.
+  db.exec('pragma foreign_keys = OFF');
+  db.prepare('insert into orgs (id, name, phone, address, created_at, updated_at) select ?, name, phone, address, created_at, updated_at from orgs').run(legacy);
+  db.prepare('delete from orgs where id = ?').run('lippolis');
+  db.exec('pragma foreign_keys = ON');
   let message = '';
   try { assertDatabaseIdentity(db, prod()); } catch (e) { message = e.message; }
-  check(message.includes(minted),
-    'and a later PCC_ORG_ID=lippolis refuses, naming the id the baselines must actually use');
+  check(message.includes(legacy),
+    'a later PCC_ORG_ID=lippolis refuses, naming the id the baselines must actually use');
+  check(message.includes('is permanent'), 'and says the id cannot be changed by restarting');
   db.close();
 }
 
@@ -244,8 +282,13 @@ console.log('--- a stamp missing from an old database may be declared once ----'
   // the first process to say is believed — and the fact that it said so AFTER
   // creation is recorded, because a stamp adopted later is weaker evidence than
   // one written at creation and a reader is entitled to tell them apart.
-  const { db } = installed({ NODE_ENV: 'production', ...LIPPOLIS });
-  eq(stampedEnvironment(db), 'unstamped', 'an install that declared nothing is unstamped');
+  // A production install can no longer omit the stamp — that is refused above —
+  // but databases created before it could exist. This is one of those, built by
+  // removing the stamp from a real installation, which is exactly the state
+  // such a file is in.
+  const { db } = installed(prod());
+  db.prepare(`delete from schema_meta where key = 'environment'`).run();
+  eq(stampedEnvironment(db), 'unstamped', 'a database from before the stamp existed is unstamped');
 
   assertDatabaseIdentity(db, prod(), '2026-08-03T09:00:00Z');
   eq(stampedEnvironment(db), 'production', 'a later start may declare it for the first time');

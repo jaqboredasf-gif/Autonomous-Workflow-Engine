@@ -8,7 +8,8 @@ Companion documents: `PCC_PRODUCTION_EVIDENCE.md` (fill in as you go),
 | | |
 |---|---|
 | Commit | whatever `apps/purchasing/RELEASE` in the artifact says — it is stamped at build time |
-| Artifact | `PCC-<commit>.zip`, with `PCC-<commit>.zip.sha256` beside it |
+| Artifact | `PCC-<commit>.zip`, with `PCC-<commit>.zip.sha256` beside it. **Built by `node scripts/package-release.mjs`** on a clean tree — it refuses a dirty tree, refuses a build older than the commit, and refuses to write an archive whose scripts it could not load. Two builds of one commit are byte-identical, so the hash is worth comparing |
+| Approved commit | `deployment/APPROVED_RELEASE.md`. Until a person signs it, `npm run deployment-gate` reports BUILD_ONLY and the installation should not proceed |
 | Server | LIPELE-RDS02 · 192.168.10.152 · Windows Server 2019 Standard |
 | Backend | `127.0.0.1:3000` — loopback only |
 | Front door | IIS, HTTPS 443, LAN only |
@@ -30,8 +31,8 @@ Stop at the first failure. Every step is idempotent; re-running after a fix is s
 
 | # | Action | Expected | If it fails |
 |---|---|---|---|
-| 1 |  Copy `PCC-<commit>.zip` to the server; verify against its `.sha256` file | hash matches | re-copy; a bad transfer is not a deployment |
-| 2 | Right-click → Properties → **Unblock** → extract to `C:\pcc-artifact` | files present | |
+| 1 |  Copy `PCC-<commit>.zip` to the server; `Get-FileHash -Algorithm SHA256` against its `.sha256` file | hash matches | re-copy; a bad transfer is not a deployment |
+| 2 | Right-click → Properties → **Unblock** → extract to `C:\pcc-artifact`, then `cd C:\pcc-artifact\PCC-<commit>` | `MANIFEST.txt` and `dist\pcc\` present | |
 | 3 | `New-Item -ItemType Directory -Force -Path C:\ProgramData\pcc\data` | created | **the installer will not create this** — deliberate |
 | 4 | Copy `config\production.env.template` → `C:\ProgramData\pcc\pcc.env`, fill in | every value | see §3 |
 | 5 | Generate the secret into it: `[Convert]::ToBase64String((1..48\|%{Get-Random -Max 256}))` | 64+ chars | never let a script invent it |
@@ -41,7 +42,7 @@ Stop at the first failure. Every step is idempotent; re-running after a fix is s
 
 | # | Action | Expected | If it fails |
 |---|---|---|---|
-| 7 | `.\scripts\Deploy-PCCProduction.ps1 -FirstInstall -Artifact C:\pcc-artifact` | runs steps 1–4, ends INSTALLED | it stops at the failing step and names it |
+| 7 | `.\scripts\Deploy-PCCProduction.ps1 -FirstInstall -Artifact .\dist\pcc` | runs steps 1–4, ends INSTALLED | it stops at the failing step and names it |
 | 8 | Read the release line | the expected commit, **no `-dirty`** | a dirty artifact is not the installation of record |
 | 9 | `Invoke-RestMethod http://127.0.0.1:3000/api/health` | `status: ok` | `Get-Content C:\ProgramData\pcc\logs\pcc.err.log -Tail 50` |
 

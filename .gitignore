@@ -6,3 +6,8 @@ node_modules/
 dist/
 .DS_Store
 !.env.example
+
+# Deployment packages. Built by scripts/package-release.mjs from a specific
+# commit; deterministic, so anybody can rebuild the exact bytes rather than
+# fetch a 13 MB binary out of git history.
+/dist/

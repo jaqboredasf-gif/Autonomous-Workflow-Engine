@@ -145,7 +145,7 @@ export const CLAIMS = Object.freeze([
       return at('UNAVAILABLE', 'nothing has been measured and no method is written down',
         { missing: ['a baseline methodology', 'observed handling times'] });
     },
-    nextAction: () => 'Carry out docs/proof/LIPPOLIS_BASELINE_FIELD_PROTOCOL.md. It needs nobody\'s permission and it must happen BEFORE the first real purchase runs through PCC — a baseline written afterwards cannot govern work that predates it.',
+    nextAction: () => 'Carry out docs/proof/LIPPOLIS_BASELINE_FIELD_PROTOCOL.md, starting with items 2 and 3 — the dated paper POs — which need a filing cabinet and nobody\'s morning. It must happen BEFORE the first real purchase runs through PCC: a baseline cannot govern work that predates it, so those purchases would be permanently unvaluable. The sequencing is docs/proof/FIRST_REAL_PROOF_ACTIVATION.md.',
   },
 
   {
@@ -333,7 +333,7 @@ export const CLAIMS = Object.freeze([
       if (n < 20) return at('ESTIMATED', `${repeated} repeated pattern(s) across ${n} external interviews — below 20 a pattern is still noise`, { have: [`${repeated} patterns`] });
       return at('MEASURED', `${repeated} repeated patterns across ${n} external interviews`, { have: [`${repeated} patterns`, `${n} interviews`] });
     },
-    nextAction: (f) => `Book the next ${Math.max(1, 5 - (f.discovery?.externalInterviews ?? 0))} conversation(s) from programs/discovery/CAMPAIGN.md. Target 10–60 employee trades businesses.`,
+    nextAction: (f) => `Book the next ${Math.max(1, 5 - (f.discovery?.externalInterviews ?? 0))} conversation(s) from programs/discovery/CAMPAIGN.md — 10-60 employee trades businesses, at least one not electrical, twenty minutes each. Record each one with programs/discovery/interview.mjs; the pattern only counts when two different ORGANIZATIONS name it.`,
   },
 
   {
