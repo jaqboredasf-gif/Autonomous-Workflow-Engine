@@ -100,6 +100,13 @@ function startAndWait(env, port) {
       PCC_ORG_NAME: 'Lippolis Electric, Inc.',
       PCC_ORG_ADDRESS: 'Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803',
       PCC_ORG_PHONE: '(914) 738-3550',
+      // The two written once at creation. In the BASE environment for the same
+      // reason the letterhead is: a first production start refuses without
+      // them, and that refusal fires before every other check below — so
+      // without these, every case would report the same message and none would
+      // test the thing it names. Their own cases are explicit, further down.
+      PCC_ENVIRONMENT: 'production',
+      PCC_ORG_ID: 'lippolis',
       // These cases drive 127.0.0.1 with no TLS, and a production start over
       // plain HTTP refuses unless the decision is stated. Stated here in the
       // BASE environment so every case below tests the one thing it names
@@ -244,6 +251,68 @@ await refuses({
   },
   expectDbCreated: true,
   expects: ['PCC_ORG_ADDRESS', 'PCC_ORG_PHONE', 'NOTHING HAS BEEN CREATED'],
+});
+
+// THE TWO THAT DECIDE WHETHER ANY OF IT IS EVIDENCE. Refused on the same terms
+// as the letterhead, and for the same reason: written into the database when it
+// is created, never again, and no screen edits them.
+//
+// Without this, an install that simply forgot PCC_ENVIRONMENT succeeded — came
+// up, logged ready, reported healthy, and stamped itself `unstamped`. Every
+// purchase order the company raised from that day was refused as evidence for
+// the life of the installation, and nothing said so at any point.
+//
+// expectDbCreated: the file exists and holds SCHEMA AND ONLY SCHEMA, exactly as
+// with the letterhead. The refusal happens before the transaction that creates
+// the organization, so setting the variables and starting again is a correct
+// first start rather than a repair.
+await refuses({
+  name: 'no evidence environment declared',
+  port: 3601,
+  env: {
+    SESSION_SECRET: GOOD_SECRET, PCC_PO_NUMBERING: 'job-vendor-sequence',
+    PCC_DATABASE_ALLOW_CREATE: '1', PCC_ENVIRONMENT: '',
+  },
+  expectDbCreated: true,
+  expects: ['PCC_ENVIRONMENT', 'must be set before the first start', 'NOT EVIDENCE'],
+});
+
+await refuses({
+  name: 'no organization id declared',
+  port: 3602,
+  env: {
+    SESSION_SECRET: GOOD_SECRET, PCC_PO_NUMBERING: 'job-vendor-sequence',
+    PCC_DATABASE_ALLOW_CREATE: '1', PCC_ORG_ID: '',
+  },
+  expectDbCreated: true,
+  expects: ['PCC_ORG_ID', 'permanently unmeasurable'],
+});
+
+// Both missing names BOTH, so an operator does not fix one, restart, and be
+// refused again for the other.
+await refuses({
+  name: 'neither the environment nor the organization id',
+  port: 3603,
+  env: {
+    SESSION_SECRET: GOOD_SECRET, PCC_PO_NUMBERING: 'job-vendor-sequence',
+    PCC_DATABASE_ALLOW_CREATE: '1', PCC_ENVIRONMENT: '', PCC_ORG_ID: '',
+  },
+  expectDbCreated: true,
+  expects: ['PCC_ENVIRONMENT', 'PCC_ORG_ID', 'NOTHING HAS BEEN CREATED'],
+});
+
+// A word this system has no meaning for is refused rather than interpreted as
+// the nearest one. `staging` is not production, and guessing that it might be
+// is how a staging installation's records become a company's evidence.
+await refuses({
+  name: 'an environment word nobody defined, on a fresh database',
+  port: 3604,
+  env: {
+    SESSION_SECRET: GOOD_SECRET, PCC_PO_NUMBERING: 'job-vendor-sequence',
+    PCC_DATABASE_ALLOW_CREATE: '1', PCC_ENVIRONMENT: 'staging',
+  },
+  expectDbCreated: true,
+  expects: ['must be one of', 'staging'],
 });
 
 // The rule is KNOWN and this build cannot perform it. Refused rather than
@@ -413,6 +482,13 @@ await refuses({
       PCC_ORG_NAME: 'Lippolis Electric, Inc.',
       PCC_ORG_ADDRESS: 'Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803',
       PCC_ORG_PHONE: '(914) 738-3550',
+      // The two written once at creation. In the BASE environment for the same
+      // reason the letterhead is: a first production start refuses without
+      // them, and that refusal fires before every other check below — so
+      // without these, every case would report the same message and none would
+      // test the thing it names. Their own cases are explicit, further down.
+      PCC_ENVIRONMENT: 'production',
+      PCC_ORG_ID: 'lippolis',
       SESSION_SECRET: GOOD_SECRET,
       PCC_PO_NUMBERING: 'job-vendor-sequence',
       PCC_ALLOW_INSECURE_HTTP: '1',

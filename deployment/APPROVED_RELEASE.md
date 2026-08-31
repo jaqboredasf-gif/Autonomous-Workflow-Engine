@@ -10,15 +10,21 @@ Approval is a person's signature. This file is the evidence a person needs in or
 the deployment gate reads it: until **Approved by** is filled in, `application.version` is UNKNOWN
 and the gate reports the deployment as BUILD_ONLY. Nothing here approves anything.
 
+**The candidate goes out of date whenever work lands, and that is expected.** The gate reports how
+many commits behind HEAD it is, and refuses a candidate that is not in this history at all. Deploying
+a commit older than the tip is normal — deploying one that does not exist is a typo nobody would
+catch on the day. Before signing, either refresh the commit below to the tip or state deliberately
+that an older one is being installed.
+
 ---
 
 ## The candidate
 
-- **Commit**: `594a86f`
-- **Full**: `594a86fb8ec1f2f088df4365c4a5e7106b351b52`
+- **Commit**: `e69827a`
+- **Full**: `e69827a3b865b4c9497f50b6f6c0ecb13acb0313`
 - **Branch**: `claude/purchasing-control-center`
 - **Date**: 2026-08-31
-- **Subject**: Decide what to work on from missing evidence, not from what is interesting
+- **Subject**: Refuse a first production start that would make the records unmeasurable, and build the artifact the runbook asks for
 
 ## Why this commit and not another
 
@@ -51,11 +57,11 @@ that has happened, and flipping it is step 22 of the execution package.
 
 1. Build the package from **exactly this commit**, on a clean tree:
    ```bash
-   git checkout 594a86f
+   git checkout e69827a
    npm run build --workspace purchasing
    node scripts/package-release.mjs
    ```
-   This produces `dist/PCC-594a86f.zip` and its `.sha256`. The packager refuses a dirty tree
+   This produces `dist/PCC-e69827a.zip` and its `.sha256`. The packager refuses a dirty tree
    and refuses a build older than the commit, so the label cannot disagree with the box.
 2. Copy both files to the server and verify the hash **before extracting**.
 3. Follow `docs/deployment/PCC_RDS02_EXECUTION_PACKAGE.md` §1.
@@ -72,5 +78,5 @@ decision is actually made — an unsigned record is not an approval, and the gat
 - **Package sha256** (from the build above): ________________________________________________
 - **Deviations from the candidate above, if any**: ______________________________________
 
-Once signed, set `PCC_RELEASE=594a86f` in the server's environment file so `/api/health`
+Once signed, set `PCC_RELEASE=e69827a` in the server's environment file so `/api/health`
 reports the build that is actually running.

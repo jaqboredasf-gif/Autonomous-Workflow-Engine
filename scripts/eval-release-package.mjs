@@ -34,7 +34,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +61,22 @@ if (!existsSync(STANDALONE)) {
   console.error(`no production build at ${STANDALONE}`);
   console.error('Run: npm run build --workspace purchasing');
   process.exit(1);
+}
+
+// THE BUILD MUST BE NEWER THAN HEAD, which is the packager's own rule and
+// therefore this suite's precondition. Stated rather than discovered: without
+// it, committing anything makes every assertion below fail with an ENOENT on a
+// file the packager correctly refused to write, which reads like a broken test.
+{
+  const headSeconds = Number(spawnSync('git', ['log', '-1', '--format=%ct'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim());
+  const built = statSync(STANDALONE).mtimeMs;
+  if (Number.isFinite(headSeconds) && built < headSeconds * 1000) {
+    console.error('the production build is older than HEAD, so the packager will refuse it.');
+    console.error(`  built  ${new Date(built).toISOString()}`);
+    console.error(`  commit ${new Date(headSeconds * 1000).toISOString()}`);
+    console.error('Run: npm run build --workspace purchasing');
+    process.exit(1);
+  }
 }
 
 const build = (out, ...extra) =>
@@ -226,7 +242,7 @@ console.log('--- it refuses an artifact whose label would be wrong -------------
   const stat = spawnSync('git', ['log', '-1', '--format=%ct'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim();
   const headSeconds = Number(stat);
   const before = new Date((headSeconds - 3600) * 1000);
-  const original = (await import('node:fs')).statSync(STANDALONE);
+  const original = statSync(STANDALONE);
   utimesSync(STANDALONE, before, before);
   const stale = build(out4, ...ALLOW);
   utimesSync(STANDALONE, original.atime, original.mtime);

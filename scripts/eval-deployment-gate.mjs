@@ -190,6 +190,28 @@ check(deployBlockers.length > 0, 'and something concrete says why');
   check(version && /nobody has signed|no approval record|names no candidate/.test(version.reason),
     'saying exactly what is missing', version?.reason);
 }
+
+// A CANDIDATE THAT DOES NOT EXIST would send somebody to build nothing, and a
+// stale one is normal. The first candidate written here named the commit BEFORE
+// the work that made the deployment possible, and nothing noticed.
+{
+  const approval = (await import(R('programs/iic-2027/derive.mjs'))).approvedCommit();
+  check(!!approval?.commit, 'an approval record names a candidate commit');
+  eq(approval?.inHistory, true, 'and the candidate is a real commit in this history');
+  check(typeof approval?.commitsBehindHead === 'number',
+    'and how far behind HEAD it is, is reported rather than assumed');
+  check(approval?.signedBy === null,
+    'and nobody has signed it — this repository does not approve its own releases');
+
+  const gateReq = (await import(R('programs/venture/gates.mjs'))).GATES
+    .find((g) => g.n === 1).requires.find((r) => r.id === 'approved_commit');
+  eq(gateReq.met({ deployment: { approvedCommit: { commit: 'abc1234', signedBy: 'A Person', inHistory: false } } }), false,
+    'a signature on a commit that is not in this history does not count as approval');
+  eq(gateReq.met({ deployment: { approvedCommit: { commit: 'abc1234', signedBy: 'A Person', inHistory: true } } }), true,
+    'while a signature on a real commit does');
+  check(/not in this history/.test(gateReq.detail({ deployment: { approvedCommit: { path: 'p', commit: 'abc1234', inHistory: false } } })),
+    'and the refusal says a typo or another branch, rather than only "not approved"');
+}
 for (const path of ['measurement.environment', 'measurement.org_id_declared']) {
   check(!result.blockers.some((b) => b.path === path),
     `${path} is no longer a blocker — the application refuses a start without it`);

@@ -24,11 +24,13 @@
 // READ ONLY.
 // ---------------------------------------------------------------------------
 
+import { createRequire } from 'node:module';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const require = createRequire(import.meta.url);
 const R = (p) => join(ROOT, p);
 
 /** No database given, or one that will not say it is production. */
@@ -134,7 +136,37 @@ export function approvedCommit() {
   const text = readFileSync(R(path), 'utf8');
   const commit = /^-\s*\*\*Commit\*\*:\s*`([0-9a-f]{7,40})`/m.exec(text)?.[1] ?? null;
   const signed = /^-\s*\*\*Approved by\*\*:\s*(?!_)(\S.*)$/m.exec(text)?.[1]?.trim() ?? null;
-  return { path, commit, signedBy: signed && !/^_+$/.test(signed) ? signed : null };
+
+  // IS THE CANDIDATE REAL, AND HOW OLD IS IT?
+  //
+  // A candidate naming a commit that is not in this history is a typo or a
+  // record from another branch, and it would send somebody to build something
+  // that does not exist. A candidate that HEAD has simply moved past is a
+  // different thing entirely — deploying a commit older than the tip is normal
+  // and often correct — so the distance is reported rather than judged.
+  //
+  // This exists because the first candidate written here named the commit
+  // BEFORE the work that made the deployment possible, and nothing noticed.
+  let inHistory = null;
+  let behind = null;
+  if (commit) {
+    const { spawnSync } = require('node:child_process');
+    const type = spawnSync('git', ['cat-file', '-t', commit], { cwd: ROOT, encoding: 'utf8' });
+    inHistory = type.status === 0 && type.stdout.trim() === 'commit' &&
+      spawnSync('git', ['merge-base', '--is-ancestor', commit, 'HEAD'], { cwd: ROOT }).status === 0;
+    if (inHistory) {
+      const count = spawnSync('git', ['rev-list', '--count', `${commit}..HEAD`], { cwd: ROOT, encoding: 'utf8' });
+      behind = count.status === 0 ? Number(count.stdout.trim()) : null;
+    }
+  }
+
+  return {
+    path,
+    commit,
+    signedBy: signed && !/^_+$/.test(signed) ? signed : null,
+    inHistory,
+    commitsBehindHead: behind,
+  };
 }
 
 /** Customer discovery, counted from the interview records. */

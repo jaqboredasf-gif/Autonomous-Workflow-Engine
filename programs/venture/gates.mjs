@@ -51,13 +51,19 @@ export const GATES = Object.freeze([
       {
         id: 'approved_commit',
         what: 'a specific commit is approved for deployment, signed by a person',
-        met: (f) => Boolean(f.deployment?.approvedCommit?.commit && f.deployment?.approvedCommit?.signedBy),
+        met: (f) => Boolean(f.deployment?.approvedCommit?.commit &&
+          f.deployment?.approvedCommit?.signedBy &&
+          f.deployment?.approvedCommit?.inHistory !== false),
         detail: (f) => {
           const a = f.deployment?.approvedCommit;
           if (!a) return 'no approval record exists';
           if (!a.commit) return `${a.path} exists and names no commit`;
-          if (!a.signedBy) return `${a.path} proposes ${a.commit} and nobody has signed it`;
-          return `${a.commit}, approved by ${a.signedBy}`;
+          if (a.inHistory === false) {
+            return `${a.path} names ${a.commit}, which is not in this history — a typo, or a record from another branch`;
+          }
+          const age = a.commitsBehindHead ? ` (${a.commitsBehindHead} commit(s) behind HEAD)` : '';
+          if (!a.signedBy) return `${a.path} proposes ${a.commit}${age} and nobody has signed it`;
+          return `${a.commit}${age}, approved by ${a.signedBy}`;
         },
       },
       {
