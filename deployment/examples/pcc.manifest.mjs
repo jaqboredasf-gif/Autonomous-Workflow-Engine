@@ -22,7 +22,12 @@ export const pccManifest = {
 
   application: {
     id: 'pcc',
-    version: 'main@0038-po-number-per-job-vendor',
+    // UNKNOWN, and it is a real blocker rather than an omission. The runbook
+    // requires a specific commit or tag to be approved and recorded — "deploy a
+    // specific commit, never a moving branch" — and nobody has named one. This
+    // carried a stale build tag from two schema versions ago, which reads like
+    // an answer and is not one.
+    version: unknown('no commit has been approved for deployment — the runbook requires a specific commit or tag, recorded in the installation record and in PCC_RELEASE'),
     repository: 'AWE-Purchasing',
   },
 
@@ -43,7 +48,13 @@ export const pccManifest = {
     // distinction is the point of the model.
     os: declared('windows', 'organization_it:LIPELE-RDS02 · Windows Server 2019 Standard'),
     admin_access: declared(true, 'organization_it'),
-    install_path: declared('C:\\pcc', 'awe_default:windows'),
+    // C:\Program Files\pcc, because that is where install-production.ps1 puts
+    // it: `if (-not $InstallPath) { $InstallPath = "C:\Program Files\$ServiceName" }`.
+    // This said C:\pcc, which no script, document or icacls grant ever used —
+    // a manifest that disagrees with the installer describes a machine nobody
+    // is going to build. scripts/pcc-deployment-gate.mjs now checks the two
+    // against each other rather than trusting either.
+    install_path: declared('C:\\Program Files\\pcc', 'awe_default:windows — scripts/install-production.ps1 default'),
     cpu: declared(2, 'awe:architecture — single-writer store, cores buy nothing'),
     memory_gb: declared(2, 'awe:architecture'),
     disk_gb: declared(20, 'awe:architecture — attachments and full-copy backups drive growth, not records'),
