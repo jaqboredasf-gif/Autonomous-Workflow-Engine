@@ -1165,6 +1165,250 @@ console.log('--- synthetic evidence cannot pass as production ------------------
 }
 
 // ---------------------------------------------------------------------------
+console.log('--- one organization, several capabilities ------------------------');
+
+const { organizationValue, render: renderOrg, capabilitiesIn } = await import(P('organization.mjs'));
+
+{
+  // TWO CAPABILITIES, ONE MEASURED. The failure this is built against: sum what
+  // is measurable, label it with the organization's name, and every reader
+  // takes a figure about one capability as a figure about the whole company.
+  const secondBaseline = defineBaseline({
+    id: 'acme_inspection', version: '1.0.0', orgId: 'acme',
+    process: 'Inspecting and reporting', description: 'x',
+    effectiveFrom: '2026-01-01T00:00:00Z', unitOfWork: 'inspection',
+    steps: [step('write_up', null, 'UNAVAILABLE')],
+    coversSteps: ['inspection_write_up', 'inspection_delivery'],
+  });
+  const secondStandard = defineTouchStandard({
+    id: 'acme_inspection_touches', version: '1', orgId: 'acme', capability: 'inspection',
+    effectiveFrom: '2026-01-01T00:00:00Z',
+    actions: { 'report.drafted': { minutes: 20, provenance: 'MEASURED', sources: [SRC] } },
+  });
+
+  const inspection = (i) => executionRecord({
+    id: `insp${i}`, orgId: 'acme', capability: 'inspection', workflow: 'inspect_and_report',
+    objectiveId: 'report_delivered', baselineId: 'acme_inspection',
+    scopeKey: `inspection:${i}`,
+    startedAt: `2026-03-${String((i % 27) + 1).padStart(2, '0')}T09:00:00Z`,
+    endedAt: '2026-03-28T09:00:00Z',
+    executionOutcome: 'COMPLETED',
+    humanTouches: [T('report.drafted', '2026-03-05T09:00:00Z', 'insp1')],
+    objective: objectiveTest({
+      name: 'report_delivered', statement: 'The report reached the customer.',
+      result: 'ACHIEVED', evidence: [SYS('delivery record')],
+    }),
+  });
+
+  const view = organizationValue({
+    orgId: 'acme', orgName: 'Acme Electric', environment: 'production',
+    records: [...batch(30), ...Array.from({ length: 8 }, (_, i) => inspection(i))],
+    baselines: [measuredBaseline, secondBaseline],
+    touchStandards: [standard, secondStandard],
+    labels: { purchasing: 'Purchasing', inspection: 'Inspection Reporting' },
+    ...period,
+  });
+
+  eq(capabilitiesIn([...batch(2), inspection(0)]), ['purchasing', 'inspection'],
+    'capabilities are derived from what ran, not from a list somebody maintains');
+  eq(view.capabilities.length, 2, 'both capabilities appear');
+  eq(view.executions, 38, 'and counts add across them — an execution is an execution');
+  eq(view.humanInterventions, 68, 'as do human interventions');
+
+  // THE CENTRAL CHECK.
+  eq(view.capabilitiesMeasured, ['purchasing'], 'only purchasing has a measured baseline');
+  eq(view.capabilitiesNotMeasurable.length, 1, 'and inspection is named as not measurable');
+  eq(view.capabilitiesNotMeasurable[0].capability, 'inspection', 'by name');
+  eq(view.capabilitiesNotMeasurable[0].executions, 8, 'with its execution count, so it is not invisible');
+  check(view.capabilitiesNotMeasurable[0].because.includes('not been measured'),
+    'and the ledger\'s own words for why');
+  near(view.hoursReturned.value, 6, 'the total covers the measurable capability only');
+  check(view.hoursReturned.basis.includes('1 measurable'),
+    'and the figure itself says how many capabilities it covers');
+
+  // The renderer cannot print the total without the exclusions.
+  const text = renderOrg(view);
+  check(text.includes('TOTAL VERIFIED VALUE'), 'the view renders a total');
+  check(text.includes('the total covers      purchasing'), 'and states what it covers');
+  check(text.includes('and EXCLUDES:'), 'and what it leaves out, in the same block');
+  check(text.indexOf('and EXCLUDES:') > text.indexOf('human hours returned'),
+    'immediately after the number, not in a footnote somebody scrolls past');
+  note('an unmeasurable capability is named beside the organization total, never summed as zero');
+}
+
+{
+  // Reliability and objective success are different questions and stay apart.
+  const flawless = batch(10).map((r) => executionRecord({
+    ...pick(r), objective: objectiveTest({
+      name: 'x', statement: 'y', result: 'NOT_ACHIEVED', evidence: [SYS('r')] }),
+  }));
+  const view = organizationValue({
+    orgId: 'acme', environment: 'production', records: flawless, baselines: [measuredBaseline],
+    touchStandards: [standard], ...period,
+  });
+  eq(view.reliability, 1, 'every execution completed');
+  eq(view.objectiveSuccess.rate, 0, 'and no objective was achieved');
+  check(view.reliability !== view.objectiveSuccess.rate,
+    'the two are reported separately because they are different conversations');
+}
+
+{
+  // Tenant isolation at the organization level too.
+  throws(() => organizationValue({
+    orgId: 'acme', environment: 'production', records: [record({ orgId: 'someone_else' })],
+    baselines: [measuredBaseline], touchStandards: [standard], ...period,
+  }), 'tenant violation', 'an organization view refuses another organization\'s execution');
+
+  // Overlapping baselines are refused before anything is totalled.
+  const overlapping = defineBaseline({
+    id: 'acme_other', version: '1.0.0', orgId: 'acme', process: 'x', description: 'x',
+    effectiveFrom: '2026-01-01T00:00:00Z', unitOfWork: 'day',
+    steps: [step('po', 5)], coversSteps: ['po_prep'],
+  });
+  throws(() => organizationValue({
+    orgId: 'acme', environment: 'production', records: batch(2),
+    baselines: [measuredBaseline, overlapping], touchStandards: [standard], ...period,
+  }), 'cannot be returned twice',
+    'and refuses two capabilities that price the same human work, before totalling');
+}
+
+{
+  // Nothing measurable anywhere is UNAVAILABLE, not zero.
+  const view = organizationValue({
+    orgId: 'lippolis', orgName: 'Lippolis Electric, Inc.', environment: 'production',
+    records: [PA.toExecutionRecord({
+      request: req(), activity: [act('request.created', '2026-09-01T09:00:00Z')],
+      lines: [{ orderedQty: 5, receivedQty: 5 }], baselineId: 'lippolis_purchasing_v0',
+    })],
+    baselines: [LIP.lippolisPurchasingBaseline],
+    touchStandards: [LIP.lippolisPurchasingTouchStandard],
+    ...LIPPOLIS_PERIOD,
+  });
+  eq(view.hoursReturned.known, false, 'an organization with no measured baseline has no total');
+  eq(view.capabilitiesMeasured.length, 0, 'and says it covers nothing');
+  eq(view.confidence.level, 'NONE', 'at no confidence');
+  eq(view.executions, 1, 'while still reporting what actually ran');
+  eq(view.objectiveSuccess.achieved, 1, 'and what it actually achieved');
+  const text = renderOrg(view);
+  check(text.includes('NOTHING — no capability has a measured baseline'),
+    'and the renderer says so in words');
+  check(!/\$0\.00/.test(text), 'and never prints a dollar figure it does not have');
+}
+
+{
+  // REHEARSAL EVIDENCE IN AN ORGANIZATION TOTAL. This is the view a customer or
+  // an investor is shown, which makes it the one worth attacking: the rehearsal
+  // runs the production artifact under the real company name against the real
+  // organization id, so nothing in the records themselves can give it away.
+  const spec = {
+    orgId: 'acme', orgName: 'Acme Electric', records: batch(30),
+    baselines: [measuredBaseline], touchStandards: [standard], ...period,
+  };
+
+  throws(() => organizationValue({ ...spec }), 'must state the environment',
+    'an organization view refuses to be produced without saying where its records came from');
+
+  const real = organizationValue({ ...spec, environment: 'production' });
+  const fake = organizationValue({ ...spec, environment: 'rehearsal' });
+
+  // IDENTICAL RECORDS. The only difference is the provenance of the database.
+  eq(fake.executions, real.executions, 'a rehearsal reports the same execution count as production');
+  eq(fake.humanInterventions, real.humanInterventions, 'and the same interventions');
+  eq(fake.objectiveSuccess.achieved, real.objectiveSuccess.achieved, 'and the same objectives achieved');
+  check(real.hoursReturned.known, 'the production view has a value figure');
+  eq(fake.hoursReturned.known, false, 'and the rehearsal view has none');
+  eq(fake.labourValueCents.known, false, 'nor an economic value');
+  eq(fake.claimedCents.known, false, 'nor a claimed amount');
+  eq(fake.confidence.level, 'NONE', 'at no confidence');
+  eq(fake.evidence.admissible, false, 'and it says so in one field');
+  check(fake.hoursReturned.basis.includes('rehearsal'),
+    'and the withheld figure names the environment that withheld it');
+
+  // DRILLING IN MUST NOT GET AROUND IT. The per-capability figures are what a
+  // slide quotes; a gate on the total alone would be decoration.
+  eq(fake.capabilities[0].hoursReturned.known, false,
+    'the per-capability hours are withheld too');
+  eq(fake.capabilities[0].labourValueCents.known, false, 'as is the per-capability money');
+  eq(fake.capabilities[0].cycle.savedMedianHours, null, 'as is the cycle time saved');
+  eq(fake.capabilitiesMeasured, [], 'and no capability counts as measured');
+
+  // The renderer leads with it. Somebody screenshotting the top of the report
+  // must not be able to crop the caveat off the bottom.
+  const text = renderOrg(fake);
+  check(text.split('\n')[1].includes('NOT EVIDENCE'), 'the rendered report says NOT EVIDENCE in its first line');
+  check(!/\$\d/.test(text), 'and prints no dollar figure anywhere');
+  check(!/NOT EVIDENCE/.test(renderOrg(real)), 'while a production report carries no such banner');
+
+  for (const env of ['development', 'unstamped', 'staging', 'test', 'PRODUCTION']) {
+    eq(organizationValue({ ...spec, environment: env }).evidence.admissible, false,
+      `"${env}" is not production, and is not treated as though it were`);
+  }
+  note('an organization total refuses to price records from any environment but production');
+}
+
+{
+  // WEAK EVIDENCE MUST NOT BE LAUNDERED BY STRONG EVIDENCE. Two capabilities,
+  // one measured from a time study and one from somebody's estimate. Summing
+  // them produces a number whose grade is the WEAKER of the two, because a
+  // total is only as good as its worst input — and an organization's confidence
+  // is its weakest measurable capability's, not an average.
+  const estimatedBaseline = defineBaseline({
+    id: 'acme_dispatch', version: '1.0.0', orgId: 'acme',
+    process: 'Dispatching', description: 'x',
+    effectiveFrom: '2026-01-01T00:00:00Z', unitOfWork: 'dispatch',
+    steps: [step('dispatch_call', 30, 'ESTIMATED')],
+    coversSteps: ['dispatch_call'],
+  });
+  const dispatchStandard = defineTouchStandard({
+    id: 'acme_dispatch_touches', version: '1', orgId: 'acme', capability: 'dispatch',
+    effectiveFrom: '2026-01-01T00:00:00Z',
+    actions: { 'dispatch.sent': { minutes: 5, provenance: 'ESTIMATED', sources: [SRC] } },
+  });
+  const dispatch = (i) => executionRecord({
+    id: `disp${i}`, orgId: 'acme', capability: 'dispatch', workflow: 'dispatch',
+    objectiveId: 'crew_arrived', baselineId: 'acme_dispatch', scopeKey: `dispatch:${i}`,
+    startedAt: '2026-03-10T09:00:00Z', endedAt: '2026-03-10T10:00:00Z',
+    executionOutcome: 'COMPLETED',
+    humanTouches: [T('dispatch.sent', '2026-03-10T09:05:00Z', `disp${i}`)],
+    objective: objectiveTest({
+      name: 'crew_arrived', statement: 'A crew arrived.', result: 'ACHIEVED',
+      evidence: [SYS('dispatch log')],
+    }),
+  });
+
+  const view = organizationValue({
+    orgId: 'acme', environment: 'production',
+    records: [...batch(10), ...Array.from({ length: 5 }, (_, i) => dispatch(i))],
+    baselines: [measuredBaseline, estimatedBaseline],
+    touchStandards: [standard, dispatchStandard],
+    ...period,
+  });
+
+  eq(view.capabilitiesMeasured.length, 2, 'both capabilities produce a figure');
+  eq(view.evidenceGrade, 'ESTIMATED',
+    'and the organization total carries the WEAKER of the two grades, not the better one');
+  eq(view.hoursReturned.provenance, 'ESTIMATED',
+    'the summed quantity says so itself, so a consumer that ignores evidenceGrade still sees it');
+  const purchasingCap = view.capabilities.find((c) => c.id === 'purchasing');
+  eq(purchasingCap.hoursReturned.provenance, 'MEASURED',
+    'while the measured capability keeps its own grade — the mixing happens only at the total');
+  check(renderOrg(view).includes('[ESTIMATED]'),
+    'and the rendered total prints the grade beside the number');
+  note('a measured capability cannot launder an estimated one into a stronger total');
+}
+
+{
+  // No purchasing vocabulary may reach the organization view. If it does, the
+  // capability-neutrality claim is false and this file is the evidence.
+  const { readFileSync } = await import('node:fs');
+  const code = readFileSync(P('organization.mjs'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const leaks = ['purchase', 'vendor', 'requisition', 'receipt', 'purchasing']
+    .filter((w) => new RegExp(`\\b${w}`, 'i').test(code));
+  eq(leaks, [], `the organization view knows no purchasing words (found: ${leaks.join(', ')})`);
+}
+
+// ---------------------------------------------------------------------------
 console.log('--- determinism ---------------------------------------------------');
 
 {
