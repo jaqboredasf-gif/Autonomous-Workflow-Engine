@@ -493,6 +493,235 @@ await refuses({
   rmSync(dir, { recursive: true, force: true });
 }
 
+// ---------------------------------------------------------------------------
+// THE REFUSALS THAT PROTECT EVIDENCE RATHER THAN CONFIGURATION.
+//
+// Everything above starts an EMPTY installation wrong. These start an EXISTING
+// one wrong, which is the harder case and the more expensive one: the database
+// already holds records, so a start that carries on does not fail — it writes.
+//
+// The failure they exist for: a production backup restored onto a laptop and
+// started with the ordinary development command runs `seed()`, which inserts
+// ten demo accounts — one of them ADMIN, all on a password printed in this
+// repository — into a file that still stamps itself production. Afterwards
+// nothing can tell which rows were the company's.
+//
+// Run against the real packaged server over a real process boundary, because
+// the unit-level suite (eval-evidence-provenance.mjs) proves the rule and this
+// proves the BUILD still carries it. Both halves are asserted every time: the
+// process exits non-zero, AND the database on disk is byte-for-byte what it was.
+// ---------------------------------------------------------------------------
+
+const { copyFileSync, readFileSync: readBytes } = await import('node:fs');
+const { createHash } = await import('node:crypto');
+const { DatabaseSync } = await import('node:sqlite');
+
+const LETTERHEAD = {
+  PCC_ORG_NAME: 'Lippolis Electric, Inc.',
+  PCC_ORG_ADDRESS: 'Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803',
+  PCC_ORG_PHONE: '(914) 738-3550',
+  PCC_PO_NUMBERING: 'job-vendor-sequence',
+};
+
+/** Start the packaged server until it is ready, then stop it. Returns the db path. */
+async function install(environment, extra = {}, port = 3610) {
+  const dir = mkdtempSync(join(tmpdir(), 'pcc-evidence-'));
+  const dbPath = join(dir, 'pcc.sqlite');
+  const child = spawn(process.execPath, [SERVER], {
+    cwd: join(ROOT, 'apps', 'purchasing', '.next', 'standalone', 'apps', 'purchasing'),
+    env: {
+      PATH: process.env.PATH, NODE_ENV: 'production', PORT: String(port),
+      APP_BASE_URL: `http://127.0.0.1:${port}`, PCC_ALLOW_INSECURE_HTTP: '1',
+      SESSION_SECRET: GOOD_SECRET, PCC_DATABASE_PATH: dbPath, PCC_DATABASE_ALLOW_CREATE: '1',
+      PCC_ENVIRONMENT: environment, PCC_ORG_ID: 'lippolis', ...LETTERHEAD, ...extra,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let out = '';
+  child.stdout.on('data', (b) => { out += b; });
+  child.stderr.on('data', (b) => { out += b; });
+  const ready = await new Promise((resolve) => {
+    const t = setInterval(() => { if (/\[pcc\] ready/.test(out)) { clearInterval(t); clearTimeout(k); resolve(true); } }, 200);
+    const k = setTimeout(() => { clearInterval(t); resolve(false); }, 60_000);
+    child.on('exit', () => { clearInterval(t); clearTimeout(k); resolve(false); });
+  });
+  child.kill('SIGTERM');
+  await new Promise((r) => setTimeout(r, 1200));
+  child.kill('SIGKILL');
+  await new Promise((r) => setTimeout(r, 300));
+  check(ready, `a ${environment} installation was created to attack`, out.split('\n').slice(-4).join(' '));
+  // FOLD THE WRITE-AHEAD LOG IN. Everything so far lives in pcc.sqlite-wal, and
+  // a copy of the main file alone is an empty database — which would make every
+  // attack below pass for the wrong reason.
+  const db = new DatabaseSync(dbPath);
+  db.exec('pragma wal_checkpoint(TRUNCATE)');
+  db.close();
+  return { dir, dbPath };
+}
+
+const digest = (p) => createHash('sha256').update(readBytes(p)).digest('hex');
+
+/**
+ * What the database CONTAINS, after any write-ahead log has been folded in.
+ *
+ * Comparing the main file's bytes is not enough on its own: opening a SQLite
+ * database in WAL mode writes a journal beside it, so a refusal that had
+ * committed rows would leave the main file untouched and the rows in the `-wal`
+ * — and a byte comparison of the main file alone would call that unchanged.
+ * Checkpointing first is what makes "nothing was written" mean it.
+ */
+function contentOf(p) {
+  const db = new DatabaseSync(p);
+  db.exec('pragma wal_checkpoint(TRUNCATE)');
+  const stamp = db.prepare("select value from schema_meta where key = 'environment'").get()?.value ?? 'unstamped';
+  const counts = ['orgs', 'users', 'auth_identities', 'purchase_requests', 'purchase_activity_log']
+    .map((t) => `${t}=${db.prepare(`select count(*) as n from ${t}`).get().n}`);
+  const org = db.prepare('select id, name from orgs limit 1').get();
+  db.close();
+  return JSON.stringify({ stamp, counts, org: org ? { id: org.id, name: org.name } : null });
+}
+
+/**
+ * Copy an installed database, start the packaged server against the copy with
+ * `env`, and assert it refused without changing a byte.
+ */
+async function refusesToOpen({ name, from, env, port, expects }) {
+  const dir = mkdtempSync(join(tmpdir(), 'pcc-attack-'));
+  const dbPath = join(dir, 'pcc.sqlite');
+  copyFileSync(from, dbPath);
+  const before = contentOf(dbPath);
+  const beforeBytes = digest(dbPath);
+
+  const child = spawn(process.execPath, [SERVER], {
+    cwd: join(ROOT, 'apps', 'purchasing', '.next', 'standalone', 'apps', 'purchasing'),
+    env: {
+      PATH: process.env.PATH, PORT: String(port), APP_BASE_URL: `http://127.0.0.1:${port}`,
+      PCC_ALLOW_INSECURE_HTTP: '1', SESSION_SECRET: GOOD_SECRET,
+      PCC_DATABASE_PATH: dbPath, ...LETTERHEAD, ...env,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let out = '';
+  child.stdout.on('data', (b) => { out += b; });
+  child.stderr.on('data', (b) => { out += b; });
+  const code = await new Promise((resolve) => {
+    const k = setTimeout(() => { child.kill('SIGKILL'); resolve('TIMEOUT'); }, 45_000);
+    child.on('exit', (c) => { clearTimeout(k); resolve(c); });
+  });
+
+  console.log(`\n--- ${name} `.padEnd(64, '-'));
+  check(code === 1, `${name}: exits 1`, `exit code was ${code}`);
+  for (const e of expects) {
+    check(out.includes(e), `${name}: says "${e.length > 48 ? `${e.slice(0, 48)}…` : e}"`,
+      `not found in: ${out.split('\n').filter((l) => l.includes('[pcc]')).join(' | ').slice(0, 300)}`);
+  }
+  // THE HALF THAT MATTERS. Not "it printed an error" — "it wrote nothing".
+  // The main file's bytes first, then the CONTENT with any write-ahead log
+  // folded in, because a refusal that had committed rows would leave the main
+  // file untouched and the rows in the journal.
+  check(digest(dbPath) === beforeBytes, `${name}: the main database file is byte-for-byte unchanged`);
+  const after = contentOf(dbPath);
+  check(after === before, `${name}: and nothing was written to the write-ahead log either`,
+    `before ${before}\nafter  ${after}`);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+console.log('\nStarting an EXISTING installation wrong, on purpose.');
+
+const PROD = await install('production', {}, 3611);
+const REHEARSAL = await install('rehearsal', {}, 3612);
+
+// A production database, met by a process that will not say it is production.
+await refusesToOpen({
+  name: 'restored production, ordinary development start',
+  from: PROD.dbPath, port: 3613,
+  env: { NODE_ENV: 'development' },
+  expects: ['did not declare PCC_ENVIRONMENT', 'seeding the published demo accounts'],
+});
+await refusesToOpen({
+  name: 'restored production, no environment declared',
+  from: PROD.dbPath, port: 3614,
+  env: { NODE_ENV: 'production' },
+  expects: ['did not declare PCC_ENVIRONMENT'],
+});
+for (const [declared, port] of [['development', 3615], ['rehearsal', 3616]]) {
+  await refusesToOpen({
+    name: `production database declared ${declared}`,
+    from: PROD.dbPath, port,
+    env: { NODE_ENV: 'production', PCC_ENVIRONMENT: declared },
+    expects: ['created as "production"', 'still evidence'],
+  });
+}
+
+// A rehearsal database cannot be promoted, and cannot be quietly downgraded.
+await refusesToOpen({
+  name: 'rehearsal promoted to production',
+  from: REHEARSAL.dbPath, port: 3617,
+  env: { NODE_ENV: 'production', PCC_ENVIRONMENT: 'production' },
+  expects: ['created as "rehearsal"', 'cannot be promoted', 'NEW database'],
+});
+await refusesToOpen({
+  name: 'rehearsal declared development',
+  from: REHEARSAL.dbPath, port: 3618,
+  env: { NODE_ENV: 'production', PCC_ENVIRONMENT: 'development' },
+  expects: ['created as "rehearsal"'],
+});
+
+// The organization id is permanent, and a spoofed one is caught before a row
+// moves. This is the failure that makes every baseline match nothing.
+await refusesToOpen({
+  name: 'production with a spoofed organization id',
+  from: PROD.dbPath, port: 3619,
+  env: { NODE_ENV: 'production', PCC_ENVIRONMENT: 'production', PCC_ORG_ID: 'lippolis_electric' },
+  expects: ['is permanent', 'wrong organization', 'lippolis'],
+});
+
+// A word this system has no meaning for is refused rather than interpreted.
+await refusesToOpen({
+  name: 'an environment word nobody defined',
+  from: PROD.dbPath, port: 3620,
+  env: { NODE_ENV: 'production', PCC_ENVIRONMENT: 'staging' },
+  expects: ['must be one of'],
+});
+
+// THE CONTROL. If the honest start were also refused, every assertion above
+// would pass for the wrong reason.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'pcc-control-'));
+  const dbPath = join(dir, 'pcc.sqlite');
+  copyFileSync(PROD.dbPath, dbPath);
+  const child = spawn(process.execPath, [SERVER], {
+    cwd: join(ROOT, 'apps', 'purchasing', '.next', 'standalone', 'apps', 'purchasing'),
+    env: {
+      PATH: process.env.PATH, NODE_ENV: 'production', PORT: '3621',
+      APP_BASE_URL: 'http://127.0.0.1:3621', PCC_ALLOW_INSECURE_HTTP: '1',
+      SESSION_SECRET: GOOD_SECRET, PCC_DATABASE_PATH: dbPath,
+      PCC_ENVIRONMENT: 'production', PCC_ORG_ID: 'lippolis', ...LETTERHEAD,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let out = '';
+  child.stdout.on('data', (b) => { out += b; });
+  child.stderr.on('data', (b) => { out += b; });
+  const ready = await new Promise((resolve) => {
+    const t = setInterval(() => { if (/\[pcc\] ready/.test(out)) { clearInterval(t); clearTimeout(k); resolve(true); } }, 200);
+    const k = setTimeout(() => { clearInterval(t); resolve(false); }, 45_000);
+    child.on('exit', () => { clearInterval(t); clearTimeout(k); resolve(false); });
+  });
+  console.log('\n--- the control: the honest start ' + '-'.repeat(29));
+  check(ready, 'a production database opened by a production process starts');
+  check(/opening the existing purchasing database/.test(out),
+    'and opens the existing database rather than creating one');
+  check(!/creating a NEW/.test(out), 'nothing was created on an established installation');
+  child.kill('SIGTERM');
+  await new Promise((r) => setTimeout(r, 1200));
+  child.kill('SIGKILL');
+  rmSync(dir, { recursive: true, force: true });
+}
+
+rmSync(PROD.dir, { recursive: true, force: true });
+rmSync(REHEARSAL.dir, { recursive: true, force: true });
+
 console.log(`\nstartup refusal checks: ${pass} passed, ${failures.length} failed`);
 if (failures.length) {
   for (const f of failures) console.log(`  - ${f}`);

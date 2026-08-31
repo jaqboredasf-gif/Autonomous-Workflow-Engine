@@ -17,7 +17,8 @@
     "proof:case-study": "node scripts/proof-case-study.mjs",
     "programs": "node scripts/eval-programs.mjs",
     "readiness": "node scripts/iic-readiness.mjs",
-    "deployment-gate": "node scripts/pcc-deployment-gate.mjs"
+    "deployment-gate": "node scripts/pcc-deployment-gate.mjs",
+    "rehearse": "bash scripts/rehearse-locally.sh"
   },
   "devDependencies": {
     "next": "16.2.10"

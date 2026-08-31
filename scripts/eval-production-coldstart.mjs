@@ -145,7 +145,11 @@ const inv=await submit(admin,'/admin?module=users','Invite',[
   ['fullName','Mike Purchasing'],['email','mike@lippolis.test'],['roles','WORKSHOP_APPROVER'],
   ['temporaryPassword','MikeTemp!2026x'],['canApprove','true']]);
 ok(inv.status>=200&&inv.status<400,'a real user can be invited',`status ${inv.status}`);
-const MIKE_TEMP='MikeTemp!2026x', MIKE_OWN='mike picks this one';
+// PCC_MIKE_PASSWORD, because eval-production-idempotency.mjs reads it and signs
+// in as this user afterwards. It was hard-coded here and configurable there, so
+// setting it made the second suite fail to sign in with no hint why.
+const MIKE_TEMP='MikeTemp!2026x';
+const MIKE_OWN=process.env.PCC_MIKE_PASSWORD ?? 'mike picks this one';
 const mikeFirst=await login('mike@lippolis.test',MIKE_TEMP);
 if(mikeFirst.cookie){
   ok(true,'the invited user signs in on the temporary password');
