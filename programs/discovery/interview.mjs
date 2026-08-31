@@ -18,6 +18,76 @@
 // PURE: no clock, no randomness, no I/O. Interviews are loaded by the caller.
 // ---------------------------------------------------------------------------
 
+/**
+ * WHO SAID THIS — attribution, which is a different question from grade.
+ *
+ * proof/provenance.mjs answers "how well is this quantity known" and its words
+ * are deliberately NOT reused here. In that vocabulary SELF_REPORTED is weak,
+ * because somebody's account of their own work is a poor way to measure a
+ * duration. In discovery it is the opposite: what the customer said, in their
+ * words, is the strongest evidence there is, and a founder's conclusion about
+ * what they meant is the weak one. Same words, inverted ranking, guaranteed
+ * confusion — so this is its own small axis and says so.
+ *
+ * THE FAILURE THIS EXISTS AGAINST. An interview record reading
+ * `economicConsequence: 'the crew stands idle for a morning'` is quotable, and
+ * six weeks later nobody can tell whether the operations manager said that or
+ * whether Jack watched a crew standing around and wrote it down. The first is
+ * customer testimony. The second is a founder's inference, which is worth
+ * having and is not the same thing, and the difference is exactly what a judge
+ * or an investor will push on.
+ *
+ * So the interpreted fields cannot be read without their attribution: they are
+ * `{ value, said }` and a bare string is refused.
+ */
+export const ATTRIBUTION = Object.freeze([
+  'STATED',            // they said it, in substance, unprompted or in answer
+  'FOUNDER_OBSERVED',  // the founder saw it happen
+  'FOUNDER_INFERRED',  // the founder concluded it from what was said or seen
+  'UNKNOWN',           // it did not come up
+]);
+
+// The two founder values name the founder ON PURPOSE. `INFERRED` alone is also
+// a word in proof/provenance.mjs, where it means "derived from other measured
+// quantities" and sits mid-table; here it would mean "Jack decided this" and is
+// the weakest thing in the file. One word, two rankings, in a repository where
+// both appear near each other — so the actor is in the name.
+
+/** The strongest attribution is the customer's own words. */
+const ATTRIBUTION_RANK = new Map(ATTRIBUTION.map((a, i) => [a, i]));
+
+/**
+ * One interpreted field: what it is, and who is responsible for it.
+ *
+ * `quote` is optional and is what makes a STATED field checkable — the words
+ * they actually used, rather than a paraphrase that has already drifted toward
+ * the answer we wanted.
+ */
+export function testimony(value, said = 'UNKNOWN', quote = null) {
+  if (value === null || value === undefined || value === '') {
+    return Object.freeze({ value: null, said: 'UNKNOWN', quote: null });
+  }
+  if (!ATTRIBUTION.includes(said)) {
+    throw new Error(
+      `unknown attribution ${JSON.stringify(said)}. One of: ${ATTRIBUTION.join(', ')}. ` +
+      'A value with no attribution is a founder\'s note wearing a customer\'s voice.');
+  }
+  if (said === 'UNKNOWN') {
+    throw new Error(`"${value}" is recorded with attribution UNKNOWN — say who it came from, or leave the field empty`);
+  }
+  return Object.freeze({ value, said, quote });
+}
+
+/** Accepts a bare value only where the caller has already said who said it. */
+function attributed(field, id, input) {
+  if (input === null || input === undefined) return testimony(null);
+  if (typeof input === 'object' && 'value' in input) return testimony(input.value, input.said, input.quote ?? null);
+  throw new Error(
+    `interview ${id}: ${field} is a bare value. Say who it came from:\n` +
+    `  ${field}: { value: ${JSON.stringify(input)}, said: 'STATED', quote: '<their words>' }\n` +
+    'STATED = they said it, FOUNDER_OBSERVED = you saw it, FOUNDER_INFERRED = you concluded it.');
+}
+
 /** How the person answered the money question. Closed, because the shades matter. */
 export const WILLINGNESS = Object.freeze([
   'WOULD_PAY_STATED_AMOUNT',   // named a figure unprompted
@@ -49,9 +119,10 @@ export const WILLINGNESS_TO_CHANGE = Object.freeze([
  */
 export function interview({
   id, at, organization, organizationType, role, internal = false,
-  workflow, pain, frequency, currentTools = [],
+  workflow, pain, frequency = null, currentTools = [],
   humanTimeStated = null, failureModes = [], economicConsequence = null,
-  existingWorkaround = null,
+  existingWorkaround = null, satisfactionWithWorkaround = null, urgency = null,
+  organizationSize = null,
   willingnessToChange = 'NOT_ASKED', willingnessToPay = 'NOT_ASKED', statedAmount = null,
   capabilityFit = null, patternTags = [], followUp = null, designPartnerInterest = false,
   notes = null,
@@ -61,6 +132,7 @@ export function interview({
   }
   if (!workflow) throw new Error(`interview ${id} names no workflow — a conversation about nothing in particular is not discovery`);
   if (!pain) throw new Error(`interview ${id} records no pain`);
+
   if (!WILLINGNESS.includes(willingnessToPay)) throw new Error(`unknown willingness to pay: ${willingnessToPay}`);
   if (!WILLINGNESS_TO_CHANGE.includes(willingnessToChange)) throw new Error(`unknown willingness to change: ${willingnessToChange}`);
   if (willingnessToPay === 'WOULD_PAY_STATED_AMOUNT' && statedAmount === null) {
@@ -75,20 +147,40 @@ export function interview({
     if (!/^[a-z][a-z0-9_]*$/.test(t)) throw new Error(`pattern tag must be snake_case: ${t}`);
   }
 
+  // THE INTERPRETED FIELDS. Each one is something a founder could plausibly
+  // have concluded rather than been told, so each one has to say which.
+  //
+  // CHECKED LAST, after everything structural. A record missing its workflow or
+  // its tags has a different problem, and reporting the form of a field before
+  // reporting that a required one is absent sends somebody to fix the wrong
+  // thing — which is what happened to three existing test fixtures the moment
+  // this check was added at the top.
+  const interpreted = {
+    pain: attributed('pain', id, pain),
+    frequency: attributed('frequency', id, frequency),
+    humanTimeStated: attributed('humanTimeStated', id, humanTimeStated),
+    economicConsequence: attributed('economicConsequence', id, economicConsequence),
+    existingWorkaround: attributed('existingWorkaround', id, existingWorkaround),
+    satisfactionWithWorkaround: attributed('satisfactionWithWorkaround', id, satisfactionWithWorkaround),
+    urgency: attributed('urgency', id, urgency),
+  };
+
   return Object.freeze({
-    id, at, organization, organizationType, role, internal,
-    workflow, pain, frequency,
+    id, at, organization, organizationType, organizationSize, role, internal,
+    workflow,
+    ...interpreted,
     currentTools: Object.freeze([...currentTools]),
-    // What THEY said their time costs. Testimony about their own work, and it
-    // is a candidate baseline for their organization — never for anybody
-    // else's, and never SELF_REPORTED evidence about ours.
-    humanTimeStated,
     failureModes: Object.freeze([...failureModes]),
-    economicConsequence, existingWorkaround,
     willingnessToChange, willingnessToPay, statedAmount,
     capabilityFit,
     patternTags: Object.freeze([...patternTags]),
     followUp, designPartnerInterest, notes,
+
+    /** How much of this record is the customer's own account. */
+    testimonyMix: Object.freeze(Object.fromEntries(ATTRIBUTION.map((a) => [a,
+      Object.values(interpreted).filter((t) => t.said === a).length]))),
+    /** True when nothing load-bearing rests on the founder's interpretation. */
+    restsOnTestimony: interpreted.pain.said === 'STATED',
   });
 }
 

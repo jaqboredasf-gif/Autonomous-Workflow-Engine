@@ -22,7 +22,8 @@
     "plan": "node scripts/awe-plan.mjs",
     "baseline": "node scripts/baseline-observations.mjs",
     "baseline:import": "node scripts/baseline-import.mjs",
-    "baseline:freeze": "node scripts/baseline-freeze.mjs"
+    "baseline:freeze": "node scripts/baseline-freeze.mjs",
+    "discovery": "node scripts/discovery.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"

@@ -236,8 +236,8 @@ const iv = (over = {}) => D.interview({
   id: over.id ?? 'i1', at: '2026-09-10',
   organization: over.organization ?? 'org-1', organizationType: 'electrical contractor',
   role: 'office manager', workflow: 'buying material for a job',
-  pain: 'the same details get typed three times',
-  frequency: 'daily',
+  pain: { value: 'the same details get typed three times', said: 'STATED' },
+  frequency: { value: 'daily', said: 'STATED' },
   patternTags: over.patternTags ?? ['duplicate_data_entry'],
   ...over,
 });
@@ -253,7 +253,8 @@ const iv = (over = {}) => D.interview({
   }), 'names no workflow', 'a conversation about nothing in particular is not discovery');
 
   throws(() => D.interview({
-    id: 'x', at: '2026-09-10', organization: 'o', role: 'r', workflow: 'w', pain: 'p',
+    id: 'x', at: '2026-09-10', organization: 'o', role: 'r', workflow: 'w',
+    pain: { value: 'p', said: 'STATED' },
     patternTags: ['a'], willingnessToPay: 'WOULD_PAY_STATED_AMOUNT',
   }), 'records no amount', 'claiming an amount was stated without recording it is refused');
 

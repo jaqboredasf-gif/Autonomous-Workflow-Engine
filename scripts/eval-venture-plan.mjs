@@ -582,9 +582,13 @@ console.log('--- the founder actions point at procedures that exist -----------'
   const { interview } = await import(R('programs/discovery/interview.mjs'));
   const record = interview({
     id: 'x', at: '2026-09-01', organization: 'Someone Electric', role: 'office manager',
-    workflow: 'buying material', pain: 'x', frequency: 'daily', currentTools: ['paper'],
-    humanTimeStated: '20 minutes', failureModes: ['wrong item'], economicConsequence: 'crew idle',
-    existingWorkaround: 'phone the supplier', willingnessToChange: 'OPEN_IF_PROVEN',
+    workflow: 'buying material',
+    pain: { value: 'x', said: 'STATED' }, frequency: { value: 'daily', said: 'STATED' },
+    currentTools: ['paper'],
+    humanTimeStated: { value: '20 minutes', said: 'STATED' }, failureModes: ['wrong item'],
+    economicConsequence: { value: 'crew idle', said: 'STATED' },
+    existingWorkaround: { value: 'phone the supplier', said: 'STATED' },
+    willingnessToChange: 'OPEN_IF_PROVEN',
     willingnessToPay: 'NOT_ASKED', patternTags: ['material_arrives_wrong'], designPartnerInterest: true,
   });
   // Every field the campaign asks the interviewer to capture must survive into
