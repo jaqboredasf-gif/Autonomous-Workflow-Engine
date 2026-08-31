@@ -139,7 +139,13 @@ if (live) {
 
 try {
   copyFileSync(from, dbPath);
-  if (owner) {
+  // OWNERSHIP IS A POSIX CONCEPT. On Windows the copy inherits the ACL of the
+  // directory it lands in, which is the right answer there, and uid/gid are 0.
+  // Attempting it anyway printed "could not restore ownership (uid 0, gid 0)"
+  // and told a Windows Server operator to run `chown` — advice that names a
+  // command the machine does not have, at the one moment they are already
+  // recovering from something.
+  if (owner && process.platform !== 'win32') {
     // Give it back to the user the application runs as. Best-effort: a restore
     // run as that same user cannot chown and does not need to.
     try {
@@ -151,6 +157,9 @@ try {
       );
       console.warn('pcc-restore: if the application will not start, chown the file to the user it runs as.');
     }
+  } else if (owner) {
+    console.log('pcc-restore: on Windows the restored file inherits the directory ACL; nothing to reassign.');
+    console.log(`pcc-restore: if the service will not start, confirm it can read ${dbPath}.`);
   }
 } catch (err) {
   console.error(`pcc-restore: the copy FAILED — ${err.message}`);

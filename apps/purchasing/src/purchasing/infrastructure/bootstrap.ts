@@ -64,11 +64,151 @@ export function bootstrapDatabase(
   env: NodeJS.ProcessEnv = process.env,
   now = new Date().toISOString(),
 ): BootstrapResult {
+  // BEFORE ANYTHING WRITES. Both branches below write to the database, and one
+  // of them writes a published demo password, so the question "is this file
+  // allowed to be opened by this process at all?" is answered first.
+  assertDatabaseIdentity(db, env, now);
+
   if (env.NODE_ENV !== 'production') {
     const result = seed(db, now);
     return { created: result.seeded, orgId: result.orgId, noCredentials: false, notes: [] };
   }
   return bootstrapProduction(db, env, now);
+}
+
+export const ENVIRONMENTS = ['production', 'rehearsal', 'development', 'unstamped'] as const;
+
+/** What the database says it is. `unstamped` when it was created before the stamp existed. */
+export function stampedEnvironment(db: DatabaseSync): string {
+  try {
+    const row = db.prepare(`select value from schema_meta where key = 'environment'`).get() as any;
+    return (row?.value as string | undefined) ?? 'unstamped';
+  } catch {
+    return 'unstamped';
+  }
+}
+
+/** What the process says this start is. `null` when it declines to say. */
+export function declaredEnvironment(env: NodeJS.ProcessEnv): string | null {
+  const declared = (env.PCC_ENVIRONMENT ?? '').trim().toLowerCase();
+  if (!declared) return null;
+  if (!ENVIRONMENTS.includes(declared as any)) {
+    throw Object.assign(new Error(
+      `PCC_ENVIRONMENT must be one of ${ENVIRONMENTS.join(', ')}. Got ${JSON.stringify(declared)}.`,
+    ), { pccReason: 'configuration' as const });
+  }
+  return declared;
+}
+
+/**
+ * MAY THIS PROCESS OPEN THIS DATABASE?
+ *
+ * The stamp written at creation made a rehearsal distinguishable from
+ * production for a READER. It did nothing for a WRITER, and the writer is where
+ * the damage is:
+ *
+ *   · A production backup restored onto a laptop and started with the ordinary
+ *     development command runs `seed()`, which inserts the demo cast — ten
+ *     accounts, one of them ADMIN, all on a password printed in the README —
+ *     into a database that still stamps itself `production`. Every row written
+ *     afterwards is production evidence by provenance and fiction by fact.
+ *
+ *   · A rehearsal database started with PCC_ENVIRONMENT=production keeps its
+ *     `rehearsal` stamp, because the stamp is written once. That is the right
+ *     answer and a silent one: the operator believes they are in production and
+ *     none of their records will ever be admissible. They find out at the end
+ *     of the first month.
+ *
+ *   · An installation whose database was created before PCC_ORG_ID could be
+ *     declared has a UUID org id. Declaring `PCC_ORG_ID=lippolis` afterwards
+ *     changes nothing, and every baseline keyed on `lippolis` quietly matches
+ *     no execution at all — the exact failure the declared id was added to
+ *     prevent, still reachable on the one database that already exists.
+ *
+ * So identity is checked on EVERY start, in both environments, and a
+ * disagreement refuses to start. FAILS CLOSED: refusing to boot is a phone
+ * call, and it is recoverable. Writing test data into production evidence is
+ * not, because nothing afterwards can tell which rows were which.
+ *
+ * The one permitted transition is `unstamped` → a declaration: nobody ever said
+ * what that database was, so the first process to say is believed, and the
+ * moment it said so is recorded beside the stamp. A database that has already
+ * declared itself never changes its mind.
+ */
+export function assertDatabaseIdentity(
+  db: DatabaseSync,
+  env: NodeJS.ProcessEnv = process.env,
+  now = new Date().toISOString(),
+): { environment: string; orgId: string | null } {
+  const stamped = stampedEnvironment(db);
+  const declared = declaredEnvironment(env);
+
+  if (stamped !== 'unstamped' && declared !== null && declared !== stamped) {
+    throw Object.assign(new Error(
+      `This database was created as "${stamped}" and this process declares PCC_ENVIRONMENT=${declared}. ` +
+      'The stamp is written once, at creation, and is never changed — so continuing would run a ' +
+      `${declared} workload against a ${stamped} database. ` +
+      (stamped === 'production'
+        ? 'If this is a copy of production taken for testing, it is still stamped production and its ' +
+          'records are still evidence: work on a database created by a rehearsal install instead.'
+        : `If you meant to run production, install onto a NEW database — a ${stamped} database cannot ` +
+          'be promoted, because nothing could later tell its rehearsal rows from real ones.'),
+    ), { pccReason: 'configuration' as const });
+  }
+
+  if (stamped === 'production' && declared === null) {
+    throw Object.assign(new Error(
+      'This database is stamped "production" and this process did not declare PCC_ENVIRONMENT. ' +
+      'A production database is only opened by something that says out loud that it is production, ' +
+      'because the alternative is a development start seeding the published demo accounts into it. ' +
+      'Set PCC_ENVIRONMENT=production to work on it, or use a copy created by a rehearsal install.',
+    ), { pccReason: 'configuration' as const });
+  }
+
+  // Nobody had said what this database was. The first declaration is believed,
+  // and the fact that it arrived after creation is recorded, so a reader can
+  // tell a stamp set at creation from one adopted later.
+  const existingOrg = orgIdOf(db);
+
+  if (stamped === 'unstamped' && declared !== null && declared !== 'unstamped') {
+    try {
+      db.prepare(`insert into schema_meta (key, value) values ('environment', ?)
+                    on conflict(key) do update set value = excluded.value`).run(declared);
+      // Only when the installation already existed. A brand-new database is
+      // being stamped AT creation, which is the strong case, and marking it as
+      // a late declaration would understate its own provenance.
+      if (existingOrg) {
+        db.prepare(`insert into schema_meta (key, value) values ('environment_declared_at', ?)
+                      on conflict(key) do nothing`).run(now);
+      }
+    } catch {
+      // schema_meta does not exist yet: this is a database being created, and
+      // bootstrapProduction stamps it a few lines further on.
+    }
+  }
+
+  const declaredOrgId = (env.PCC_ORG_ID ?? '').trim();
+  if (existingOrg && declaredOrgId && existingOrg !== declaredOrgId) {
+    throw Object.assign(new Error(
+      `This database's organization id is "${existingOrg}" and this process declares ` +
+      `PCC_ORG_ID=${declaredOrgId}. The id is permanent — it is what baselines, frozen case ` +
+      'studies and backups are keyed on — and it cannot be changed by starting with a different ' +
+      'value. Either the environment file names the wrong organization, or this is the wrong ' +
+      `database. Nothing has been written. (To measure this installation, its baselines must be ` +
+      `keyed on "${existingOrg}".)`,
+    ), { pccReason: 'configuration' as const });
+  }
+
+  return { environment: declared ?? stamped, orgId: existingOrg };
+}
+
+function orgIdOf(db: DatabaseSync): string | null {
+  try {
+    const row = db.prepare('select id from orgs limit 1').get() as any;
+    return (row?.id as string | undefined) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: string): BootstrapResult {
@@ -140,11 +280,7 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
   // is refused as evidence until somebody says so out loud, which is the
   // recoverable one. There is deliberately no inference from NODE_ENV — the
   // rehearsal sets NODE_ENV=production too, because it must.
-  const environment = (env.PCC_ENVIRONMENT ?? '').trim().toLowerCase() || 'unstamped';
-  if (!['production', 'rehearsal', 'development', 'unstamped'].includes(environment)) {
-    throw new Error(
-      `PCC_ENVIRONMENT must be production, rehearsal or development. Got ${JSON.stringify(environment)}.`);
-  }
+  const environment = declaredEnvironment(env) ?? 'unstamped';
   db.prepare(
     `insert into schema_meta (key, value) values ('environment', ?)
        on conflict(key) do nothing`,
