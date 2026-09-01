@@ -200,7 +200,19 @@ console.log('--- and the packager refuses to ship an incomplete one ------------
   // Run it from scripts/ so its ROOT still resolves to the repository.
   const brokenInScripts = R('scripts/.package-release-broken.mjs');
   writeFileSync(brokenInScripts, broken);
-  const r = spawnSync(process.execPath, [brokenInScripts, '--out', out3, ...ALLOW],
+  // `--allow-dirty` UNCONDITIONALLY, not `...ALLOW`.
+  //
+  // ALLOW is computed from `git status` when the suite starts, and the two lines
+  // above then write an untracked file INTO the repository — so this case dirties
+  // the tree itself. On a clean tree ALLOW was empty, the packager refused with
+  // "the working tree is dirty", and the assertion below never reached the
+  // incomplete-package check it exists for.
+  //
+  // Which means this check passed only when the tree happened to ALREADY be
+  // dirty, and failed the moment the work was committed — the exact opposite of
+  // when a release gate should be trustworthy. The dirty state is deliberate
+  // here and is not what is under test.
+  const r = spawnSync(process.execPath, [brokenInScripts, '--out', out3, '--allow-dirty'],
     { cwd: ROOT, encoding: 'utf8', timeout: 300_000 });
   rmSync(brokenInScripts, { force: true });
   eq(r.status, 1, 'a packager missing a runtime path fails');
