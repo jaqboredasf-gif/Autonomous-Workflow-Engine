@@ -51,6 +51,40 @@ export const DECLARED = Object.freeze({
   // --- demo and narrative --------------------------------------------------
   // demo: { liveDemoExists: false, backupExists: false, rehearsals: 0 }
   // narrative: { oneMinuteExists: false, ... }
+
+  // --- the presentation ----------------------------------------------------
+  // Read by programs/iic-2027/narrative.mjs. Every one of these is something a
+  // PERSON did, which is why none of them is derived: a file proving that a
+  // sentence is understandable cannot be written by the person who wrote the
+  // sentence.
+  //
+  // THE CHEAPEST ENTRY IN THIS FILE, and currently the weakest beat in the
+  // whole pitch, is the first one. Say the one-sentence version to three people
+  // who do not work in software, ask them to explain AWE back an hour later,
+  // and record how many got it right. If none did, the sentence is wrong and no
+  // amount of evidence behind it will be heard.
+  //
+  // narrative: {
+  //   plainLanguageTests: 3,   // people who restated it CORRECTLY, not people asked
+  //   oneMinuteExists: true,   // a recorded, timed, spoken minute — not a script
+  //   executiveSummaryExists: true,
+  //   judgeQuestionsAnswered: 20,
+  //   mockPitches: 1,
+  //   evidenceFrozen: true,
+  //   deckExists: true,
+  //   note: 'tested on 3 people at ... on 2026-xx-xx; 2 of 3 restated it correctly',
+  // },
+
+  // --- the competition itself ----------------------------------------------
+  // Filled in from a reply to the Hynes Institute or from the February kickoff.
+  // Until then the UNKNOWN table in competition-intelligence.md stands.
+  //
+  // competition: {
+  //   datesConfirmed: true,
+  //   registered: true,
+  //   criteriaConfirmed: true,   // does the 2019 eight-criteria rubric still hold?
+  //   note: 'confirmed by ... on 2027-02-xx',
+  // },
 });
 
 /**

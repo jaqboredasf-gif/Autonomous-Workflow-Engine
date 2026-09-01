@@ -51,6 +51,64 @@ export const MILESTONES = Object.freeze([
     met: (f) => Boolean(f.discovery?.processExists),
   },
 
+  // --- the rehearsal ladder ------------------------------------------------
+  //
+  // ONE PITCH A MONTH, EACH BETTER THAN THE LAST IN A NAMED WAY. Not because
+  // practice is virtuous, but because the thing being rehearsed is the ability
+  // to say an admission smoothly, and that only improves in front of people.
+  //
+  // EACH RUNG NAMES WHAT MUST BE BETTER THAN THE RUNG BELOW IT. A cadence that
+  // says "give a pitch in October" produces the September pitch again in
+  // October. What makes the ladder work is that every step requires evidence
+  // that did not exist at the previous one — so a rung cannot be climbed by
+  // rehearsing harder, only by the company having moved.
+  //
+  // AND THE RUNGS ARE COMPUTED LIKE EVERYTHING ELSE. `mockPitches` is a
+  // declared count with a witness; the evidence half of each rung is derived.
+  // Doing the talk without the evidence does not tick the box.
+  {
+    at: '2026-09', id: 'rehearsal_explain',
+    target: 'SEPTEMBER — explain AWE to three non-technical people and have them explain it back.',
+    evidence: 'narrative.plainLanguageTests — people who restated it correctly, not people who nodded',
+    met: (f) => (f.narrative?.plainLanguageTests ?? 0) >= 3,
+  },
+  {
+    at: '2026-10', id: 'rehearsal_problem_demo',
+    target: 'OCTOBER — better than September by: showing the product instead of describing it. Problem plus a working demonstration.',
+    evidence: 'a live demonstration exists, and the workflow it demonstrates is deployed',
+    met: (f) => Boolean(f.demo?.liveDemoExists) && Boolean(f.deployment?.readyUnderPolicy),
+  },
+  {
+    at: '2026-11', id: 'rehearsal_five_minute',
+    target: 'NOVEMBER — better than October by: surviving questions. A five-minute internal pitch with somebody willing to be unkind.',
+    evidence: 'one mock pitch delivered to a person, and written answers to the hardest questions',
+    met: (f) => (f.narrative?.mockPitches ?? 0) >= 1 && (f.narrative?.judgeQuestionsAnswered ?? 0) >= 10,
+  },
+  {
+    at: '2026-12', id: 'rehearsal_evidence_backed',
+    target: 'DECEMBER — better than November by: containing a real number. The first pitch whose proof beat is production evidence.',
+    evidence: 'production executions exist and objective success has been tested',
+    met: (f) => (f.usage?.executions ?? 0) > 0 && (f.proof?.objectivesTested ?? 0) > 0,
+  },
+  {
+    at: '2027-01', id: 'rehearsal_market',
+    target: 'JANUARY — better than December by: not being about one company. Market and business added, from interviews rather than assertions.',
+    evidence: 'external interviews and a repeated pain pattern',
+    met: (f) => (f.discovery?.externalInterviews ?? 0) >= 5 && (f.discovery?.repeatedPatterns ?? 0) >= 1,
+  },
+  {
+    at: '2027-03', id: 'rehearsal_full',
+    target: 'MARCH — better than January by: being the real thing. Full pitch to time, with Q&A, in front of people who are not friendly.',
+    evidence: 'three or more mock pitches delivered',
+    met: (f) => (f.narrative?.mockPitches ?? 0) >= 3,
+  },
+  {
+    at: '2027-04', id: 'rehearsal_stress',
+    target: 'APRIL — better than March by: being boring to deliver. Timing stable, admissions delivered flat, backup demo used at least once in rehearsal.',
+    evidence: 'five or more mock pitches, and a rehearsed backup demonstration',
+    met: (f) => (f.narrative?.mockPitches ?? 0) >= 5 && Boolean(f.demo?.backupExists),
+  },
+
   // --- December 2026 -------------------------------------------------------
   {
     at: '2026-12', id: 'production_evidence',
@@ -197,7 +255,12 @@ export function status(facts) {
   }
   return Object.freeze({
     rows: Object.freeze(rows),
-    months: Object.freeze([...byMonth.entries()].map(([at, items]) => Object.freeze({
+    // SORTED BY DATE, not by position in the array above. The months used to
+    // come out in whatever order the milestones happened to be written in,
+    // which was the same thing right up until a target was inserted next to the
+    // one it relates to rather than at the end of its month's block. A calendar
+    // whose order depends on edit history is a calendar somebody will misread.
+    months: Object.freeze([...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([at, items]) => Object.freeze({
       at,
       met: items.filter((i) => i.met).length,
       total: items.length,

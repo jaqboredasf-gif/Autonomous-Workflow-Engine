@@ -214,13 +214,19 @@ console.log('--- milestones are computed, never ticked ------------------------'
     discovery: { processExists: true },
   });
   const septMonth = sept.months.find((m) => m.at === '2026-09');
-  eq(septMonth.met, septMonth.total, 'the September targets are met by the artifacts in this repository');
+  // EVERY SEPTEMBER TARGET THE REPOSITORY CAN SATISFY IS SATISFIED, and the one
+  // that is left needs a person rather than a file: three non-technical people
+  // restating what AWE does. That is the first rung of the rehearsal ladder and
+  // it is deliberately not derivable — a document asserting that a sentence is
+  // understandable is written by the one person guaranteed to understand it.
+  eq(septMonth.outstanding, ['rehearsal_explain'],
+    'the September targets are met by the artifacts in this repository, except the one that needs a human listener');
   eq(sept.months.find((m) => m.at === '2026-12').met, 0,
     'and no later target is met by them, which is what a target means');
 
   const months = M.status({}).months.map((m) => m.at);
-  eq(months, ['2026-09', '2026-12', '2027-01', '2027-02', '2027-03', '2027-04'],
-    'the checkpoints follow the verified competition calendar');
+  eq(months, ['2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03', '2027-04'],
+    'the checkpoints follow the verified competition calendar, in date order regardless of edit order');
   // The evidence deadline is January, ahead of the February kickoff. A plan
   // that puts evidence-gathering after the kickoff has misread the calendar.
   const frozen = M.MILESTONES.find((m) => m.id === 'evidence_frozen');
