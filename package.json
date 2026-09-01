@@ -23,7 +23,9 @@
     "baseline": "node scripts/baseline-observations.mjs",
     "baseline:import": "node scripts/baseline-import.mjs",
     "baseline:freeze": "node scripts/baseline-freeze.mjs",
-    "discovery": "node scripts/discovery.mjs"
+    "discovery": "node scripts/discovery.mjs",
+    "provision": "node scripts/provision-organization.mjs",
+    "second-customer": "node scripts/eval-second-customer.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"
