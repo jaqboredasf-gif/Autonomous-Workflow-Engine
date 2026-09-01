@@ -1,7 +1,15 @@
 # Interview records
 
-One file per conversation. `.mjs` exporting `interview({...})` (see `../README.md`), or `.json`
-with the same fields.
+One file per conversation. Three ways in, and the first is the one to use after an actual phone
+call:
+
+```bash
+npm run evidence -- --new interview i014                       # a field sheet
+npm run evidence -- --import programs/discovery/interviews/i014.md
+```
+
+or `.json` with the record's fields, or `.mjs` exporting `interview({...})` (see `../README.md`)
+where a comment is worth having.
 
 `scripts/iic-readiness.mjs` reads every file here and the readiness bands move on their own.
 

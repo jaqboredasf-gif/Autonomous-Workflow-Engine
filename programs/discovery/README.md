@@ -52,6 +52,53 @@ export const i014 = interview({
 Drop the file in `programs/discovery/interviews/`. `scripts/iic-readiness.mjs` picks it up and the
 readiness bands move on their own.
 
+### Or don't write JavaScript in a car park
+
+```bash
+npm run evidence -- --new interview i014          # a field sheet, fill it on a phone
+npm run evidence -- --import programs/discovery/interviews/i014.md
+```
+
+The sheet is `key: value` lines with the enum's words written next to each key. The import refuses
+rather than guesses — an unknown key, a missing attribution, a value that is not one of the allowed
+words, each reported with its line number, and **nothing is written** until every one is fixed. The
+sheet itself is kept, renamed, because it is the handwriting behind the record.
+
+### The two blocks that were added
+
+`--- alternative` and `--- commercial`, both optional, both on the same record because they come out
+of the same conversation and asking for the company name twice is how a second form stops being
+filled in.
+
+```
+--- alternative
+kind: spreadsheet
+why-used: it was already there
+what-works: everyone can open it
+what-fails: nobody updates it after Tuesday
+switching-cost: LOW
+why-not-fixed: nobody has time to look at it
+said: STATED
+
+--- commercial
+buyer: OWNER
+user: OFFICE_MANAGER
+deployment-unit: company_workflow
+current-cost-of-problem: a day a week of somebody's time
+said: STATED
+```
+
+**The last two alternative fields do the work.** Every tool fails at something; a business that has
+lived with a problem for nine years, knowing the fix, is telling you something about the problem —
+usually that the pain is smaller than the disruption. `npm run discovery` reports both, and reports
+an alternative that is working with nothing failing as **ADEQUATE**, which is evidence against us
+and is printed as prominently as evidence for us.
+
+**The commercial block is not a price.** It answers the question before price: what is the thing.
+`analyseUnitOfSale()` needs three outside organizations agreeing before it will call a unit
+`SUPPORTED`; two is a `CANDIDATE`; a tie is `CONTESTED`, which is a result rather than a failure.
+Nothing anywhere picks a unit.
+
 ---
 
 ## The rule that makes it worth doing

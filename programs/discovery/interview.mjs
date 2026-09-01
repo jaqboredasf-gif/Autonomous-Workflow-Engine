@@ -106,6 +106,158 @@ export const WILLINGNESS_TO_CHANGE = Object.freeze([
   'NOT_ASKED',
 ]);
 
+// ---------------------------------------------------------------------------
+// What they use instead, and what they would be buying
+// ---------------------------------------------------------------------------
+
+/**
+ * The things a business already uses to do this work.
+ *
+ * THE POINT OF THE LIST IS THAT IT IS NOT A COMPETITOR LIST. "Who else sells
+ * this" is a question about a category; "what do they do on Tuesday instead"
+ * is a question about the customer, and only the second one can be answered by
+ * a person who does the work. Email, paper and a spreadsheet beat every named
+ * vendor in this market and none of them appear on a competitive landscape
+ * slide, which is exactly why the landscape slide is worthless here.
+ *
+ * `other` exists so an unanticipated answer is recorded rather than forced into
+ * a bucket. A tag nobody predicted is a finding, the same way an unknown
+ * patternTag is in patterns.mjs.
+ */
+export const ALTERNATIVE_KINDS = Object.freeze([
+  'nothing',                            // the work simply does not get done
+  'memory',                             // one person keeps it in their head
+  'paper',
+  'text_message',
+  'phone_call',
+  'email',
+  'spreadsheet',
+  'accounting_software',
+  'erp',
+  'construction_management_software',
+  'custom_software',
+  'admin_staff',                        // a person hired to be the integration
+  'rpa',
+  'general_purpose_ai',
+  'other',
+]);
+
+/** How hard it would be to stop using it. Their answer, not our estimate. */
+export const SWITCHING_COST = Object.freeze(['NONE', 'LOW', 'MEDIUM', 'HIGH', 'BLOCKING', 'NOT_ASKED']);
+
+/**
+ * One alternative, as the customer described it.
+ *
+ * SIX FIELDS, AND THE LAST TWO DO THE WORK. What it is and what it fails at are
+ * the obvious ones and they are the least informative: every tool fails at
+ * something. `switchingCost` and `whyNotFixed` are the ones that decide whether
+ * a real pain is a real market — a business that has lived with a problem for
+ * nine years, knowing the fix, is telling us something about the problem, and
+ * usually it is that the pain is smaller than the disruption.
+ *
+ * ATTRIBUTION IS ON THE BLOCK, not on each field, deliberately. Six attributed
+ * sub-fields per alternative is a form nobody fills in after a phone call, and
+ * an evidence format that does not get used records nothing. What matters is
+ * the one distinction that can be got wrong in a damaging way: did the customer
+ * describe this, or did the founder conclude it. A block marked
+ * FOUNDER_INFERRED is kept and is never counted as analysis.
+ */
+export function alternativeInUse(input, owner = 'an interview') {
+  const {
+    kind, what = null, whyUsed = null, whatWorks = null, whatFails = null,
+    switchingCost = 'NOT_ASKED', whyNotFixed = null, said = 'UNKNOWN', quote = null,
+  } = input ?? {};
+
+  if (!ALTERNATIVE_KINDS.includes(kind)) {
+    throw new Error(
+      `${owner}: unknown alternative kind ${JSON.stringify(kind)}. One of: ${ALTERNATIVE_KINDS.join(', ')}. ` +
+      'Use "other" and say what it was in `what` rather than inventing a kind.');
+  }
+  if (kind === 'other' && !what) throw new Error(`${owner}: an "other" alternative must say what it was`);
+  if (!SWITCHING_COST.includes(switchingCost)) {
+    throw new Error(`${owner}: unknown switching cost ${JSON.stringify(switchingCost)}. One of: ${SWITCHING_COST.join(', ')}`);
+  }
+  if (!ATTRIBUTION.includes(said) || said === 'UNKNOWN') {
+    throw new Error(
+      `${owner}: the alternative "${kind}" does not say who it came from. ` +
+      'said: STATED (they described it), FOUNDER_OBSERVED (you saw it), FOUNDER_INFERRED (you concluded it). ' +
+      'An alternative with no attribution is a competitor slide wearing a customer\'s voice.');
+  }
+
+  return Object.freeze({
+    kind, what, whyUsed, whatWorks, whatFails, switchingCost, whyNotFixed, said, quote,
+    // The one derived field, and the one every count downstream filters on.
+    fromCustomer: said === 'STATED' || said === 'FOUNDER_OBSERVED',
+  });
+}
+
+/** Who signs, who uses it, and whether those are the same person. */
+export const COMMERCIAL_ROLES = Object.freeze(['OWNER', 'OPERATIONS', 'OFFICE_MANAGER', 'FIELD', 'FINANCE', 'IT', 'EXTERNAL_BOOKKEEPER', 'UNKNOWN']);
+
+/** What they would expect to be buying, if they bought anything. */
+export const DEPLOYMENT_UNITS = Object.freeze([
+  'company',            // one price, whole business
+  'company_workflow',   // the business, for one capability
+  'site',
+  'seat',
+  'usage',              // per request, per purchase order
+  'project',            // one job at a time
+  'service',            // they want a person to do it, not software
+  'unknown',
+]);
+
+/**
+ * What a sale would actually be, as far as this conversation showed.
+ *
+ * NOT A PRICE. Nothing here optimises or proposes a number; `willingnessToPay`
+ * and `statedAmount` already record what they said about money and they are
+ * deliberately left where they are. This block answers the question BEFORE
+ * price, which is the one currently unanswered: what is the thing.
+ *
+ * EVERY FIELD DEFAULTS TO UNKNOWN AND STAYS THERE. A discovery call that did
+ * not reach the commercial questions is the normal case and must not be padded
+ * out with plausible answers — a `buyer` nobody named is the single easiest
+ * place for a persona to enter this repository wearing evidence's clothes.
+ */
+export function commercialSignal(input, owner = 'an interview') {
+  const {
+    buyer = 'UNKNOWN', user = 'UNKNOWN', budgetOwner = 'UNKNOWN',
+    problemPurchased = null, deploymentUnit = 'unknown',
+    currentCostOfProblem = null, wantsService = null,
+    said = 'UNKNOWN', quote = null,
+  } = input ?? {};
+
+  for (const [f, v] of [['buyer', buyer], ['user', user], ['budgetOwner', budgetOwner]]) {
+    if (!COMMERCIAL_ROLES.includes(v)) {
+      throw new Error(`${owner}: unknown ${f} ${JSON.stringify(v)}. One of: ${COMMERCIAL_ROLES.join(', ')}`);
+    }
+  }
+  if (!DEPLOYMENT_UNITS.includes(deploymentUnit)) {
+    throw new Error(`${owner}: unknown deploymentUnit ${JSON.stringify(deploymentUnit)}. One of: ${DEPLOYMENT_UNITS.join(', ')}`);
+  }
+  const anythingSaid = buyer !== 'UNKNOWN' || user !== 'UNKNOWN' || budgetOwner !== 'UNKNOWN' ||
+    problemPurchased !== null || deploymentUnit !== 'unknown' || currentCostOfProblem !== null || wantsService !== null;
+  if (anythingSaid && (!ATTRIBUTION.includes(said) || said === 'UNKNOWN')) {
+    throw new Error(
+      `${owner}: the commercial block records something and does not say who it came from. ` +
+      'said: STATED, FOUNDER_OBSERVED or FOUNDER_INFERRED.');
+  }
+
+  return Object.freeze({
+    buyer, user, budgetOwner, problemPurchased, deploymentUnit,
+    currentCostOfProblem, wantsService, said, quote,
+    // ASKED AT ALL. The difference between "we do not know who buys this" and
+    // "nobody has been asked" is the difference between a finding and a gap.
+    asked: anythingSaid,
+    fromCustomer: anythingSaid && (said === 'STATED' || said === 'FOUNDER_OBSERVED'),
+    // TWO PEOPLE, NOT ONE. A buyer who is not the user is the most common way a
+    // product that everybody likes never gets bought, and it is invisible unless
+    // both are recorded.
+    buyerIsUser: buyer !== 'UNKNOWN' && buyer === user,
+    splitBuyerUser: buyer !== 'UNKNOWN' && user !== 'UNKNOWN' && buyer !== user,
+  });
+}
+
 /**
  * One conversation.
  *
@@ -125,6 +277,7 @@ export function interview({
   organizationSize = null,
   willingnessToChange = 'NOT_ASKED', willingnessToPay = 'NOT_ASKED', statedAmount = null,
   capabilityFit = null, patternTags = [], followUp = null, designPartnerInterest = false,
+  alternatives = [], commercial = null,
   notes = null,
 }) {
   if (!id || !at || !organization || !role) {
@@ -171,6 +324,11 @@ export function interview({
     ...interpreted,
     currentTools: Object.freeze([...currentTools]),
     failureModes: Object.freeze([...failureModes]),
+    // WHAT THEY USE INSTEAD. Optional, because a first conversation that only
+    // reached the workflow is still a real conversation; absent is absent and
+    // is never read as "no alternative exists".
+    alternatives: Object.freeze(alternatives.map((a) => alternativeInUse(a, `interview ${id}`))),
+    commercial: commercialSignal(commercial, `interview ${id}`),
     willingnessToChange, willingnessToPay, statedAmount,
     capabilityFit,
     patternTags: Object.freeze([...patternTags]),
@@ -231,6 +389,12 @@ export function summarize(interviews) {
     designPartnerCandidates: external.filter((i) => i.designPartnerInterest).length,
     statedAmounts: external.filter((i) => i.willingnessToPay === 'WOULD_PAY_STATED_AMOUNT').length,
     activelyLooking: external.filter((i) => i.willingnessToChange === 'ACTIVELY_LOOKING').length,
+    // HOW MANY CONVERSATIONS REACHED THE TWO NEW QUESTIONS. Counted separately
+    // from the interview count because an interview that never got to "what do
+    // you use instead" is not weak evidence about alternatives, it is no
+    // evidence about them, and the difference decides the next phone call.
+    alternativesRecorded: interviews.filter((i) => i.alternatives.some((a) => a.fromCustomer)).length,
+    commercialRecorded: interviews.filter((i) => i.commercial.fromCustomer).length,
   });
 }
 
