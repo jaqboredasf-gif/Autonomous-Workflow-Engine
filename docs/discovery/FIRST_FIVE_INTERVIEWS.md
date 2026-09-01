@@ -128,7 +128,32 @@ described their own process.
 Do it in the car. Memory decays fastest in the first hour, and it decays toward what you hoped
 they said.
 
-Write one file: `programs/discovery/interviews/<org>-<date>.json`
+**Before the call**, on the laptop:
+
+```bash
+npm run evidence -- --new interview acme-2026-10-14
+```
+
+That writes a field sheet with every question's allowed answers next to it. **Open it on the
+phone and fill it in in the car.** Then, back at a keyboard:
+
+```bash
+npm run evidence -- --import programs/discovery/interviews/acme-2026-10-14.md
+npm run discovery
+```
+
+The import refuses rather than guesses — a missing attribution, an unknown key, a value that is not
+one of the allowed words, each with its line number, and nothing is written until they are fixed.
+The sheet is kept afterwards, because it is the handwriting behind the record.
+
+Two extra sections were added to the sheet and they are the two the pitch is currently missing:
+**`--- alternative`** (what they use instead, what fails, and why they have not fixed it) and
+**`--- commercial`** (who would sign, who would use it, what they think they would be buying).
+Neither is a price. Both come out of the conversation you are already having.
+
+---
+
+If you would rather write the record directly, it is `programs/discovery/interviews/<org>-<date>.json`
 
 ```json
 {
