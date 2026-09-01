@@ -126,7 +126,13 @@ export async function generatePurchaseOrder(ctx: PurchasingContext, actor: Actor
 export async function renderAndStore(ctx: PurchasingContext, actor: Actor, purchaseOrderId: string, now: string) {
   const view = await ctx.orders.view(purchaseOrderId);
   if (!view) throw new PurchasingError('not_found', 'purchase order not found');
-  const bytes = ctx.renderer.renderPurchaseOrder(view);
+  // ONE key decides both the bytes and the record. It used to decide only the
+  // record: the organization's template was stamped onto a document drawn from
+  // the build's default form, so the evidence named a form that had not been
+  // used. A renderer that cannot draw the declared form throws here, before
+  // anything is stored.
+  const templateKey = (await ctx.reference.settings(actor.orgId)).poTemplateKey ?? ctx.renderer.templateKey;
+  const bytes = ctx.renderer.renderPurchaseOrder(view, templateKey);
   return await ctx.documents.store(
     {
       purchaseOrderId,
@@ -134,7 +140,7 @@ export async function renderAndStore(ctx: PurchasingContext, actor: Actor, purch
       filename: `${view.purchaseOrder.poNumber}.pdf`,
       contentType: 'application/pdf',
       bytes,
-      templateKey: (await ctx.reference.settings(actor.orgId)).poTemplateKey ?? ctx.renderer.templateKey,
+      templateKey,
       generatedBy: actor.id,
     },
     now,

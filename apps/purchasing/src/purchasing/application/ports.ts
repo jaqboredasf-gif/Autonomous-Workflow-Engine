@@ -157,8 +157,19 @@ export interface DocumentPort {
 
 /** Rendering. Purchasing supplies the data; the renderer owns the paper. */
 export interface DocumentRenderer {
-  renderPurchaseOrder(view: any): Buffer;
+  /**
+   * Draw a purchase order.
+   *
+   * `templateKey` is the ORGANIZATION's declared form. A renderer that cannot
+   * draw it must throw — the document is stored with this key as evidence, so
+   * drawing a different form under this name falsifies the record. Omitted
+   * means the build's default form.
+   */
+  renderPurchaseOrder(view: any, templateKey?: string | null): Buffer;
+  /** The key the default form is recorded under. */
   templateKey: string;
+  /** Every form this renderer can draw, for a provisioning-time check. */
+  templateKeys?: readonly string[];
 }
 
 /** What `fetch` hands back: the bytes, and the request they hang off. */

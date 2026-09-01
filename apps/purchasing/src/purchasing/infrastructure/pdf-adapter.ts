@@ -114,7 +114,7 @@ function buildPdf(pages: Page[]): Buffer {
 
 /** Column geometry for the item table. Edit here to match the printed form. */
 const LAYOUT = {
-  templateKey: 'lippolis_default',
+  templateKey: 'awe_default',
   columns: {
     line: PAGE.margin,
     description: PAGE.margin + 34,
@@ -287,3 +287,58 @@ function wrap(text: string, width: number): string[] {
 }
 
 export const PO_TEMPLATE_KEY = LAYOUT.templateKey;
+
+// ---------------------------------------------------------------------------
+// THE TEMPLATE REGISTRY.
+//
+// THE DEFECT THIS CLOSES. `renderAndStore` stamped the document with the
+// ORGANIZATION's `po_template_key` and then rendered it with this layout
+// regardless. An organization declaring `northgate_default` therefore received
+// a purchase order recorded as `northgate_default` and drawn as Lippolis's —
+// a false provenance record on a document that is hashed and kept as evidence.
+// Wrong bytes are recoverable. A document that lies about which form produced
+// it is not, because the lie is what the audit trail preserves.
+//
+// So a template key is now resolved through an explicit map, exactly as a
+// numbering rule is, and a key nobody has implemented is REFUSED. There is one
+// layout, and pretending otherwise was the problem.
+//
+// `lippolis_default` is an ALIAS rather than a second layout. The form reads the
+// organization's name, address and phone out of the view — it was never
+// Lippolis-specific, only Lippolis-named — and existing stored documents carry
+// that key, so it has to keep resolving. New installations get `awe_default`.
+// ---------------------------------------------------------------------------
+
+/** Every purchase-order layout this build can actually draw. */
+export const PO_TEMPLATES: Record<string, (view: any) => Buffer> = Object.freeze({
+  awe_default: renderPoPdf,
+  // Historical name for the same layout. Kept so documents issued before the
+  // registry existed still resolve, and so Lippolis needs no re-provisioning.
+  lippolis_default: renderPoPdf,
+});
+
+export const PO_TEMPLATE_KEYS = Object.freeze(Object.keys(PO_TEMPLATES));
+
+/**
+ * The renderer for an organization's declared template, or a refusal naming it.
+ *
+ * Unset resolves to `awe_default`: an organization that has not chosen a form
+ * gets the standard one, which is a real answer. A key that was CHOSEN and
+ * cannot be drawn is a provisioning failure and stops here — purchasing will not
+ * draw a different form and label it with the one that was asked for.
+ */
+export function poTemplateFor(templateKey: string | null | undefined, orgId?: string) {
+  const key = String(templateKey ?? '').trim() || PO_TEMPLATE_KEY;
+  const render = PO_TEMPLATES[key];
+  if (!render) {
+    const err: any = new Error(
+      `purchase order template "${key}" is not implemented in this build` +
+        `${orgId ? ` (declared by organization ${orgId})` : ''}. ` +
+        `Implemented: ${PO_TEMPLATE_KEYS.join(', ')}. Add the layout in infrastructure/pdf-adapter.ts — ` +
+        'purchasing will not draw a different form and record it under this name.',
+    );
+    err.reason = 'po_template_not_implemented';
+    throw err;
+  }
+  return { key, render };
+}

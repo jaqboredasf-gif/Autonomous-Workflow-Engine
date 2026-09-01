@@ -30,7 +30,7 @@ import type {
 } from '../application/ports.ts';
 import { NOTIFICATION_AUDIENCE } from '../domain/activity.mjs';
 import { composeDraft, EXTERNAL_SEND_ENABLED } from '../domain/email.mjs';
-import { renderPoPdf, PO_TEMPLATE_KEY } from './pdf-adapter.ts';
+import { renderPoPdf, PO_TEMPLATE_KEY, PO_TEMPLATE_KEYS, poTemplateFor } from './pdf-adapter.ts';
 
 const uuid = () => randomUUID();
 
@@ -359,7 +359,11 @@ export function emailDraftAdapter(): EmailDraftPort {
 /** PDF rendering, behind the port so the template adapter can be swapped. */
 export function pdfRenderer(): DocumentRenderer {
   return {
-    renderPurchaseOrder: (view: any) => renderPoPdf(view),
+    // Resolves the organization's declared form and REFUSES one it cannot draw,
+    // rather than drawing this one and recording it under that name.
+    renderPurchaseOrder: (view: any, templateKey?: string | null) =>
+      poTemplateFor(templateKey, view?.org?.id).render(view),
     templateKey: PO_TEMPLATE_KEY,
+    templateKeys: PO_TEMPLATE_KEYS,
   };
 }
