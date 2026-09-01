@@ -221,6 +221,43 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
     db.prepare('insert or ignore into roles (key, label, description) values (?,?,?)').run(key, label, description);
   }
 
+  // THE ORGANIZATION'S OWN ROLE VOCABULARY, and its absence was the largest
+  // remaining blocker on a second customer.
+  //
+  // ROLE_ROWS above is six names, and they are Lippolis's: REQUESTOR, FOREMAN,
+  // ACCOUNTING, OFFICE, WORKSHOP_APPROVER, ADMIN. `user_roles.role_key` has a
+  // foreign key to this table, so those six were the only role names any
+  // installation could STORE — and a business with an OPERATIONS_MANAGER and a
+  // YARD_HAND could not be provisioned without editing seed.ts. The
+  // role-to-capability MAP was extracted to the organization's authorization
+  // profile some time ago; the vocabulary in the database was not, and nobody
+  // noticed because Lippolis is the only organization that had ever been created.
+  //
+  // Reconciled here, on every start, for exactly the reason the built-in six
+  // are: a foreign key is structure, and structure that only arrives on a fresh
+  // database is structure an established installation can never gain.
+  //
+  // AUTHORITY IS NOT DECIDED HERE and must never be. This table holds a key and
+  // a label; what a role may DO comes from the organization's authorization
+  // profile, which is org-scoped and validated against the domain's capability
+  // vocabulary at construction. Registering a name grants nothing.
+  const vocabulary = (env.PCC_ROLE_VOCABULARY ?? '').split(',').map((r) => r.trim()).filter(Boolean);
+  for (const key of vocabulary) {
+    if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(key)) {
+      throw Object.assign(new Error(
+        `PCC_ROLE_VOCABULARY contains ${JSON.stringify(key)}, which is not a role key. ` +
+          'Role keys are upper snake case, 2-64 characters, e.g. OPERATIONS_MANAGER. ' +
+          'It is derived from the organization\'s authorization profile — see scripts/provision-organization.mjs.',
+      ), { pccReason: 'configuration' as const });
+    }
+    // A readable label from the key. An organization that wants a different one
+    // edits it in Administration; inventing prose here would be worse.
+    const label = key.split('_').map((w) => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+    db.prepare('insert or ignore into roles (key, label, description) values (?,?,?)')
+      .run(key, label, `Declared by this organization's authorization profile.`);
+  }
+  if (vocabulary.length) notes.push(`role vocabulary reconciled: ${vocabulary.join(', ')}`);
+
   const existing = db.prepare('select id from orgs limit 1').get() as any;
   if (existing) {
     // An established installation. Nothing here may touch its data: no
@@ -301,7 +338,14 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
   if (declaredOrgId) {
     notes.push(`organization id declared as "${declaredOrgId}" — measurement and baselines can be prepared against it, and a restore reproduces it`);
   }
-  const orgName = (env.PCC_ORG_NAME ?? '').trim() || 'Lippolis Electric, Inc.';
+  // NO DEFAULT. This used to fall back to 'Lippolis Electric, Inc.', which
+  // means a second organization that forgot the variable would have created
+  // itself under the FIRST customer's legal name — and then printed it on every
+  // purchase order sent to its own suppliers, permanently, because no screen
+  // edits this row afterwards. The address and telephone number below have been
+  // refused rather than defaulted since the day that failure was found; the name
+  // is the most identifying field of the three and was the one still guessing.
+  const orgName = (env.PCC_ORG_NAME ?? '').trim();
 
   // THE LETTERHEAD IS NOT OPTIONAL, AND THIS IS THE ONLY MOMENT IT CAN BE SET.
   //
@@ -321,6 +365,30 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
   // first start, not a broken one.
   const orgAddress = (env.PCC_ORG_ADDRESS ?? '').trim();
   const orgPhone = (env.PCC_ORG_PHONE ?? '').trim();
+
+  // ORGANIZATION POLICY, set once with the organization for the same reason the
+  // letterhead is: `system_settings` is created here and these are the values a
+  // second organization is most likely to differ on. Each has a defensible
+  // default, so none of them is refused — unlike the letterhead, a wrong guess
+  // here is visible on a screen and fixable, not printed and posted.
+  const poTemplateKey = (env.PCC_PO_TEMPLATE ?? '').trim() || 'awe_default';
+  // NULL, not 0. Unstated means the request form offers no default need-by
+  // date, which is what it has always done; zero would mean "same day", which
+  // is a policy somebody would have had to choose.
+  const declaredDays = (env.PCC_DEFAULT_FULFILMENT_DAYS ?? '').trim();
+  const fulfilmentDays = declaredDays === '' ? null : Number(declaredDays);
+  if (fulfilmentDays !== null && (!Number.isSafeInteger(fulfilmentDays) || fulfilmentDays < 0)) {
+    throw Object.assign(new Error(
+      `PCC_DEFAULT_FULFILMENT_DAYS must be a whole number of days or unset (got ${JSON.stringify(declaredDays)}). ` +
+        'Unset means the request form offers no default need-by date. Lippolis: 1.',
+    ), { pccReason: 'configuration' as const });
+  }
+  const needByTime = (env.PCC_DEFAULT_NEED_BY_TIME ?? '').trim() || '07:00';
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(needByTime)) {
+    throw Object.assign(new Error(
+      `PCC_DEFAULT_NEED_BY_TIME must be a 24-hour HH:MM time (got ${JSON.stringify(needByTime)}). Lippolis: 07:00.`,
+    ), { pccReason: 'configuration' as const });
+  }
 
   // THE TWO THAT DECIDE WHETHER ANY OF THIS IS EVIDENCE, refused on the same
   // terms as the letterhead and for the same reason: both are written into the
@@ -360,6 +428,7 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
   }
 
   const missing = [
+    orgName ? null : 'PCC_ORG_NAME',
     orgAddress ? null : 'PCC_ORG_ADDRESS',
     orgPhone ? null : 'PCC_ORG_PHONE',
   ].filter(Boolean);
@@ -368,10 +437,11 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
     // operator to check filesystem permissions and the schema, which are fine.
     throw Object.assign(new Error(
       `${missing.join(' and ')} must be set before the first start — ` +
-        'the company address and telephone number print on every purchase order sent to a supplier, ' +
+        'the company name, address and telephone number print on every purchase order sent to a supplier, ' +
         'they can only be set when the organization is created, and no screen edits them afterwards. ' +
         'Nothing has been created: set them and start again. ' +
-        'Lippolis: PCC_ORG_ADDRESS="Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803", ' +
+        'Lippolis: PCC_ORG_NAME="Lippolis Electric, Inc.", ' +
+        'PCC_ORG_ADDRESS="Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803", ' +
         'PCC_ORG_PHONE="(914) 738-3550".',
     ), { pccReason: 'configuration' as const });
   }
@@ -391,8 +461,16 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
     // a first-class delivery destination and receiving authority is granted by
     // assignment to it, so a database without one cannot express "it came to
     // the shop" at all. Job sites are the company's and are entered in Admin.
+    //
+    // THE KIND IS THE CONCEPT; THE NAME IS THE ORGANIZATION'S WORD. `WORKSHOP`
+    // is a schema value and stays — receiving authority is granted by
+    // assignment to that kind, and renaming it would change behaviour. The
+    // NAME was the literal "Workshop", which is Lippolis's word, so a second
+    // organization was given a delivery destination called something its staff
+    // do not say. Northgate calls it the yard.
+    const stockLocationName = (env.PCC_STOCK_LOCATION_LABEL ?? '').trim() || 'Workshop';
     for (const location of [
-      { name: 'Workshop', kind: 'WORKSHOP' },
+      { name: stockLocationName.charAt(0).toUpperCase() + stockLocationName.slice(1), kind: 'WORKSHOP' },
       { name: 'Office', kind: 'OFFICE' },
       { name: 'Vendor counter pickup', kind: 'VENDOR_PICKUP' },
     ]) {
@@ -422,9 +500,10 @@ function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: stri
 
     db.prepare(
       `insert into system_settings (org_id, allow_self_approval, external_send_enabled, require_email_review,
-                                    overdue_grace_hours, default_delivery_method, po_template_key, updated_at)
-       values (?,0,0,1,0,'DELIVERY','lippolis_default',?)`,
-    ).run(orgId, now);
+                                    overdue_grace_hours, default_delivery_method, po_template_key,
+                                    default_fulfilment_days, default_need_by_time, updated_at)
+       values (?,0,0,1,0,'DELIVERY',?,?,?,?)`,
+    ).run(orgId, poTemplateKey, fulfilmentDays, needByTime, now);
 
     for (const key of EMAIL_TEMPLATE_TYPES) {
       const sample = (TEMPLATES as any)[key](SAMPLE_CONTEXT);

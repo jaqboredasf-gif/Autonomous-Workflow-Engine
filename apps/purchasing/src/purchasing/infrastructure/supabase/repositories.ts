@@ -1036,7 +1036,9 @@ export function supabaseReferenceRepository(h: SupabaseHandles): ReferenceReposi
         requireEmailReview: true as const,
         overdueGraceHours: Number(data?.overdue_grace_hours ?? 0),
         defaultDeliveryMethod: String(data?.default_delivery_method ?? 'DELIVERY'),
-        poTemplateKey: String(data?.po_template_key ?? 'lippolis_default'),
+        defaultFulfilmentDays: data?.default_fulfilment_days == null ? null : Number(data.default_fulfilment_days),
+        defaultNeedByTime: String(data?.default_need_by_time ?? '07:00'),
+        poTemplateKey: String(data?.po_template_key ?? 'awe_default'),
       };
     },
 

@@ -727,7 +727,17 @@ create table if not exists system_settings (
   require_email_review   integer not null default 1 check (require_email_review = 1),
   overdue_grace_hours    integer not null default 0,
   default_delivery_method text not null default 'DELIVERY',
-  po_template_key        text not null default 'lippolis_default',
+  po_template_key        text not null default 'awe_default',
+  -- HOW SOON THIS ORGANIZATION EXPECTS MATERIAL, and what time of day it wants
+  -- it. Both were assumptions rather than values: the need-by time defaulted to
+  -- Lippolis's 07:00 in the form component, and the fulfilment expectation was
+  -- described in the organization profile and read by nothing at all.
+  --
+  -- NULL fulfilment days means NO DEFAULT DATE, which is what the form has
+  -- always done. So an existing installation behaves identically until somebody
+  -- states the policy, and a second organization states its own.
+  default_fulfilment_days integer,
+  default_need_by_time   text not null default '07:00',
   updated_at             text not null,
   updated_by             text references users(id)
 );
@@ -942,6 +952,12 @@ create table if not exists schema_meta (
  * outcome on an already-migrated database.
  */
 const ADDED_COLUMNS = [
+  // The organization's fulfilment expectation and its need-by time of day.
+  // Previously an assumption in a form component (07:00) and a profile field
+  // nothing read (fulfilment days). See the note in `system_settings`.
+  'alter table system_settings add column default_fulfilment_days integer',
+  "alter table system_settings add column default_need_by_time text not null default '07:00'",
+
   // 0018: tenant ownership directly on historical line items, so an
   // organization's history is one indexed read and cannot be joined across.
   'alter table purchase_request_items add column org_id text references orgs(id)',

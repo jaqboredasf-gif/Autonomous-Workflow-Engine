@@ -177,8 +177,9 @@ export function seed(db: DatabaseSync, now = new Date().toISOString()) {
 
     db.prepare(
       `insert into system_settings (org_id, allow_self_approval, external_send_enabled, require_email_review,
-                                    overdue_grace_hours, default_delivery_method, po_template_key, updated_at)
-       values (?,0,0,1,0,'DELIVERY','lippolis_default',?)`,
+                                    overdue_grace_hours, default_delivery_method, po_template_key,
+                                    default_fulfilment_days, default_need_by_time, updated_at)
+       values (?,0,0,1,0,'DELIVERY','awe_default',1,'07:00',?)`,
     ).run(DEMO_ORG_ID, now);
 
     // Templates start as the built-in defaults, materialized as editable rows

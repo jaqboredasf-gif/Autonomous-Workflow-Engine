@@ -1055,7 +1055,12 @@ export function sqliteReferenceRepository(db: DatabaseSync): ReferenceRepository
         requireEmailReview: true as const,
         overdueGraceHours: Number(s?.overdue_grace_hours ?? 0),
         defaultDeliveryMethod: String(s?.default_delivery_method ?? 'DELIVERY'),
-        poTemplateKey: String(s?.po_template_key ?? 'lippolis_default'),
+        poTemplateKey: String(s?.po_template_key ?? 'awe_default'),
+        // Null means the organization has stated no fulfilment expectation, and
+        // the request form then offers no default date — which is what it has
+        // always done. It is not zero: "same day" is a policy somebody chose.
+        defaultFulfilmentDays: s?.default_fulfilment_days == null ? null : Number(s.default_fulfilment_days),
+        defaultNeedByTime: String(s?.default_need_by_time ?? '07:00'),
       };
     },
     async emailTemplate(orgId, key) {
