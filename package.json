@@ -27,7 +27,8 @@
     "provision": "node scripts/provision-organization.mjs",
     "second-customer": "node scripts/eval-second-customer.mjs",
     "pitch": "node scripts/iic-pitch.mjs",
-    "narrative": "node scripts/eval-narrative.mjs"
+    "narrative": "node scripts/eval-narrative.mjs",
+    "evidence": "node scripts/iic-evidence.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"
