@@ -79,21 +79,30 @@ export default function NewRequestForm({
   jobs,
   vendors = [],
   now,
+  defaultNeedByDate = '',
+  defaultNeedByTime = '07:00',
+  stockLocationLabel = 'workshop',
 }: {
   actorName: string;
   locations: Array<{ id: string; name: string; kind: string }>;
   jobs: Array<{ number: string; name: string }>;
   vendors?: Array<{ id: string; name: string }>;
   now: string;
+  /** Derived on the server from the organization's fulfilment expectation.
+   *  Empty means the organization has stated none, and the field starts blank. */
+  defaultNeedByDate?: string;
+  defaultNeedByTime?: string;
+  /** The organization's word for the internal place that holds stock. */
+  stockLocationLabel?: string;
 }) {
   const [state, formAction, pending] = useActionState(createRequestAction, null as any);
   const [lines, setLines] = useState<Line[]>([emptyLine(1)]);
-  const [needByDate, setNeedByDate] = useState('');
+  const [needByDate, setNeedByDate] = useState(defaultNeedByDate);
   // START OF THE WORKING DAY, not blank. The domain wants a need-by TIME and
   // the honest answer is almost always "when the crew starts"; asking a foreman
   // to set a clock for that is a question with one answer. It stays editable
   // under More details for the delivery that genuinely has to land at noon.
-  const [needByTime, setNeedByTime] = useState('07:00');
+  const [needByTime, setNeedByTime] = useState(defaultNeedByTime);
 
   // Where it goes, defaulted rather than asked. Material is for a job, so the
   // job site is the default; an installation with no job-site location falls
@@ -284,10 +293,14 @@ export default function NewRequestForm({
         </SelectInput>
 
         <TextArea
-          label="Anything the workshop should know"
+          label={`Anything the ${stockLocationLabel} should know`}
           name="reason"
           rows={2}
-          placeholder="Only if there is something Mike would not already know."
+          // NOT A PERSON'S NAME. This said "something Mike would not already
+          // know" — a Lippolis employee named in shipped UI text, which is a
+          // source edit before a second organization's staff can read the form.
+          // The role is the point of the sentence; the name never was.
+          placeholder="Only if there is something the purchasing team would not already know."
         />
 
         <div>

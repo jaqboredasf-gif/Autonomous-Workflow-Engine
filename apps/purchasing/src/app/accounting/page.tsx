@@ -8,9 +8,10 @@ import { requireAccess, purchasingRequestContext } from '../../server/session.ts
 import * as S from '../../server/service.ts';
 import { accountingPacket } from '../../purchasing/application/queries.ts';
 import { Empty, Money, Section, StatusBadge } from '../../components/ui';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Accounting — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Accounting') };
 
 export default async function AccountingPage() {
   const actor = await requireAccess('/accounting');

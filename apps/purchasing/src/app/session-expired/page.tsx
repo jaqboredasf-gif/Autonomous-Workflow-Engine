@@ -1,6 +1,7 @@
 import Link from 'next/link';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
-export const metadata = { title: 'Session expired — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Session expired') };
 
 export default function SessionExpiredPage() {
   return (

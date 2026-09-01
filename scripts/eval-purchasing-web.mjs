@@ -116,6 +116,14 @@ const server = spawn(process.execPath, ['server.js'], {
     // Stated, because a production start refuses without it. Lippolis's rule —
     // this harness asserts their purchase order numbers.
     PCC_PO_NUMBERING: 'job-vendor-sequence',
+    // THE ORGANIZATION'S IDENTITY, stated because a deployment states it. The
+    // sign-in screen, the shell and every page title are derived from these —
+    // they used to be string literals naming the first customer, which is why
+    // the assertion below now proves the branding is CONFIGURABLE rather than
+    // that one company's name is compiled in. A deliberately not-Lippolis name
+    // is used so a fallback could not satisfy it.
+    PCC_ORG_NAME: 'Harbourline Mechanical, Inc.',
+    PCC_ORG_SHORT_NAME: 'Harbourline',
     // Stated for the same reason: a production start over plain HTTP refuses
     // unless somebody says they meant it. This harness drives 127.0.0.1 with no
     // TLS anywhere, which is precisely the case the flag exists to acknowledge.
@@ -201,7 +209,14 @@ try {
   eq((await get('/sign-in')).status, 200, 'the sign-in page is public');
   eq((await get('/forgot-password')).status, 200, 'the forgot-password page is public');
   const signInHtml = await (await fetch(`${BASE}/sign-in`)).text();
-  check(signInHtml.includes('Lippolis Electric'), 'the sign-in screen is branded');
+  // BRANDED WITH WHOEVER THIS INSTALLATION IS FOR. This asserted
+  // 'Lippolis Electric', which passed because the name was a string literal in
+  // a translated-strings table — so the test proved the coupling rather than
+  // catching it. A second organization's staff would have signed in under
+  // another company's name.
+  check(signInHtml.includes('Harbourline'),
+    "the sign-in screen is branded with THIS installation's organization, from configuration");
+  check(!/Lippolis/i.test(signInHtml), 'and carries no trace of the first customer');
   check(signInHtml.includes('type="password"'), 'the sign-in screen asks for a password');
   check(signInHtml.includes('Forgot your password?'), 'the sign-in screen offers a password reset');
   check(!signInHtml.includes('Developer demo mode'), 'demo identity selection is NOT exposed by default');

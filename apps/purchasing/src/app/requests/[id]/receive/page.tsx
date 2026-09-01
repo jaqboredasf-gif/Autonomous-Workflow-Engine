@@ -18,6 +18,7 @@ import * as S from '../../../../server/service.ts';
 import { receivingAvailability } from '../../../../purchasing/domain/roles.mjs';
 import ReceiveForm from '../../../../components/ReceiveForm';
 import { Alert, ButtonLink, PageHeader } from '../../../../components/pcc';
+import { pageTitle } from '../../../../purchasing/organization/identity.mjs';
 
 /** One explanation per reason, each true only of the case it names. */
 const REFUSALS: Record<string, { title: string; body: string }> = {
@@ -40,7 +41,7 @@ const REFUSALS: Record<string, { title: string; body: string }> = {
 };
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Receiving — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Receiving') };
 
 export default async function ReceivePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

@@ -11,6 +11,7 @@ import { formatMoney, formatQty } from '../../../../purchasing/domain/numbers.mj
 import { Empty, Section, buttonClass, secondaryButtonClass } from '../../../../components/ui';
 import { AutoPrint, BrandMark, PrintButton } from '../../../../components/pcc';
 import { generateEmailDraftAction } from '../../../actions.ts';
+import { brandLogo } from '../../../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
 
@@ -126,7 +127,13 @@ export default async function PoPage({
         {/* --- header ------------------------------------------------------ */}
         <div className="flex items-start justify-between border-b-2 border-slate-800 pb-3">
           <div className="flex items-start gap-3">
-            <BrandMark size={44} />
+            {/* The sheet's own header already prints the company name from the
+                ORDER's snapshot, so the mark stands beside it without repeating
+                it. The name is passed for the image's alt text. */}
+            <BrandMark
+              size={44} companyName={String(view.org.name)}
+              logoSrc={brandLogo()?.src ?? null} logoFallbackSrc={brandLogo()?.fallbackSrc ?? null}
+            />
             <div>
               <div className="text-xl font-bold tracking-tight">{view.org.name}</div>
               {view.org.address ? <div className="text-xs text-slate-700">{view.org.address}</div> : null}

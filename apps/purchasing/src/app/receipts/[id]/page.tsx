@@ -10,9 +10,10 @@ import { notFound } from 'next/navigation';
 import { requireAccess, purchasingRequestContext } from '../../../server/session.ts';
 import { receiptEvidence } from '../../../purchasing/application/queries.ts';
 import { Qty, ReadOnly, Section } from '../../../components/ui';
+import { pageTitle } from '../../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Receipt — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Receipt') };
 
 export default async function ReceiptPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

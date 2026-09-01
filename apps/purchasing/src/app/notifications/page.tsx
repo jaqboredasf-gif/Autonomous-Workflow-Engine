@@ -3,9 +3,10 @@ import Link from 'next/link';
 
 import { requireAccess, purchasingRequestContext } from '../../server/session.ts';
 import { Empty, Section } from '../../components/ui';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Notifications — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Notifications') };
 
 export default async function NotificationsPage() {
   const actor = await requireAccess('/notifications');

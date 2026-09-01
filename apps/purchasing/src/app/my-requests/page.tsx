@@ -9,9 +9,10 @@ import { StatusBadge, Empty } from '../../components/ui';
 import { nextStepFor } from '../../components/pcc';
 import { isOverdue } from '../../purchasing/domain/dashboard.mjs';
 import { statusLabel } from '../../purchasing/domain/status.mjs';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'My requests — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('My requests') };
 
 export default async function MyRequestsPage() {
   const actor = await requireAccess('/my-requests');

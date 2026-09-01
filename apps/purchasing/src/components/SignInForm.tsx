@@ -35,11 +35,19 @@ export default function SignInForm({
   notice,
   demo,
   lang = 'en',
+  /**
+   * The installation's own identity, resolved on the server. The sign-in page
+   * is where the product introduces itself, so getting this from a translated
+   * strings table — where it used to live, hard-coded twice — meant a second
+   * organization's staff signed in under another company's name.
+   */
+  brand,
 }: {
   next: string;
   notice: string | null;
   demo: Array<{ id: string; name: string; email: string; roles: string[] }> | null;
   lang?: Lang;
+  brand: { shortName: string; logoSrc: string | null; logoFallbackSrc: string | null };
 }) {
   const [state, formAction, pending] = useActionState<SignInState, FormData>(signInAction, null);
   const t = loginStrings(lang);
@@ -55,9 +63,12 @@ export default function SignInForm({
               The heading below already names the company, so BrandMark renders
               the logo alone rather than repeating it. */}
           <div className="mb-4 flex justify-center">
-            <BrandMark size={52} />
+            <BrandMark
+              size={52} companyName={brand.shortName}
+              logoSrc={brand.logoSrc} logoFallbackSrc={brand.logoFallbackSrc}
+            />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">{t.company}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">{brand.shortName}</h1>
           <p className="mt-1 text-sm text-muted">{t.product}</p>
         </header>
 

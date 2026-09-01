@@ -4,6 +4,7 @@ import { Inter, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import AppShell from '../components/pcc/AppShell';
 import { PilotBanner } from '../components/ui';
+import { appTitle } from '../purchasing/organization/identity.mjs';
 
 // Inter is the PCC's typeface (02_DESIGN_SYSTEM). The mono face stays for the
 // PO sheet, where columns of numbers have to line up when printed.
@@ -11,7 +12,7 @@ const inter = Inter({ variable: '--font-inter', subsets: ['latin'], display: 'sw
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Lippolis Electric — Purchasing Control Center',
+  title: appTitle(),
   description: 'Material requests, workshop review, purchase orders and receiving.',
 };
 

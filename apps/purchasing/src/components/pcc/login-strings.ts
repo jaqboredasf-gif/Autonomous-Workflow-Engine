@@ -18,9 +18,15 @@ export function normalizeLang(value: string | null | undefined): Lang {
   return String(value ?? '').toLowerCase().startsWith('es') ? 'es' : 'en';
 }
 
+// THE COMPANY NAME IS NOT A TRANSLATED STRING, and treating it as one is how it
+// came to be hard-coded twice. "Lippolis Electric" appeared under both `en` and
+// `es`, so a second organization needed two source edits to stop its own staff
+// signing in under another company's name — in a table whose whole purpose is
+// text that legitimately differs by language. A company name does not differ by
+// language; it comes from the installation's identity, and the sign-in page
+// passes it in.
 const STRINGS = {
   en: {
-    company: 'Lippolis Electric',
     product: 'Purchasing Control Center',
     email: 'Company email',
     password: 'Password',
@@ -35,7 +41,6 @@ const STRINGS = {
     disabled: 'This account has been disabled. Contact the office.',
   },
   es: {
-    company: 'Lippolis Electric',
     product: 'Centro de Control de Compras',
     email: 'Correo de la empresa',
     password: 'Contraseña',

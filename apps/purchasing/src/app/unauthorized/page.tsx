@@ -2,9 +2,10 @@ import Link from 'next/link';
 
 import { currentActor } from '../../server/session.ts';
 import { defaultWorkspaceFor, workspacesFor } from '../../purchasing/domain/workspaces.mjs';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Not available to you — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Not available to you') };
 
 export default async function UnauthorizedPage() {
   const actor = await currentActor();

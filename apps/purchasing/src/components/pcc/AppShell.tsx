@@ -11,6 +11,7 @@ import { homeFor } from '../../purchasing/domain/workspaces.mjs';
 import { hasPermission } from '../../purchasing/domain/roles.mjs';
 import { signOutAction } from '../../app/auth-actions.ts';
 import { ShellChrome } from './ShellChrome';
+import { branding } from '../../purchasing/organization/identity.mjs';
 
 export default async function AppShell({ children }: { children: React.ReactNode }) {
   const actor = await currentActor();
@@ -53,6 +54,12 @@ export default async function AppShell({ children }: { children: React.ReactNode
       unread={unread}
       searchPath={searchPath}
       homePath={homeFor(actor)}
+      brand={(() => {
+        // Resolved HERE because ShellChrome is a client component and cannot read
+        // the environment. One place, on the server, for the whole shell.
+        const b = branding();
+        return { shortName: b.shortName, logoSrc: b.logo?.src ?? null, logoFallbackSrc: b.logo?.fallbackSrc ?? null };
+      })()}
       signOut={
         <form action={signOutAction}>
           <button

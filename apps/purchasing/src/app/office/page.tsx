@@ -12,9 +12,10 @@ import { summarize } from '../../purchasing/domain/dashboard.mjs';
 import { formatMoney } from '../../purchasing/domain/numbers.mjs';
 import { ButtonLink, ButtonRow, KpiCard, PageHeader } from '../../components/pcc';
 import { PurchasingQueue, type QueueSearchParams } from '../../components/pcc/PurchasingQueue';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Office — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Office') };
 
 export default async function OfficePage({ searchParams }: { searchParams: Promise<QueueSearchParams> }) {
   const actor = await requireAccess('/office');

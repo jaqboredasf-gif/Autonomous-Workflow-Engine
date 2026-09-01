@@ -4,10 +4,12 @@ import { currentActor, demoModeEnabled, demoAccounts } from '../../server/sessio
 import { defaultWorkspaceFor } from '../../purchasing/domain/workspaces.mjs';
 import SignInForm from '../../components/SignInForm';
 import { loginStrings, normalizeLang } from '../../components/pcc/login-strings';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
+import { branding } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata = { title: 'Sign in — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Sign in') };
 
 export default async function SignInPage({
   searchParams,
@@ -31,6 +33,10 @@ export default async function SignInPage({
         params.signed_out ? t.signedOut : params.error === 'account_disabled' ? t.disabled : null
       }
       demo={demoModeEnabled() ? demoAccounts() : null}
+      brand={(() => {
+        const b = branding();
+        return { shortName: b.shortName, logoSrc: b.logo?.src ?? null, logoFallbackSrc: b.logo?.fallbackSrc ?? null };
+      })()}
     />
   );
 }

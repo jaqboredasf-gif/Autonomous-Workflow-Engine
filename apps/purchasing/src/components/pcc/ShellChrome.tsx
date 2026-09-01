@@ -26,6 +26,12 @@ export function ShellChrome({
    * are not allowed to see.
    */
   homePath,
+  /**
+   * The installation's own identity. Resolved on the SERVER from
+   * organization/identity.mjs — a client component cannot read the environment,
+   * and hard-coding the company here is what made every screen say Lippolis.
+   */
+  brand,
   signOut,
   children,
 }: {
@@ -34,6 +40,7 @@ export function ShellChrome({
   unread: number;
   searchPath: string;
   homePath: string;
+  brand: { shortName: string; logoSrc: string | null; logoFallbackSrc: string | null };
   signOut: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -71,7 +78,10 @@ export function ShellChrome({
             {/* "Purchasing", not "Purchasing Control Center": the rail is 15rem
                 and the longer product name truncates to an ellipsis, which
                 reads as a bug rather than as a name. */}
-            <BrandMark variant="lockup" size={26} subtitle="Purchasing" />
+            <BrandMark
+              variant="lockup" size={26} subtitle="Purchasing"
+              companyName={brand.shortName} logoSrc={brand.logoSrc} logoFallbackSrc={brand.logoFallbackSrc}
+            />
           </Link>
           <button
             type="button"
@@ -169,8 +179,8 @@ export function ShellChrome({
           </button>
 
           {/* On a phone the sidebar is closed, so the topbar carries the brand. */}
-          <Link href={homePath} className="shrink-0 lg:hidden" aria-label="Lippolis Electric — Purchasing">
-            <BrandMark size={22} />
+          <Link href={homePath} className="shrink-0 lg:hidden" aria-label={`${brand.shortName} — Purchasing`}>
+            <BrandMark size={22} companyName={brand.shortName} logoSrc={brand.logoSrc} logoFallbackSrc={brand.logoFallbackSrc} />
           </Link>
 
           <form action={searchPath} method="get" className="min-w-0 flex-1 md:max-w-md">

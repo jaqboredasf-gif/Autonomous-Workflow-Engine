@@ -9,9 +9,10 @@ import { describeLocations } from '../../purchasing/domain/navigation.mjs';
 import { deliveriesForActor } from '../../purchasing/application/queries.ts';
 import { Empty, StatusBadge } from '../../components/ui';
 import { formatQty } from '../../purchasing/domain/numbers.mjs';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Deliveries — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Deliveries') };
 
 export default async function DeliveriesPage() {
   const actor = await requireAccess('/deliveries');

@@ -23,9 +23,10 @@ import { formatQty } from '../../purchasing/domain/numbers.mjs';
 import { isOverdue } from '../../purchasing/domain/dashboard.mjs';
 import { Badge, Button, ButtonLink, EmptyState, PageHeader, Panel, StatusBadge } from '../../components/pcc';
 import { markReceivedAction } from '../actions.ts';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Receiving — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Receiving') };
 
 export default async function ReceivingPage() {
   const actor = await requireAccess('/receiving');

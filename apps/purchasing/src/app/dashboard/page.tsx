@@ -80,9 +80,10 @@ import {
   stageLabel,
 } from '../../components/pcc';
 import { DashboardFilters } from './DashboardFilters';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Dashboard — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Dashboard') };
 
 const QUEUE_PREVIEW_LIMIT = 8;
 

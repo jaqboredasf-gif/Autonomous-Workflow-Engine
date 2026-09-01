@@ -27,9 +27,10 @@ import {
   THead,
   TR,
 } from '../../components/pcc';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Reports — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Reports') };
 
 export default async function ReportsPage() {
   const actor = await requireAccess('/reports');

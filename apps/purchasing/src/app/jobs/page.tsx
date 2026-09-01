@@ -38,9 +38,10 @@ import {
   fieldStyle,
   buttonStyle,
 } from '../../components/pcc';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Jobs — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Jobs') };
 
 const SOURCE_LABELS: Record<string, string> = {
   local: 'this system',

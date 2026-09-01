@@ -50,9 +50,10 @@ import {
   type TabItem,
 } from '../../components/pcc';
 import { declarePoPairNewAction, initializePoSequenceAction } from '../actions.ts';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Administration — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Administration') };
 
 const MODULES = [
   { key: 'users', label: 'Users' },

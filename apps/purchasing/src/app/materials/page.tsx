@@ -28,9 +28,10 @@ import {
   TR,
 } from '../../components/pcc';
 import { VendorFilters } from '../../components/pcc/VendorFilters';
+import { pageTitle } from '../../purchasing/organization/identity.mjs';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Materials — Lippolis Purchasing' };
+export const metadata = { title: pageTitle('Materials') };
 
 export default async function MaterialsPage({
   searchParams,
