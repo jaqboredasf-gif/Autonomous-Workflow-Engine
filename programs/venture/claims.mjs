@@ -300,6 +300,7 @@ export const CLAIMS = Object.freeze([
     requiredEvidence: [
       'the share of the organization profile honoured by configuration rather than by code',
       'the capability proven against a second organization whose vocabulary shares no words with the first',
+      'a REAL business other than the first one running it',
     ],
     requires: [], unlocks: ['repeatable_deployment'],
     actionable: true,
@@ -312,16 +313,51 @@ export const CLAIMS = Object.freeze([
         return at('SELF_REPORTED', `${pct}% of the profile is honoured by configuration, never tested against a second organization`,
           { have: [`${pct}% honoured`], missing: ['a second organization profile'] });
       }
-      if (pct < 85) {
-        return at('INFERRED', `${pct}% of the profile is configuration, proven against a second organization's data and role names`,
-          { have: [`${pct}% honoured`, 'second organization profile'],
-            missing: [`the remaining ${100 - pct}% of extraction debt`],
-            provenance: ['scripts/eval-organization-provisioning.mjs'] });
+      // TWO DIFFERENT CLAIMS, AND THE SECOND CANNOT BE EARNED FROM A KEYBOARD.
+      //
+      // This used to reach MEASURED on a synthetic second organization at 85%,
+      // and that was the claim overstating itself in the most expensive place.
+      // "AWE is not hard-coded for one company" read by an IIC judge, an
+      // investor or a customer means A SECOND COMPANY IS USING IT — not that a
+      // rehearsal against an invented contractor passed.
+      //
+      // So the ceiling without a real external deployment is INFERRED:
+      // ARCHITECTURALLY REPEATABLE, which is true, provable, and exactly as
+      // strong as the evidence. MEASURED requires a real business, which no
+      // arrangement of files can supply.
+      if (!r.externallyValidated) {
+        return at('INFERRED',
+          `ARCHITECTURALLY REPEATABLE: ${pct}% of the profile is configuration and a second organization was provisioned ` +
+          'and driven through the full purchasing lifecycle with no source change specific to it. NOT externally validated — ' +
+          'the second organization is synthetic.',
+          { have: [
+              `${pct}% honoured`,
+              'a second organization dossier, profile and authorization profile',
+              'a full second-organization lifecycle rehearsal with zero organization-specific source changes',
+              'no organization-id branching anywhere in the product',
+            ],
+            missing: ['a REAL business other than Lippolis running it'],
+            provenance: ['scripts/eval-second-customer.mjs', 'scripts/eval-organization-provisioning.mjs'] });
       }
-      return at('MEASURED', `${pct}% of the profile is configuration, proven against a second organization`,
-        { have: [`${pct}% honoured`], provenance: ['scripts/eval-organization-provisioning.mjs'] });
+      if (pct < 85) {
+        return at('INFERRED', `${pct}% of the profile is configuration, and a real second business is running it`,
+          { have: [`${pct}% honoured`, 'a real second deployment'],
+            missing: [`the remaining ${100 - pct}% of extraction debt`],
+            provenance: ['scripts/eval-second-customer.mjs'] });
+      }
+      return at('MEASURED',
+        `${pct}% of the profile is configuration, and a real business other than the first is running it`,
+        { have: [`${pct}% honoured`, 'a real second deployment'],
+          provenance: ['scripts/eval-second-customer.mjs'] });
     },
-    nextAction: (f) => `Extract the highest-value hard-coded fields named in capability/purchasing/profile.mjs. Currently ${f.repeatability?.profileHonouredPercent ?? 0}% is configuration.`,
+    nextAction: (f) => {
+      const r = f.repeatability ?? {};
+      if (r.secondOrganizationProven && !r.externallyValidated) {
+        return 'Nothing to build for this claim. It is architecturally repeatable and the remaining evidence is a SIGNED DESIGN PARTNER — ' +
+          'see docs/design-partner/ONBOARDING.md. Extracting more profile fields will not raise it.';
+      }
+      return `Extract the highest-value hard-coded fields named in capability/purchasing/profile.mjs. Currently ${r.profileHonouredPercent ?? 0}% is configuration.`;
+    },
   },
 
   {

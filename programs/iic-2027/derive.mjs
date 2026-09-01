@@ -53,21 +53,66 @@ export async function deriveFacts({ db = null, org = null, warn = () => {} } = {
   };
 }
 
-/** How much of the capability is configuration rather than engineering. */
+/**
+ * How much of the capability is configuration rather than engineering.
+ *
+ * THE SCORE IS ASKED FOR, NOT RE-DERIVED. This used to scrape the profile with
+ * a regex over `extractable: 'yes|partial|no'` and do its own arithmetic — a
+ * second copy of a rule that lives in `extractionScore()`. When a fourth state
+ * (`invariant`) was added, the regex silently stopped matching those fields, so
+ * this function was excluding them from its denominator by accident and
+ * agreeing with the real score by coincidence. One implementation now.
+ *
+ * TWO DIFFERENT CLAIMS, kept apart:
+ *
+ *   ARCHITECTURALLY REPEATABLE  a second organization can be provisioned and
+ *                               used without a source change. Provable here, by
+ *                               a rehearsal against a synthetic company.
+ *   EXTERNALLY VALIDATED        a REAL business other than the first is running
+ *                               it. Not provable from a repository at all.
+ *
+ * The first is engineering and is finished. The second requires a signed design
+ * partner, and no arrangement of files can substitute for one — so it is read
+ * from evidence a human records, and its absence caps the claim.
+ */
+const profileScoreModule = await import(R('capability/purchasing/profile.mjs'));
+
 export function deriveRepeatability() {
   try {
-    const src = readFileSync(R('capability/purchasing/profile.mjs'), 'utf8');
-    const fields = [...src.matchAll(/extractable:\s*'(yes|partial|no)'/g)].map((m) => m[1]);
-    if (!fields.length) return {};
-    const yes = fields.filter((f) => f === 'yes').length;
-    const partial = fields.filter((f) => f === 'partial').length;
-    const percent = Math.round(((yes + partial * 0.5) / fields.length) * 100);
-    // A second organization is PROVEN only when a profile exists for one whose
-    // roles share no name with the first, and the suite that checks it exists.
-    const secondProfile = existsSync(R('capability/purchasing/profiles/org-002-trades.mjs'));
-    const secondSuite = existsSync(R('scripts/eval-organization-provisioning.mjs'));
-    return { repeatability: { profileHonouredPercent: percent, secondOrganizationProven: secondProfile && secondSuite } };
+    const { extractionScore } = requireProfileScore();
+    const score = extractionScore();
+
+    // A second organization is ARCHITECTURALLY proven only when all of it
+    // exists: a profile whose roles share no name with the first, an
+    // authorization profile, a dossier, and the suite that drives the whole
+    // lifecycle through it.
+    const secondOrganizationProven = [
+      'capability/purchasing/profiles/org-002-trades.mjs',
+      'capability/purchasing/profiles/org-002-authorization.mjs',
+      'organizations/northgate/dossier.mjs',
+      'scripts/eval-second-customer.mjs',
+    ].every((f) => existsSync(R(f)));
+
+    // EXTERNALLY VALIDATED cannot be inferred from the repository, and must not
+    // be: every file below could exist while no real company had ever run it.
+    // A real second deployment is recorded by a human in this file, once, and
+    // until then the honest answer is false.
+    const externallyValidated = false;
+
+    return {
+      repeatability: {
+        profileHonouredPercent: score.percent,
+        profileInvariantFields: score.invariant,
+        secondOrganizationProven,
+        externallyValidated,
+      },
+    };
   } catch { return {}; }
+}
+
+/** Loaded lazily so a broken profile degrades this scorecard rather than the app. */
+function requireProfileScore() {
+  return profileScoreModule;
 }
 
 /**

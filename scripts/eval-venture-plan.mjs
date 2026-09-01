@@ -284,15 +284,47 @@ console.log('--- impressive architecture, weak business need ------------------'
 {
   const p = plan(world({
     proof: { capabilityNeutral: true, secondCapabilityAdapter: true, architectureOperational: true },
-    repeatability: { profileHonouredPercent: 95, secondOrganizationProven: true },
+    repeatability: { profileHonouredPercent: 95, secondOrganizationProven: true, externallyValidated: false },
     deployment: { phase: 'GO_LIVE', deployments: 3, packageBuilder: true, approvedCommit: { commit: 'a1b2c3d', signedBy: 'Jack Daly' } },
   }));
-  eq(claimIn(p, 'not_hardcoded').grade, 'MEASURED', 'the engineering claims are genuinely strong');
+  // ARCHITECTURALLY REPEATABLE IS NOT EXTERNALLY VALIDATED, and this is the
+  // sharpest place the difference shows: 95% of the profile is configuration, a
+  // second organization has been provisioned and driven end to end, and no real
+  // business other than the first has ever run it. That is INFERRED, and it
+  // used to read MEASURED — which is the claim overstating itself in exactly
+  // the scenario this section exists to catch.
+  eq(claimIn(p, 'not_hardcoded').grade, 'INFERRED',
+    'strong architecture against a SYNTHETIC second organization is INFERRED, never MEASURED');
+  check(/ARCHITECTURALLY REPEATABLE/.test(claimIn(p, 'not_hardcoded').because),
+    'and it says which of the two claims it has earned');
+  check(claimIn(p, 'not_hardcoded').missing.some((m) => /REAL business/i.test(m)),
+    'and names the one piece of evidence a keyboard cannot produce');
   eq(claimIn(p, 'problem_real').grade, 'UNAVAILABLE', 'and nobody has established there is a problem');
   check(p.founderHighestLeverage?.claim === 'problem_real' || p.founderHighestLeverage?.claim === 'problem_economic',
     'so the action is to go and find out', p.founderHighestLeverage?.claim);
-  check(!/refactor|extract|abstraction|architecture/i.test(p.highestLeverage?.action ?? ''),
-    'and not to improve the architecture further');
+  {
+    // The claim's own next action must send Jack to a customer, not to the
+    // editor. Asserted on MEANING rather than on the word "extract", because the
+    // correct text says extraction will NOT help — which a keyword match reads
+    // as the opposite of what it is.
+    const next = CLAIMS.find((c) => c.id === 'not_hardcoded').nextAction({
+      repeatability: { profileHonouredPercent: 95, secondOrganizationProven: true, externallyValidated: false },
+    });
+    check(/SIGNED DESIGN PARTNER|design partner/i.test(next),
+      'the claim\'s next action is to sign a design partner, not to write more configuration');
+    check(/will not raise it|Nothing to build/i.test(next),
+      'and it says outright that more extraction cannot raise the grade');
+  }
+
+  // MEASURED IS STILL REACHABLE, so the cap above is a bar rather than a
+  // ceiling nobody can clear.
+  const real = plan(world({
+    proof: { capabilityNeutral: true, secondCapabilityAdapter: true, architectureOperational: true },
+    repeatability: { profileHonouredPercent: 95, secondOrganizationProven: true, externallyValidated: true },
+    deployment: { phase: 'GO_LIVE', deployments: 3, packageBuilder: true, approvedCommit: { commit: 'a1b2c3d', signedBy: 'Jack Daly' } },
+  }));
+  eq(claimIn(real, 'not_hardcoded').grade, 'MEASURED',
+    'a REAL second business running it is what settles the claim');
   notes.push('strong architecture with no established need sends the founder outside, not to the editor');
 }
 
