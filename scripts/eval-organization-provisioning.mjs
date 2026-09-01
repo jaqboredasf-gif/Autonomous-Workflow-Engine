@@ -216,8 +216,24 @@ console.log('--- the profile names the rule, the strategy performs it --------')
 
 eq(lippolisProfile.purchasing.po_numbering, JOB_VENDOR_SEQUENCE.id,
   'the Lippolis profile names the strategy this build implements');
-check(poNumberStrategyFor(lippolisProfile.purchasing.po_numbering) === JOB_VENDOR_SEQUENCE,
-  'selecting by the profile id returns the Lippolis strategy');
+{
+  // Selection now BUILDS the strategy, because a rule takes the organization's
+  // separator. Identity is therefore the wrong test and behaviour is the right
+  // one: the selected strategy must number and scope exactly as the frozen
+  // Lippolis instance does.
+  const selected = poNumberStrategyFor(lippolisProfile.purchasing.po_numbering);
+  eq(selected.id, JOB_VENDOR_SEQUENCE.id, 'selecting by the profile id returns the Lippolis rule');
+  eq(selected.format({ jobNumber: '1234', vendorCode: 'COOPER', sequence: 3 }),
+    JOB_VENDOR_SEQUENCE.format({ jobNumber: '1234', vendorCode: 'COOPER', sequence: 3 }),
+    'and it formats identically to the frozen instance');
+  eq(selected.sequenceScope({ jobNumber: '1234', vendorId: 'v1' }),
+    JOB_VENDOR_SEQUENCE.sequenceScope({ jobNumber: '1234', vendorId: 'v1' }),
+    'and scopes its counter identically');
+  eq(poNumberStrategyFor(lippolisProfile.purchasing.po_numbering, 'lippolis',
+    { separator: lippolisProfile.purchasing.po_separator }).format({ jobNumber: '1234', vendorCode: 'COOPER', sequence: 3 }),
+    '1234-COOPER-3',
+    'and passing Lippolis\'s own declared separator changes nothing — it was always the hyphen');
+}
 
 // ---------------------------------------------------------------------------
 console.log('--- Lippolis numbers are exactly what they were -----------------');
@@ -371,12 +387,48 @@ console.log('--- a missing rule fails, and is never filled in -----------------'
   check(unset?.reason === 'po_numbering_unconfigured', 'an organization with no declared numbering rule is refused');
   check(unset && /org-new/.test(unset.message), 'and the refusal names the organization');
 
+  // org-002's rule USED to be the unimplemented case, and its being
+  // unimplemented was a source-code blocker on provisioning a second customer.
+  // It is implemented now, so the refusal is proven with a rule nobody has
+  // written — which is the case that actually needs guarding, permanently.
+  eq(org002Profile.purchasing.po_numbering, 'vendor-sequence',
+    'org-002 declares the per-vendor rule');
+  check(IMPLEMENTED_IDS.includes(org002Profile.purchasing.po_numbering),
+    'and this build can now perform it — a second organization no longer needs a source change to be numbered');
+
   let unknown = null;
-  try { poNumberStrategyFor(org002Profile.purchasing.po_numbering); } catch (err) { unknown = err; }
+  try { poNumberStrategyFor('quarterly-branch-sequence', 'org-003'); } catch (err) { unknown = err; }
   check(unknown?.reason === 'po_numbering_not_implemented',
-    `org-002 declares "${org002Profile.purchasing.po_numbering}", which this build cannot perform, and is refused`);
+    'a rule nobody has implemented is still refused, never approximated');
   check(unknown && IMPLEMENTED_IDS.every((id) => unknown.message.includes(id)),
     'and the refusal says what this build CAN perform');
+
+  // The per-vendor rule, end to end: no job in the number, counter on the
+  // vendor alone, and the organization's own separator.
+  {
+    const v = poNumberStrategyFor('vendor-sequence', 'org-002-trades',
+      { separator: org002Profile.purchasing.po_separator });
+    eq(v.format({ vendorCode: 'COOPER', sequence: 1 }), 'COOPER/1', 'org-002 numbers COOPER/1');
+    eq(v.format({ jobNumber: '9999', vendorCode: 'COOPER', sequence: 2 }), 'COOPER/2',
+      'and a job number changes nothing — this rule does not count per job');
+    eq(v.sequenceScope({ jobNumber: '1234', vendorId: 'v-cooper' }), { vendorKey: 'v-cooper' },
+      'its scope names the vendor and no job at all');
+    // The counter KEY is what the database is keyed on, and it is sequenceKeyFor
+    // that normalizes an absent job to the empty key. That is the contract the
+    // allocator relies on, so it is the one worth asserting.
+    eq(sequenceKeyFor(v, { orgId: 'org-002-trades', jobNumber: '1234', vendorId: 'v-cooper' }),
+      { jobKey: '', vendorKey: 'v-cooper' },
+      'and its counter key carries an empty job — one counter per vendor, across every job');
+    eq(sequenceKeyFor(v, { orgId: 'org-002-trades', jobNumber: '9999', vendorId: 'v-cooper' }),
+      sequenceKeyFor(v, { orgId: 'org-002-trades', jobNumber: '1234', vendorId: 'v-cooper' }),
+      'two different jobs share one Cooper counter, which is the whole point of the rule');
+  }
+
+  // A separator this build will not print is refused rather than substituted.
+  let sep = null;
+  try { poNumberStrategyFor('vendor-sequence', 'org-004', { separator: ' ' }); } catch (err) { sep = err; }
+  check(sep?.reason === 'po_separator_not_allowed',
+    'a separator this build will not put in an identifier is refused, not swapped for a hyphen');
 
   // NO PLACEHOLDER, ANYWHERE. The failure modes above must not be reachable as
   // a number. A strategy that produces nothing usable is an error inside the

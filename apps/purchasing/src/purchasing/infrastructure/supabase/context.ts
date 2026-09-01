@@ -392,7 +392,7 @@ export function supabasePurchasingContext(
     // Same seam as the local composition root, same source of truth: the
     // organization's profile id decides the rule, and both providers now build
     // the identifier with the same function.
-    poNumbers: supabasePoNumberAllocator(handles, poNumberStrategyFor(config.poNumbering, handles.orgId)),
+    poNumbers: supabasePoNumberAllocator(handles, poNumberStrategyFor(config.poNumbering, handles.orgId, { separator: config.poSeparator })),
     identity: identity(handles, config),
     // Credentials stay with the AuthPort; the Supabase auth adapter already
     // exists and is selected by the same configuration.

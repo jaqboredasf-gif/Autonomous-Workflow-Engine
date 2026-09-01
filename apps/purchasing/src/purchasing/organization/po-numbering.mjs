@@ -43,12 +43,49 @@ import { FIRST_SEQUENCE, isValidVendorCode, normalizeJobSegment } from '../domai
 export const PO_NUMBER_SEPARATOR = '-';
 
 /**
+ * The separators an organization may choose between.
+ *
+ * A CLOSED SET, on purpose. The separator ends up inside an identifier that is
+ * printed on a supplier's paperwork, used in a filename, and typed back into a
+ * search box, so it may not be a space, a slash-that-is-a-path-separator
+ * surprise, a quote, or anything a spreadsheet will treat as a formula. Two
+ * characters cover both organizations we have; a third is a one-line change and
+ * a conversation, which is the right cost for a decision that is permanent once
+ * a number has left the building.
+ */
+export const ALLOWED_SEPARATORS = Object.freeze(['-', '/']);
+
+/**
+ * The separator, or a refusal.
+ *
+ * Refused rather than defaulted. An organization that declared `po_separator`
+ * as something this build will not put in an identifier has told us something
+ * specific about its paperwork, and quietly substituting a hyphen would issue
+ * numbers that do not match the book the office is reconciling against.
+ */
+export function requireSeparator(separator) {
+  const sep = separator === undefined || separator === null ? PO_NUMBER_SEPARATOR : String(separator);
+  if (!ALLOWED_SEPARATORS.includes(sep)) {
+    const err = new Error(
+      `purchase order number separator ${JSON.stringify(separator)} is not one this build will put in an identifier. ` +
+        `Allowed: ${ALLOWED_SEPARATORS.map((c) => JSON.stringify(c)).join(', ')}. ` +
+        'Set the organization profile\'s purchasing.po_separator, and if the organization genuinely uses ' +
+        'another character, add it to ALLOWED_SEPARATORS deliberately — purchasing will not substitute one.',
+    );
+    err.reason = 'po_separator_not_allowed';
+    throw err;
+  }
+  return sep;
+}
+
+/**
  * Build a Lippolis purchase order number.
  *
  * No zero-padding: `1234-COOPER-1`, not `1234-COOPER-0001`. The examples came
  * from the people who write these by hand and they are unpadded.
  */
-export function formatPoNumber({ jobNumber, vendorCode, sequence }) {
+export function formatPoNumber({ jobNumber, vendorCode, sequence, separator = PO_NUMBER_SEPARATOR }) {
+  const sep = requireSeparator(separator);
   const job = normalizeJobSegment(jobNumber);
   const code = String(vendorCode ?? '').toUpperCase();
   const n = Number(sequence);
@@ -57,7 +94,7 @@ export function formatPoNumber({ jobNumber, vendorCode, sequence }) {
   if (!isValidVendorCode(code)) throw new Error(`invalid vendor code for a purchase order number: ${JSON.stringify(vendorCode)}`);
   if (!Number.isSafeInteger(n) || n < FIRST_SEQUENCE) throw new Error(`invalid PO sequence value: ${sequence}`);
 
-  return `${job}${PO_NUMBER_SEPARATOR}${code}${PO_NUMBER_SEPARATOR}${n}`;
+  return `${job}${sep}${code}${sep}${n}`;
 }
 
 /**
@@ -87,14 +124,80 @@ export function parsePoNumber(poNumber) {
 }
 
 /** Lippolis: job + vendor + a sequence that counts within that pair. */
-export const JOB_VENDOR_SEQUENCE = definePoNumberStrategy({
-  id: 'job-vendor-sequence',
-  sequenceScope: ({ jobNumber, vendorId }) => ({
-    jobKey: normalizeJobSegment(jobNumber),
-    vendorKey: vendorId,
-  }),
-  format: ({ jobNumber, vendorCode, sequence }) => formatPoNumber({ jobNumber, vendorCode, sequence }),
-});
+export const JOB_VENDOR_SEQUENCE = jobVendorSequence();
+
+/**
+ * The Lippolis rule, built for a given separator.
+ *
+ * The separator is the organization's — `purchasing.po_separator` — and the
+ * default is Lippolis's hyphen, so `jobVendorSequence()` is byte-for-byte the
+ * strategy that has always been here. That equality is asserted by test rather
+ * than trusted: see scripts/eval-second-customer.mjs.
+ */
+export function jobVendorSequence({ separator = PO_NUMBER_SEPARATOR } = {}) {
+  const sep = requireSeparator(separator);
+  return definePoNumberStrategy({
+    id: 'job-vendor-sequence',
+    sequenceScope: ({ jobNumber, vendorId }) => ({
+      jobKey: normalizeJobSegment(jobNumber),
+      vendorKey: vendorId,
+    }),
+    format: ({ jobNumber, vendorCode, sequence }) => formatPoNumber({ jobNumber, vendorCode, sequence, separator: sep }),
+  });
+}
+
+// --- the second rule --------------------------------------------------------
+//
+// A CONTRACTOR THAT DOES NOT COUNT PER JOB. The synthetic second organization
+// numbers per vendor: every purchase order to Cooper is the next Cooper number,
+// whichever job it is for.
+//
+//     COOPER/1
+//     COOPER/2      — a different job, the same counter
+//     GRAYBAR/1
+//
+// THIS EXISTS BECAUSE ITS ABSENCE WAS A SOURCE-CODE BLOCKER. The org-002
+// profile has declared `vendor-sequence` since the numbering seam landed, and
+// no build could perform it — so provisioning a second organization refused at
+// startup and the fix was for Jack to edit this file. That is precisely the
+// class of blocker the second-customer work exists to remove. The seam did not
+// change; only the number of rules behind it did, which is the seam working.
+//
+// NOTE WHAT IS NOT CLAIMED: this is not "per-vendor numbering for any business".
+// It is one more rule in an explicit map. A third organization that counts per
+// month, or pads to four digits, adds a third entry. There is still no DSL.
+
+/** A sequence that counts within the VENDOR alone — the job does not scope it. */
+export function vendorSequence({ separator = PO_NUMBER_SEPARATOR } = {}) {
+  const sep = requireSeparator(separator);
+  return definePoNumberStrategy({
+    id: 'vendor-sequence',
+    // No jobKey at all. The counter table is keyed on the vendor, which
+    // sequenceKeyFor already permits — a rule that does not count per job says
+    // so by leaving it out.
+    sequenceScope: ({ vendorId }) => ({ vendorKey: vendorId }),
+    format: ({ vendorCode, sequence }) => formatVendorPoNumber({ vendorCode, sequence, separator: sep }),
+  });
+}
+
+export const VENDOR_SEQUENCE = vendorSequence();
+
+/**
+ * Build a vendor-scoped purchase order number.
+ *
+ * Same validation as the Lippolis rule, minus the job it does not use. A blank
+ * or malformed component throws rather than producing `undefined/1`.
+ */
+export function formatVendorPoNumber({ vendorCode, sequence, separator = PO_NUMBER_SEPARATOR }) {
+  const sep = requireSeparator(separator);
+  const code = String(vendorCode ?? '').toUpperCase();
+  const n = Number(sequence);
+
+  if (!isValidVendorCode(code)) throw new Error(`invalid vendor code for a purchase order number: ${JSON.stringify(vendorCode)}`);
+  if (!Number.isSafeInteger(n) || n < FIRST_SEQUENCE) throw new Error(`invalid PO sequence value: ${sequence}`);
+
+  return `${code}${sep}${n}`;
+}
 
 // --- selection --------------------------------------------------------------
 
@@ -107,6 +210,20 @@ export const JOB_VENDOR_SEQUENCE = definePoNumberStrategy({
  */
 export const IMPLEMENTED = Object.freeze({
   [JOB_VENDOR_SEQUENCE.id]: JOB_VENDOR_SEQUENCE,
+  [VENDOR_SEQUENCE.id]: VENDOR_SEQUENCE,
+});
+
+/**
+ * The same rules, as BUILDERS that accept the organization's separator.
+ *
+ * `IMPLEMENTED` above stays exactly what it was — instances built with the
+ * default separator — because it is the vocabulary an error message quotes and
+ * the thing `env.ts` validates a declared id against. This map is what the
+ * composition root uses when it knows the organization's separator.
+ */
+export const BUILDERS = Object.freeze({
+  'job-vendor-sequence': jobVendorSequence,
+  'vendor-sequence': vendorSequence,
 });
 
 /** The ids this build can perform, for an error message worth reading. */
@@ -129,7 +246,7 @@ export const IMPLEMENTED_IDS = Object.freeze(Object.keys(IMPLEMENTED));
  * invoice months later, at which point the missing decision has become data.
  * Refusing to start is recoverable. Fabricated numbers are not.
  */
-export function poNumberStrategyFor(id, orgId) {
+export function poNumberStrategyFor(id, orgId, options = {}) {
   const key = typeof id === 'string' ? id.trim() : '';
   if (!key) {
     const err = new Error(
@@ -140,8 +257,8 @@ export function poNumberStrategyFor(id, orgId) {
     err.reason = 'po_numbering_unconfigured';
     throw err;
   }
-  const strategy = IMPLEMENTED[key];
-  if (!strategy) {
+  const build = BUILDERS[key];
+  if (!build) {
     const err = new Error(
       `purchase order numbering rule "${key}" is not implemented in this build. ` +
         `Implemented: ${IMPLEMENTED_IDS.join(', ')}. Implement the organization's rule in ` +
@@ -150,5 +267,8 @@ export function poNumberStrategyFor(id, orgId) {
     err.reason = 'po_numbering_not_implemented';
     throw err;
   }
-  return strategy;
+  // The separator is the organization's, and `requireSeparator` refuses one this
+  // build will not print rather than substituting a hyphen. Omitted, it is
+  // Lippolis's hyphen, which is what every existing installation declares.
+  return build({ separator: options.separator });
 }

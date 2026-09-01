@@ -317,11 +317,31 @@ await refuses({
 
 // The rule is KNOWN and this build cannot perform it. Refused rather than
 // approximated: a purchase order number cannot be withdrawn from a supplier.
+// `vendor-sequence` used to be this case, and it was a source-code blocker on
+// provisioning a second customer rather than a guard — so it was implemented.
+// The refusal is now proven with a rule nobody has written, which is the case
+// that needs guarding permanently.
 await refuses({
   name: 'a numbering rule this build cannot perform',
   port: 3593,
-  env: { SESSION_SECRET: GOOD_SECRET, PCC_PO_NUMBERING: 'vendor-sequence', PCC_DATABASE_ALLOW_CREATE: '1' },
-  expects: ['vendor-sequence', 'not a numbering rule this build can perform', 'Nothing has been written'],
+  env: { SESSION_SECRET: GOOD_SECRET, PCC_PO_NUMBERING: 'quarterly-branch-sequence', PCC_DATABASE_ALLOW_CREATE: '1' },
+  expects: ['quarterly-branch-sequence', 'not a numbering rule this build can perform', 'Nothing has been written'],
+});
+
+// AND A SEPARATOR THIS BUILD WILL NOT PUT IN AN IDENTIFIER. Refused rather than
+// swapped for a hyphen: numbers that do not match the book the office
+// reconciles against cannot be withdrawn either.
+await refuses({
+  name: 'a purchase order separator this build will not print',
+  port: 3596,
+  env: {
+    SESSION_SECRET: GOOD_SECRET, PCC_PO_NUMBERING: 'job-vendor-sequence',
+    // A space AND a pipe are both refused. The space is the interesting one: it
+    // used to be trimmed to empty and then defaulted to a hyphen, so an
+    // installation that declared a space silently numbered with hyphens.
+    PCC_PO_SEPARATOR: ' ', PCC_DATABASE_ALLOW_CREATE: '1',
+  },
+  expects: ['PCC_PO_SEPARATOR', 'Nothing has been written'],
 });
 
 await refuses({

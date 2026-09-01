@@ -34,6 +34,8 @@ export type AppConfig = {
    * this repository asserts their numbers.
    */
   poNumbering: string;
+  /** The organization's PO-number separator. Lippolis: '-'. */
+  poSeparator: string;
   appBaseUrl: string;
   sessionSecret: string;
   sessionTtlSeconds: number;
@@ -85,7 +87,7 @@ export type AppConfig = {
   };
 };
 
-import { IMPLEMENTED_IDS } from '../organization/po-numbering.mjs';
+import { IMPLEMENTED_IDS, ALLOWED_SEPARATORS, PO_NUMBER_SEPARATOR } from '../organization/po-numbering.mjs';
 
 const DEV_SESSION_SECRET = 'purchasing-pilot-development-secret-not-for-production';
 /** The development address. Production must replace it — see validateEnvironment. */
@@ -126,6 +128,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     // Empty in production when unset — validateEnvironment() reports it and
     // the composition root refuses to build an allocator without a rule.
     poNumbering: (env.PCC_PO_NUMBERING ?? '').trim() || (isProduction ? '' : DEV_PO_NUMBERING),
+    // The organization's separator, owned by the numbering strategy. Unset means
+    // Lippolis's hyphen, which is what every installation to date declares — an
+    // organization that uses another character states it, and one this build
+    // will not print is refused rather than substituted (`requireSeparator`).
+    //
+    // SET-BUT-BLANK IS NOT UNSET. This was `(env.PCC_PO_SEPARATOR ?? '').trim()
+    // || PO_NUMBER_SEPARATOR`, which quietly turned `PCC_PO_SEPARATOR=" "` into
+    // a hyphen — the exact substitution the validation below exists to refuse,
+    // performed one line before it could run. A variable that is present is
+    // honoured as written and validated as written; only an ABSENT variable
+    // defaults.
+    poSeparator: env.PCC_PO_SEPARATOR === undefined ? PO_NUMBER_SEPARATOR : env.PCC_PO_SEPARATOR,
     appBaseUrl,
     // A cookie the browser will actually send back. `Secure` is right whenever
     // the connection is HTTPS and is a total sign-in outage when it is not, so
@@ -254,6 +268,13 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): {
     error('PCC_PO_NUMBERING', `a production deployment must state how it numbers purchase orders — one of: ${IMPLEMENTED_IDS.join(', ')}`);
   } else if (config.poNumbering && !IMPLEMENTED_IDS.includes(config.poNumbering)) {
     error('PCC_PO_NUMBERING', `"${config.poNumbering}" is not a numbering rule this build can perform. Implemented: ${IMPLEMENTED_IDS.join(', ')}. Implement it in organization/po-numbering.mjs — purchasing will not approximate it.`);
+  }
+
+  // A separator this build will not put in an identifier stops startup. The
+  // alternative is issuing purchase orders whose numbers do not match the book
+  // the office reconciles against, and those cannot be withdrawn either.
+  if (!ALLOWED_SEPARATORS.includes(config.poSeparator)) {
+    error('PCC_PO_SEPARATOR', `"${config.poSeparator}" is not a separator this build will put in a purchase order number. Allowed: ${ALLOWED_SEPARATORS.map((c) => JSON.stringify(c)).join(', ')}.`);
   }
 
   if (env.PURCHASING_DEMO_MODE === '1' && config.isProduction) {

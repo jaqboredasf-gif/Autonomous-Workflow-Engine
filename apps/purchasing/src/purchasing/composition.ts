@@ -77,7 +77,7 @@ export function purchasingContext(db: DatabaseSync = getDb(), now?: string): Pur
     // taken from the organization's profile id. An id nobody has implemented
     // throws on the way up — the alternative is issuing purchase orders with
     // invented numbers on them, which is not a smaller failure.
-    poNumbers: sqlitePoNumberAllocator(db, poNumberStrategyFor(loadConfig().poNumbering)),
+    poNumbers: sqlitePoNumberAllocator(db, poNumberStrategyFor(loadConfig().poNumbering, undefined, { separator: loadConfig().poSeparator })),
     identity: identityAdapter(db),
     // Credentials: Supabase Auth in production, the local scrypt store for the
     // pilot. Chosen once, here, by configuration.
