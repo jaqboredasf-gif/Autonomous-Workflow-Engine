@@ -34,7 +34,7 @@ const require = createRequire(import.meta.url);
 const R = (p) => join(ROOT, p);
 
 /** No database given, or one that will not say it is production. */
-const NO_USAGE = Object.freeze({ executions: 0, activeDays: 0, organizations: 0 });
+const NO_USAGE = Object.freeze({ executions: 0, activeDays: 0, organizations: 0, capabilitiesInProduction: 0 });
 
 /**
  * Everything the scorecard and the plan both read.
@@ -50,6 +50,50 @@ export async function deriveFacts({ db = null, org = null, warn = () => {} } = {
     ...await deriveDeployment(),
     ...await deriveDiscovery(),
     ...await deriveProof({ db, org, warn }),
+    ...deriveArtifacts(),
+  };
+}
+
+/**
+ * Which narrative artifacts EXIST as files.
+ *
+ * Read by programs/iic-2027/narrative.mjs, and kept in its own group —
+ * `artifacts`, not `narrative` — for one reason that is worth the extra word.
+ *
+ * A FILE IS NOT A REHEARSED PERSON. The `narrative` dimension in readiness.mjs
+ * asks whether one person can explain AWE in a minute and defend it for ten,
+ * and it is scored from DECLARED facts: a recorded one-minute version, a mock
+ * pitch that happened. If existence-of-file were merged into that group, then
+ * writing a document would raise a band that is supposed to measure whether a
+ * human being can do something, and the day the spec directory was created the
+ * scorecard would have congratulated itself.
+ *
+ * So these facts feed the presentation architecture — which legitimately needs
+ * to know whether the workflow has been written down — and they feed nothing
+ * that scores the company. A test asserts that building this directory did not
+ * move the scorecard.
+ */
+export function deriveArtifacts() {
+  const has = (p) => existsSync(R(p));
+  let frozenBaselines = 0;
+  try { frozenBaselines = readdirSync(R('proof/baselines/frozen')).filter((f) => f.endsWith('.json')).length; }
+  catch { /* nothing frozen yet */ }
+
+  return {
+    artifacts: {
+      // The pre-AWE workflow, recorded from the business rather than imagined.
+      workflowMapped: has('docs/planning/CURRENT_WORKFLOW.md') && has('docs/planning/WORKFLOW_MAPS.md'),
+      // A recorded conversation with the person who runs the work. This is the
+      // checkable form of "I was inside this business"; the sentence is not.
+      bossInterviewRecorded: has('docs/planning/BOSS_INTERVIEW.md'),
+      // The presentation architecture itself. Deliberately NOT scored anywhere:
+      // it is a place to put evidence, not evidence.
+      narrativeArchitecture: has('programs/iic-2027/narrative.mjs') && has('programs/iic-2027/MASTER_SPEC.md'),
+      demoArchitecture: has('programs/iic-2027/demo-architecture.md'),
+      // Frozen, reproducible evidence exports. The only artifact in this list
+      // whose existence means something happened in the real world.
+      frozenBaselines,
+    },
   };
 }
 
@@ -362,6 +406,11 @@ export async function deriveProof({ db = null, org = null, warn = () => {} } = {
       executions: Number(span.n),
       activeDays: Math.max(1, Math.round((Date.parse(last) - Date.parse(first)) / 86_400_000)),
       organizations: 1,
+      // HOW MANY CAPABILITIES ARE DOING REAL WORK, which is not the same as how
+      // many exist. Purchasing is the only one with a production reader, so this
+      // is 1 whenever it has run and cannot yet reach 2 by any arrangement of
+      // files — which is the honest answer, and the one the wedge beat needs.
+      capabilitiesInProduction: 1,
     },
   };
 }
