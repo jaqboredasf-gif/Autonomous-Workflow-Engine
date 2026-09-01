@@ -1,0 +1,13 @@
+{
+  "_": "The five facts the founder story rests on, and the only file in this repository that asks Jack to write about himself. Each field is { value, confirmedBy, confirmedAt } or it is absent. There is no placeholder: three months from now a placeholder is indistinguishable from an answer. Nothing here moves a readiness band — the published rubric has no team criterion — but the specific incident is PROHIBITED on stage until it appears here with a date. See programs/iic-2027/founder-story.md for what a good answer looks like and why each one is asked.",
+
+  "role": null,
+  "period": null,
+  "incident": null,
+  "builtWhileEmployed": null,
+  "relationshipToday": null,
+
+  "_example": {
+    "role": { "value": "...", "confirmedBy": "Jack Daly", "confirmedAt": "2026-09-05" }
+  }
+}
