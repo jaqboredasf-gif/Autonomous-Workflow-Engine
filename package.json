@@ -25,7 +25,9 @@
     "baseline:freeze": "node scripts/baseline-freeze.mjs",
     "discovery": "node scripts/discovery.mjs",
     "provision": "node scripts/provision-organization.mjs",
-    "second-customer": "node scripts/eval-second-customer.mjs"
+    "second-customer": "node scripts/eval-second-customer.mjs",
+    "pitch": "node scripts/iic-pitch.mjs",
+    "narrative": "node scripts/eval-narrative.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"
