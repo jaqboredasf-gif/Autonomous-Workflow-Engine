@@ -221,7 +221,7 @@ console.log('--- the artifacts are as strong as their weakest beat -------------
     discovery: { interviews: 9, externalInterviews: 22, externalOrganizations: 7, repeatedPatterns: 4, designPartnerCandidates: 3 },
     deployment: { deployable: true, capabilities: 1 },
     demo: { liveDemoExists: true, backupExists: true },
-    narrative: { plainLanguageTests: 3 },
+    narrative: { plainLanguageTests: 5, comprehensionTested: 5, comprehensionVerdict: 'CLEAR' },
     usage: { executions: 140, activeDays: 60, organizations: 2, capabilitiesInProduction: 2 },
     proof: {
       architectureOperational: true, objectiveTestable: true, objectivesTested: 120,
@@ -290,8 +290,19 @@ console.log('--- writing a pitch is not building a company --------------------'
 
   // The derived `artifacts` group must not leak into the scored `narrative`
   // group, which is the mechanism that would break the invariant above.
-  check(derived.artifacts && !derived.narrative,
-    'the artifact facts are derived into their own group and never into the scored one');
+  //
+  // `derived.narrative` NOW EXISTS, and the invariant survives because of what
+  // is in it. It is derived from programs/evidence/records/ — people who
+  // restated the sentence, listeners who heard the pitch — and never from a
+  // file existing. So the two groups are checked to be disjoint, and the
+  // narrative group is checked to be empty on a repository where the spec
+  // directory is fully built and nobody has been asked anything.
+  check(derived.artifacts, 'artifact existence is derived into its own group');
+  const leaked = Object.keys(derived.artifacts).filter((k) => k in (derived.narrative ?? {}));
+  eq(leaked, [], 'and no artifact fact appears in the scored narrative group');
+  eq(derived.narrative?.plainLanguageTests ?? 0, 0,
+    'with the whole presentation architecture written and nobody asked, plain-language tests are 0');
+  eq(derived.narrative?.mockPitches ?? 0, 0, 'and mock pitches are 0');
   check(derived.artifacts.narrativeArchitecture === true,
     'the architecture does report its own existence — to the presentation, which needs to know, not to the scorecard');
 }
