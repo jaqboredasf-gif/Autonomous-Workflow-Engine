@@ -36,6 +36,19 @@ refuses to produce has found the only thing that matters about all of it.
 
 ---
 
+## Which presentation beat each claim serves
+
+The evidence slots in `programs/iic-2027/narrative.mjs` are the join between the two tables above
+and the pitch. Every slot reports a SOURCE — `REAL`, `REHEARSAL`, `ARCHITECTURE` or `NONE` — and a
+slot filled from a rehearsal can never make a beat STRONG.
+
+```bash
+npm run pitch -- --beats     # every beat, every slot, where each reading came from
+```
+
+**That command is the answer to "which of these could we say on stage today".** It reads the same
+facts as the scorecard and the planner, adds nothing, and stores nothing.
+
 ## How to answer "how do we know?"
 
 ```bash
