@@ -1,3 +1,13 @@
+> **RETIRED — 2026-09-01. Not maintained. Do not read this as current state.**
+>
+> This is an accurate record of 5 August 2026 and nothing after it. The branch and the objective it
+> names both moved on within days and it was never updated, while `AGENTS.md` went on requiring it
+> to be. It is kept because deleting it would lose a true record of that day.
+>
+> **For current state run `npm run plan`, `npm run readiness` and `npm run evidence`.** Those are
+> derived from the repository and cannot go stale. See `DECISION_LOG.md`, 2026-09-01, for why the
+> handoff ritual was retired rather than restored.
+
 # Agent Handoff
 
 ## updated_at

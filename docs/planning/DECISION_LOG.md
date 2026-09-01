@@ -612,3 +612,93 @@ something new* — which now needs evidence from an actual user.
 
 The success condition for the next phase is not a feature. It is a fortnight of purchasing
 that nobody had to work around.
+
+## 2026-09-01 (AGENT_HANDOFF is retired; the canonical artifacts are the handoff)
+
+**`AGENTS.md` required `docs/planning/AGENT_HANDOFF.md` to be updated before ending every
+meaningful task. It has not been updated since 2026-08-05, it names a repository and a branch that
+are not the ones being worked on, and a GitHub workflow fails any pull request that does not touch
+it. The rule and the reality have disagreed for four weeks and the reality kept being right.**
+
+Both designs were written out before choosing.
+
+**A — restore the handoff as canonical.** Update it now, and update it every task. It is a single
+file a person can read in two minutes, it carries the one thing no command reports — what the last
+session was *trying* to do — and the CI check already exists.
+
+Rejected, for one reason that is not effort: **it would be a second source of project truth.**
+Every field the handoff carries except "current objective" is now derived by something that cannot
+go stale. `npm run readiness` reports where the company stands. `npm run plan` reports what to do
+next and why. `npm run deployment-gate` reports whether it can be installed. `npm run evidence`
+reports what real evidence is missing. `git log` reports what changed. A hand-written file
+restating those is a file that is *wrong between updates*, and the failure mode is the expensive
+one: a person reads the stale version and believes it, because it looks like a status report and
+status reports do not usually lie.
+
+The 2026-08-05 file is the proof. It says the branch is `claude/lippolis-purchasing-dashboard-3ixte2`
+and the objective is a management walkthrough of a prototype. Both were true. Neither has been true
+since.
+
+**B — retire the rule in favour of the canonical artifacts.** Chosen.
+
+- `AGENTS.md` now names the commands an agent runs at the start and end of a task, and requires the
+  one thing they cannot produce: a `DECISION_LOG.md` entry when a decision is made that the code
+  does not explain by itself.
+- `docs/planning/AGENT_HANDOFF.md` is stamped RETIRED at the top and kept. It is an accurate record
+  of 5 August and deleting it would lose that; what it is not is a description of today.
+- `.github/workflows/agent-handoff.yml` and `scripts/validate-agent-handoff.sh` are deleted. A CI
+  check that requires every pull request to touch a retired file is a ritual that teaches people to
+  edit a document without reading it, which is worse than no check.
+
+**What was actually lost by choosing B:** the sentence "what the last session was trying to do".
+That is real, and it is why the commit message convention in this repository is a full paragraph
+rather than a subject line — the intent lives with the change that carried it, where it cannot go
+stale, and `git log` is the reader.
+
+## 2026-09-01 (evidence collection becomes a command, not a code edit)
+
+**Four facts the readiness scorecard reads had no way in except hand-editing
+`programs/iic-2027/facts.mjs`, and all four had sat at zero since the day that file was written.**
+
+`narrative.plainLanguageTests`, `narrative.mockPitches`, `differentiation.alternativesAnalysed` and
+`businessModel.unitDefined`. Each is cheap — five people and ten minutes each, four extra questions
+in a conversation already happening — and each requires a person to open a JavaScript module
+afterwards and type a number with a note. That never happened, and it was not laziness. **The
+friction was the reason.**
+
+**Three decisions, in the order they were made.**
+
+**1. Alternatives and unit-of-sale go on the interview record, not in a new store.** They come out of
+the same twenty minutes as the pain does. A second form asking again for the company name and the
+date is a second form that stops being filled in, and the brief for this work said as much: do not
+make Jack re-enter the same facts. So `interview()` gained two optional blocks, `alternatives[]` and
+`commercial{}`, and `programs/discovery/` gained two analyses over them.
+
+**2. The capture format is a field sheet, not JSON and not a UI.** `key: value` lines with the
+allowed words written in a comment next to each key, fillable on a phone in a car park, converted by
+`npm run evidence -- --import`. This is the pattern `scripts/baseline-import.mjs` already
+established for stopwatch readings and it exists for the same reason: asking one person to produce
+structured data *while* collecting evidence guarantees either bad evidence or none. **The importer
+refuses rather than guesses** — an unknown key, a missing attribution, a value outside the enum,
+each with its line number, and nothing is written until every one is fixed.
+
+**3. The founder queue is a command, not a document.** The obvious deliverable was a file called
+`JACK_EVIDENCE_QUEUE.md`. It was rejected for the reason the whole session exists: a written queue
+is correct on the day it is written and quietly wrong afterwards, and the failure mode is that
+somebody reads a stale list and does the wrong errand. `npm run evidence -- --queue` is regenerated
+from the same facts as `npm run plan`, so it cannot disagree with it. Same argument for
+`--snapshot`, which answers "if the pitch were tomorrow, what could we truthfully say" and derives
+its list of prohibited sentences **from what is absent**, each one carrying the fact that would
+retire it. A typed list of prohibitions goes stale in the flattering direction — the sentence stays
+forbidden long after it became true — so people stop reading it.
+
+**What was deliberately not built:** a CRM, a dashboard, a survey app, a second planner, a pricing
+model, or anything that would let a well-received rehearsal look like market evidence.
+`scripts/eval-evidence.mjs` asserts the last one directly: five glowing mock pitches move customer
+discovery, problem evidence and external validation by exactly zero.
+
+**One threshold was raised rather than lowered.** The `plain_language_test` evidence slot used to
+fill on a single successful restatement. It now requires the first sample of five and empties
+entirely on a CONFUSING sample, because a beat that goes green on one friendly result is a beat
+everybody learns to ignore — and because evidence that the explanation does *not* work must never
+look like partial evidence that it does.
