@@ -50,7 +50,76 @@ export async function deriveFacts({ db = null, org = null, warn = () => {} } = {
     ...await deriveDeployment(),
     ...await deriveDiscovery(),
     ...await deriveProof({ db, org, warn }),
+    ...await deriveEvidence(),
     ...deriveArtifacts(),
+  };
+}
+
+/**
+ * The evidence a founder collects with a phone and a notebook.
+ *
+ * WHY THIS IS DERIVED AND NOT DECLARED. `facts.mjs` has carried commented-out
+ * entries for `narrative.plainLanguageTests`, `businessModel.unitDefined` and
+ * `differentiation.alternativesAnalysed` since it was written, waiting for
+ * somebody to type them in with a note. That is the friction this function
+ * removes: every one of them is now READ from a record of something that
+ * happened, on exactly the terms the rest of this file uses for a database.
+ *
+ * The declared path still works and still wins nothing — `mergeFacts` gives
+ * derived facts priority — so a number typed into facts.mjs can no longer
+ * disagree with the records behind it.
+ *
+ * THREE THINGS IT REFUSES, and each one is the point of a whole module:
+ *
+ *   · a comprehension test on somebody inside the project (comprehension.mjs)
+ *   · an alternative the founder inferred rather than was told (alternatives.mjs)
+ *   · a unit of sale that one company preferred (unit-of-sale.mjs)
+ *
+ * A malformed capture file never throws here. It is excluded from the counts
+ * and reported through `evidence.problems`, which `npm run evidence -- --check`
+ * prints. A broken note must not take down the planner.
+ */
+export async function deriveEvidence() {
+  const { loadEvidence } = await import(R('programs/evidence/load.mjs'));
+  const { analyseAlternatives, differentiationFacts } = await import(R('programs/discovery/alternatives.mjs'));
+  const { analyseUnitOfSale, businessModelFacts } = await import(R('programs/discovery/unit-of-sale.mjs'));
+  const { founderStoryFacts } = await import(R('programs/evidence/founder-story.mjs'));
+
+  const ev = await loadEvidence();
+  const { records: interviews } = await loadInterviews();
+
+  const alternatives = analyseAlternatives(interviews);
+  const unitOfSale = analyseUnitOfSale(interviews);
+
+  return {
+    narrative: {
+      plainLanguageTests: ev.comprehensionSummary.plainLanguageTests,
+      comprehensionVerdict: ev.comprehensionSummary.verdict,
+      comprehensionTested: ev.comprehensionSummary.tested,
+      mockPitches: ev.mockPitchFacts.mockPitches,
+    },
+    demo: { rehearsals: ev.mockPitchFacts.rehearsals },
+    differentiation: differentiationFacts(alternatives, {
+      positioningWritten: existsSync(R('programs/iic-2027/competitive-positioning.md')),
+    }),
+    businessModel: businessModelFacts(unitOfSale),
+    ...founderStoryFacts(ev.founderStory),
+    evidence: {
+      problems: ev.problems,
+      unimported: ev.unimported,
+      alternatives: { analysed: alternatives.analysed, adequate: alternatives.adequate },
+      unitOfSale: { verdict: unitOfSale.verdict.verdict, candidate: unitOfSale.leadingUnit?.value ?? null, findings: unitOfSale.findings },
+      comprehension: {
+        verdict: ev.comprehensionSummary.verdict,
+        tested: ev.comprehensionSummary.tested,
+        clear: ev.comprehensionSummary.clear,
+        confusing: ev.comprehensionSummary.confusing,
+        weakestConcept: ev.comprehensionSummary.weakestConcept,
+        remainingToFirstSample: ev.comprehensionSummary.remainingToFirstSample,
+        regressions: ev.versions.regressions,
+      },
+      mockPitch: { ...ev.mockPitchFacts, repeatedConfusion: ev.mockPitchLearning.repeatedConfusion, lowestTrust: ev.mockPitchLearning.lowestTrust },
+    },
   };
 }
 
@@ -281,30 +350,33 @@ export function baselineObservations() {
   };
 }
 
-/** Customer discovery, counted from the interview records. */
+/**
+ * Customer discovery, counted from the interview records.
+ *
+ * THE READER LIVES IN programs/discovery/load.mjs, not here. This function used
+ * to walk the directory itself, and so did scripts/discovery.mjs, and the two
+ * handled a malformed file differently — one counted it, one crashed. One
+ * reader now, validating on the way in.
+ */
 export async function deriveDiscovery() {
   const { summarize } = await import(R('programs/discovery/interview.mjs'));
-  const dir = R('programs/discovery/interviews');
-  const processExists = existsSync(R('programs/discovery/interview.mjs'));
-  let files = [];
-  try { files = readdirSync(dir).filter((f) => f.endsWith('.mjs') || f.endsWith('.json')); } catch { /* none yet */ }
+  const { records, problems, sheets } = await loadInterviews();
+  return {
+    discovery: {
+      ...summarize(records),
+      processExists: existsSync(R('programs/discovery/interview.mjs')),
+      // A refused record is not a conversation. Reported so the count and the
+      // reason for it arrive together.
+      unreadable: problems.length,
+      unimported: sheets.length,
+    },
+  };
+}
 
-  const interviews = [];
-  for (const f of files) {
-    const full = join(dir, f);
-    if (f.endsWith('.json')) {
-      const { interview } = await import(R('programs/discovery/interview.mjs'));
-      const raw = JSON.parse(readFileSync(full, 'utf8'));
-      for (const r of Array.isArray(raw) ? raw : [raw]) interviews.push(interview(r));
-    } else {
-      const mod = await import(full);
-      for (const v of Object.values(mod)) {
-        if (v && typeof v === 'object' && v.patternTags) interviews.push(v);
-        if (Array.isArray(v)) for (const x of v) if (x?.patternTags) interviews.push(x);
-      }
-    }
-  }
-  return { discovery: { ...summarize(interviews), processExists } };
+/** The interviews themselves, for the analyses that need more than a count. */
+export async function loadInterviews() {
+  const { loadInterviews: load } = await import(R('programs/discovery/load.mjs'));
+  return load();
 }
 
 /** What can be proven, and how confidently. From a live database where given. */

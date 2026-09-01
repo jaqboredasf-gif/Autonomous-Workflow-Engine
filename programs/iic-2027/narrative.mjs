@@ -251,12 +251,32 @@ export const SLOTS = Object.freeze([
     id: 'plain_language_test',
     label: 'A non-technical person restating what AWE does, correctly',
     owner: 'awe_solves', cost: 'LOW', independentValue: true,
-    // The only test of an explanation. It cannot be derived and it cannot be
-    // self-assessed: the founder always understands the sentence.
+    // The only test of an explanation. It cannot be derived from a document and
+    // it cannot be self-assessed: the founder always understands the sentence.
+    //
+    // THE SAMPLE DECIDES, NOT THE COUNT, and that is the correction that keeps
+    // this beat worth reading. One acquaintance getting it is a person, not an
+    // answer to "can an audience restate this" — a beat that goes green on a
+    // single friendly result is a beat everybody learns to ignore. The protocol
+    // in programs/evidence/comprehension.mjs names five, so five is the bar.
+    //
+    // AND A CONFUSING SAMPLE EMPTIES THE SLOT rather than partly filling it.
+    // Five people who did not come away with what AWE does is REAL evidence
+    // that the explanation does not work, and evidence against a claim must
+    // never look like partial evidence for it.
     read: (f) => {
       const n = f.narrative?.plainLanguageTests ?? 0;
-      if (n === 0) return EMPTY('nobody outside the project has repeated the one-sentence version back correctly');
-      return slot('REAL', `${n} successful restatement(s)`, 'declared in programs/iic-2027/facts.mjs');
+      const tested = f.narrative?.comprehensionTested ?? 0;
+      const verdict = f.narrative?.comprehensionVerdict ?? 'NOT_TESTED';
+      if (tested === 0) return EMPTY('nobody outside the project has repeated the one-sentence version back correctly');
+      if (verdict === 'NOT_TESTED') {
+        return EMPTY(`${n} of ${tested} asked so far restated it correctly — below the first sample of five, one result is a person, not a signal`);
+      }
+      if (verdict === 'CONFUSING') {
+        return EMPTY(`tested on ${tested} people and it did not land — the explanation is the thing to fix, not the evidence`);
+      }
+      return slot('REAL', `${n} of ${tested} people restated what AWE does correctly, in their own words`,
+        'programs/evidence/records/comprehension/');
     },
   },
   {

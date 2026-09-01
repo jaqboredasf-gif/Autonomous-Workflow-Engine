@@ -27,20 +27,43 @@
  * a person did rather than something a person decided.
  */
 export const DECLARED = Object.freeze({
-  // --- differentiation -----------------------------------------------------
-  // Not yet done. Naming the three things a trades business would buy instead
-  // is an afternoon's work and it is currently one of the cheapest bands to
-  // move — see `highestLeverage()`.
+  // --- FOUR OF THESE ARE NO LONGER DECLARED --------------------------------
   //
-  // differentiation: {
-  //   alternativesAnalysed: 3,
-  //   statedDifference: true,
-  //   evidencedDifference: true,
-  //   note: 'analysed 2026-09-xx; see programs/iic-2027/competition-intelligence.md',
-  // },
+  // `differentiation.alternativesAnalysed`, `businessModel.unitDefined`,
+  // `narrative.plainLanguageTests` and `narrative.mockPitches` all used to wait
+  // here, commented out, for somebody to type them in with a note. All four are
+  // now DERIVED by programs/iic-2027/derive.mjs from records of things that
+  // happened:
+  //
+  //   alternatives      the alternatives block on an interview record
+  //   unit of sale      the commercial block on an interview record
+  //   plain language    programs/evidence/records/comprehension/
+  //   mock pitches      programs/evidence/records/mock-pitch/
+  //
+  // WHY THAT MATTERS MORE THAN THE CONVENIENCE. All four sat at zero from the
+  // day this file was written, and it was not laziness: hand-editing a
+  // JavaScript module is a strange thing to do after a phone call, so it never
+  // happened. `npm run evidence -- --new interview` and one import now do it.
+  // And because derived facts beat declared ones in `mergeFacts`, a number
+  // typed here can no longer disagree with the records behind it.
+  //
+  // WHAT IS STILL DECLARED, and rightly: everything that happened in a room and
+  // left no artifact — a price put to a prospect, a design partner's
+  // commitment, a deployment at a company that is not ours.
+
+  // --- differentiation -----------------------------------------------------
+  // `alternativesAnalysed` and `statedDifference` are derived from what
+  // businesses said they use instead. `evidencedDifference` is NOT derivable
+  // and must not become so: it means somebody was SHOWN the difference and saw
+  // it, which caps the band at 2 until a person does that in front of another
+  // person.
+  //
+  // differentiation: { evidencedDifference: true, note: 'shown to ... on 2026-xx-xx' },
 
   // --- business model ------------------------------------------------------
-  // businessModel: { unitDefined: true, pricingHypothesis: true, ... }
+  // The unit of sale is derived. A PRICE is not: putting one to somebody is an
+  // event with a witness.
+  // businessModel: { pricingHypothesis: true, pricingTested: true, note: '...' }
 
   // --- revenue -------------------------------------------------------------
   // revenue: { payingCustomers: 0, pricingHypothesis: false }
@@ -58,21 +81,21 @@ export const DECLARED = Object.freeze({
   // sentence is understandable cannot be written by the person who wrote the
   // sentence.
   //
-  // THE CHEAPEST ENTRY IN THIS FILE, and currently the weakest beat in the
-  // whole pitch, is the first one. Say the one-sentence version to three people
-  // who do not work in software, ask them to explain AWE back an hour later,
-  // and record how many got it right. If none did, the sentence is wrong and no
-  // amount of evidence behind it will be heard.
+  // THE CHEAPEST EVIDENCE IN THE PROJECT — say the sentence to five people who
+  // do not work in software and ask them to say it back — HAS MOVED OUT of this
+  // file. It is recorded per person now, with the words they actually used, in
+  // programs/evidence/records/comprehension/, which is strictly more honest
+  // than a count with a note attached and considerably easier to produce:
+  //
+  //   npm run evidence -- --new comprehension
   //
   // narrative: {
-  //   plainLanguageTests: 3,   // people who restated it CORRECTLY, not people asked
   //   oneMinuteExists: true,   // a recorded, timed, spoken minute — not a script
   //   executiveSummaryExists: true,
   //   judgeQuestionsAnswered: 20,
-  //   mockPitches: 1,
   //   evidenceFrozen: true,
   //   deckExists: true,
-  //   note: 'tested on 3 people at ... on 2026-xx-xx; 2 of 3 restated it correctly',
+  //   note: 'recorded 2026-xx-xx by ...',
   // },
 
   // --- the competition itself ----------------------------------------------
