@@ -96,20 +96,22 @@ console.log('--- instance data is confined to seed and bootstrap -------------')
   const withLiterals = infra.filter((f) => LIPPOLIS_LITERALS.test(executable(f)))
     .map((f) => f.replace(SRC + '/purchasing/infrastructure/', ''));
 
-  // sqlite/database.ts carries ONE real literal: the schema default
-  // `po_template_key default 'lippolis_default'`. That is a column default
-  // naming which document template a new organization starts on, which is
-  // instance configuration sitting in the schema rather than a rule that
-  // mentions a customer — but it IS coupling, and a second organization would
-  // have to change it. Recorded rather than waved through.
-  const allowed = ['seed.ts', 'bootstrap.ts', 'sqlite/database.ts'];
+  // THE SCHEMA NO LONGER NAMES A CUSTOMER. `po_template_key` defaulted to
+  // 'lippolis_default', so every organization ever created started on a column
+  // default carrying the first customer's name. It is 'awe_default' now, and
+  // 'lippolis_default' survives only as a registry ALIAS for the same layout —
+  // so databases created before the change still resolve, and no new one is
+  // named after somebody else's company.
+  const allowed = ['seed.ts', 'bootstrap.ts'];
   const unexpected = withLiterals.filter((f) => !allowed.includes(f));
-  eq(unexpected, [], 'customer literals appear only in fixtures and one schema default');
+  eq(unexpected, [], 'customer literals appear only in fixtures and the bootstrap refusal message');
   if (withLiterals.length) note(`instance data confined to: ${withLiterals.join(', ')}`);
 
   const schema = readFileSync(join(SRC, 'purchasing', 'infrastructure', 'sqlite', 'database.ts'), 'utf8');
-  check(/po_template_key\s+text not null default 'lippolis_default'/.test(schema),
-    'the one schema-level customer literal is the PO template default (extraction debt, recorded)');
+  check(/po_template_key\s+text not null default 'awe_default'/.test(schema),
+    'the PO template column defaults to the product\'s own form, not to a customer-named one');
+  check(!LIPPOLIS_LITERALS.test(executable(join(SRC, 'purchasing', 'infrastructure', 'sqlite', 'database.ts'))),
+    'and the schema carries no customer literal at all');
 }
 
 // ---------------------------------------------------------------------------
@@ -164,10 +166,32 @@ console.log('--- extraction debt, stated rather than implied -----------------')
 // regress, and they are expected to be updated upward as extraction proceeds.
 {
   const score = extractionScore();
-  note(`profile fields honoured by the code: ${score.honoured} fully, ${score.partial} partially, ${score.hardCoded} hard-coded (${score.percent}%)`);
+  note(`profile fields honoured by the code: ${score.honoured} fully, ${score.partial} partially, ` +
+    `${score.hardCoded} hard-coded, ${score.invariant} deliberately invariant (${score.percent}% of ${score.configurable} configurable fields)`);
   check(score.total === Object.keys(PROFILE_FIELDS).length, 'every profile field is scored');
   check(score.percent >= 70, `at least seventy percent of the profile is honoured or nearly so (currently ${score.percent}%)`);
-  check(score.hardCoded > 0, 'and the suite admits there is still hard-coded behaviour');
+
+  // THE ANTI-FLATTERY CHECKS, rewritten rather than removed.
+  //
+  // This used to be `hardCoded > 0` — "the suite admits there is still
+  // hard-coded behaviour" — and it was the right instinct pinned to the wrong
+  // number. Hard-coded debt is now zero, which the suite must be able to report
+  // without either failing or claiming the profile is finished. So what is
+  // asserted instead is the shape of the honesty:
+  //
+  //   1. invariants are EXCLUDED from the denominator, and counted out loud, so
+  //      the percentage cannot be inflated by reclassifying debt as design;
+  //   2. something is still not fully honoured, so 100% is never claimed while
+  //      partial fields remain;
+  //   3. an invariant is never reported as debt.
+  check(score.configurable === score.total - score.invariant,
+    'invariants are excluded from the denominator rather than scored as unhonoured configuration');
+  check(score.invariant > 0, 'and the profile names at least one thing it deliberately will not configure');
+  check(score.honoured + score.partial + score.hardCoded === score.configurable,
+    'every configurable field is in exactly one state');
+  check(score.percent < 100, `the profile is not claimed finished while ${score.partial} fields are only partial`);
+  check(extractionDebt(lippolisProfile).every((d) => d.extractable !== 'invariant'),
+    'an invariant is never reported as extraction debt — it is not work somebody forgot to do');
 
   const debt = extractionDebt(org002TradesProfile);
   check(debt.length > 0, 'the second business asks for things the code cannot yet honour');
@@ -186,8 +210,20 @@ console.log('--- extraction debt, stated rather than implied -----------------')
   // reason as the role fields: the profile now NAMES the numbering rule and the
   // composition root selects an implementation for it.
   check(!paths.includes('purchasing.po_numbering'), 'PO numbering IS selected by the profile (extracted)');
-  check(paths.includes('purchasing.quantity_rule'), 'the quantity rule is fixed (arguably correctly)');
-  check(paths.includes('documents.po_template'), 'the document template is not yet configurable');
+  // RECLASSIFIED, and asserted the other way round so the reclassification
+  // cannot silently reverse. The quantity rule is a capability invariant, so it
+  // is not debt; the document template is now resolved through a registry that
+  // refuses a form it cannot draw, so it is not debt either.
+  check(!paths.includes('purchasing.quantity_rule'),
+    'the quantity rule is an INVARIANT, not debt — it is the capability, and org-002 is not owed it');
+  check(PROFILE_FIELDS['purchasing.quantity_rule'].extractable === 'invariant',
+    'and it says so, so nobody later "fixes" it by making it configurable');
+  check(!paths.includes('documents.po_template'),
+    'the document template IS resolved from configuration (extracted), and an unimplemented form is refused rather than substituted');
+  check(!paths.includes('purchasing.default_fulfilment_days'),
+    'the fulfilment expectation IS organization policy (extracted) — it was an assumption nothing read');
+  check(!paths.includes('purchasing.po_separator'),
+    'and the PO separator IS read from configuration, validated against a closed set');
 }
 
 // ---------------------------------------------------------------------------

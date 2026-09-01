@@ -374,14 +374,32 @@ console.log('--- corroboration counts organizations, not conversations ---------
 console.log('--- what a second organization would actually meet ------------------');
 {
   const r = externalReadiness();
-  eq(VERDICTS, ['READY_GENERICALLY', 'CONFIGURABLE', 'LIPPOLIS_SPECIFIC', 'UNKNOWN'], 'four verdicts');
+  eq(VERDICTS, ['READY_GENERICALLY', 'CONFIGURABLE', 'CAPABILITY_INVARIANT', 'LIPPOLIS_SPECIFIC', 'UNKNOWN'],
+    'five verdicts — a deliberate invariant is not a Lippolis-specific defect');
   check(r.counts.UNKNOWN > 0,
     'some concerns are UNKNOWN — the report does not pretend the unmodelled parts are fine');
-  check(r.counts.LIPPOLIS_SPECIFIC > 0, 'and some are still Lippolis-specific');
-  check(r.unknowns.some((u) => /data_migration/.test(u)),
-    'including migration, which nothing models and which a switching customer will expect');
-  check(r.blockers.some((b) => /workflow_lifecycle/.test(b)),
-    'and the workflow lifecycle, which is not configuration');
+
+  // THE HONESTY CHECKS, MOVED RATHER THAN DROPPED.
+  //
+  // These used to assert `LIPPOLIS_SPECIFIC > 0` and that migration was UNKNOWN
+  // — guards against a report that flattered itself. Both facts changed, so the
+  // guards are now aimed at the way the report could flatter itself NEXT: by
+  // reclassifying accidental coupling as deliberate design, and by closing a
+  // customer's unknown on the customer's behalf.
+  check(r.counts.LIPPOLIS_SPECIFIC === 0,
+    'nothing is Lippolis-specific by accident any more — every such item was extracted or reclassified');
+  check(r.unknownsOwnedByAwe.length === 0,
+    'and no unknown is AWE-owned: a software unknown means nobody has read the code yet');
+  check(r.unknownsOwnedByCustomer.length > 0,
+    'but customer-owned unknowns REMAIN — they cannot be resolved from a keyboard and are not pretended away');
+  check(r.byOwner.UNATTRIBUTED.length === 0,
+    'every concern says whose uncertainty it is, so a blocker is addressed to somebody');
+  check(r.counts.CAPABILITY_INVARIANT > 0,
+    'and the report names what it deliberately will not configure, so a boundary is not read as a to-do');
+  check(r.concerns.some((c) => c.id === 'workflow_lifecycle' && c.verdict === 'CAPABILITY_INVARIANT' && c.owner === 'AWE'),
+    'the workflow lifecycle is an invariant AWE owns, not a defect it owes');
+  check(r.concerns.some((c) => c.id === 'data_migration' && c.verdict !== 'UNKNOWN' && /out of pilot scope/i.test(c.means)),
+    'migration is a KNOWN absence with a scope decision attached, which is a different object from an unexamined gap');
   check(/different capability/.test(r.partnerConstraint) && /rules engine/.test(r.partnerConstraint),
     'the constraint that decides the shortlist is named, and why it is a feature rather than a defect');
   check(!/%/.test(r.summary), 'the summary is not a percentage — profile fields and unmodelled concerns do not average');
