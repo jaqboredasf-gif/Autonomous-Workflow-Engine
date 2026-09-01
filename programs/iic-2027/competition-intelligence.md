@@ -1,8 +1,15 @@
 # Competition intelligence — Iona Innovation Challenge
 
-**Retrieved 2026-08-27 from official Iona University sources.** Every fact below carries the URL it
-came from. Anything not stated on those pages is left `UNKNOWN` — an assumption in this file would
-be the same failure the proof architecture exists to prevent, applied to a different subject.
+**Retrieved 2026-08-27, refreshed 2026-09-01, from official Iona University sources.** Every fact
+below carries the URL it came from and the date it was read. Anything not stated on those pages is
+left `UNKNOWN` — an assumption in this file would be the same failure the proof architecture exists
+to prevent, applied to a different subject.
+
+**What the 2026-09-01 refresh changed.** The single most valuable unknown — *what are the pitches
+actually judged on* — is no longer unknown. It was recovered from Iona's own report of the second
+annual challenge, along with the length of the final pitch. Both are seven editions old and are
+recorded here with that caveat attached rather than quietly promoted to current fact. Nothing about
+the 2027 edition has been announced; the main competition page still describes Spring 2026.
 
 ---
 
@@ -74,6 +81,62 @@ Two consequences worth noting now:
 
 ---
 
+## 2b. VERIFIED, AND SEVEN EDITIONS OLD — what the judges score
+
+This is the most decision-changing fact in the file, and it is also the one most likely to be out
+of date. Both halves matter.
+
+| Item | Value | Source |
+|---|---|---|
+| Final pitch length | **four minutes**, "followed by a Q&A" | [2nd annual report] |
+| Judging criteria | **"feasibility, uniqueness, market need, impact, cost of implementation, ease of implementation, idea articulation, and overall impression"** — eight, quoted exactly | [2nd annual report] |
+| Weights | **UNKNOWN.** No weighting is published for any edition | — |
+
+**Retrieved 2026-09-01. Describes the 2nd annual (2019).** Later editions publish winners, prizes
+and judges, but no rubric. The 7th (2024) and 8th (2025) reports name the judges and the prizes and
+say nothing about criteria or format. So this is the only published rubric there is, and it is old
+enough that confirming it is one of the three questions worth an email.
+
+### What it changes, immediately
+
+This is not the rubric a startup pitch deck is built for, and building to the wrong one is
+expensive:
+
+- **No traction criterion. No revenue criterion. No team criterion.** AWE's three weakest areas —
+  paying customers, external deployments, and being one undergraduate — are, on this evidence, not
+  directly scored at all. A deck that leads with traction is spending its strongest minutes on
+  something nobody is marking.
+- **Two of eight are cost and ease of implementation.** A system installed and running at a real
+  company is the strongest possible evidence for both, and it is the thing almost no other entrant
+  can show. This is where AWE's actual advantage sits, and it was not obvious before this rubric
+  was recovered.
+- **Two of eight are idea articulation and overall impression.** A quarter of the marks are for
+  being understood and remembered. That is not a soft quarter; it is the quarter most technical
+  entries lose.
+- **Feasibility, uniqueness, market need and impact** are the remaining four, and the first three
+  of those are answerable today from the deployment, the proof architecture and — once anybody has
+  been asked — customer discovery.
+
+`programs/iic-2027/narrative.mjs` weights every presentation beat by how many of these eight it
+serves, so the ranking of what to work on is derived from the rubric rather than from taste. If the
+rubric turns out to have changed, edit `JUDGING_CRITERIA` and every downstream ranking moves with
+it.
+
+### Prize structure is per-edition, not fixed
+
+| Edition | 1st | 2nd | 3rd | Other |
+|---|---|---|---|---|
+| 2nd (2019) | $3,000 | $1,200 | — | Fan Favourite $500 |
+| 7th (2024) | $6,000 (1st + Fan Favourite) | $2,500 | $1,500 | 2 superlatives, $500 each |
+| 8th (2025) | $10,000 | $5,000 | $3,000 | Fan Favourite $1,000; 2 superlatives, $500 each |
+| 9th (2026) | $10,000 | $5,000 | $3,000 | Fan Favourite $1,000; superlatives $1,000 total |
+| **10th (2027)** | **UNKNOWN** | | | |
+
+The prize pool has changed shape in four of the last five editions. The $10,000 first prize is two
+editions old, not a constant, and any plan that spends it should say so.
+
+---
+
 ## 3. VERIFIED — the field
 
 **8th annual winners** ([news](https://www.iona.edu/news/big-ideas-take-center-stage-eighth-annual-iona-innovation-challenge)):
@@ -105,11 +168,13 @@ kickoff. None is worth guessing.
 | 10th annual (2027) exact kickoff date | UNKNOWN — expect early February 2027; confirm when announced |
 | 10th annual milestone due dates | UNKNOWN |
 | Registration deadline | UNKNOWN |
-| **Published judging criteria and weights** | UNKNOWN — the single most valuable unknown |
+| **Whether the eight 2019 criteria still apply** | PARTIALLY ANSWERED — the criteria are known for the 2nd annual (§2b); whether they hold in 2027 is UNKNOWN, and this is now the single most valuable unknown |
+| Criteria **weights** | UNKNOWN — never published for any edition |
+| 10th annual prize structure | UNKNOWN — it has changed in four of the last five editions |
 | Names and backgrounds of 2027 judges | UNKNOWN |
 | How mentors are assigned, and when | UNKNOWN |
 | Whether judges read the executive summary before pitching | UNKNOWN |
-| Pitch length and Q&A length at the final | UNKNOWN |
+| Pitch length and Q&A length at the final | PARTIALLY ANSWERED — four minutes plus Q&A in the 2nd annual (§2b); Q&A length never stated, 2027 UNKNOWN |
 | Whether a live demo is permitted at the final | UNKNOWN |
 | Number of entrants and finalists | UNKNOWN |
 | Any claim on intellectual property | UNKNOWN — ask before submitting |
@@ -145,6 +210,8 @@ Do not put that in a pitch until this table is filled in and the claim survives 
 
 ## Sources
 
+- **Judging criteria and pitch format** (2nd annual, 2019): <https://www.iona.edu/about/news-events/news/second-annual-iona-innovation-challege-winners-ann.aspx> — retrieved 2026-09-01
+- 7th annual (2024), judges and prize split: <https://www.iona.edu/news/iona-universitys-hynes-institute-hosts-seventh-annual-iona-innovation-challenge> — retrieved 2026-09-01
 - Official competition page: <https://www.iona.edu/academics/schools-institutes/hynes-institute-entrepreneurship-innovation/iona-innovation-challenge> — retrieved 2026-08-27
 - 9th annual kickoff announcement (6 Feb 2026): <https://www2.iona.edu/internal/announcementDetail.cfm?id=F337A195-7593-427B-BF76-BE3379EFA9B8> — retrieved 2026-08-27
 - 9th annual final announcement (30 Apr 2026): <https://www2.iona.edu/internal/announcementDetail.cfm?id=018B0273-D356-4EA8-98BA-0BBDD54BEA56> — retrieved 2026-08-27
@@ -152,3 +219,13 @@ Do not put that in a pitch until this table is filled in and the claim survives 
 - Hynes Institute: <https://www.iona.edu/academics/schools-institutes/hynes-institute-entrepreneurship-innovation> — retrieved 2026-08-27
 
 **Re-verify before relying on any date.** These are 2026 dates used to predict 2027.
+
+**The `www2.iona.edu/internal/announcementDetail.cfm` links rotate.** On 2026-09-01 they no longer
+returned the announcements they were cited for on 2026-08-27; they serve whatever is current. The
+facts taken from them on 2026-08-27 stand as recorded, and are not re-checkable at those URLs.
+Anything future work needs from an announcement should be quoted into this file at the time it is
+read, not linked to.
+
+**Nothing about the 10th annual (2027) has been announced as of 2026-09-01.** The main competition
+page still describes Spring 2026. Expect the announcement in January 2027 and the kickoff in early
+February; that is a prediction from two editions, not a fact.
