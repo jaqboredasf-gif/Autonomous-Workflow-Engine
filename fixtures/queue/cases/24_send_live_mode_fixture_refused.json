@@ -1,0 +1,7 @@
+{
+  "description": "LIVE mode with an approved FIXTURE row. Recording this as sent would write a permanent claim that a real customer email went out when nothing did — the one lie this system must never be able to tell about itself.",
+  "action": "send",
+  "mode": "LIVE",
+  "capabilities": { "userId": "u-admin", "roles": { "office_admin": true } },
+  "row": { "status": "approved", "approved_at": "2026-07-26T15:00:00.000Z" }
+}

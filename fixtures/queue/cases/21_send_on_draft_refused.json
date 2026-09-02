@@ -1,0 +1,7 @@
+{
+  "description": "A draft has not been approved, so there is no send to record. 0015: 'only an approved message can be marked sent'. This is the send-side mirror of the approval gate.",
+  "action": "send",
+  "mode": "TEST",
+  "capabilities": { "userId": "u-admin", "roles": { "office_admin": true } },
+  "row": { "status": "draft" }
+}

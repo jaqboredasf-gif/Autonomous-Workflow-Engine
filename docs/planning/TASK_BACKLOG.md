@@ -184,6 +184,17 @@ deferred until a geocoder exists. Original goal text below.
 - **Deps**: B1 (done). Reuses the B5 page patterns and `work_requests_admin_read`.
 - **Acceptance**: build green; fixture requests visible end-to-end; no write actions beyond what 0011 already allows.
 
+## B5c — Web: record a real-world send — `DONE` (2026-09-02)
+Completes the execution boundary behind the already-built approval step. `mark_message_sent()` shipped in 0015 and is covered by acceptance slice 4, but NO product surface called it — `sent` was reachable only by raw SQL/curl. An approved message therefore sat in "decided" forever, indistinguishable from one actually sent.
+- **Goal**: a human who approved a message can record that they sent it, from the queue, with the same guard/authorization posture as a decision.
+- **Why**: this is the APPROVAL → REAL ACTION → AUDIT link. Without it the loop never closes: nobody can tell which approved drafts still owe the customer an email, and no product-recorded evidence exists that the real-world action happened.
+- **Files**: `apps/web/src/lib/approval-queue.ts` (`SENDABLE_STATUSES`, `sendGuard`, `planSendMark`, `verifySendApplied`, `to_send` tab), `apps/web/src/app/approvals/page.tsx` (Real-world send panel), `scripts/eval-approval-queue.mjs` (send-action case loop + B5c block), `fixtures/queue/cases/20–24` + labels.
+- **Zero database changes.** The RPC, its status/org/role gates and its audit event already existed; only the caller was missing. Repo and live stay in sync at 0001–0015.
+- **Safety**: AWE still sends NOTHING. `mark_message_sent()` is a ledger entry asserting a human sent it. The button says "I sent this — record it" and states plainly that it does not send. The LIVE-mode fixture refusal is the sharpest gate: recording a fixture as sent in LIVE would be a permanent claim that a real customer email went out when none did.
+- **Testing**: Runner 5 — 422 checks, 24 fixtures, 8/8 guard-reason coverage. Runners 3/4/6 and the 0014/0015 lints green; mobile tsc green; web TypeScript green.
+- **Test-scope change (deliberate, not a weakening)**: Runner 5's purity gate previously forbade `mark_message_sent` in the UI, because B5 was approve/reject only. That ban is lifted and the RPC allow-list grows by exactly one named, DB-gated call. The invariant that actually protects the customer is unchanged and still asserted: the UI has no mail transport, no service-role credential, and no direct write to `outbound_messages`.
+- **NOT live-verified**: no `.env.acceptance` in the build container, so acceptance slices 4/5 did not run against the live project. The browser path is code- and rehearsal-verified only.
+
 ## S1 — Remove undeclared client policies on the audit tables — `ready` (SECURITY, human-gated)
 - **Found**: 2026-07-26 by `scripts/acceptance-slice5.sh` while checking whether the browser could read the event log.
 - **Finding**: the LIVE database carries 16 policies (4 tables × select/insert/update/delete) that **no migration in this repo creates**, all named `<table>_org_{select,insert,update,delete}` — the naming convention of the orphan schema an external session created (see DECISION_LOG 2026-07-17 B1; migration 0012 dropped the orphan *tables* and restored `current_org_id()`, but not these policies). Affected: `integration_events`, `time_entry_audits`, `crews`, `crew_members`. They are gated on `current_org_id()` only — **no role check** — so any `authenticated` org member qualifies.

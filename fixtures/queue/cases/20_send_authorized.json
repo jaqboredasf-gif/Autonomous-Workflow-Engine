@@ -1,0 +1,7 @@
+{
+  "description": "Approved fixture-safe row in TEST mode, office admin holds the assigned role: recording the real-world send is offered, and the RPC payload carries only the message id.",
+  "action": "send",
+  "mode": "TEST",
+  "capabilities": { "userId": "u-admin", "roles": { "office_admin": true } },
+  "row": { "status": "approved", "approved_at": "2026-07-26T15:00:00.000Z" }
+}

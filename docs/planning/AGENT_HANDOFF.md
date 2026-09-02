@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-09-02T14:35:00Z
+2026-09-02T15:05:00Z
 
 ## agent
 
@@ -18,11 +18,13 @@ claude/awe-iic-evidence-campaign-073p0v
 
 ## commit
 
-EV1 implementation commit `e777471`; this handoff update follows it on the same branch. Resolve the tip with `git rev-parse HEAD`.
+B5c follows EV1 (`e777471`), the EV1 handoff (`a313811`) and the baseline scaffold (`e42a8d1`) on the same branch. Resolve the tip with `git rev-parse HEAD`.
 
 ## current objective
 
-Mission 1 IN PROGRESS: declare the Lippolis purchasing baseline scope before any purchase order is inspected or transcribed. The manifest is scaffolded and its prose scope fields are drafted, but `window_start`, `window_end` and `sampling_exhaustive` remain null pending real-world facts from Lippolis, so it does not validate and has NOT been declared. Previously: shipped EV1, the founder-facing evidence capture layer for the AWE to IIC 2027 campaign, so real-world evidence collection at Lippolis Electric can begin without another engineering session. Do NOT start Case Study #001 (EV2) — it is deliberately blocked until real evidence exists and an observation window has closed.
+Completed: B5c — closed the APPROVAL to REAL ACTION to AUDIT link in the outbound workflow. An approved message can now be recorded as sent from the approvals queue. Previously that state transition existed in the database and was covered by acceptance slice 4, but no product surface called it, so `sent` was reachable only by raw SQL or curl.
+
+Do NOT resume the Lippolis purchasing baseline: the founder is blocked on physical evidence until Friday. Do NOT start Case Study #001 (EV2).
 
 ## pull request
 
@@ -31,148 +33,90 @@ Mission 1 IN PROGRESS: declare the Lippolis purchasing baseline scope before any
 - Head: `claude/awe-iic-evidence-campaign-073p0v`
 - State: open draft.
 
-## premise correction (read before trusting any prior state claim)
+## production boundary before this session
 
-The session brief asserted a mature evidence architecture already existed in this
-repository: baseline ingestion/freeze/versioning, observation windows, human-hours
-measurement, Case Study #001, organization value rollups, external interview capture,
-comprehension testing, unit-of-sale discovery, IIC evidence status, founder evidence
-queue, pitch and demo architecture, readiness scoring, second-customer rehearsal, and
-an approximate 7/48 readiness figure.
+Verified from source, not from the prior report. Email intake to work_request, classification, approval-matrix routing, outbound draft generation, and an approvals queue that can approve or reject. Every seeded `message_policies` row is `mode='draft'`, so there are zero auto-sends. Graph inbound and outbound (B9/B10), shared-calendar write (B11), n8n consumers (B12) and QuickBooks (B13) are all BLOCKED on external human or IT action and could not be advanced today.
 
-None of it existed. Verified by grep across all 205 tracked files: `IIC`, `case study`,
-`comprehension`, `observation window`, `unit-of-sale`, `readiness score` and `founder`
-returned zero hits in tracked source. The only `IIC` matches were base64 noise inside
-`package-lock.json`. `Lippolis` appeared only as a customer name inside the synthetic
-intake fixtures. No source exists anywhere for the 7/48 figure.
-
-Verify claims about repository state before building on them.
+The boundary ended one step earlier than the pipeline suggested: an approved message had nowhere to go. `mark_message_sent()` existed in migration 0015 with status, org and role gates, emitted an audit event, and was exercised by acceptance slice 4 — but `grep` confirmed no caller in `apps/web`. The read side was already complete: `QUEUE_SELECT` projects `sent_at` and the sender's name, and `buildAuditTrail()` already rendered a `sent` step. Only the write path was missing.
 
 ## completed work
 
-- Inspected git history, the full file tree, all planning docs, `scripts/`, `scripts/lib/`, fixtures and migrations before writing any code.
-- Established that the repository had zero evidence infrastructure, and that engineering was therefore genuinely required rather than invented.
-- Built the evidence layer: a founder-facing CLI plus seven pure offline engines, a field manual, an eval runner and rehearsal-only examples.
-- Made `spec.mjs` the single source of truth for every field, prompt, threshold and milestone, so the validator, printable paper capture sheet, CSV importer, interview question script and status report all read one definition and cannot drift apart.
-- Enforced the evidentiary invariants in code rather than in prose: every value is a claim carrying a confidence class; `derived` is machine-only; `estimated` requires a basis and a low/high range; `unknown` is preserved and never coerced to zero; documentary and testimony cannot share a field; post-AWE purchase orders cannot enter a pre-AWE baseline; freeze detects edits, deletions, additions and manifest tampering and refuses silent re-freeze; rehearsal, synthetic and invalid records can never raise IIC readiness; a document merely existing satisfies nothing.
-- Rehearsed the documented protocol end-to-end against a clean tree, which surfaced three real defects, all fixed and covered by tests:
-  1. PO volume was derived as sample-count divided by span-days, which is only the company's operating rate when the sample is exhaustive. Thirteen POs drawn from a six-month binder produced a confident, documentary-looking "28 POs/year" against a stated 9 per week. Now gated on a declared `sampling_exhaustive` flag, otherwise volume falls back to testimony and is labelled as a propagated estimate.
-  2. A collapsed `low == high` range read as precision when it actually meant uncertainty was never captured. Now flagged `range_is_point` with an explanation, and stated estimate ranges propagate into the derived range.
-  3. The literal first command of the protocol was broken: `new <type>` documented a shell redirect into a directory that does not exist on a clean tree. `new` now writes the file itself.
-- Deleted all rehearsal data afterward, so `evidence/` ships empty and status honestly reports 0 of 13.
-- Updated `CONTEXT.md`, `SESSION_HANDOFF.md` and `TASK_BACKLOG.md` (EV1 done, EV2 blocked) per the repository's own session operating rules.
+- Verified the production boundary from source: migration 0015 enums, constraints and RPCs; `approval-queue.ts`; `approvals/page.tsx`; the acceptance slices; and the backlog's BLOCKED set.
+- Ranked the three real blockers and selected the one that was neither externally blocked nor dependent on Friday's evidence work.
+- Added `SENDABLE_STATUSES`, `sendGuard()`, `planSendMark()` and `verifySendApplied()` to `approval-queue.ts`, mirroring the existing decision path exactly rather than introducing a second pattern.
+- Split the queue's `decided` tab: an approved-but-unsent message now lands in a `to_send` tab labelled "Approved — you still owe this", because filing outstanding real-world work under "decided" is how it goes missing.
+- Added the Real-world send panel to the approvals page, calling `mark_message_sent()` only with a payload `planSendMark()` returned.
+- Extended Runner 5's fixture case loop to support `"action": "send"` cases, so both write paths out of this UI are covered by labelled fixtures rather than inline assertions only.
+- Added five send fixtures (authorized, draft refused, duplicate refused, unauthorized refused, LIVE-mode fixture refused) plus a B5c assertion block.
+- Reverted incidental `package-lock.json` churn caused by running `npm install` in this container (npm stripped `libc` fields from optional platform packages); it is unrelated to this change.
 
 ## files changed
 
-- `scripts/evidence.mjs`
-- `scripts/lib/evidence/spec.mjs`
-- `scripts/lib/evidence/validate.mjs`
-- `scripts/lib/evidence/freeze.mjs`
-- `scripts/lib/evidence/derive.mjs`
-- `scripts/lib/evidence/store.mjs`
-- `scripts/lib/evidence/status.mjs`
-- `scripts/lib/evidence/csv.mjs`
-- `scripts/eval-evidence.mjs`
-- `scripts/eval-evidence.sh`
-- `scripts/regression.sh`
-- `evidence/PROTOCOL.md`
-- `evidence/records/.gitkeep`
-- `evidence/frozen/.gitkeep`
-- `evidence/scans/.gitkeep`
-- `fixtures/evidence/examples/baseline_manifest.json`
-- `fixtures/evidence/examples/baseline_po.json`
-- `fixtures/evidence/examples/testimony-office-manager.json`
-- `fixtures/evidence/examples/obs-001.json`
-- `docs/planning/CONTEXT.md`
-- `docs/planning/SESSION_HANDOFF.md`
+- `apps/web/src/lib/approval-queue.ts`
+- `apps/web/src/app/approvals/page.tsx`
+- `scripts/eval-approval-queue.mjs`
+- `fixtures/queue/cases/20_send_authorized.json`
+- `fixtures/queue/cases/21_send_on_draft_refused.json`
+- `fixtures/queue/cases/22_send_duplicate_refused.json`
+- `fixtures/queue/cases/23_send_unauthorized_refused.json`
+- `fixtures/queue/cases/24_send_live_mode_fixture_refused.json`
+- `fixtures/queue/labels.json`
 - `docs/planning/TASK_BACKLOG.md`
 - `docs/planning/AGENT_HANDOFF.md`
 
 ## migrations
 
-None created, applied, moved, or modified. The repository and the live project remain in sync at migrations 0001 through 0015. EV1 adds no schema and touches no database.
+None created, applied, moved, or modified. The repository and the live project remain in sync at 0001 through 0015. B5c adds no schema: the RPC, its gates and its audit event already existed, and only the caller was missing.
 
 ## commands run
 
-- `git status`, `git branch -a`, `git log --oneline`, `git ls-files | wc -l`
-- `git grep -il` for each claimed evidence capability (premise verification)
-- `node --check` on every new module
-- `node scripts/evidence.mjs help | types | questions | status`
-- `node scripts/evidence.mjs new baseline_manifest --id lippolis-purchasing-2026 --by "Jack Daly"`
-- `node scripts/evidence.mjs baseline sheet | csv | import | summary`
-- `node scripts/evidence.mjs validate`
-- `node scripts/evidence.mjs freeze lippolis-purchasing-2026 --by ... --attest ...`
-- `node scripts/evidence.mjs verify`
-- `node scripts/evidence.mjs window start --baseline ... --approval ...`
-- `bash scripts/eval-evidence.sh`
-- `bash scripts/eval-approval-diff.sh`, `bash scripts/eval-approval-matrix.sh`, `bash scripts/eval-approval-queue.sh`
+- `grep`/`sed` over `supabase/migrations/0015_approval_matrix_outbound.sql`, `apps/web/src/lib/approval-queue.ts`, `apps/web/src/app/approvals/page.tsx`, `scripts/acceptance-slice4.sh`, `scripts/acceptance-slice5.sh`
+- `npm install --no-audit --no-fund`
+- `cd apps/web && npm run build` (before and after the change, and on a stashed tree)
+- `cd apps/mobile && npx tsc --noEmit`
+- `bash scripts/eval-approval-queue.sh`
+- `bash scripts/eval-approval-diff.sh`, `bash scripts/eval-approval-matrix.sh`, `bash scripts/eval-evidence.sh`
 - `node scripts/lib/validate-migration-0014.mjs`, `node scripts/lib/validate-migration-0015.mjs`
+- `node scripts/evidence.mjs status`
+- `git stash` / `git stash pop` to prove the web build failure is pre-existing
 - `bash scripts/validate-agent-handoff.sh`
-- `git add -A`, `git commit`, `git push -u origin claude/awe-iic-evidence-campaign-073p0v`
 
 ## tests passed
 
-- Runner 6 (`bash scripts/eval-evidence.sh`): PASS, 74 offline checks, now wired into `regression.sh`.
-- Runner 3 (approval diff): PASS. Runner 4 (approval matrix and outbound drafts): PASS. Runner 5 (approval queue): PASS. No regressions from EV1.
-- Migration 0014 and 0015 offline structural lints: both OK.
-- Agent handoff validation (`bash scripts/validate-agent-handoff.sh`): PASS.
-- Full clean-slate protocol rehearsal: manifest, CSV template, import of 13 POs, testimony, observation, validate 16 of 16, freeze with hash written, status showing milestone 1 COMPLETE.
-- Freeze integrity verified by adversarial attempts: premature freeze refused for missing testimony and observation; a post-freeze value edit was detected and the drifted record named; re-freeze refused with amendment guidance; `window start` refused without a valid release approval; `window start` refused against an unfrozen baseline.
-- Negative-control checks: 20 rehearsal records, 20 synthetic records and 20 invalid records each scored zero readiness; an unparseable file raised nothing.
-- Confirmed no credentials appear in any added file.
+- Runner 5: PASS — 422 checks, 24 fixtures, guard-reason coverage 8 of 8.
+- Runner 3, Runner 4, Runner 6: PASS. Migration 0014 and 0015 offline lints: OK. No regressions.
+- Mobile typecheck: clean.
+- Web production build: TypeScript compiled and typechecked successfully.
+- `node scripts/evidence.mjs status` still reports 0 of 13. B5c collected no evidence and raised no readiness, which is correct.
 
 ## tests failed
 
-- Initial CI run of the `validate` check failed on commit `e777471`. Root cause was mine and legitimate: the repository requires every pull request diff to include `docs/planning/AGENT_HANDOFF.md`, and my first commit did not update it. The `validate-agent-handoff.sh` script itself passed; only the workflow's handoff-update requirement failed. Fixed by this handoff update. Reproduced locally before fixing with `git diff --name-only origin/main HEAD | grep -Fxq docs/planning/AGENT_HANDOFF.md`.
-- One test failure during development (`direct observation upgrades the basis to measured`) was the code being correct and the test being wrong: a single stopwatch run should not be labelled `measured`. Resolved by introducing an explicit `measured_thin` level rather than by weakening the assertion.
+- `cd apps/web && npm run build` fails at the prerender step with `Error: supabaseUrl is required` on `/approvals`. This is environmental, not a regression: `apps/web/.env.local` is gitignored and absent from this container. Proven by stashing the change and rebuilding — the pre-change tree fails identically, and TypeScript passes in both. Compilation and typechecking, the parts this change could break, both pass.
+- Acceptance slices 1 through 5, Runner 1 and Runner 2A did not run: `.env.acceptance` is gitignored and absent, so the live project could not be reached.
 
 ## live changes
 
-- GitHub: pushed branch `claude/awe-iic-evidence-campaign-073p0v` and opened draft PR #15. No branch deleted, no history rewritten, no force push.
-- Supabase/database: no live change. EV1 contains no database code and the evidence layer is offline by construction, asserted by a source-purity check in Runner 6.
-- n8n/external APIs/production: no live change.
+- Supabase/database: no live change. No schema, no data, no policy change.
+- GitHub: commit and push to `claude/awe-iic-evidence-campaign-073p0v`, updating draft PR #15.
+- n8n/external APIs/production/mailboxes: no live change. AWE still has no mail transport and sent nothing.
 
 ## approvals required
 
 - Keep PR #15 as draft; do not merge without explicit approval from Jack.
-- Explicit approval remains required before applying any live database migration. EV1 requires none.
+- Before the send-marking path is exercised against real customer messages, `NEXT_PUBLIC_AWE_MODE` must be set to LIVE deliberately and the fixture rows must be understood to be non-markable in that mode.
 - Security item S1 (undeclared client policies on the audit tables) remains open and human-gated; untouched by this session.
 
 ## risks
 
-- The evidence thresholds (12 purchase orders minimum, 15 target, 30-day span, 1 testimony, 1 observation) are defensibility floors chosen to resist dismissal, not statistical significance claims, and must never be described as the latter.
-- A single direct observation yields `measured_thin`. Three or more observations are needed before the clerical-hours figure should carry a headline; the code says so, but a human can still quote it carelessly.
-- `sampling_exhaustive` cannot be verified by the repository. It rests on Jack's honesty, and it materially changes whether PO volume is derivable at all.
-- Cherry-picked purchase orders cannot be detected in software, only disclosed. `sampling_method` exists for that disclosure.
-- Live acceptance slices 1 through 5 and Runners 1 and 2A were not run this session because `.env.acceptance` is gitignored and absent from this container. Mobile typecheck and the web build were not run because `node_modules` is not installed. EV1 adds no app, schema or database code, so none of these cover it, but the gap is stated rather than glossed.
+- The send-marking button is an ATTESTATION, not an action. If a user believes it sends the email, they will click it and never send anything, and the customer gets nothing while the ledger says otherwise. The UI states plainly that it does not send and instructs the user to send from Outlook first, but this is a human-factors risk that copy alone cannot fully eliminate. It is worth watching in the first real use.
+- `sent` is now reachable from the browser. It was previously unreachable outside raw SQL, which was a de facto safety property. The database gates (status must be approved, org must match, role must match) are unchanged and still authoritative; the UI guard mirrors them and is not the only enforcement.
+- Runner 5's purity gate no longer forbids `mark_message_sent` in the UI. The RPC allow-list grew by exactly one named, database-gated call and remains closed. The invariants that protect the customer — no mail transport, no service-role credential, no direct write to `outbound_messages` — are unchanged and still asserted.
+- The browser path has NOT been verified against the live project this session. It is code-verified and rehearsal-verified only.
 
 ## blockers
 
-No engineering blockers. The blocker is real-world evidence: `node scripts/evidence.mjs status` reports 0 of 13 evidence requirements met, because no evidence has been collected yet. Every remaining input requires a physical human act.
+No engineering blocker for B5c. The remaining outbound blockers are external: Graph requires an Entra app registration from IT (B9/B10/B11), n8n requires an instance URL (B12), QuickBooks requires a variant and billing-process confirmation (B13). The evidence campaign is blocked on the founder's physical Lippolis visit, expected Friday.
 
 ## exact next prompt
 
-Mission 1 is not finished. `evidence/records/baseline_manifest/lippolis-purchasing-2026.json` exists with
-its prose scope fields drafted, but three fields are still null and `node scripts/evidence.mjs validate`
-fails, so the scope is NOT yet declared. Do not transcribe any purchase order, create testimony, freeze a
-baseline or open an observation window until it validates.
-
-Four real-world facts are needed from Lippolis, none of them determinable from this repository:
-
-1. The name and actual date coverage of the physical filing source holding the paper purchase orders.
-2. `window_start` and `window_end`, chosen to sit inside that coverage.
-3. What "PCC" is and when it became the operating process. This sets `awe_production_start`, the
-   contamination cutoff. Note that null is a VALID answer meaning AWE/PCC never touched purchasing, and
-   the validator cannot distinguish that from an unanswered field, so it must be asserted consciously.
-4. Whether every purchase produces a filed purchase order. If some do not (phone orders, counter pickups,
-   verbal orders), then `sampling_exhaustive: true` is honest only about the binder, and the derived
-   volume figure is filed POs per week rather than purchases per week. `process_scope` must then say the
-   population is filed paper POs.
-
-`sampling_exhaustive` is an INTENT at declaration time. It must be re-affirmed or corrected after the
-paper pass and before freezing; the git diff is the audit trail.
-
-Once the three nulls are filled: `node scripts/evidence.mjs validate` must report 1 valid, 0 invalid, then
-`git add evidence/records/baseline_manifest/lippolis-purchasing-2026.json` and
-`git commit -m "evidence: declare Lippolis purchasing baseline scope"`. That commit must precede the first
-purchase order record.
+Run the live acceptance slices against this branch with `.env.acceptance` sourced (`source .env.acceptance && bash scripts/regression.sh`) to move B5c from rehearsal-verified to integration-verified, then walk one fixture message through the full loop in the browser — approve it, confirm it appears under "Approved — you still owe this", record the send, and confirm the audit trail shows the send step with the correct actor and timestamp. Do not begin any new capability until that walkthrough passes.

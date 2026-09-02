@@ -1,0 +1,7 @@
+{
+  "description": "A signed-in user who does not hold the assigned approver role cannot record the send. mark_message_sent() enforces the same business_role_matches() check; this refuses it before it leaves the browser.",
+  "action": "send",
+  "mode": "TEST",
+  "capabilities": { "userId": "u-worker", "roles": { "office_admin": false } },
+  "row": { "status": "approved", "approved_at": "2026-07-26T15:00:00.000Z" }
+}

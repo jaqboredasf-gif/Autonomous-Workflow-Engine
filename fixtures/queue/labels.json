@@ -124,5 +124,34 @@
     "guard_reason": "unassigned_approver",
     "plan_ok": false,
     "plan_reason": "unassigned_approver"
+  },
+  "20_send_authorized.json": {
+    "guard_allowed": true,
+    "guard_reason": null,
+    "plan_ok": true
+  },
+  "21_send_on_draft_refused.json": {
+    "guard_allowed": false,
+    "guard_reason": "not_awaiting_send",
+    "plan_ok": false,
+    "plan_reason": "not_awaiting_send"
+  },
+  "22_send_duplicate_refused.json": {
+    "guard_allowed": false,
+    "guard_reason": "not_awaiting_send",
+    "plan_ok": false,
+    "plan_reason": "not_awaiting_send"
+  },
+  "23_send_unauthorized_refused.json": {
+    "guard_allowed": false,
+    "guard_reason": "unauthorized_approver",
+    "plan_ok": false,
+    "plan_reason": "unauthorized_approver"
+  },
+  "24_send_live_mode_fixture_refused.json": {
+    "guard_allowed": false,
+    "guard_reason": "fixture_in_live_mode",
+    "plan_ok": false,
+    "plan_reason": "fixture_in_live_mode"
   }
 }

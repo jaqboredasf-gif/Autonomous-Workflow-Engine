@@ -43,14 +43,17 @@ import {
   filterTab,
   formatAmount,
   planDecision,
+  planSendMark,
   queueState,
   recipientLine,
   requesterLine,
   requiredRoles,
   resolveQueueMode,
+  sendGuard,
   summarizeQueue,
   tabOf,
   verifyDecisionApplied,
+  verifySendApplied,
 } from '../apps/web/src/lib/approval-queue.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -96,6 +99,49 @@ for (const f of files) {
     mode: c.mode ?? 'TEST',
     capabilities: c.capabilities ?? { userId: null, roles: {} },
   };
+
+  // A case is a DECISION case unless it says otherwise. B5c send cases exercise
+  // the same guard/plan contract against sendGuard/planSendMark, so both write
+  // paths out of this UI are covered by labelled fixtures rather than by
+  // inline assertions only.
+  const action = c.action ?? 'decide';
+  check(action === 'decide' || action === 'send', `${f} unknown action '${action}'`);
+
+  if (action === 'send') {
+    const s1 = sendGuard(input);
+    const s2 = sendGuard(input);
+    check(JSON.stringify(s1) === JSON.stringify(s2), `${f} sendGuard is non-deterministic`);
+
+    check(s1.allowed === label.guard_allowed,
+      `${f} send guard allowed=${s1.allowed} expected ${label.guard_allowed} (${s1.reason})`);
+    check((s1.reason ?? null) === (label.guard_reason ?? null),
+      `${f} send guard reason=${s1.reason} expected ${label.guard_reason}`);
+    if (s1.reason) {
+      seenGuardReasons.add(s1.reason);
+      check(GUARD_REASONS.includes(s1.reason), `${f} send guard reason '${s1.reason}' is outside the vocabulary`);
+      check(typeof s1.detail === 'string' && s1.detail.length > 0,
+        `${f} send refusal carries no human-readable detail`);
+    }
+
+    const sp1 = planSendMark(input);
+    const sp2 = planSendMark(input);
+    check(JSON.stringify(sp1) === JSON.stringify(sp2), `${f} planSendMark is non-deterministic`);
+    check(sp1.ok === label.plan_ok, `${f} send plan ok=${sp1.ok} expected ${label.plan_ok} (${sp1.reason})`);
+
+    if (label.plan_ok) {
+      check(sp1.rpc !== null, `${f} an allowed send-marking produced no RPC payload`);
+      check(sp1.rpc?.p_message === row.id, `${f} send RPC targets the wrong message`);
+      check(Object.keys(sp1.rpc ?? {}).length === 1,
+        `${f} send RPC payload carries fields mark_message_sent() does not accept`);
+    } else {
+      // HARD: a refused send-marking must produce NOTHING that could be called.
+      check(sp1.rpc === null, `${f} a refused send-marking still produced an RPC payload`);
+      check(sp1.reason === label.plan_reason,
+        `${f} send plan reason=${sp1.reason} expected ${label.plan_reason}`);
+      if (sp1.reason) seenGuardReasons.add(sp1.reason);
+    }
+    continue;
+  }
 
   const g1 = decisionGuard(input);
   const g2 = decisionGuard(input);
@@ -201,7 +247,7 @@ for (const r of allRows) {
 }
 const summary = summarizeQueue(allRows);
 check(summary.total === allRows.length, 'summary total disagrees with the row count');
-check(summary.pending + summary.blocked + summary.decided === summary.total,
+check(summary.pending + summary.to_send + summary.blocked + summary.decided === summary.total,
   'summary buckets do not add up to the total');
 
 // ---------------------------------------------------------------------------
@@ -389,6 +435,104 @@ for (const t of SERVICE_ROLE_ONLY) {
 }
 
 // ---------------------------------------------------------------------------
+// B5c — recording a real-world send (mark_message_sent)
+//
+// An approved message is OUTSTANDING WORK: a human still owes the customer an
+// email. These assertions protect the two ways that can go wrong — the loop
+// never closing, and the system recording a send that never happened.
+// ---------------------------------------------------------------------------
+
+const ADMIN = { userId: 'u-admin', roles: { office_admin: true } };
+const NOBODY = { userId: 'u-none', roles: {} };
+const approvedRow = {
+  ...baseRow,
+  status: 'approved',
+  approved_at: '2026-07-26T15:00:00.000Z',
+  approver: { full_name: 'Fixture Admin' },
+};
+
+// --- the happy path -------------------------------------------------------
+const sendPlan = planSendMark({ row: approvedRow, mode: 'TEST', capabilities: ADMIN });
+check(sendPlan.ok === true, `an approved fixture row was not markable as sent: ${sendPlan.reason} ${sendPlan.detail}`);
+check(sendPlan.rpc?.p_message === approvedRow.id, 'send plan carries the wrong message id');
+check(Object.keys(sendPlan.rpc ?? {}).length === 1,
+  'send plan passes arguments mark_message_sent() does not take');
+
+// --- only an approved message can be marked sent --------------------------
+for (const status of ['draft', 'rejected', 'blocked', 'failed']) {
+  const g = sendGuard({ row: { ...baseRow, status }, mode: 'TEST', capabilities: ADMIN });
+  check(g.allowed === false && g.reason === 'not_awaiting_send',
+    `a '${status}' message was offered a send-marking`);
+}
+
+// --- duplicate protection: a sent message cannot be re-marked -------------
+const sentRow = {
+  ...approvedRow,
+  status: 'sent',
+  sent_at: '2026-07-26T16:00:00.000Z',
+  sender: { full_name: 'Fixture Admin' },
+};
+const dup = planSendMark({ row: sentRow, mode: 'TEST', capabilities: ADMIN });
+check(dup.ok === false && dup.reason === 'not_awaiting_send',
+  'an already-sent message could be marked sent again');
+check(dup.rpc === null, 'a refused send-marking still produced an RPC payload');
+check(/already recorded as sent/.test(dup.detail ?? ''),
+  'duplicate send refusal does not explain itself');
+
+// --- authorization --------------------------------------------------------
+const noRole = planSendMark({ row: approvedRow, mode: 'TEST', capabilities: NOBODY });
+check(noRole.ok === false && noRole.reason === 'unauthorized_approver',
+  'a user without the approver role could record a send');
+check(noRole.rpc === null, 'an unauthorized send-marking still produced an RPC payload');
+
+const noApprover = sendGuard({
+  row: { ...approvedRow, assigned_approver_role: null },
+  mode: 'TEST',
+  capabilities: ADMIN,
+});
+check(noApprover.allowed === false && noApprover.reason === 'unassigned_approver',
+  'a message with no assigned approver could be marked sent');
+
+// --- fixture safety, both directions --------------------------------------
+// THE critical one: marking a fixture "sent" in LIVE would write a permanent
+// claim that a real customer email went out when nothing did.
+const fixtureLive = planSendMark({ row: approvedRow, mode: 'LIVE', capabilities: ADMIN });
+check(fixtureLive.ok === false && fixtureLive.reason === 'fixture_in_live_mode',
+  'a FIXTURE row could be recorded as sent in LIVE mode');
+check(fixtureLive.rpc === null, 'a LIVE-mode fixture send-marking still produced an RPC payload');
+
+const realInTest = planSendMark({
+  row: { ...approvedRow, is_fixture: false, to_addrs: ['real.customer@example.com'] },
+  mode: 'TEST',
+  capabilities: ADMIN,
+});
+check(realInTest.ok === false && realInTest.reason === 'test_mode_violation',
+  'a real recipient could be recorded as sent in TEST mode');
+
+// --- tabs: approved is outstanding work, not finished business ------------
+check(tabOf(approvedRow) === 'to_send',
+  'an approved-but-unsent message was filed as decided — outstanding work would go missing');
+check(tabOf(sentRow) === 'decided', 'a sent message did not settle into decided');
+const sendSummary = summarizeQueue([approvedRow, sentRow, { ...baseRow }]);
+check(sendSummary.to_send === 1 && sendSummary.decided === 1 && sendSummary.pending === 1,
+  `send-tab summary is wrong: ${JSON.stringify(sendSummary)}`);
+
+// --- deterministic post-send refresh --------------------------------------
+check(verifySendApplied({ rows: [sentRow], messageId: approvedRow.id }).settled === true,
+  'a send-marking that applied was not reported as settled');
+const stuck = verifySendApplied({ rows: [approvedRow], messageId: approvedRow.id });
+check(stuck.settled === false, 'a send-marking that did NOT apply was reported as success');
+check(/still outstanding/.test(stuck.message),
+  'an unapplied send-marking does not tell the human the work is still outstanding');
+check(verifySendApplied({ rows: [], messageId: approvedRow.id }).settled === false,
+  'a vanished message was reported as successfully sent');
+
+// --- the audit trail records the send -------------------------------------
+const sentTrail = buildAuditTrail(sentRow);
+check(sentTrail.some((e) => e.step === 'sent'),
+  'the audit trail does not record the send');
+
+// ---------------------------------------------------------------------------
 // Source purity — the UI cannot send, cannot escalate privilege, holds no secret
 // ---------------------------------------------------------------------------
 
@@ -401,8 +545,13 @@ const UI_FILES = {
 const stripComments = (s) =>
   s.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !/^\s*(\/\/|\*)/.test(l)).join('\n');
 
+// B5c NOTE: mark_message_sent was previously forbidden here, because B5 shipped
+// approve/reject only. It is now permitted and allow-listed below -- it is a
+// LEDGER call recording that a human sent a message, gated by 0015 on status,
+// org and role. The invariant that actually protects the customer is unchanged
+// and still asserted: the UI has NO MAIL TRANSPORT and cannot write to
+// outbound_messages directly.
 const FORBIDDEN_IN_UI = [
-  [/mark_message_sent/, 'a send-marking call (B5 has no send action)'],
   [/\bcreate_outbound_draft\b/, 'a draft-creation call (the queue only decides)'],
   [/service_role|SERVICE_ROLE|sb_secret_|SUPABASE_ACCESS_TOKEN/, 'a service-role or management credential'],
   [/eyJ[A-Za-z0-9_-]{10,}/, 'a hard-coded JWT'],
@@ -418,10 +567,10 @@ for (const [name, src] of Object.entries(UI_FILES)) {
   }
 }
 
-// The queue may call exactly two RPCs, and no others.
+// The queue may call exactly these RPCs, and no others.
 const rpcCalls = [...Object.values(UI_FILES).join('\n').matchAll(/\.rpc\(\s*['"]([a-z_]+)['"]/g)]
   .map((m) => m[1]);
-const allowedRpcs = ['record_approval', 'business_role_matches'];
+const allowedRpcs = ['record_approval', 'business_role_matches', 'mark_message_sent'];
 for (const r of rpcCalls) {
   check(allowedRpcs.includes(r), `the queue calls an unexpected RPC '${r}'`);
 }

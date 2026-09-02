@@ -12,9 +12,13 @@
 //     mirror that decides what to OFFER a human. Every guard it applies is
 //     already enforced in the database — if the two ever disagree, the database
 //     wins and the UI shows the raised error verbatim.
-//   * It has NO send capability. There is no mark_message_sent() call in this
-//     module or in the page that consumes it (asserted by Runner 5's source
-//     purity gate). B5 is approve/reject only.
+//   * It STILL has no send capability. AWE does not transmit anything: a human
+//     copies an approved draft into Outlook and sends it themselves. What this
+//     module gained in B5c is the ability to plan a call to 0015's
+//     `mark_message_sent()` — which is a LEDGER ENTRY recording that a human
+//     says they sent it, not an act of sending. The distinction is the whole
+//     safety story and the UI must never blur it: nothing here opens a mail
+//     client, and Runner 5's source-purity gate still forbids a transport.
 //
 // The TEST-mode contract and the shared vocabulary are IMPORTED from
 // scripts/lib/approval-matrix.mjs (the B3 engine) rather than restated, so
@@ -61,8 +65,17 @@ export type OutboundStatus = (typeof OUTBOUND_STATUSES)[number];
 /** The only status a human may decide on. 0015: "only a draft can be decided". */
 export const DECIDABLE_STATUSES: readonly OutboundStatus[] = ['draft'];
 
-/** Statuses that still need a human's eyes, in queue order. */
-export const QUEUE_TABS = ['pending', 'blocked', 'decided'] as const;
+/**
+ * The only status whose send can be recorded. 0015's mark_message_sent():
+ * "only an approved message can be marked sent". An approved message that
+ * nobody has sent yet is the one row in this system that represents OUTSTANDING
+ * REAL-WORLD WORK — a human owes the customer an email — which is why it gets
+ * its own tab instead of being filed under "decided" and forgotten.
+ */
+export const SENDABLE_STATUSES: readonly OutboundStatus[] = ['approved'];
+
+/** Statuses that still need a human's eyes or hands, in queue order. */
+export const QUEUE_TABS = ['pending', 'to_send', 'blocked', 'decided'] as const;
 export type QueueTab = (typeof QUEUE_TABS)[number];
 
 /**
@@ -73,6 +86,7 @@ export type QueueTab = (typeof QUEUE_TABS)[number];
  */
 export const GUARD_REASONS = [
   'not_pending', // already decided — duplicate-decision protection
+  'not_awaiting_send', // not an approved message — nothing to record a send for
   'unassigned_approver', // blocked row: nobody is accountable, nothing to approve
   'unauthorized_approver', // signed-in user does not hold the assigned role
   'test_mode_violation', // TEST mode, row is not fixture-safe
@@ -380,6 +394,110 @@ export function planDecision({
   };
 }
 
+// --- Recording a real-world send --------------------------------------------
+
+/**
+ * May this human record that they sent this message, right now, in this mode?
+ *
+ * Deliberately the SAME shape and the same ordering as decisionGuard, because
+ * 0015's mark_message_sent() enforces the same four things record_approval()
+ * does — status, org, role, and (through the queue) fixture safety:
+ *   1. not approved       -> "only an approved message can be marked sent"
+ *   2. no assigned approver -> nobody is accountable for the claim
+ *   3. role not held      -> business_role_matches() will refuse it anyway
+ *   4. TEST-mode safety   -> fixture-safety in both directions
+ *
+ * The LIVE-mode fixture refusal matters more here than anywhere else in the
+ * queue: marking a fixture "sent" in LIVE would write a permanent claim that a
+ * real customer email went out when nothing did. That is the one lie this
+ * system must never be able to tell about itself.
+ */
+export function sendGuard({
+  row,
+  mode = 'TEST',
+  capabilities = NO_CAPABILITIES,
+}: {
+  row: QueueRow;
+  mode?: QueueMode;
+  capabilities?: Capabilities | null;
+}): GuardResult {
+  if (!SENDABLE_STATUSES.includes(row.status)) {
+    const what = row.status === 'sent'
+      ? 'already recorded as sent'
+      : `${row.status}; only an approved message can be marked sent`;
+    return deny('not_awaiting_send', `message is ${what}`);
+  }
+
+  if (!row.assigned_approver_role) {
+    return deny('unassigned_approver', 'no approver assigned');
+  }
+
+  if (!holdsRole(capabilities, row.assigned_approver_role)) {
+    return deny(
+      'unauthorized_approver',
+      `requires the ${row.assigned_approver_role} role`,
+    );
+  }
+
+  const recipients = [
+    ...(row.to_addrs ?? []),
+    ...(row.cc_addrs ?? []),
+    ...(row.bcc_addrs ?? []),
+  ];
+
+  if (mode === 'TEST') {
+    const test = testModeGate({
+      recipients,
+      isFixture: row.is_fixture === true,
+      mode: 'TEST',
+    });
+    if (!test.ok) {
+      return deny('test_mode_violation', test.violations.join('; '));
+    }
+  } else if (row.is_fixture === true) {
+    return deny(
+      'fixture_in_live_mode',
+      'fixture rows are not markable as sent in LIVE mode',
+    );
+  }
+
+  return ALLOW;
+}
+
+export interface SendMarkPlan {
+  ok: boolean;
+  reason: GuardReason | null;
+  detail: string | null;
+  /** Exactly the arguments mark_message_sent() will be called with. */
+  rpc: { p_message: string } | null;
+}
+
+/**
+ * Validate a send-marking and produce the exact RPC payload for it. As with
+ * planDecision, the page calls NOTHING this function did not return, so an
+ * unauthorized or duplicate send-marking never leaves the browser.
+ */
+export function planSendMark({
+  row,
+  mode = 'TEST',
+  capabilities = NO_CAPABILITIES,
+}: {
+  row: QueueRow;
+  mode?: QueueMode;
+  capabilities?: Capabilities | null;
+}): SendMarkPlan {
+  const guard = sendGuard({ row, mode, capabilities });
+  if (!guard.allowed) {
+    return {
+      ok: false,
+      reason: guard.reason as GuardReason,
+      detail: guard.detail ?? '',
+      rpc: null,
+    };
+  }
+  return { ok: true, reason: null, detail: null, rpc: { p_message: row.id } };
+}
+
 // --- Deterministic post-decision refresh ------------------------------------
 
 export interface RefreshVerdict {
@@ -423,6 +541,38 @@ export function verifyDecisionApplied({
   };
 }
 
+/**
+ * Same posture as verifyDecisionApplied: after marking sent, the page re-reads
+ * and asks whether the row actually moved to `sent`. A send-marking that
+ * reports success but leaves the row `approved` means the work is still
+ * outstanding, and the human must see that rather than a green toast.
+ */
+export function verifySendApplied({
+  rows,
+  messageId,
+}: {
+  rows: readonly QueueRow[];
+  messageId: string;
+}): RefreshVerdict {
+  const row = rows.find((r) => r.id === messageId) ?? null;
+
+  if (!row) {
+    return {
+      settled: false,
+      status: null,
+      message: `send recorded, but message ${messageId} was not found on refresh — reload and confirm`,
+    };
+  }
+  if (row.status === 'sent') {
+    return { settled: true, status: row.status, message: 'Recorded as sent.' };
+  }
+  return {
+    settled: false,
+    status: row.status,
+    message: `send-marking did not apply: message is still ${row.status} (expected sent) — it has NOT been recorded and is still outstanding`,
+  };
+}
+
 // --- View state -------------------------------------------------------------
 
 export const QUEUE_STATES = ['loading', 'error', 'signed_out', 'empty', 'ready'] as const;
@@ -454,6 +604,10 @@ export function queueState({
 export function tabOf(row: QueueRow): QueueTab {
   if (row.status === 'draft') return 'pending';
   if (row.status === 'blocked' || row.status === 'failed') return 'blocked';
+  // An approved message is NOT finished business: somebody still owes the
+  // customer an actual email. Filing it under "decided" is how real work goes
+  // missing, so it gets its own tab until a human records the send.
+  if (row.status === 'approved') return 'to_send';
   return 'decided';
 }
 
@@ -464,6 +618,7 @@ export function filterTab(rows: readonly QueueRow[], tab: QueueTab): QueueRow[] 
 export interface QueueSummary {
   total: number;
   pending: number;
+  to_send: number;
   blocked: number;
   decided: number;
   escalated: number;
@@ -475,6 +630,7 @@ export function summarizeQueue(rows: readonly QueueRow[] | null): QueueSummary {
   return {
     total: list.length,
     pending: list.filter((r) => tabOf(r) === 'pending').length,
+    to_send: list.filter((r) => tabOf(r) === 'to_send').length,
     blocked: list.filter((r) => tabOf(r) === 'blocked').length,
     decided: list.filter((r) => tabOf(r) === 'decided').length,
     escalated: list.filter((r) => r.escalated === true).length,
