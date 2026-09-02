@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-09-02T14:10:00Z
+2026-09-02T14:35:00Z
 
 ## agent
 
@@ -22,7 +22,7 @@ EV1 implementation commit `e777471`; this handoff update follows it on the same 
 
 ## current objective
 
-Completed: shipped EV1, the founder-facing evidence capture layer for the AWE to IIC 2027 campaign, so real-world evidence collection at Lippolis Electric can begin without another engineering session. Do NOT start Case Study #001 (EV2) — it is deliberately blocked until real evidence exists and an observation window has closed.
+Mission 1 IN PROGRESS: declare the Lippolis purchasing baseline scope before any purchase order is inspected or transcribed. The manifest is scaffolded and its prose scope fields are drafted, but `window_start`, `window_end` and `sampling_exhaustive` remain null pending real-world facts from Lippolis, so it does not validate and has NOT been declared. Previously: shipped EV1, the founder-facing evidence capture layer for the AWE to IIC 2027 campaign, so real-world evidence collection at Lippolis Electric can begin without another engineering session. Do NOT start Case Study #001 (EV2) — it is deliberately blocked until real evidence exists and an observation window has closed.
 
 ## pull request
 
@@ -152,4 +152,27 @@ No engineering blockers. The blocker is real-world evidence: `node scripts/evide
 
 ## exact next prompt
 
-Do not open another engineering session. Run `node scripts/evidence.mjs new baseline_manifest --id lippolis-purchasing-2026 --by "Jack Daly"`, fill in every field (especially `sampling_exhaustive` and the `awe_production_start` contamination cutoff), commit it so the git timestamp proves scope preceded data, then run `node scripts/evidence.mjs baseline sheet`, print it, and transcribe roughly 15 purchase orders from the Lippolis binder. Read `evidence/PROTOCOL.md` first. Re-open engineering only if real capture hits a concrete blocker the CLI cannot express, or once an observation window has closed and EV2 becomes unblocked.
+Mission 1 is not finished. `evidence/records/baseline_manifest/lippolis-purchasing-2026.json` exists with
+its prose scope fields drafted, but three fields are still null and `node scripts/evidence.mjs validate`
+fails, so the scope is NOT yet declared. Do not transcribe any purchase order, create testimony, freeze a
+baseline or open an observation window until it validates.
+
+Four real-world facts are needed from Lippolis, none of them determinable from this repository:
+
+1. The name and actual date coverage of the physical filing source holding the paper purchase orders.
+2. `window_start` and `window_end`, chosen to sit inside that coverage.
+3. What "PCC" is and when it became the operating process. This sets `awe_production_start`, the
+   contamination cutoff. Note that null is a VALID answer meaning AWE/PCC never touched purchasing, and
+   the validator cannot distinguish that from an unanswered field, so it must be asserted consciously.
+4. Whether every purchase produces a filed purchase order. If some do not (phone orders, counter pickups,
+   verbal orders), then `sampling_exhaustive: true` is honest only about the binder, and the derived
+   volume figure is filed POs per week rather than purchases per week. `process_scope` must then say the
+   population is filed paper POs.
+
+`sampling_exhaustive` is an INTENT at declaration time. It must be re-affirmed or corrected after the
+paper pass and before freezing; the git diff is the audit trail.
+
+Once the three nulls are filled: `node scripts/evidence.mjs validate` must report 1 valid, 0 invalid, then
+`git add evidence/records/baseline_manifest/lippolis-purchasing-2026.json` and
+`git commit -m "evidence: declare Lippolis purchasing baseline scope"`. That commit must precede the first
+purchase order record.
