@@ -93,6 +93,11 @@ export default function Approvals() {
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  // Recording a send is IRREVERSIBLE (0015: `sent` is terminal — there is no
+  // transition out of it). A single stray click would permanently assert that a
+  // customer was emailed when they were not, and drop a real obligation out of
+  // the "you still owe this" tab forever. So the write takes two deliberate acts.
+  const [confirmingSendId, setConfirmingSendId] = useState<string | null>(null);
   const reasonRef = useRef<HTMLTextAreaElement | null>(null);
 
   /**
@@ -206,6 +211,7 @@ export default function Approvals() {
    */
   async function markSent(row: QueueRow) {
     setNotice(null);
+    setConfirmingSendId(null);
 
     const plan = planSendMark({ row, mode: MODE, capabilities: caps });
     if (!plan.ok) {
@@ -598,19 +604,50 @@ export default function Approvals() {
                             This message is approved but nobody has sent it yet. Copy the body above
                             into Outlook and send it, then record that here.
                           </p>
-                          <div className="mt-3">
-                            <button
-                              onClick={() => void markSent(selected)}
-                              disabled={busyId === selected.id}
-                              className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50"
-                            >
-                              {busyId === selected.id ? 'Working…' : 'I sent this — record it'}
-                            </button>
-                          </div>
+
+                          {confirmingSendId === selected.id ? (
+                            <div className="mt-3 rounded border border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/30">
+                              <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                                Have you already sent this email from Outlook?
+                              </p>
+                              <p className="mt-1 text-sm text-amber-900 dark:text-amber-100">
+                                This cannot be undone. Recording a send that did not happen means the
+                                customer never hears from us and nothing will ever flag it again.
+                              </p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  onClick={() => void markSent(selected)}
+                                  disabled={busyId === selected.id}
+                                  className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50"
+                                >
+                                  {busyId === selected.id ? 'Working…' : 'Yes — I already sent it'}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmingSendId(null)}
+                                  disabled={busyId === selected.id}
+                                  className="rounded border px-4 py-2 text-sm hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-600 dark:hover:bg-neutral-800"
+                                >
+                                  Not yet — cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-3">
+                              <button
+                                onClick={() => setConfirmingSendId(selected.id)}
+                                disabled={busyId === selected.id}
+                                className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50"
+                              >
+                                I sent this — record it
+                              </button>
+                            </div>
+                          )}
+
                           <p className="mt-2 text-xs text-neutral-500">
                             This button does <strong>not</strong> send anything. AWE has no mail
-                            transport. It records that you sent it, permanently and under your name.
-                            Do not click it until the email has actually gone out.
+                            transport. It records, permanently and under your name, that{' '}
+                            <strong>you</strong> sent it. AWE cannot verify that — it only knows what
+                            you tell it. Do not record it until the email has actually gone out.
                           </p>
                         </>
                       )}

@@ -567,6 +567,23 @@ for (const [name, src] of Object.entries(UI_FILES)) {
   }
 }
 
+// Recording a send is IRREVERSIBLE: 0015's transition guard makes `sent`
+// terminal, so a false record can never be corrected in place and the customer
+// obligation silently disappears from the "you still owe this" tab. The write
+// must therefore stay behind a deliberate second act. This asserts the shape of
+// that protection so it cannot be quietly deleted in a later refactor.
+{
+  const page = UI_FILES['apps/web/src/app/approvals/page.tsx'];
+  const code = stripComments(page);
+  check(/confirmingSendId/.test(code),
+    'the approvals page no longer gates the irreversible send-marking behind a confirmation');
+  check(/setConfirmingSendId\(\s*selected\.id\s*\)/.test(code),
+    'the send button no longer opens a confirmation step — it may write the irreversible record on one click');
+  const sendCalls = [...code.matchAll(/markSent\s*\(/g)].length;
+  check(sendCalls === 2,
+    `expected exactly one markSent definition and one guarded call site, found ${sendCalls} occurrences`);
+}
+
 // The queue may call exactly these RPCs, and no others.
 const rpcCalls = [...Object.values(UI_FILES).join('\n').matchAll(/\.rpc\(\s*['"]([a-z_]+)['"]/g)]
   .map((m) => m[1]);

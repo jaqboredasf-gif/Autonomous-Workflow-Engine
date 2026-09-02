@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-09-02T15:05:00Z
+2026-09-02T15:40:00Z
 
 ## agent
 
@@ -22,7 +22,9 @@ B5c follows EV1 (`e777471`), the EV1 handoff (`a313811`) and the baseline scaffo
 
 ## current objective
 
-Completed: B5c — closed the APPROVAL to REAL ACTION to AUDIT link in the outbound workflow. An approved message can now be recorded as sent from the approvals queue. Previously that state transition existed in the database and was covered by acceptance slice 4, but no product surface called it, so `sent` was reachable only by raw SQL or curl.
+Completed: B5c, plus a first-use defect fix found by inspecting it for real employee use (B5c-fix). Integration verification was ATTEMPTED and is BLOCKED: `.env.acceptance` is absent from this container, so no live acceptance run was possible. B5c remains rehearsal-verified, NOT integration-verified.
+
+Prior: B5c — closed the APPROVAL to REAL ACTION to AUDIT link in the outbound workflow. An approved message can now be recorded as sent from the approvals queue. Previously that state transition existed in the database and was covered by acceptance slice 4, but no product surface called it, so `sent` was reachable only by raw SQL or curl.
 
 Do NOT resume the Lippolis purchasing baseline: the founder is blocked on physical evidence until Friday. Do NOT start Case Study #001 (EV2).
 
@@ -83,11 +85,21 @@ None created, applied, moved, or modified. The repository and the live project r
 
 ## tests passed
 
-- Runner 5: PASS — 422 checks, 24 fixtures, guard-reason coverage 8 of 8.
+- Runner 5: PASS — 425 checks, 24 fixtures, guard-reason coverage 8 of 8 (3 new checks assert the irreversible write stays behind a confirmation).
 - Runner 3, Runner 4, Runner 6: PASS. Migration 0014 and 0015 offline lints: OK. No regressions.
 - Mobile typecheck: clean.
 - Web production build: TypeScript compiled and typechecked successfully.
 - `node scripts/evidence.mjs status` still reports 0 of 13. B5c collected no evidence and raised no readiness, which is correct.
+
+## first-use defect found and fixed (B5c-fix)
+
+Recording a send is IRREVERSIBLE. Verified from source: `guard_outbound_transition()` in 0015 permits `draft -> approved|rejected|blocked|failed` and `approved -> sent|rejected` only, so `sent` is terminal with no transition out of it, and the file's own comment says "Corrections after a terminal state are a NEW draft row."
+
+As originally shipped, B5c fired that irreversible write on a SINGLE UNGUARDED CLICK, and the copy did not say it was permanent. A stray click, or a user who misread the button as an act of sending, would permanently assert that a customer had been emailed when they had not — and the obligation would vanish from the "Approved — you still owe this" tab forever, with nothing ever flagging it again. That is a concrete first-use defect, not a hypothetical.
+
+Fixed with the minimum proportionate change: the write now takes two deliberate acts. The first click opens a confirmation that asks "Have you already sent this email from Outlook?" and states that it cannot be undone; only the second click calls the RPC. No gate was weakened and no recovery system was built — reversing `sent` would undermine the ledger, which is why the fix is prevention rather than undo. Runner 5 now asserts the confirmation's shape so it cannot be silently removed in a later refactor.
+
+The copy was also strengthened to say what AWE genuinely cannot know: it records that YOU sent it, and it cannot verify that.
 
 ## tests failed
 
@@ -116,6 +128,14 @@ None created, applied, moved, or modified. The repository and the live project r
 ## blockers
 
 No engineering blocker for B5c. The remaining outbound blockers are external: Graph requires an Entra app registration from IT (B9/B10/B11), n8n requires an instance URL (B12), QuickBooks requires a variant and billing-process confirmation (B13). The evidence campaign is blocked on the founder's physical Lippolis visit, expected Friday.
+
+## integration verification attempt (2026-09-02)
+
+Attempted and blocked. `.env.acceptance` does not exist in this container; `apps/web/.env.local` does not exist either; and no Supabase credentials are present in the environment (the only SUPABASE/ANTHROPIC matches in `env` are proxy and base-URL settings, not keys). Both files are gitignored by `.env.*` and by design never committed.
+
+The prescribed commands were re-verified as still correct: `scripts/regression.sh` documents `SUPABASE_ACCESS_TOKEN=... SUPABASE_SERVICE_ROLE_KEY=... EMAIL=... PASSWORD=... bash scripts/regression.sh`, and slice 5 hard-requires SUPABASE_ACCESS_TOKEN, EMAIL and PASSWORD. So `source .env.acceptance && bash scripts/regression.sh` remains the right invocation — on a machine that holds the file.
+
+No credentials were fabricated and no acceptance results were simulated. B5c stays rehearsal-verified.
 
 ## exact next prompt
 

@@ -195,6 +195,14 @@ Completes the execution boundary behind the already-built approval step. `mark_m
 - **Test-scope change (deliberate, not a weakening)**: Runner 5's purity gate previously forbade `mark_message_sent` in the UI, because B5 was approve/reject only. That ban is lifted and the RPC allow-list grows by exactly one named, DB-gated call. The invariant that actually protects the customer is unchanged and still asserted: the UI has no mail transport, no service-role credential, and no direct write to `outbound_messages`.
 - **NOT live-verified**: no `.env.acceptance` in the build container, so acceptance slices 4/5 did not run against the live project. The browser path is code- and rehearsal-verified only.
 
+## B5c-fix — Confirmation before the irreversible send record — `DONE` (2026-09-02)
+Found by reviewing B5c for first real-employee use, before anyone used it.
+- **Defect**: `sent` is terminal — `guard_outbound_transition()` allows no transition out of it, and 0015's own comment says corrections after a terminal state require a NEW draft row. B5c as first shipped fired that irreversible write on a single unguarded click, with copy that never said it was permanent. A stray click, or a user misreading the button as an act of sending, would permanently assert a customer had been emailed when they had not, and the obligation would vanish from "Approved — you still owe this" forever with nothing to flag it.
+- **Fix**: two deliberate acts. First click opens a confirmation ("Have you already sent this email from Outlook?" / "This cannot be undone"); only the second calls the RPC. Copy strengthened to state AWE records that YOU sent it and cannot verify that.
+- **Not** a recovery system: reversing `sent` would undermine the ledger, so the fix is prevention, not undo. No gate weakened.
+- **Files**: `apps/web/src/app/approvals/page.tsx`, `scripts/eval-approval-queue.mjs`.
+- **Testing**: Runner 5 — 425 checks (3 new assert the confirmation's shape so it cannot be silently deleted); Runners 3/4/6 and both migration lints green; mobile tsc and web TypeScript clean.
+
 ## S1 — Remove undeclared client policies on the audit tables — `ready` (SECURITY, human-gated)
 - **Found**: 2026-07-26 by `scripts/acceptance-slice5.sh` while checking whether the browser could read the event log.
 - **Finding**: the LIVE database carries 16 policies (4 tables × select/insert/update/delete) that **no migration in this repo creates**, all named `<table>_org_{select,insert,update,delete}` — the naming convention of the orphan schema an external session created (see DECISION_LOG 2026-07-17 B1; migration 0012 dropped the orphan *tables* and restored `current_org_id()`, but not these policies). Affected: `integration_events`, `time_entry_audits`, `crews`, `crew_members`. They are gated on `current_org_id()` only — **no role check** — so any `authenticated` org member qualifies.
