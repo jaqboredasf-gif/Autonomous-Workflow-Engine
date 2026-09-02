@@ -35,9 +35,18 @@ scripts/             regression.sh, acceptance-slice1..5.sh, classify.mjs,
 scripts/lib/         pure offline engines: classification.mjs, model-adapters.mjs,
                      db.mjs, approval-diff.mjs (ADR), approval-matrix.mjs +
                      outbound-draft.mjs (B3), validate-migration-0014/0015.mjs
+scripts/evidence.mjs IIC evidence CLI (EV1) — founder-facing, offline, no DB.
+                     status/new/questions/validate/freeze/verify/window/baseline.
+scripts/lib/evidence/ spec.mjs (single source of truth: fields, prompts,
+                     thresholds, milestones), validate.mjs, freeze.mjs,
+                     derive.mjs, store.mjs, status.mjs, csv.mjs
+evidence/            REAL-WORLD EVIDENCE — not docs. PROTOCOL.md is the field
+                     manual; records/ + frozen/ + scans/ ship empty.
 fixtures/            emails/ (intake, 12 + labels), approvals/ (ADR diff, 15 + labels),
                      outbound/ (B3 matrix + drafts: 5 policy sets, 16 cases + labels),
-                     queue/ (B5 approval queue: base-row + 19 cases + labels)
+                     queue/ (B5 approval queue: base-row + 19 cases + labels),
+                     evidence/examples/ (EV1 filled examples, all record_class
+                     rehearsal so they can never count toward IIC readiness)
 docs/                ROADMAP.md, API_CONTRACT.md, AUTOMATION_SYNERGY.md,
                      GAP_ANALYSIS.md, REGRESSION_CHECKLIST.md
 docs/testing/        EVAL_STRATEGY.md, APPROVAL_DIFF.md (ADR), APPROVAL_MATRIX.md (B3),
@@ -112,6 +121,7 @@ node scripts/lib/validate-migration-0015.mjs   # B3 migration lint + engine/SQL 
 bash scripts/eval-approval-diff.sh             # Runner 3 (ADR diff engine)
 bash scripts/eval-approval-matrix.sh           # Runner 4 (B3 matrix + drafts)
 bash scripts/eval-approval-queue.sh            # Runner 5 (B5 approval queue UI logic)
+bash scripts/eval-evidence.sh                  # Runner 6 (EV1 evidence layer)
 (cd apps/mobile && npx tsc --noEmit) && (cd apps/web && npm run build)
 ```
 
@@ -142,6 +152,29 @@ transaction) and nothing persists. Slice 4's `as_user()` helper is this pattern.
 - integration_events = n8n contract; emit via emit_event(); events exactly-once
   per boundary; automations idempotent
 - Offline punches idempotent on unique (device_id, client_uuid); 23505 = synced
+
+## IIC evidence campaign (EV1, 2026-09-02)
+
+The IIC bottleneck is **evidence, not engineering**. `evidence/` holds real-world
+proof; `docs/` holds documentation. Do not confuse them, and never let a document
+existing raise readiness.
+
+```bash
+node scripts/evidence.mjs status          # what is ACTUALLY captured (0/13 as of EV1)
+node scripts/evidence.mjs help
+```
+
+Read `evidence/PROTOCOL.md` before touching anything under `evidence/`. Standing
+rules, all enforced by Runner 6 — never weaken them for convenience:
+
+- every value is a claim carrying a confidence class; `derived` is machine-only
+- `estimated` requires a basis and a low/high range; `unknown` is preserved, never zeroed
+- rehearsal / synthetic / invalid records can NEVER raise IIC readiness
+- a frozen baseline is never overwritten — corrections chain as amendments
+- never fabricate ROI, timing, customer demand or market evidence
+
+**A prior session prompt asserted a large evidence architecture that did not
+exist.** Verify claims about repository state before building on them.
 
 ## Session operating system (mandatory)
 

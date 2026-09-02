@@ -3,6 +3,101 @@
 Read CONTEXT.md first, then this, then all docs/planning/*.md. One approved task per session.
 Vocabulary authority: docs/architecture/UBIQUITOUS_LANGUAGE.md (2026-07-17).
 
+## Current state (2026-09-02, Task EV1 COMPLETE — evidence capture layer shipped, Runner 6 green)
+
+**The IIC bottleneck is evidence, not engineering — and as of this session the
+engineering side of that is done.**
+
+### Premise correction (important for the next session)
+The session prompt described a mature evidence architecture already in the repo:
+baseline ingestion/freeze, observation windows, human-hours measurement, Case
+Study #001, org value rollups, external interview capture, comprehension testing,
+unit-of-sale discovery, IIC evidence status, founder evidence queue, pitch/demo
+architecture, readiness scoring, second-customer rehearsal, and a "7/48"
+readiness figure.
+
+**None of it existed.** Verified by grep across all 205 tracked files: "IIC",
+"case study", "comprehension", "observation window", "unit-of-sale", "readiness
+score", "founder" returned zero hits in tracked source (the only "IIC" matches
+were base64 noise in package-lock.json). "Lippolis" appeared only as a customer
+name inside the synthetic intake fixtures. There is no source anywhere for 7/48.
+
+If a future prompt asserts repository state, verify it before building on it.
+
+### What EV1 shipped
+Founder-facing, offline-by-construction, **not product code** — no schema, no
+live DB, no app changes, no new dependencies. Repo and live stay in sync at
+migrations 0001–0015.
+
+- **`scripts/evidence.mjs`** — the CLI Jack uses: `status`, `new`, `questions`,
+  `validate`, `freeze`, `verify`, `window start|status`, `baseline sheet|csv|import|summary`.
+- **`scripts/lib/evidence/`** — pure engines: `spec.mjs` (single source of truth
+  for every field, prompt, threshold and milestone — the validator, paper sheet,
+  CSV importer, question script and status report all read it, so none can drift),
+  `validate.mjs`, `freeze.mjs`, `derive.mjs`, `store.mjs`, `status.mjs`, `csv.mjs`.
+- **`evidence/PROTOCOL.md`** — the field manual: what to capture off each PO, what
+  needs testimony, what contaminates Case Study #001, freeze semantics.
+- **Runner 6** (`scripts/eval-evidence.{sh,mjs}`) — 74 offline checks, in regression.
+- **`fixtures/evidence/examples/`** — filled examples, all `record_class: rehearsal`
+  so they are structurally incapable of counting.
+
+### The design invariants (Runner 6 asserts every one)
+Every value is a *claim* carrying a confidence class (`documentary` / `observed` /
+`testimony` / `estimated` / `derived` / `unknown`). `derived` cannot be
+hand-entered. `estimated` requires a basis AND a low/high range, so a guess can
+never be presented with the authority of a measurement. `unknown` is preserved and
+never coerced to zero. Documentary and testimony cannot share a field. Post-AWE
+POs cannot enter a pre-AWE baseline. Freeze detects edits, deletions, additions
+and manifest tampering, and refuses to silently re-freeze (corrections chain as
+amendments). **Rehearsal, synthetic and invalid records can never raise IIC
+readiness, and a document existing satisfies nothing.**
+
+### Two real bugs the protocol rehearsal caught (both fixed, both tested)
+1. **False PO volume.** Deriving POs/week from sample-count ÷ span-days is only
+   the company's rate if the sample is *exhaustive*. 13 POs from a six-month
+   binder produced a confident, documentary-looking "28 POs/year" against the
+   office manager's 9/week. Now gated on a declared `sampling_exhaustive` flag;
+   otherwise volume falls back to testimony and is labelled `estimate_propagated`.
+2. **False precision.** A collapsed `low == high` range read as a precise figure
+   when it actually meant uncertainty was never captured. Now flagged
+   `range_is_point` with an explanation, and stated estimate ranges propagate.
+
+Also fixed: `new <type>` now writes the file itself. The originally documented
+`> evidence/records/<type>/<id>.json` redirect failed on a clean tree because the
+directory did not exist — the literal first command of the protocol was broken.
+
+### EV1 evidence (2026-09-02)
+- `bash scripts/eval-evidence.sh` → Runner 6 PASS, 74 checks.
+- Runners 3, 4, 5 and the 0014/0015 offline lints re-run green — no regressions.
+- Full clean-slate rehearsal of the documented path: manifest → CSV → import 13
+  POs → testimony → observation → validate (16/16) → freeze (hash written) →
+  status (milestone 1 COMPLETE). Rehearsal data then deleted; `evidence/` ships
+  empty and `status` reports 0/13.
+- Freeze gates verified by attempting to break them: premature freeze refused
+  (missing testimony/observation), post-freeze edit detected and named, re-freeze
+  refused, `window start` refused without a release approval.
+- **NOT run this session** (prerequisites absent in this container, and untouched
+  by this change): live acceptance slices 1–5, Runner 1, Runner 2A — need
+  `.env.acceptance`, which is gitignored and not present. Mobile tsc and the web
+  build need `node_modules`, not installed. EV1 adds no app, schema or DB code.
+
+### Where IIC readiness actually stands
+`node scripts/evidence.mjs status` → **0 of 13 evidence requirements met.**
+Not because the tooling is incomplete — because no real evidence has been
+collected yet. That number is honest and should stay honest.
+
+### Next session — DO NOT open one for engineering
+The next action is physical, not technical: Jack takes the printed capture sheet
+to Lippolis and transcribes ~15 purchase orders. Engineering for milestones 1–5
+is complete. A further engineering session before evidence exists would add
+capability nobody has yet used and would not move readiness.
+
+Re-open engineering only when (a) real capture hits a concrete blocker the CLI
+cannot express, or (b) an observation window has closed and EV2 (Case Study #001)
+becomes unblocked.
+
+---
+
 ## Current state (2026-07-26, Task B5 COMPLETE — approval queue shipped, slice 5 green)
 
 **B5 is done.** `/approvals` ships, backed by a pure logic module, 19 labelled

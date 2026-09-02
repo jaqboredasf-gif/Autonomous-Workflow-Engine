@@ -87,5 +87,10 @@ if [ -f scripts/eval-approval-queue.sh ]; then
   bash scripts/eval-approval-queue.sh || fails=$((fails+1))
 fi
 
+if [ -f scripts/eval-evidence.sh ]; then
+  step "evidence-layer eval (Runner 6, offline deterministic — no keys, no DB, no network)"
+  bash scripts/eval-evidence.sh || fails=$((fails+1))
+fi
+
 echo; echo "regression: $([ $fails = 0 ] && echo ALL GREEN || echo "$fails FAILURES")"
 [ "$fails" = "0" ]

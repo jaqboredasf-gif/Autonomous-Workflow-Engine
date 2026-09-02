@@ -241,6 +241,22 @@ Runner verified to fail on perturbed labels. 24/24 green.
 
 ---
 
+## EV1 — Evidence capture layer (IIC campaign) — `DONE` (2026-09-02)
+Founder-facing evidence layer so real-world proof can be collected without another engineering session. NOT product code: no schema, no live DB, no app changes. Offline by construction.
+- **Goal**: Jack can walk into Lippolis and capture a defensible pre-AWE purchasing baseline, plus interviews / comprehension tests / story facts / release approval, with the repo enforcing provenance rather than trusting it.
+- **Why**: the IIC bottleneck is evidence, not engineering. Before this, the repo had zero evidence infrastructure — "IIC", "baseline", "comprehension", "case study" appeared nowhere in tracked source.
+- **Files**: `scripts/evidence.mjs` (CLI), `scripts/lib/evidence/{spec,validate,freeze,derive,store,status,csv}.mjs`, `scripts/eval-evidence.{sh,mjs}` (Runner 6), `evidence/PROTOCOL.md`, `fixtures/evidence/examples/`, one block appended to `scripts/regression.sh`.
+- **Design invariants** (Runner 6 asserts each): every value is a claim carrying a confidence class; `derived` is machine-only; `estimated` requires basis + low/high range; `unknown` is preserved and never coerced to zero; documentary and testimony cannot share a field; post-AWE POs cannot enter a pre-AWE baseline; freeze detects edit/delete/add/manifest drift and refuses silent re-freeze; **rehearsal, synthetic and invalid records can never raise IIC readiness**; a document existing satisfies nothing.
+- **Two real bugs found by rehearsing the protocol, both fixed**: (1) PO volume was derived from sample-count ÷ span-days, which is only the company's rate if the sample is exhaustive — now gated on a declared `sampling_exhaustive` flag and otherwise falls back to testimony, labelled; (2) a collapsed low==high range read as precision when it actually meant uncertainty was never captured — now flagged `range_is_point` with an explanation.
+- **Testing**: `bash scripts/eval-evidence.sh` — 74 offline checks, wired into regression.sh. Runners 3/4/5 and the 0014/0015 lints re-run green (no regressions).
+- **Done**: `node scripts/evidence.mjs status` reports 0/13 on an empty tree and rises only for validated production records.
+- **Handoff**: engineering is complete for milestones 1–5. The remaining work is Jack's, in the physical world. See evidence/PROTOCOL.md.
+
+## EV2 — Case Study #001 write-up — `BLOCKED(EV1 evidence actually collected + observation window closed)`
+- **Goal**: the written before/after using the frozen baseline and a closed observation window.
+- **Why**: deliberately not started. Writing the case study before the evidence exists is how the numbers end up reverse-engineered from the desired conclusion.
+- **Deps**: frozen baseline, release approval, an observation window opened AND closed with metrics declared in advance.
+
 ## Future improvements (not scoped)
 Drawing-based auto-estimating; draft→auto graduation per type; vendor-invoice email processing; Excel live sync; Dispatch Pilot; customer portal; intake auto-acknowledgement email (blocked by zero-auto-send lock — Phase 3A); "received twice" duplicate courtesy reply; interim/progress billing (open B15 — not designed); auto-cadence dispatch notifications (W4).
 

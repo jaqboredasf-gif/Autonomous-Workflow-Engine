@@ -1,0 +1,64 @@
+{
+  "record_id": "obs-001",
+  "record_type": "baseline_observation",
+  "record_class": "rehearsal",
+  "baseline_id": "lippolis-purchasing-2026",
+  "captured_by": "Jack Daly",
+  "captured_at": "2026-09-02T14:20:00Z",
+  "observed_on": "2026-09-02",
+  "observer": "Jack Daly",
+  "subject_role": "Office manager",
+  "po_reference": "PO 4501",
+  "subject_knew_observed": false,
+  "fields": {
+    "elapsed_minutes_total": {
+      "value": 46,
+      "confidence": "observed",
+      "observed_at": "2026-09-02T09:00:00Z",
+      "observed_by": "Jack Daly"
+    },
+    "hands_on_minutes": {
+      "value": 17,
+      "confidence": "observed",
+      "observed_at": "2026-09-02T09:00:00Z",
+      "observed_by": "Jack Daly"
+    },
+    "wait_minutes": {
+      "value": 25,
+      "confidence": "observed",
+      "observed_at": "2026-09-02T09:00:00Z",
+      "observed_by": "Jack Daly"
+    },
+    "handoff_count": {
+      "value": 2,
+      "confidence": "observed",
+      "observed_at": "2026-09-02T09:00:00Z",
+      "observed_by": "Jack Daly"
+    },
+    "steps": {
+      "value": [
+        "need raised by foreman",
+        "PO written on pad",
+        "approved by owner",
+        "called vendor",
+        "filed in binder"
+      ],
+      "confidence": "observed",
+      "observed_at": "2026-09-02T09:00:00Z",
+      "observed_by": "Jack Daly"
+    },
+    "interruption_count": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "call_count": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "failures_seen": {
+      "value": null,
+      "confidence": "unknown"
+    }
+  },
+  "notes": "EXAMPLE ONLY \u2014 record_class rehearsal, can never count toward IIC readiness. Shows the shape of a filled record."
+}

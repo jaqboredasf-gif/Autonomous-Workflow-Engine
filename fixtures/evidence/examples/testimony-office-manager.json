@@ -1,0 +1,62 @@
+{
+  "record_id": "testimony-office-manager",
+  "record_type": "baseline_testimony",
+  "record_class": "rehearsal",
+  "baseline_id": "lippolis-purchasing-2026",
+  "captured_by": "Jack Daly",
+  "captured_at": "2026-09-02T14:10:00Z",
+  "respondent_role": "Office manager",
+  "does_this_work_personally": true,
+  "fields": {
+    "touch_time_minutes_per_po": {
+      "value": 18,
+      "confidence": "estimated",
+      "basis": "walked through a typical PO out loud, start to filing",
+      "range": {
+        "low": 12,
+        "high": 30
+      }
+    },
+    "people_involved_count": {
+      "value": 3,
+      "confidence": "testimony",
+      "attributed_to": "Office manager",
+      "stated_on": "2026-09-02"
+    },
+    "po_volume_per_week": {
+      "value": 9,
+      "confidence": "testimony",
+      "attributed_to": "Office manager",
+      "stated_on": "2026-09-02"
+    },
+    "calls_per_po": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "rework_rate_pct": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "delay_hours_need_to_order": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "lost_po_frequency": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "approver_absent_handling": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "filing_location": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "worst_part": {
+      "value": null,
+      "confidence": "unknown"
+    }
+  },
+  "notes": "EXAMPLE ONLY \u2014 record_class rehearsal, can never count toward IIC readiness. Shows the shape of a filled record."
+}
