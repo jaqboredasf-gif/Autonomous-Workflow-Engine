@@ -184,6 +184,50 @@ deferred until a geocoder exists. Original goal text below.
 - **Deps**: B1 (done). Reuses the B5 page patterns and `work_requests_admin_read`.
 - **Acceptance**: build green; fixture requests visible end-to-end; no write actions beyond what 0011 already allows.
 
+## B5c — Web: record a real-world send — `DONE` (2026-09-02)
+Completes the execution boundary behind the already-built approval step. `mark_message_sent()` shipped in 0015 and is covered by acceptance slice 4, but NO product surface called it — `sent` was reachable only by raw SQL/curl. An approved message therefore sat in "decided" forever, indistinguishable from one actually sent.
+- **Goal**: a human who approved a message can record that they sent it, from the queue, with the same guard/authorization posture as a decision.
+- **Why**: this is the APPROVAL → REAL ACTION → AUDIT link. Without it the loop never closes: nobody can tell which approved drafts still owe the customer an email, and no product-recorded evidence exists that the real-world action happened.
+- **Files**: `apps/web/src/lib/approval-queue.ts` (`SENDABLE_STATUSES`, `sendGuard`, `planSendMark`, `verifySendApplied`, `to_send` tab), `apps/web/src/app/approvals/page.tsx` (Real-world send panel), `scripts/eval-approval-queue.mjs` (send-action case loop + B5c block), `fixtures/queue/cases/20–24` + labels.
+- **Zero database changes.** The RPC, its status/org/role gates and its audit event already existed; only the caller was missing. Repo and live stay in sync at 0001–0015.
+- **Safety**: AWE still sends NOTHING. `mark_message_sent()` is a ledger entry asserting a human sent it. The button says "I sent this — record it" and states plainly that it does not send. The LIVE-mode fixture refusal is the sharpest gate: recording a fixture as sent in LIVE would be a permanent claim that a real customer email went out when none did.
+- **Testing**: Runner 5 — 422 checks, 24 fixtures, 8/8 guard-reason coverage. Runners 3/4/6 and the 0014/0015 lints green; mobile tsc green; web TypeScript green.
+- **Test-scope change (deliberate, not a weakening)**: Runner 5's purity gate previously forbade `mark_message_sent` in the UI, because B5 was approve/reject only. That ban is lifted and the RPC allow-list grows by exactly one named, DB-gated call. The invariant that actually protects the customer is unchanged and still asserted: the UI has no mail transport, no service-role credential, and no direct write to `outbound_messages`.
+- **NOT live-verified**: no `.env.acceptance` in the build container, so acceptance slices 4/5 did not run against the live project. The browser path is code- and rehearsal-verified only.
+
+## B5c-fix — Confirmation before the irreversible send record — `DONE` (2026-09-02)
+Found by reviewing B5c for first real-employee use, before anyone used it.
+- **Defect**: `sent` is terminal — `guard_outbound_transition()` allows no transition out of it, and 0015's own comment says corrections after a terminal state require a NEW draft row. B5c as first shipped fired that irreversible write on a single unguarded click, with copy that never said it was permanent. A stray click, or a user misreading the button as an act of sending, would permanently assert a customer had been emailed when they had not, and the obligation would vanish from "Approved — you still owe this" forever with nothing to flag it.
+- **Fix**: two deliberate acts. First click opens a confirmation ("Have you already sent this email from Outlook?" / "This cannot be undone"); only the second calls the RPC. Copy strengthened to state AWE records that YOU sent it and cannot verify that.
+- **Not** a recovery system: reversing `sent` would undermine the ledger, so the fix is prevention, not undo. No gate weakened.
+- **Files**: `apps/web/src/app/approvals/page.tsx`, `scripts/eval-approval-queue.mjs`.
+- **Testing**: Runner 5 — 425 checks (3 new assert the confirmation's shape so it cannot be silently deleted); Runners 3/4/6 and both migration lints green; mobile tsc and web TypeScript clean.
+
+## MI1 — Manual intake bridge (work_request source-neutral) — `MIGRATION + INTEGRATION VERIFIED; BLOCKED(0016 live apply — Jack)` (2026-09-02)
+Built because Graph inbound (B9) is blocked and, verified this session, NOTHING could enter AWE in production.
+- **Domain decision**: a work_request is SOURCE-NEUTRAL. `email_message_id not null` encoded the email-first implementation, not a domain truth. See DECISION_LOG 2026-09-02.
+- **Design**: `work_requests.source_type` enum (email|manual), `email_message_id` nullable, plus `entered_by`, `source_reference`, `request_text`, `intake_client_key`. A CHECK constraint enforces both shapes so neither source can impersonate the other. **`email_messages` is not modified at all** — every existing email invariant survives untouched.
+- **Supersedes an earlier same-day draft** that added a `source` discriminator to `email_messages`; that still forced non-email work onto the email table. Replaced before anything was applied, so no corrective migration was needed.
+- **Write path**: `create_manual_work_request()` — SECURITY DEFINER, admin-gated, org from `current_org_id()`, provenance forced server-side. No INSERT policy opened.
+- **Dependency trace done first**: `create_outbound_draft` never reads `email_messages` (recipients arrive as `p_to_addrs`); the approvals embed is already typed `QueueEmail | null` and read with `?.`; `db.mjs candidateOriginals` inner-joins and is fixture-scoped, so manual rows are correctly excluded; 0013's emergency payload is null-safe. `from_addr` is display-only plus that fixture-scoped duplicate query — **never an outbound destination**.
+- **Files**: `supabase/migrations/0016_manual_intake_bridge.sql`, `apps/web/src/lib/manual-intake.ts`, `apps/web/src/app/requests/new/page.tsx`, `apps/web/src/components/Nav.tsx`, `scripts/lib/validate-migration-0016.mjs`, `scripts/eval-manual-intake.{sh,mjs}`, `scripts/regression.sh`, `docs/planning/DECISION_LOG.md`.
+- **Testing**: Runner 7 — 84 offline checks; 0016 lint — 49 structural checks. Runners 3/4/5/6 and the 0014/0015 lints green; mobile tsc and web TypeScript clean.
+- **Verification (2026-09-02)**: promoted CODE VERIFIED -> MIGRATION VERIFIED -> INTEGRATION VERIFIED via `scripts/pg-harness.sh`, a throwaway PostgreSQL 16 cluster running the real migration chain. 41/41 integration assertions pass, including the transactional dry-run + proof the rollback restored the schema fingerprint exactly, and proof that `email_messages` is byte-for-byte unchanged by 0016.
+- **BLOCKER**: 0016 is still not applied to the hosted project. Until Jack applies it there, `/requests/new` fails at the RPC. NOT live-verified — no real employee has used it for real work.
+- **This container cannot apply it**: no credentials, and `api.supabase.com` is blocked by network policy (gateway 403 to CONNECT). Live apply must run from Jack's machine.
+
+## PG1 — Offline migration harness — `DONE` (2026-09-02)
+- **Goal**: verify a migration against a real database before it is ever applied to the hosted project.
+- **Why**: previously a new migration could only be lint-verified (its SQL text inspected) before first contact with real data — a weak place to discover a constraint rejects existing rows.
+- **Files**: `scripts/pg-harness.sh`, `scripts/pg-tests/seed.sql`, `scripts/pg-tests/0016_manual_intake.sql`, wired into `scripts/regression.sh`.
+- **Corrects CONTEXT.md**: this environment DOES have psql and a full PostgreSQL 16 server at `/usr/lib/postgresql/16/bin`. The old "no psql" note was wrong.
+- **Self-cleaning**: creates and destroys its own cluster, touches no hosted project, skips cleanly where Postgres is absent.
+
+## MI2 — Outbound path for requests with no email address — `ready (NOT STARTED)` (next boundary)
+- **Why**: a phone request may have no `customer_email`. `create_outbound_draft(p_to_addrs)` takes recipients from its caller and `outbound_messages.to_addrs` defaults to `'{}'` and is `not null` — so a draft with ZERO recipients is currently legal. Nothing today derives recipients from the request, because no product caller exists.
+- **Question to answer before building**: what is the correct outcome for a manual request with no email address — a phone-callback task, a printed work order, or an explicit "no outbound possible" state? Do NOT assume every work request should generate an outbound email.
+- **Deps**: MI1 applied.
+
 ## S1 — Remove undeclared client policies on the audit tables — `ready` (SECURITY, human-gated)
 - **Found**: 2026-07-26 by `scripts/acceptance-slice5.sh` while checking whether the browser could read the event log.
 - **Finding**: the LIVE database carries 16 policies (4 tables × select/insert/update/delete) that **no migration in this repo creates**, all named `<table>_org_{select,insert,update,delete}` — the naming convention of the orphan schema an external session created (see DECISION_LOG 2026-07-17 B1; migration 0012 dropped the orphan *tables* and restored `current_org_id()`, but not these policies). Affected: `integration_events`, `time_entry_audits`, `crews`, `crew_members`. They are gated on `current_org_id()` only — **no role check** — so any `authenticated` org member qualifies.
@@ -240,6 +284,22 @@ Runner verified to fail on perturbed labels. 24/24 green.
 ## C1/C2 — Parallel-run pay periods 1+2 — `BLOCKED(A3 + real employees onboarded)`
 
 ---
+
+## EV1 — Evidence capture layer (IIC campaign) — `DONE` (2026-09-02)
+Founder-facing evidence layer so real-world proof can be collected without another engineering session. NOT product code: no schema, no live DB, no app changes. Offline by construction.
+- **Goal**: Jack can walk into Lippolis and capture a defensible pre-AWE purchasing baseline, plus interviews / comprehension tests / story facts / release approval, with the repo enforcing provenance rather than trusting it.
+- **Why**: the IIC bottleneck is evidence, not engineering. Before this, the repo had zero evidence infrastructure — "IIC", "baseline", "comprehension", "case study" appeared nowhere in tracked source.
+- **Files**: `scripts/evidence.mjs` (CLI), `scripts/lib/evidence/{spec,validate,freeze,derive,store,status,csv}.mjs`, `scripts/eval-evidence.{sh,mjs}` (Runner 6), `evidence/PROTOCOL.md`, `fixtures/evidence/examples/`, one block appended to `scripts/regression.sh`.
+- **Design invariants** (Runner 6 asserts each): every value is a claim carrying a confidence class; `derived` is machine-only; `estimated` requires basis + low/high range; `unknown` is preserved and never coerced to zero; documentary and testimony cannot share a field; post-AWE POs cannot enter a pre-AWE baseline; freeze detects edit/delete/add/manifest drift and refuses silent re-freeze; **rehearsal, synthetic and invalid records can never raise IIC readiness**; a document existing satisfies nothing.
+- **Two real bugs found by rehearsing the protocol, both fixed**: (1) PO volume was derived from sample-count ÷ span-days, which is only the company's rate if the sample is exhaustive — now gated on a declared `sampling_exhaustive` flag and otherwise falls back to testimony, labelled; (2) a collapsed low==high range read as precision when it actually meant uncertainty was never captured — now flagged `range_is_point` with an explanation.
+- **Testing**: `bash scripts/eval-evidence.sh` — 74 offline checks, wired into regression.sh. Runners 3/4/5 and the 0014/0015 lints re-run green (no regressions).
+- **Done**: `node scripts/evidence.mjs status` reports 0/13 on an empty tree and rises only for validated production records.
+- **Handoff**: engineering is complete for milestones 1–5. The remaining work is Jack's, in the physical world. See evidence/PROTOCOL.md.
+
+## EV2 — Case Study #001 write-up — `BLOCKED(EV1 evidence actually collected + observation window closed)`
+- **Goal**: the written before/after using the frozen baseline and a closed observation window.
+- **Why**: deliberately not started. Writing the case study before the evidence exists is how the numbers end up reverse-engineered from the desired conclusion.
+- **Deps**: frozen baseline, release approval, an observation window opened AND closed with metrics declared in advance.
 
 ## Future improvements (not scoped)
 Drawing-based auto-estimating; draft→auto graduation per type; vendor-invoice email processing; Excel live sync; Dispatch Pilot; customer portal; intake auto-acknowledgement email (blocked by zero-auto-send lock — Phase 3A); "received twice" duplicate courtesy reply; interim/progress billing (open B15 — not designed); auto-cadence dispatch notifications (W4).

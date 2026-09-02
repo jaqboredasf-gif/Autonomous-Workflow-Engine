@@ -37,13 +37,16 @@ import {
   isTestRow,
   messageTypeLabel,
   planDecision,
+  planSendMark,
   queueState,
   recipientLine,
   requesterLine,
   requiredRoles,
   resolveQueueMode,
+  sendGuard,
   summarizeQueue,
   verifyDecisionApplied,
+  verifySendApplied,
   type Capabilities,
   type Decision,
   type QueueRow,
@@ -63,6 +66,7 @@ const STATUS_STYLE: Record<string, string> = {
 
 const TAB_LABEL: Record<QueueTab, string> = {
   pending: 'Pending approval',
+  to_send: 'Approved — you still owe this',
   blocked: 'Blocked / failed',
   decided: 'Decided',
 };
@@ -89,6 +93,11 @@ export default function Approvals() {
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  // Recording a send is IRREVERSIBLE (0015: `sent` is terminal — there is no
+  // transition out of it). A single stray click would permanently assert that a
+  // customer was emailed when they were not, and drop a real obligation out of
+  // the "you still owe this" tab forever. So the write takes two deliberate acts.
+  const [confirmingSendId, setConfirmingSendId] = useState<string | null>(null);
   const reasonRef = useRef<HTMLTextAreaElement | null>(null);
 
   /**
@@ -194,12 +203,46 @@ export default function Approvals() {
     setBusyId(null);
   }
 
+  /**
+   * Record that a human sent an approved message. This does NOT send anything —
+   * AWE has no transport. It writes the ledger entry that closes the loop:
+   * approved -> a person actually did it -> audited. Until this is clicked the
+   * message sits in "you still owe this", which is the honest state.
+   */
+  async function markSent(row: QueueRow) {
+    setNotice(null);
+    setConfirmingSendId(null);
+
+    const plan = planSendMark({ row, mode: MODE, capabilities: caps });
+    if (!plan.ok) {
+      setNotice({ kind: 'error', text: `${plan.reason}: ${plan.detail}` });
+      return;
+    }
+
+    setBusyId(row.id);
+    const { error: rpcErr } = await supabase.rpc('mark_message_sent', plan.rpc!);
+
+    if (rpcErr) {
+      setNotice({ kind: 'error', text: rpcErr.message });
+      setBusyId(null);
+      await load();
+      return;
+    }
+
+    const fresh = await load();
+    const verdict = verifySendApplied({ rows: fresh ?? [], messageId: row.id });
+    setNotice({ kind: verdict.settled ? 'success' : 'error', text: verdict.message });
+    if (verdict.settled) setSelectedId(null);
+    setBusyId(null);
+  }
+
   const state = queueState({ loading, error, signedIn, rows });
   const all = rows ?? [];
   const summary = summarizeQueue(all);
   const visible = filterTab(all, tab);
   const selected = all.find((r) => r.id === selectedId) ?? null;
   const guard = selected ? decisionGuard({ row: selected, mode: MODE, capabilities: caps }) : null;
+  const sendable = selected ? sendGuard({ row: selected, mode: MODE, capabilities: caps }) : null;
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-8">
@@ -535,12 +578,81 @@ export default function Approvals() {
                           </button>
                         </div>
                         <p className="mt-2 text-xs text-neutral-500">
-                          Approving does not send this message. A human sends it from Outlook, and
-                          that is recorded separately.
+                          Approving does not send this message. A human sends it from Outlook, then
+                          records it below.
                         </p>
                       </>
                     )}
                   </div>
+
+                  {(selected.status === 'approved' || selected.status === 'sent') && (
+                    <div className="border-t pt-3 dark:border-neutral-700">
+                      <h3 className="text-sm font-semibold">Real-world send</h3>
+
+                      {selected.status === 'sent' ? (
+                        <p className="mt-1 rounded bg-blue-50 px-3 py-2 text-sm text-blue-900 dark:bg-blue-900/30 dark:text-blue-200">
+                          Recorded as sent{selected.sender?.full_name ? ` by ${selected.sender.full_name}` : ''}
+                          {selected.sent_at ? ` on ${fmt(selected.sent_at)}` : ''}.
+                        </p>
+                      ) : sendable && !sendable.allowed ? (
+                        <p className="mt-1 rounded bg-neutral-100 px-3 py-2 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                          Cannot record a send — <strong>{sendable.reason}</strong>: {sendable.detail}
+                        </p>
+                      ) : (
+                        <>
+                          <p className="mt-1 text-sm text-neutral-700 dark:text-neutral-300">
+                            This message is approved but nobody has sent it yet. Copy the body above
+                            into Outlook and send it, then record that here.
+                          </p>
+
+                          {confirmingSendId === selected.id ? (
+                            <div className="mt-3 rounded border border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/30">
+                              <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                                Have you already sent this email from Outlook?
+                              </p>
+                              <p className="mt-1 text-sm text-amber-900 dark:text-amber-100">
+                                This cannot be undone. Recording a send that did not happen means the
+                                customer never hears from us and nothing will ever flag it again.
+                              </p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  onClick={() => void markSent(selected)}
+                                  disabled={busyId === selected.id}
+                                  className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50"
+                                >
+                                  {busyId === selected.id ? 'Working…' : 'Yes — I already sent it'}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmingSendId(null)}
+                                  disabled={busyId === selected.id}
+                                  className="rounded border px-4 py-2 text-sm hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-600 dark:hover:bg-neutral-800"
+                                >
+                                  Not yet — cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-3">
+                              <button
+                                onClick={() => setConfirmingSendId(selected.id)}
+                                disabled={busyId === selected.id}
+                                className="rounded bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50"
+                              >
+                                I sent this — record it
+                              </button>
+                            </div>
+                          )}
+
+                          <p className="mt-2 text-xs text-neutral-500">
+                            This button does <strong>not</strong> send anything. AWE has no mail
+                            transport. It records, permanently and under your name, that{' '}
+                            <strong>you</strong> sent it. AWE cannot verify that — it only knows what
+                            you tell it. Do not record it until the email has actually gone out.
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </section>

@@ -1,0 +1,21 @@
+{
+  "record_id": "lippolis-purchasing-2026",
+  "record_type": "baseline_manifest",
+  "record_class": "rehearsal",
+  "captured_by": "Jack Daly",
+  "captured_at": "2026-09-02T13:55:46Z",
+  "baseline_id": "lippolis-purchasing-2026",
+  "organization": "Lippolis Electric",
+  "process_scope": "Materials purchasing: need identified on a job -> PO written -> order placed with vendor -> PO filed.",
+  "window_start": "2026-01-06",
+  "window_end": "2026-06-30",
+  "declared_by": "Jack Daly",
+  "declared_at": "2026-09-02T12:00:00Z",
+  "awe_production_start": null,
+  "inclusion_rule": "Every paper PO in the 2026 binder dated inside the window.",
+  "exclusion_rule": "Anything AWE touched; anything not a materials PO.",
+  "sampling_method": "Every PO in the 2026 binder between the window dates, in binder order, skipping none.",
+  "fields": {},
+  "notes": "EXAMPLE ONLY \u2014 record_class rehearsal. Copy this shape, set record_class to production, and declare YOUR real scope.",
+  "sampling_exhaustive": false
+}

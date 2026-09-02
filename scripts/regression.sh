@@ -87,5 +87,25 @@ if [ -f scripts/eval-approval-queue.sh ]; then
   bash scripts/eval-approval-queue.sh || fails=$((fails+1))
 fi
 
+if [ -f scripts/lib/validate-migration-0016.mjs ]; then
+  step "migration 0016 structural validation (manual intake bridge — offline lint, no DB)"
+  node scripts/lib/validate-migration-0016.mjs >/dev/null 2>&1 && echo OK || { node scripts/lib/validate-migration-0016.mjs; fails=$((fails+1)); }
+fi
+
+if [ -f scripts/pg-harness.sh ]; then
+  step "local Postgres migration harness (migration + integration vs a real DB; skips if absent)"
+  bash scripts/pg-harness.sh || fails=$((fails+1))
+fi
+
+if [ -f scripts/eval-manual-intake.sh ]; then
+  step "manual-intake eval (Runner 7, offline deterministic — no keys, no DB, no network)"
+  bash scripts/eval-manual-intake.sh || fails=$((fails+1))
+fi
+
+if [ -f scripts/eval-evidence.sh ]; then
+  step "evidence-layer eval (Runner 6, offline deterministic — no keys, no DB, no network)"
+  bash scripts/eval-evidence.sh || fails=$((fails+1))
+fi
+
 echo; echo "regression: $([ $fails = 0 ] && echo ALL GREEN || echo "$fails FAILURES")"
 [ "$fails" = "0" ]

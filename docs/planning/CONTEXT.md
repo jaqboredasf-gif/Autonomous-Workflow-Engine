@@ -35,9 +35,18 @@ scripts/             regression.sh, acceptance-slice1..5.sh, classify.mjs,
 scripts/lib/         pure offline engines: classification.mjs, model-adapters.mjs,
                      db.mjs, approval-diff.mjs (ADR), approval-matrix.mjs +
                      outbound-draft.mjs (B3), validate-migration-0014/0015.mjs
+scripts/evidence.mjs IIC evidence CLI (EV1) — founder-facing, offline, no DB.
+                     status/new/questions/validate/freeze/verify/window/baseline.
+scripts/lib/evidence/ spec.mjs (single source of truth: fields, prompts,
+                     thresholds, milestones), validate.mjs, freeze.mjs,
+                     derive.mjs, store.mjs, status.mjs, csv.mjs
+evidence/            REAL-WORLD EVIDENCE — not docs. PROTOCOL.md is the field
+                     manual; records/ + frozen/ + scans/ ship empty.
 fixtures/            emails/ (intake, 12 + labels), approvals/ (ADR diff, 15 + labels),
                      outbound/ (B3 matrix + drafts: 5 policy sets, 16 cases + labels),
-                     queue/ (B5 approval queue: base-row + 19 cases + labels)
+                     queue/ (B5 approval queue: base-row + 19 cases + labels),
+                     evidence/examples/ (EV1 filled examples, all record_class
+                     rehearsal so they can never count toward IIC readiness)
 docs/                ROADMAP.md, API_CONTRACT.md, AUTOMATION_SYNERGY.md,
                      GAP_ANALYSIS.md, REGRESSION_CHECKLIST.md
 docs/testing/        EVAL_STRATEGY.md, APPROVAL_DIFF.md (ADR), APPROVAL_MATRIX.md (B3),
@@ -46,6 +55,14 @@ docs/planning/       THIS folder — scope/requirements/roadmap/backlog/handoff
 ```
 
 ## Migration state
+
+**0016 IS NOT APPLIED. Repo and live are OUT OF SYNC as of 2026-09-02.**
+The repo carries `0016_manual_intake_bridge.sql`; the live project is still at
+0015. Until Jack applies it, `/requests/new` will fail at the RPC call and the
+manual intake bridge does not exist in production. Apply it with the recipe
+below (dry-run first), then re-run the drift check. Structure is lint-verified
+offline by `node scripts/lib/validate-migration-0016.mjs` — that is a shape
+check, not a substitute for applying it.
 
 **0001–0015 are all applied to the live project.** 0014 + 0015 were applied 2026-07-26
 with Jack's explicit authorization, after a full dry-run (both files executed inside one
@@ -57,10 +74,17 @@ Drift check after apply: 24 public base tables = 19 (0001–0013) + 5 (0014 `app
 Applying schema to live Supabase remains a **human-gated outward action** — get Jack's
 go-ahead per migration, and dry-run inside a rolled-back transaction first.
 
-Correction to a claim earlier sessions carried: this environment has no psql/supabase
-CLI/docker, but the **management query API does execute DDL** with the token in
-`.env.acceptance`. Live apply is therefore possible in-session; the gate is
-authorization, not capability. Recipe below.
+Correction (2026-09-02) to a claim earlier sessions carried: **psql AND a full
+PostgreSQL 16 server ARE present** at `/usr/lib/postgresql/16/bin` (postgres,
+initdb, pg_ctl). That is what `scripts/pg-harness.sh` uses to verify migrations
+offline against a real database — see "Offline migration verification" below.
+
+Also environment-dependent: the **management query API can execute DDL** with the
+token in `.env.acceptance`, but in some containers `api.supabase.com` is blocked
+by the network policy (`connect_rejected`, gateway 403 to CONNECT — check
+`curl -sS "$HTTPS_PROXY/__agentproxy/status"`). Where it is reachable AND the
+token is present, live apply is possible in-session and the gate is
+authorization. Where it is not, live apply must happen from Jack's machine.
 
 ## Live infrastructure
 
@@ -103,6 +127,19 @@ Runs: mobile tsc, web build, MCP smoke (expects ≥10 tools), acceptance slices 
 per-minute rate-limit window drain — a 429 in a later runner is a throttle, not a test
 result (`scripts/lib/db.mjs` and slice 4 both retry throttles with backoff).
 
+**Offline migration verification** (no keys, no hosted project, no network):
+
+```bash
+bash scripts/pg-harness.sh
+```
+
+Stands up a throwaway PostgreSQL 16 cluster, applies the whole migration chain,
+seeds representative production-shaped rows, proves the NEWEST migration applies
+and rolls back cleanly inside a transaction, then runs `scripts/pg-tests/*.sql`
+against the real database contract. Skips cleanly if no Postgres is installed.
+It applies nothing to any hosted project and is never LIVE verification — but it
+turns "lint says the SQL text looks right" into "the migration actually works".
+
 **Offline-only subset** (no keys, no DB, no network — safe when you must not touch the
 live project):
 
@@ -112,6 +149,10 @@ node scripts/lib/validate-migration-0015.mjs   # B3 migration lint + engine/SQL 
 bash scripts/eval-approval-diff.sh             # Runner 3 (ADR diff engine)
 bash scripts/eval-approval-matrix.sh           # Runner 4 (B3 matrix + drafts)
 bash scripts/eval-approval-queue.sh            # Runner 5 (B5 approval queue UI logic)
+bash scripts/eval-manual-intake.sh             # Runner 7 (0016 manual intake bridge)
+bash scripts/pg-harness.sh                     # migration + integration vs real Postgres
+node scripts/lib/validate-migration-0016.mjs   # 0016 migration lint
+bash scripts/eval-evidence.sh                  # Runner 6 (EV1 evidence layer)
 (cd apps/mobile && npx tsc --noEmit) && (cd apps/web && npm run build)
 ```
 
@@ -142,6 +183,29 @@ transaction) and nothing persists. Slice 4's `as_user()` helper is this pattern.
 - integration_events = n8n contract; emit via emit_event(); events exactly-once
   per boundary; automations idempotent
 - Offline punches idempotent on unique (device_id, client_uuid); 23505 = synced
+
+## IIC evidence campaign (EV1, 2026-09-02)
+
+The IIC bottleneck is **evidence, not engineering**. `evidence/` holds real-world
+proof; `docs/` holds documentation. Do not confuse them, and never let a document
+existing raise readiness.
+
+```bash
+node scripts/evidence.mjs status          # what is ACTUALLY captured (0/13 as of EV1)
+node scripts/evidence.mjs help
+```
+
+Read `evidence/PROTOCOL.md` before touching anything under `evidence/`. Standing
+rules, all enforced by Runner 6 — never weaken them for convenience:
+
+- every value is a claim carrying a confidence class; `derived` is machine-only
+- `estimated` requires a basis and a low/high range; `unknown` is preserved, never zeroed
+- rehearsal / synthetic / invalid records can NEVER raise IIC readiness
+- a frozen baseline is never overwritten — corrections chain as amendments
+- never fabricate ROI, timing, customer demand or market evidence
+
+**A prior session prompt asserted a large evidence architecture that did not
+exist.** Verify claims about repository state before building on them.
 
 ## Session operating system (mandatory)
 

@@ -1,0 +1,7 @@
+{
+  "description": "An already-sent message cannot be marked sent twice. Duplicate protection on the ledger: a second record would claim a second email that never went out.",
+  "action": "send",
+  "mode": "TEST",
+  "capabilities": { "userId": "u-admin", "roles": { "office_admin": true } },
+  "row": { "status": "sent", "approved_at": "2026-07-26T15:00:00.000Z", "sent_at": "2026-07-26T16:00:00.000Z" }
+}

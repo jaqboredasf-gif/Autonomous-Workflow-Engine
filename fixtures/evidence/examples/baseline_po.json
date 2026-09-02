@@ -1,0 +1,79 @@
+{
+  "record_id": "po-4401",
+  "record_type": "baseline_po",
+  "record_class": "rehearsal",
+  "baseline_id": "lippolis-purchasing-2026",
+  "captured_by": "Jack Daly",
+  "captured_at": "2026-09-02T13:55:46Z",
+  "awe_involved": false,
+  "source_document": {
+    "kind": "paper_purchase_order",
+    "identifier": "PO 4401",
+    "physical_location": "Lippolis office 2026 PO binder",
+    "photographed": true,
+    "photo_ref": null
+  },
+  "fields": {
+    "po_number": {
+      "value": "4401",
+      "confidence": "documentary"
+    },
+    "po_date": {
+      "value": "2026-01-22",
+      "confidence": "documentary"
+    },
+    "vendor": {
+      "value": "Rexel",
+      "confidence": "documentary"
+    },
+    "job_reference": {
+      "value": "J-121",
+      "confidence": "documentary"
+    },
+    "requested_by": {
+      "value": "M. Rivera",
+      "confidence": "documentary"
+    },
+    "line_item_count": {
+      "value": 3,
+      "confidence": "documentary"
+    },
+    "document_form": {
+      "value": "handwritten_carbon",
+      "confidence": "documentary"
+    },
+    "approved_by": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "approval_marking": {
+      "value": "initials",
+      "confidence": "documentary"
+    },
+    "total_amount": {
+      "value": 347,
+      "confidence": "documentary"
+    },
+    "needed_by_date": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "amendments_on_face": {
+      "value": 1,
+      "confidence": "documentary"
+    },
+    "received_marking": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "vendor_confirmation": {
+      "value": null,
+      "confidence": "unknown"
+    },
+    "legibility": {
+      "value": "clear",
+      "confidence": "documentary"
+    }
+  },
+  "notes": "EXAMPLE ONLY \u2014 record_class rehearsal."
+}

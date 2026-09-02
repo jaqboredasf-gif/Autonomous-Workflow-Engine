@@ -1,0 +1,21 @@
+{
+  "record_id": "lippolis-purchasing-2026",
+  "record_type": "baseline_manifest",
+  "record_class": "production",
+  "captured_by": "Jack Daly",
+  "captured_at": "2026-09-02T14:31:01Z",
+  "baseline_id": "lippolis-purchasing-2026",
+  "organization": "Lippolis Electric",
+  "process_scope": "Materials purchasing at Lippolis Electric, paper process: a materials need is identified for a job or for shop stock -> a paper purchase order is written -> the order is placed with the vendor -> the purchase order is filed. The baseline covers this paper PO lifecycle only. It does not cover estimating, proposals, invoicing, payroll, scheduling or dispatch. Any step not named in this sentence is outside the baseline and may not appear in the after-state comparison.",
+  "window_start": null,
+  "window_end": null,
+  "declared_by": "Jack Daly",
+  "declared_at": "2026-09-02T14:31:28Z",
+  "awe_production_start": null,
+  "inclusion_rule": "Every paper purchase order physically present in the declared filing source, bearing a PO date inside the declared window, written by Lippolis Electric to order materials - whether against a specific job or for shop stock. Illegible, incomplete, superseded and cancelled POs ARE included; fields that cannot be read are recorded as unknown rather than the PO being skipped.",
+  "exclusion_rule": "Purchase orders dated outside the declared window. Documents that are not purchase orders (packing slips, vendor invoices, quotes, statements, delivery tickets). Purchase orders issued by any organization other than Lippolis Electric. Any purchase order produced by, routed through or assisted by AWE or any successor operating process - such a PO is contamination and is rejected outright, not merely excluded.",
+  "sampling_method": "Every paper purchase order in the declared filing source with a PO date inside the declared window, taken in filing order, none skipped. Illegible or incomplete POs are transcribed with the unreadable fields recorded as unknown; they are not omitted, because omitting the hard-to-read ones would silently bias the sample toward well-kept paperwork and would break the exhaustiveness claim.",
+  "sampling_exhaustive": null,
+  "fields": {},
+  "notes": ""
+}
