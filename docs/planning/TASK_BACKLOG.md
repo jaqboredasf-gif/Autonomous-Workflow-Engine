@@ -203,16 +203,21 @@ Found by reviewing B5c for first real-employee use, before anyone used it.
 - **Files**: `apps/web/src/app/approvals/page.tsx`, `scripts/eval-approval-queue.mjs`.
 - **Testing**: Runner 5 — 425 checks (3 new assert the confirmation's shape so it cannot be silently deleted); Runners 3/4/6 and both migration lints green; mobile tsc and web TypeScript clean.
 
-## MI1 — Manual intake bridge — `CODE COMPLETE, BLOCKED(0016 live apply — Jack)` (2026-09-02)
-The temporary production bootstrap named in the 2026-07-16 email-first decision. Built because Graph inbound (B9) is blocked and, verified this session, NOTHING could enter AWE in production: no UI created an email_messages or work_requests row and every insert path was an acceptance script running as service-role.
-- **Goal**: an authorized Lippolis admin can enter a genuine phone/walk-in work request through the product, into the existing pipeline, without SQL, curl or fixtures.
+## MI1 — Manual intake bridge (work_request source-neutral) — `CODE COMPLETE, BLOCKED(0016 live apply — Jack)` (2026-09-02)
+Built because Graph inbound (B9) is blocked and, verified this session, NOTHING could enter AWE in production.
+- **Domain decision**: a work_request is SOURCE-NEUTRAL. `email_message_id not null` encoded the email-first implementation, not a domain truth. See DECISION_LOG 2026-09-02.
+- **Design**: `work_requests.source_type` enum (email|manual), `email_message_id` nullable, plus `entered_by`, `source_reference`, `request_text`, `intake_client_key`. A CHECK constraint enforces both shapes so neither source can impersonate the other. **`email_messages` is not modified at all** — every existing email invariant survives untouched.
+- **Supersedes an earlier same-day draft** that added a `source` discriminator to `email_messages`; that still forced non-email work onto the email table. Replaced before anything was applied, so no corrective migration was needed.
+- **Write path**: `create_manual_work_request()` — SECURITY DEFINER, admin-gated, org from `current_org_id()`, provenance forced server-side. No INSERT policy opened.
+- **Dependency trace done first**: `create_outbound_draft` never reads `email_messages` (recipients arrive as `p_to_addrs`); the approvals embed is already typed `QueueEmail | null` and read with `?.`; `db.mjs candidateOriginals` inner-joins and is fixture-scoped, so manual rows are correctly excluded; 0013's emergency payload is null-safe. `from_addr` is display-only plus that fixture-scoped duplicate query — **never an outbound destination**.
 - **Files**: `supabase/migrations/0016_manual_intake_bridge.sql`, `apps/web/src/lib/manual-intake.ts`, `apps/web/src/app/requests/new/page.tsx`, `apps/web/src/components/Nav.tsx`, `scripts/lib/validate-migration-0016.mjs`, `scripts/eval-manual-intake.{sh,mjs}`, `scripts/regression.sh`, `docs/planning/DECISION_LOG.md`.
-- **Design**: `email_messages.source` enum (graph|manual|fixture) + `manual_entered_by` + `source_reference` + `manual_client_key`. A shape constraint forces a manual row to have a NULL graph_message_id, is_fixture=false, a named author and a real-world origin — masquerading as email is structurally impossible. Writes go through `create_manual_work_request()` (SECURITY DEFINER, admin-gated, org from `current_org_id()`), NOT through a new INSERT policy, so the browser never chooses org, source or fixture status.
-- **Real-world origin is NOT in from_addr**: `approval-queue.ts:745` falls back to from_addr as a reply RECIPIENT and `db.mjs` matches on it for duplicate detection, so a phone number there could address a reply to a phone number.
-- **Reuses downstream, duplicates nothing**: existing insert triggers fire unchanged (emergency net, `request.received`, work-request events). Classification stays `unknown`. No outbound draft, no send.
-- **Idempotency**: `manual_client_key` unique per org (partial index), mirroring the offline punch queue's (device_id, client_uuid) convention. A double-clicked form returns the same request.
-- **Testing**: Runner 7 — 66 offline checks; 0016 lint — 41 structural checks. Runners 3/4/5/6 and the 0014/0015 lints green; mobile tsc and web TypeScript clean.
-- **BLOCKER**: 0016 is not applied to live. Until Jack applies it, `/requests/new` fails at the RPC and the capability does not exist in production. CODE VERIFIED only — not integration-verified, not live-verified.
+- **Testing**: Runner 7 — 84 offline checks; 0016 lint — 49 structural checks. Runners 3/4/5/6 and the 0014/0015 lints green; mobile tsc and web TypeScript clean.
+- **BLOCKER**: 0016 is not applied to live. Until Jack applies it, `/requests/new` fails at the RPC and the capability does not exist in production. CODE VERIFIED only.
+
+## MI2 — Outbound path for requests with no email address — `ready (NOT STARTED)` (next boundary)
+- **Why**: a phone request may have no `customer_email`. `create_outbound_draft(p_to_addrs)` takes recipients from its caller and `outbound_messages.to_addrs` defaults to `'{}'` and is `not null` — so a draft with ZERO recipients is currently legal. Nothing today derives recipients from the request, because no product caller exists.
+- **Question to answer before building**: what is the correct outcome for a manual request with no email address — a phone-callback task, a printed work order, or an explicit "no outbound possible" state? Do NOT assume every work request should generate an outbound email.
+- **Deps**: MI1 applied.
 
 ## S1 — Remove undeclared client policies on the audit tables — `ready` (SECURITY, human-gated)
 - **Found**: 2026-07-26 by `scripts/acceptance-slice5.sh` while checking whether the browser could read the event log.

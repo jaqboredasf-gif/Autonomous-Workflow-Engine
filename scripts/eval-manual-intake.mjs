@@ -7,7 +7,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { planManualIntake, verifyIntakeApplied } from '../apps/web/src/lib/manual-intake.ts';
+import { planManualIntake, verifyIntakeApplied, URGENCIES } from '../apps/web/src/lib/manual-intake.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 let pass = 0;
@@ -53,11 +53,11 @@ for (const [field, reason] of [['bodyText', 'missing_body_text'], ['sourceRefere
 
 // --- everything else is optional: an operator must never invent data --------
 const sparse = plan({
-  subject: '', customerName: '', customerEmail: '', customerPhone: '',
+  customerName: '', customerEmail: '', customerPhone: '',
   customerAddress: '', county: '', zip: '',
 });
 check(sparse.ok === true, 'a request with only the required facts was refused');
-for (const k of ['p_subject', 'p_customer_name', 'p_customer_email', 'p_customer_phone',
+for (const k of ['p_customer_name', 'p_customer_email', 'p_customer_phone',
   'p_customer_address', 'p_county', 'p_zip']) {
   check(sparse.rpc?.[k] === null, `${k} became "" instead of null — empty strings pollute the record`);
 }
@@ -101,6 +101,52 @@ check(/before re-entering it/.test(unread.message),
 check(verifyIntakeApplied({ workRequestId: null, found: false }).settled === false,
   'a missing work request id was reported as success');
 
+// --- urgency: recorded, but explicitly not an alert -------------------------
+check(plan().rpc?.p_urgency === 'standard', 'urgency does not default to standard');
+for (const u of URGENCIES) {
+  check(plan({ urgency: u }).rpc?.p_urgency === u, `urgency "${u}" was not carried`);
+}
+const badU = plan({ urgency: 'catastrophic' });
+check(badU.ok === false && reasons(badU).includes('invalid_urgency'),
+  'an urgency outside the enum was accepted and would fail at the database');
+
+// --- the migration's schema invariants (asserted against the SQL text) ------
+// Behavior needs a database; these assert the CONTRACT the client is written
+// against, so client and schema cannot drift apart silently.
+const MIG = readFileSync(join(ROOT, 'supabase/migrations/0016_manual_intake_bridge.sql'), 'utf8');
+const migFlat = MIG.replace(/\s+/g, ' ');
+const migCode = MIG.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+
+// (2) a real manual request creates no fake email data
+check(!/graph_message_id|from_addr|is_fixture/.test(migCode),
+  'the migration touches email-only fields — manual intake must fabricate none of them');
+check(!/insert into email_messages/i.test(migCode),
+  'the migration inserts an email row for a manual request');
+// (3) email work requests continue working unchanged
+check(!/alter table email_messages/.test(migCode),
+  'email_messages is altered — existing email intake invariants must remain untouched');
+check(/source_type request_source not null default 'email'/.test(migFlat),
+  'existing rows would not remain valid: source_type must default to email');
+// (4) email source requires a legitimate email_message
+check(/when 'email' then[^]*?email_message_id is not null/.test(migFlat),
+  'an email request could exist without an email_message');
+// (5) manual source cannot claim email provenance
+check(/when 'manual' then[^]*?email_message_id is null/.test(migFlat),
+  'a manual request could carry an email_message_id and claim email provenance');
+// (6)(7)(8) authorization, tenant, authentication — enforced in the RPC
+check(/current_role_is\('admin'\)/.test(migFlat), 'the RPC does not gate on business role');
+check(/v_org uuid := current_org_id\(\)/.test(migFlat) && !/p_org\b/.test(migFlat),
+  'tenant is not derived from the session — cross-org creation would be possible');
+check(/requires an authenticated human/.test(migFlat), 'the RPC does not require authentication');
+// (9) audit event
+check(/emit_event\('request\.manual_intake'/.test(migFlat), 'no audit event is emitted for the intake act');
+// (11) fixture and production semantics stay separated
+check(!/is_fixture/.test(migCode), 'the migration references fixture semantics');
+
+// The request text must be readable by the product, not only by service-role.
+check(/add column request_text/.test(migFlat),
+  'request_text is not stored on the row — the product could never show what the customer asked for');
+
 // --- source purity ----------------------------------------------------------
 const UI = {
   'apps/web/src/lib/manual-intake.ts': readFileSync(join(ROOT, 'apps/web/src/lib/manual-intake.ts'), 'utf8'),
@@ -118,6 +164,7 @@ for (const [name, src] of Object.entries(UI)) {
   check(!/eyJ[A-Za-z0-9_-]{10,}/.test(c), `${name} contains a hard-coded JWT`);
   // Tenant must come from the session, never the form.
   check(!/p_org\b|org_id\s*:/.test(c), `${name} supplies an org — tenant must come from current_org_id()`);
+  check(!/source_type\s*:/.test(c), `${name} chooses its own source_type — the RPC must decide that`);
   // A bridge that sends is not a bridge.
   check(!/mark_message_sent|create_outbound_draft|record_approval/.test(c),
     `${name} touches the approval or send path`);

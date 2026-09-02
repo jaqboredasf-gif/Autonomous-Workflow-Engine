@@ -7,15 +7,16 @@
 // planManualIntake() did not return, so an invalid or unauthorized entry never
 // leaves the browser.
 //
-// Email-first remains the MVP intake architecture. This exists because Graph
-// inbound is blocked on Entra and, until it lands, no real work can enter AWE
-// at all. It writes `source = 'manual'` and can never produce a row that looks
-// like email — 0016's constraint enforces that in the database, not here.
+// Email-first remains the primary automated intake target. This exists because
+// Graph inbound is blocked on Entra and, until it lands, no real work can enter
+// AWE at all. It creates a work_request with `source_type = 'manual'` and NO
+// email row whatsoever — 0016's constraint enforces that in the database, not
+// here.
 // ---------------------------------------------------------------------------
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { planManualIntake, verifyIntakeApplied } from '@/lib/manual-intake';
+import { planManualIntake, verifyIntakeApplied, URGENCIES } from '@/lib/manual-intake';
 
 const field =
   'mt-1 w-full rounded border px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900';
@@ -42,7 +43,7 @@ export default function NewRequestPage() {
   const [bodyText, setBodyText] = useState('');
   const [sourceReference, setSourceReference] = useState('');
   const [receivedAt, setReceivedAt] = useState(localNowValue());
-  const [subject, setSubject] = useState('');
+  const [urgency, setUrgency] = useState('standard');
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -72,7 +73,7 @@ export default function NewRequestPage() {
     const plan = planManualIntake({
       input: {
         bodyText, sourceReference, receivedAt: new Date(receivedAt).toISOString(),
-        subject, customerName, customerEmail, customerPhone,
+        urgency, customerName, customerEmail, customerPhone,
         customerAddress, county, zip, clientKey,
       },
       now: new Date().toISOString(),
@@ -111,7 +112,7 @@ export default function NewRequestPage() {
     setNotice({ kind: verdict.settled ? 'success' : 'error', text: verdict.message });
 
     if (verdict.settled) {
-      setBodyText(''); setSourceReference(''); setSubject('');
+      setBodyText(''); setSourceReference(''); setUrgency('standard');
       setCustomerName(''); setCustomerEmail(''); setCustomerPhone('');
       setCustomerAddress(''); setCounty(''); setZip('');
       setReceivedAt(localNowValue());
@@ -174,6 +175,21 @@ export default function NewRequestPage() {
           {errors.receivedAt && <p className="mt-1 text-sm text-red-700 dark:text-red-400">{errors.receivedAt}</p>}
         </div>
 
+        <div>
+          <label className={label} htmlFor="urgency">How urgent did they say it was?</label>
+          <select id="urgency" value={urgency} className={field}
+            onChange={(e) => setUrgency(e.target.value)}>
+            {URGENCIES.map((u) => (
+              <option key={u} value={u}>{u}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-neutral-500">
+            Records what the caller said. It does <strong>not</strong> alert or dispatch
+            anyone — if this is a real emergency, handle it the way you do today.
+          </p>
+          {errors.urgency && <p className="mt-1 text-sm text-red-700 dark:text-red-400">{errors.urgency}</p>}
+        </div>
+
         <details className="rounded border p-3 dark:border-neutral-700">
           <summary className="cursor-pointer text-sm font-medium">
             Customer details (optional — leave blank rather than guessing)
@@ -212,11 +228,6 @@ export default function NewRequestPage() {
               <label className={label} htmlFor="zip">ZIP</label>
               <input id="zip" value={zip} className={field}
                 onChange={(e) => setZip(e.target.value)} />
-            </div>
-            <div className="sm:col-span-2">
-              <label className={label} htmlFor="subject">Short summary</label>
-              <input id="subject" value={subject} className={field}
-                onChange={(e) => setSubject(e.target.value)} />
             </div>
           </div>
         </details>

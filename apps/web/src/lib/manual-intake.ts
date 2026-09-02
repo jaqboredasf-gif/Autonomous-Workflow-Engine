@@ -11,37 +11,41 @@
 // same decision). Graph inbound is blocked on Entra, and until it lands nothing
 // can enter AWE in production at all.
 //
-// WHAT THIS IS NOT: an email. Nothing here writes a graph_message_id or sets
-// is_fixture, and the database constraint makes both structurally impossible
-// for a manual row.
+// WHAT THIS IS NOT: an email. A manual request has NO email_messages row at
+// all — 0016 makes work_requests.email_message_id nullable and constrains a
+// manual row to carry none. Nothing is fabricated: no email row, no
+// graph_message_id, no address, no fixture flag.
 // ---------------------------------------------------------------------------
 
 export interface ManualIntakeInput {
   bodyText: string;
   sourceReference: string;
   receivedAt: string | null;
-  subject?: string | null;
   customerName?: string | null;
   customerEmail?: string | null;
   customerPhone?: string | null;
   customerAddress?: string | null;
   county?: string | null;
   zip?: string | null;
+  urgency?: string | null;
   clientKey?: string | null;
 }
+
+/** work_requests.urgency (0011). 'emergency' here does NOT dispatch anyone. */
+export const URGENCIES = ['standard', 'urgent', 'emergency'] as const;
 
 /** Exactly the arguments create_manual_work_request() accepts. */
 export interface ManualIntakeRpc {
   p_body_text: string;
   p_source_reference: string;
   p_received_at: string;
-  p_subject: string | null;
   p_customer_name: string | null;
   p_customer_email: string | null;
   p_customer_phone: string | null;
   p_customer_address: string | null;
   p_county: string | null;
   p_zip: string | null;
+  p_urgency: string;
   p_client_key: string | null;
 }
 
@@ -51,6 +55,7 @@ export const INTAKE_FIELD_ERRORS = [
   'received_at_in_future',
   'invalid_received_at',
   'invalid_customer_email',
+  'invalid_urgency',
   'not_authorized',
 ] as const;
 export type IntakeFieldError = (typeof INTAKE_FIELD_ERRORS)[number];
@@ -107,12 +112,17 @@ export function planManualIntake({
     fail('receivedAt', 'received_at_in_future', 'a request cannot have arrived in the future');
   }
 
-  // from_addr doubles as a fallback RECIPIENT downstream (approval-queue.ts),
-  // so a malformed address here could later address a reply to nonsense.
+  // customer_email is the only address a reply could ever go to for a phone
+  // request, so a malformed one is worse than a blank one.
   const email = clean(input.customerEmail);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     fail('customerEmail', 'invalid_customer_email',
-      'this is used as a reply address — leave it blank rather than guessing');
+      'this is the address any reply would go to — leave it blank rather than guessing');
+  }
+
+  const urgency = clean(input.urgency) ?? 'standard';
+  if (!(URGENCIES as readonly string[]).includes(urgency)) {
+    fail('urgency', 'invalid_urgency', `expected one of ${URGENCIES.join(', ')}`);
   }
 
   if (errors.length) return { ok: false, errors, rpc: null };
@@ -124,13 +134,13 @@ export function planManualIntake({
       p_body_text: body as string,
       p_source_reference: source as string,
       p_received_at: new Date(received).toISOString(),
-      p_subject: clean(input.subject),
       p_customer_name: clean(input.customerName),
       p_customer_email: email,
       p_customer_phone: clean(input.customerPhone),
       p_customer_address: clean(input.customerAddress),
       p_county: clean(input.county),
       p_zip: clean(input.zip),
+      p_urgency: urgency,
       p_client_key: clean(input.clientKey),
     },
   };
