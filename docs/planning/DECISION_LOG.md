@@ -441,3 +441,40 @@ Append-only. Newest first. Format: date — decision — why — supersedes (if 
   asserts identical message-type, business-role and blocked-reason vocabularies (missing
   OR extra both fail). Branch-logic divergence is still possible and is exactly what
   acceptance slice 4 (B3-live) must retire.
+
+## 2026-09-02 — Manual intake bridge (temporary production bootstrap)
+
+- **Email-first remains the target MVP intake architecture.** This decision does
+  NOT reverse the 2026-07-16 lock ("MVP intake is email-first; phone intake is a
+  future workflow"). That same locked decision already named this bridge:
+  "manual intake form for office staff to enter phone requests into the same
+  work_request pipeline — scope it in Phase 4 as shortly-after-MVP." Migration
+  0016 is that bridge being built, not a change of direction.
+- **Why now**: Graph inbound (B9) is blocked on an Entra app registration owned
+  by IT. Verified 2026-09-02 that until it lands NOTHING can enter AWE in
+  production — no UI created an `email_messages` or `work_requests` row, and
+  every insert path was an acceptance script running as service-role. Every
+  downstream capability (classification, approval queue, B5c send recording) was
+  therefore unreachable in real use.
+- **Scope**: one authorized, audited, operator-attributed door —
+  `create_manual_work_request()` behind `/requests/new`. It reuses the existing
+  work_request pipeline and its insert triggers rather than duplicating any
+  downstream logic.
+- **A manual record can never masquerade as email.** `email_messages.source` is
+  an explicit enum (`graph` | `manual` | `fixture`) and 0016's shape constraint
+  forces a manual row to carry a NULL `graph_message_id`, `is_fixture = false`,
+  a named author and a real-world `source_reference`. Real customer data is
+  never labelled synthetic, and a forged email row is structurally impossible.
+- **The real-world origin gets its own field.** It does NOT go in `from_addr`,
+  because `apps/web/src/lib/approval-queue.ts` falls back to `from_addr` as a
+  reply RECIPIENT and `scripts/lib/db.mjs` matches on it for duplicate
+  detection. A phone number in that column could address a reply to a phone
+  number.
+- **This must not become the default long-term intake path merely because it
+  exists.** When Graph inbound ships, stop calling the RPC; rows already created
+  stay valid and stay labelled `source = 'manual'`, so history remains honest.
+  Do not build features that assume manual entry is the normal way in.
+- **Not authorized by this decision**: auto-classification on manual intake,
+  automatic outbound draft creation, or any send. Manual intake records what a
+  human was told and stops there; `classification` stays `unknown` exactly as it
+  would for an unprocessed email.

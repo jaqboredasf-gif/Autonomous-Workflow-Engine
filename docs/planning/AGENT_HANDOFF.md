@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-09-02T15:40:00Z
+2026-09-02T16:20:00Z
 
 ## agent
 
@@ -22,7 +22,11 @@ B5c follows EV1 (`e777471`), the EV1 handoff (`a313811`) and the baseline scaffo
 
 ## current objective
 
-Completed: B5c, plus a first-use defect fix found by inspecting it for real employee use (B5c-fix). Integration verification was ATTEMPTED and is BLOCKED: `.env.acceptance` is absent from this container, so no live acceptance run was possible. B5c remains rehearsal-verified, NOT integration-verified.
+Completed (CODE ONLY): MI1, the manual intake bridge. An authorized admin can enter a phone/walk-in work request through `/requests/new` into the existing pipeline. It is NOT live: migration 0016 is not applied, so the repo and the live project are OUT OF SYNC and the capability does not exist in production until Jack applies it.
+
+Do NOT implement outbound-draft creation next — that was explicitly deferred out of this session.
+
+Prior: B5c, plus a first-use defect fix found by inspecting it for real employee use (B5c-fix). Integration verification was ATTEMPTED and is BLOCKED: `.env.acceptance` is absent from this container, so no live acceptance run was possible. B5c remains rehearsal-verified, NOT integration-verified.
 
 Prior: B5c — closed the APPROVAL to REAL ACTION to AUDIT link in the outbound workflow. An approved message can now be recorded as sent from the approvals queue. Previously that state transition existed in the database and was covered by acceptance slice 4, but no product surface called it, so `sent` was reachable only by raw SQL or curl.
 
@@ -68,7 +72,17 @@ The boundary ended one step earlier than the pipeline suggested: an approved mes
 
 ## migrations
 
-None created, applied, moved, or modified. The repository and the live project remain in sync at 0001 through 0015. B5c adds no schema: the RPC, its gates and its audit event already existed, and only the caller was missing.
+**0016_manual_intake_bridge.sql created, NOT APPLIED.** The repository and the live project are now OUT OF SYNC: repo carries 0016, live is still at 0015. This is the single most important fact in this handoff.
+
+Applying schema to live is a human-gated outward action and this container holds no credentials, so it could not be applied here even with authorization. Until it is applied, `/requests/new` renders but fails at the RPC call.
+
+0016 is additive: one new enum, four new columns on `email_messages`, one partial unique index, one replaced check constraint, one widened immutability guard, one new SECURITY DEFINER function. It contains no drop table, drop column, delete or truncate — asserted by the offline lint. The one destructive-looking statement is dropping the superseded `check (graph_message_id is not null or is_fixture)` constraint, which is unavoidable: that constraint cannot admit a manual row without either a forged graph_message_id or real customer data labelled as a fixture.
+
+Dry-run before applying, per CONTEXT.md:
+
+```
+{ echo "begin;"; cat supabase/migrations/0016_manual_intake_bridge.sql; echo "rollback;"; } | jq -Rs '{query: .}' | curl -s -X POST "$MGMT/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d @-
+```
 
 ## commands run
 
@@ -137,6 +151,19 @@ The prescribed commands were re-verified as still correct: `scripts/regression.s
 
 No credentials were fabricated and no acceptance results were simulated. B5c stays rehearsal-verified.
 
+## MI1 verification summary (2026-09-02)
+
+CODE VERIFIED. Not rehearsal-verified against a database, not integration-verified, not live-verified.
+
+- Runner 7 (`bash scripts/eval-manual-intake.sh`): 66 offline checks over the module the page ships.
+- 0016 offline lint (`node scripts/lib/validate-migration-0016.mjs`): 41 structural checks, including that a manual row cannot carry a graph_message_id, cannot be a fixture, requires a named author and a real-world origin; that the RPC is SECURITY DEFINER, admin-gated and takes org from `current_org_id()` rather than an argument; that no INSERT policy is opened on an intake table; and that the migration contains no destructive statement.
+- Runners 3/4/5/6 and the 0014/0015 lints green. Mobile typecheck clean. Web TypeScript compiled and typechecked clean.
+- `node scripts/evidence.mjs status` still 0/13. MI1 collected no evidence and raised no readiness.
+
+Note on the lints: they assert the SHAPE of the SQL text, not its behavior. Nothing here proves 0016 applies cleanly or that the RPC works. That requires applying it.
+
 ## exact next prompt
 
-Run the live acceptance slices against this branch with `.env.acceptance` sourced (`source .env.acceptance && bash scripts/regression.sh`) to move B5c from rehearsal-verified to integration-verified, then walk one fixture message through the full loop in the browser — approve it, confirm it appears under "Approved — you still owe this", record the send, and confirm the audit trail shows the send step with the correct actor and timestamp. Do not begin any new capability until that walkthrough passes.
+Apply migration 0016 to the live project, with Jack's explicit go-ahead and after a dry-run inside a rolled-back transaction (recipe in CONTEXT.md and in the migrations section above). Verify the drift check afterward: expect 24 base tables unchanged, plus the new `intake_source` type and four new `email_messages` columns. Then sign in as the test admin, open `/requests/new`, enter one real phone request, and confirm: a work_request appears with `classification = 'unknown'`, the linked `email_messages` row has `source = 'manual'` with a NULL `graph_message_id` and `is_fixture = false`, a `request.manual_intake` event was emitted, and submitting the same form twice returns the SAME request rather than creating two. Only after that is MI1 integration-verified. Do NOT implement outbound-draft creation until it is.
+
+Superseded prior prompt: run the live acceptance slices against this branch with `.env.acceptance` sourced (`source .env.acceptance && bash scripts/regression.sh`) to move B5c from rehearsal-verified to integration-verified, then walk one fixture message through the full loop in the browser — approve it, confirm it appears under "Approved — you still owe this", record the send, and confirm the audit trail shows the send step with the correct actor and timestamp. Do not begin any new capability until that walkthrough passes.

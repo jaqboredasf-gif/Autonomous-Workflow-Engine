@@ -56,6 +56,14 @@ docs/planning/       THIS folder — scope/requirements/roadmap/backlog/handoff
 
 ## Migration state
 
+**0016 IS NOT APPLIED. Repo and live are OUT OF SYNC as of 2026-09-02.**
+The repo carries `0016_manual_intake_bridge.sql`; the live project is still at
+0015. Until Jack applies it, `/requests/new` will fail at the RPC call and the
+manual intake bridge does not exist in production. Apply it with the recipe
+below (dry-run first), then re-run the drift check. Structure is lint-verified
+offline by `node scripts/lib/validate-migration-0016.mjs` — that is a shape
+check, not a substitute for applying it.
+
 **0001–0015 are all applied to the live project.** 0014 + 0015 were applied 2026-07-26
 with Jack's explicit authorization, after a full dry-run (both files executed inside one
 `begin; … rollback;` transaction against the live schema — zero errors, zero residue).
@@ -121,6 +129,8 @@ node scripts/lib/validate-migration-0015.mjs   # B3 migration lint + engine/SQL 
 bash scripts/eval-approval-diff.sh             # Runner 3 (ADR diff engine)
 bash scripts/eval-approval-matrix.sh           # Runner 4 (B3 matrix + drafts)
 bash scripts/eval-approval-queue.sh            # Runner 5 (B5 approval queue UI logic)
+bash scripts/eval-manual-intake.sh             # Runner 7 (0016 manual intake bridge)
+node scripts/lib/validate-migration-0016.mjs   # 0016 migration lint
 bash scripts/eval-evidence.sh                  # Runner 6 (EV1 evidence layer)
 (cd apps/mobile && npx tsc --noEmit) && (cd apps/web && npm run build)
 ```
