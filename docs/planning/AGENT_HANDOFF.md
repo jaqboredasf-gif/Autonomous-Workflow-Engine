@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-09-02T17:10:00Z
+2026-09-02T18:05:00Z
 
 ## agent
 
@@ -153,7 +153,15 @@ No credentials were fabricated and no acceptance results were simulated. B5c sta
 
 ## MI1 verification summary (2026-09-02)
 
-CODE VERIFIED. Not rehearsal-verified against a database, not integration-verified, not live-verified.
+MIGRATION VERIFIED and INTEGRATION VERIFIED against a real PostgreSQL 16 executing the real contract. NOT live-verified: 0016 is still not applied to the hosted project and no real employee has used it for real work.
+
+The promotion was possible because this environment DOES have a full PostgreSQL server at `/usr/lib/postgresql/16/bin` — CONTEXT.md's "no psql" note was wrong and has been corrected. `scripts/pg-harness.sh` stands up a throwaway cluster, applies the migration chain, seeds representative production-shaped rows, proves 0016 applies AND rolls back cleanly inside a transaction (schema fingerprint restored exactly), then runs 41 integration assertions. All 41 pass.
+
+Proven behaviorally, not just as SQL text: existing email-backed rows stay valid under the new constraint; `email_messages` is byte-for-byte unchanged; a manual row cannot claim email provenance and an email row cannot exist without its email; provenance is immutable after creation while ordinary workflow updates still succeed; unauthenticated, non-admin and cross-tenant callers are refused; the idempotency key returns the same request; the audit event names the actor; emergency invariants and triage events fire for manual requests exactly as for email; and RLS shows an admin their manual requests, hides other tenants, and shows a non-admin nothing.
+
+One test initially passed for the WRONG reason and was rewritten: setting `request.jwt.claims` to an empty string made `auth.uid()` throw a JSON parse error rather than exercising the guard. It now uses a valid JWT with no subject, so `auth.uid()` is genuinely NULL and the guard's own message is asserted.
+
+Older status, superseded: CODE VERIFIED only.
 
 - Runner 7 (`bash scripts/eval-manual-intake.sh`): 84 offline checks over the module the page ships, plus contract assertions against the migration text so client and schema cannot drift apart.
 - 0016 offline lint (`node scripts/lib/validate-migration-0016.mjs`): 49 structural checks, including that `email_messages` is not altered at all, that neither source can impersonate the other, that provenance is immutable after creation, that `request_text` is stored on the row (not only on a service-role-only audit event), that the RPC is SECURITY DEFINER / admin-gated / takes org from `current_org_id()`, that no INSERT policy is opened, and that the migration contains no destructive statement.

@@ -203,7 +203,7 @@ Found by reviewing B5c for first real-employee use, before anyone used it.
 - **Files**: `apps/web/src/app/approvals/page.tsx`, `scripts/eval-approval-queue.mjs`.
 - **Testing**: Runner 5 — 425 checks (3 new assert the confirmation's shape so it cannot be silently deleted); Runners 3/4/6 and both migration lints green; mobile tsc and web TypeScript clean.
 
-## MI1 — Manual intake bridge (work_request source-neutral) — `CODE COMPLETE, BLOCKED(0016 live apply — Jack)` (2026-09-02)
+## MI1 — Manual intake bridge (work_request source-neutral) — `MIGRATION + INTEGRATION VERIFIED; BLOCKED(0016 live apply — Jack)` (2026-09-02)
 Built because Graph inbound (B9) is blocked and, verified this session, NOTHING could enter AWE in production.
 - **Domain decision**: a work_request is SOURCE-NEUTRAL. `email_message_id not null` encoded the email-first implementation, not a domain truth. See DECISION_LOG 2026-09-02.
 - **Design**: `work_requests.source_type` enum (email|manual), `email_message_id` nullable, plus `entered_by`, `source_reference`, `request_text`, `intake_client_key`. A CHECK constraint enforces both shapes so neither source can impersonate the other. **`email_messages` is not modified at all** — every existing email invariant survives untouched.
@@ -212,7 +212,16 @@ Built because Graph inbound (B9) is blocked and, verified this session, NOTHING 
 - **Dependency trace done first**: `create_outbound_draft` never reads `email_messages` (recipients arrive as `p_to_addrs`); the approvals embed is already typed `QueueEmail | null` and read with `?.`; `db.mjs candidateOriginals` inner-joins and is fixture-scoped, so manual rows are correctly excluded; 0013's emergency payload is null-safe. `from_addr` is display-only plus that fixture-scoped duplicate query — **never an outbound destination**.
 - **Files**: `supabase/migrations/0016_manual_intake_bridge.sql`, `apps/web/src/lib/manual-intake.ts`, `apps/web/src/app/requests/new/page.tsx`, `apps/web/src/components/Nav.tsx`, `scripts/lib/validate-migration-0016.mjs`, `scripts/eval-manual-intake.{sh,mjs}`, `scripts/regression.sh`, `docs/planning/DECISION_LOG.md`.
 - **Testing**: Runner 7 — 84 offline checks; 0016 lint — 49 structural checks. Runners 3/4/5/6 and the 0014/0015 lints green; mobile tsc and web TypeScript clean.
-- **BLOCKER**: 0016 is not applied to live. Until Jack applies it, `/requests/new` fails at the RPC and the capability does not exist in production. CODE VERIFIED only.
+- **Verification (2026-09-02)**: promoted CODE VERIFIED -> MIGRATION VERIFIED -> INTEGRATION VERIFIED via `scripts/pg-harness.sh`, a throwaway PostgreSQL 16 cluster running the real migration chain. 41/41 integration assertions pass, including the transactional dry-run + proof the rollback restored the schema fingerprint exactly, and proof that `email_messages` is byte-for-byte unchanged by 0016.
+- **BLOCKER**: 0016 is still not applied to the hosted project. Until Jack applies it there, `/requests/new` fails at the RPC. NOT live-verified — no real employee has used it for real work.
+- **This container cannot apply it**: no credentials, and `api.supabase.com` is blocked by network policy (gateway 403 to CONNECT). Live apply must run from Jack's machine.
+
+## PG1 — Offline migration harness — `DONE` (2026-09-02)
+- **Goal**: verify a migration against a real database before it is ever applied to the hosted project.
+- **Why**: previously a new migration could only be lint-verified (its SQL text inspected) before first contact with real data — a weak place to discover a constraint rejects existing rows.
+- **Files**: `scripts/pg-harness.sh`, `scripts/pg-tests/seed.sql`, `scripts/pg-tests/0016_manual_intake.sql`, wired into `scripts/regression.sh`.
+- **Corrects CONTEXT.md**: this environment DOES have psql and a full PostgreSQL 16 server at `/usr/lib/postgresql/16/bin`. The old "no psql" note was wrong.
+- **Self-cleaning**: creates and destroys its own cluster, touches no hosted project, skips cleanly where Postgres is absent.
 
 ## MI2 — Outbound path for requests with no email address — `ready (NOT STARTED)` (next boundary)
 - **Why**: a phone request may have no `customer_email`. `create_outbound_draft(p_to_addrs)` takes recipients from its caller and `outbound_messages.to_addrs` defaults to `'{}'` and is `not null` — so a draft with ZERO recipients is currently legal. Nothing today derives recipients from the request, because no product caller exists.

@@ -495,3 +495,23 @@ anything was applied.*
   draft creation, any send, SMS, phone integration, or a generalized
   omni-channel abstraction. `request_source` has exactly two values because
   exactly two intake paths exist.
+
+## 2026-09-02 — Future direction for MI2 (recorded, NOT authorized to build)
+
+Founder direction, logged so it is not lost. **Do not implement.**
+
+- **AWE must not assume every work request requires an outbound email.** Future
+  communication should follow the real source and the available contact method.
+- Directional examples, not a specification: email + address -> email may be
+  appropriate; manual/phone + address -> email may be appropriate; manual/phone
+  with a phone number only -> must NOT create a zero-recipient email draft and
+  likely needs an explicit callback / human-action outcome; walk-in with no
+  contact method -> operational execution may proceed with no customer outbound.
+- **The invariant likely needed later**: no outbound email draft may silently
+  represent successful customer communication when it has zero recipients.
+  Verified as a real gap this session — `outbound_messages.to_addrs` is
+  `not null default '{}'`, so a zero-recipient draft is currently legal, and
+  `create_outbound_draft` takes recipients from its caller rather than deriving
+  them.
+- This is **not** authorization to build a generalized communication-channel
+  framework, SMS, or phone integration.
