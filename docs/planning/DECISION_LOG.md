@@ -755,3 +755,37 @@ second way.
 `npm run rehearse` COMPLETE, `npm run deployment-gate` unchanged at 4 blockers. Non-vacuity by
 perturbation: deleting the guard line fails 2 checks in the workflow suite and 1 in the domain
 suite; restored, both green.
+
+## 2026-09-03 (the release candidate moves to the tip, and the branch documentation stops lying)
+
+**`e69827a` was refreshed to `585b749` rather than signed.** The approval record's own instruction
+is to *"either refresh the commit below to the tip or state deliberately that an older one is being
+installed"*, and this was not a case for the second option: thirty commits separate them, and one
+of them fixes a defect that would have recorded a purchase order as emailed to a vendor with no
+email address. Installing the older candidate would have installed that. The rest of the thirty are
+the Windows deployment line, second-organization provisioning, the evidence and discovery programs
+and per-job-vendor PO numbering; none touches the schema, which stays at `0001`–`0038` with the
+SQLite version unchanged at `0040-audit-interaction-id`.
+
+**The signature block was left blank, and the reference hash was deliberately kept out of it.** The
+gate reads `Approved by` and nothing else grants approval, so filling it in is the one thing this
+session could not do. A build of `585b749` was performed and its sha256 recorded — but in the
+*Before installing* section, labelled as something to compare a second independent build against,
+not in the approval block. Writing it into the block would have let somebody sign without building,
+which is the check the two-party hash exists to provide.
+
+**`pcc-production` was fast-forwarded 56 commits onto the local tip.** It had sat at `58068f3`
+(2026-08-18) while the branch it is cut from moved to 2026-09-01. Nothing was overwritten: the old
+tip is an ancestor of the new one and the push was a fast-forward. `SOURCE_OF_TRUTH.md` was
+corrected in the same pass, because it told operators that
+`claude/purchasing-control-center` was "the earlier codex line, last updated 10 Aug 2026" and
+superseded — while that branch was, in fact, where every commit since was landing. Load-bearing
+documentation that is wrong about which branch is current is worse than none, and
+`eval-source-of-truth.mjs` exists precisely because this document is the only thing between an
+operator and installing the wrong code.
+
+**Two preservation branches were pushed before anything else happened**:
+`backup/purchasing-control-center-2026-09-03` (the 56 PCC commits) and
+`backup/tegg-mock-sprint-2026-09-03` (6 commits whose remote branch had been deleted). Both are
+untouched by the reconciliation above and exist so that no reading of this decision depends on
+`pcc-production` having been moved correctly.

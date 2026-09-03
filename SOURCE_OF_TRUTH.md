@@ -20,9 +20,11 @@ out of. None of it is wrong; none of it is what runs at Lippolis.
 The repository's **default branch is `main`, and `main` does not contain PCC at all** — no
 `apps/purchasing`, no Dockerfile, no deployment units, no runbook. A plain `git clone` with no
 `--branch` gives you that. There is also a branch called `claude/purchasing-control-center`, whose
-name reads like the obvious one and which is **eight days older than the production work**: it has
-the purchasing application but none of the packaging, none of the startup safety, and none of the
-deployment documentation.
+name reads like the obvious one. It is the working branch the production line is developed on, and
+`pcc-production` is fast-forwarded from it — so it is usually identical to, or slightly ahead of,
+the deployable tip. **Usually is not always**, and which of the two a clone lands on is decided by
+whichever was pushed last. `pcc-production` is the branch that carries the signed release record,
+so it is the branch to deploy.
 
 So the two most natural things an operator would do — clone the default, or clone the
 plausibly-named branch — both produce code that cannot be deployed, and neither fails in a way that
@@ -34,13 +36,17 @@ says so. Hence one file, at the root, naming one branch.
 |---|---|---|
 | **`pcc-production`** | **The production line.** The purchasing application, the Dockerfile, the systemd units, the install script, backup/restore/recovery tooling, and every deployment document | **Yes — this one** |
 | `claude/pcc-production-2026-08-18` | The same commits, pushed under a dated name on 18 Aug 2026 before `pcc-production` existed. Kept so nothing published disappears | No — identical content, retiring name |
-| `claude/purchasing-control-center` | The earlier codex line, last updated 10 Aug 2026. Carries a `purchase_line_history` **view** that migration `0030` on the production line deliberately replaced, because a view over live entities rewrote past purchases whenever a vendor was renamed | No — superseded |
+| `claude/purchasing-control-center` | **The working branch the production line is developed on.** This row previously called it "the earlier codex line, last updated 10 Aug 2026" and told operators it was superseded; that stopped being true within days, and on 2026-09-03 `pcc-production` was fast-forwarded onto its tip, containing every one of its commits. The two are the same code. It carries no signed release record, which is the whole reason to deploy the other one | No — deploy `pcc-production`, which is this branch plus the approval record |
 | `main` | Platform scaffolding from July 2026. No purchasing application | No |
 | `codex/*`, `security/*`, `feat/*`, other `claude/*` | Development history and parallel experiments | No |
 
-**Nothing is being deleted.** `claude/purchasing-control-center` and its merged pull requests stay
-exactly where they are; the production line simply does not descend from its last two commits, and
-re-merging them would reintroduce a design that was already replaced on purpose.
+**Nothing is being deleted.** As of 2026-09-03 `pcc-production` descends from
+`claude/purchasing-control-center` by fast-forward and the two point at the same commit; the
+earlier note here, that the production line did not descend from its last two commits, described a
+divergence that no longer exists. The remote branch `origin/claude/purchasing-control-center` is a
+*third* thing — five older codex merge commits that the local line never took — and it is left
+alone rather than force-updated. `backup/purchasing-control-center-2026-09-03` preserves the tip
+independently of either.
 
 ## How to check that a running server matches this branch
 
