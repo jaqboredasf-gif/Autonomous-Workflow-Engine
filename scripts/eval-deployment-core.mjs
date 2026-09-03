@@ -163,16 +163,23 @@ console.log('--- blockers: not every unknown stops everything ----------------')
     /PCC_ENVIRONMENT/.test(bootstrap) && /PCC_ORG_ID/.test(bootstrap),
     'and the refusal is actually in the application');
 
-  // STILL BUILD_ONLY, now for one reason and a better one: no person has
-  // approved a commit for deployment. That is a signature, not an engineering
-  // task, and the deployment must not proceed without it.
-  eq(furthestReachablePhase(pccManifest), 'BUILD_ONLY',
-    'PCC can be built, and must not be installed until a commit is approved');
+  // DEPLOY_ONLY since 2026-09-03: a person signed 585b749, which was the last
+  // thing standing between the package and an installation. What remains blocks
+  // GO_LIVE and belongs to Lippolis IT — a hostname, a boot-enabled service and
+  // a named backup platform — none of which AWE can clear by building anything.
+  //
+  // The negative direction — an unsigned record must still stop an install — is
+  // proved in eval-deployment-gate.mjs against fixtures, because asserting it
+  // here by observing that nobody had signed yet was a test of a moment rather
+  // than of the mechanism, and it expired the day it mattered.
+  eq(furthestReachablePhase(pccManifest), 'DEPLOY_ONLY',
+    'PCC is approved for installation and cannot yet go live');
   const deployBlockers = blockersForPhase(pccManifest, 'REQUIRED_BEFORE_DEPLOY').map((x) => x.path);
-  eq(deployBlockers, ['application.version'],
-    'and the only thing left before deployment is the approved commit');
-  check(/APPROVED_RELEASE\.md/.test(blockersForPhase(pccManifest, 'REQUIRED_BEFORE_DEPLOY')[0].reason),
-    'which names the record a person signs');
+  eq(deployBlockers, [], 'nothing stands between the package and an install any more');
+  const goLive = blockersForPhase(pccManifest, 'REQUIRED_BEFORE_GO_LIVE').map((x) => x.path).sort();
+  check(goLive.length > 0, 'and what is left blocks go-live, so this is not vacuous');
+  check(goLive.every((p) => typeof p === 'string' && p.includes('.')),
+    'every remaining blocker names a manifest fact');
 }
 {
   // A missing runtime floor stops the build; a missing monitoring tool does not.
@@ -504,8 +511,8 @@ console.log('--- the model describes PCC correctly --------------------------');
 
   const b = blockersForPhase(pccManifest, 'REQUIRED_BEFORE_GO_LIVE').map((x) => x.path);
   check(b.includes('network.hostname'), 'and it is the go-live blocker it actually is');
-  eq(furthestReachablePhase(pccManifest), 'BUILD_ONLY',
-    'PCC is buildable; installing it before the measurement facts are set would waste the first records');
+  eq(furthestReachablePhase(pccManifest), 'DEPLOY_ONLY',
+    'PCC is installable and not yet live — the hostname is why, and it is not ours to choose');
 }
 
 console.log('');

@@ -289,7 +289,11 @@ export async function deriveDeployment() {
  * unsigned record is not an approval.
  */
 export function approvedCommit() {
-  const path = 'deployment/APPROVED_RELEASE.md';
+  // Overridable ONLY so the suites can still exercise the unsigned direction
+  // now that the real record carries a signature. It relocates which file is
+  // read; it cannot invent a signer, because the signature is parsed out of
+  // whatever file it lands on. Unset in every real invocation.
+  const path = process.env.PCC_APPROVAL_RECORD ?? 'deployment/APPROVED_RELEASE.md';
   if (!existsSync(R(path))) return null;
   const text = readFileSync(R(path), 'utf8');
   const commit = /^-\s*\*\*Commit\*\*:\s*`([0-9a-f]{7,40})`/m.exec(text)?.[1] ?? null;

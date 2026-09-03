@@ -32,7 +32,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
  * candidate exists, nobody has signed it.
  */
 function approvedVersion() {
-  const path = join(ROOT, 'deployment/APPROVED_RELEASE.md');
+  // See approvedCommit() in programs/iic-2027/derive.mjs: overridable only so
+  // the unsigned direction stays testable. It cannot fabricate a signature.
+  const path = join(ROOT, process.env.PCC_APPROVAL_RECORD ?? 'deployment/APPROVED_RELEASE.md');
   if (!existsSync(path)) {
     return unknown('no approval record exists — deployment/APPROVED_RELEASE.md names the candidate and carries the signature block');
   }

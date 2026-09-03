@@ -789,3 +789,36 @@ operator and installing the wrong code.
 `backup/tegg-mock-sprint-2026-09-03` (6 commits whose remote branch had been deleted). Both are
 untouched by the reconciliation above and exist so that no reading of this decision depends on
 `pcc-production` having been moved correctly.
+
+## 2026-09-03 (585b749 is signed, and the tests that watched for a signature are rewritten)
+
+**Jack Daly approved `585b749` at REHEARSAL VERIFIED.** The gate moved from four blockers to three;
+all three are Lippolis IT's — a hostname, a boot-enabled service, and a named backup platform — and
+the planner correctly advanced from gate 1 to gate 2.
+
+**The hash in the approval block was replaced with the truth about hashes.** The record previously
+told two people to build the approved commit and compare. They cannot. Packaging *is* deterministic
+— repackaging the same staged tree twice produced the identical archive — but `stage-standalone.mjs`
+writes `RELEASE` as `<commit> <build time>`, so two builds of `585b749` minutes apart produced
+13,230,298 bytes / `37f0bda3…` and 13,230,294 bytes / `a991aac0…`. A verification instruction that
+does not work is worse than none, because the person following it concludes something is wrong with
+the source rather than with the instruction. The record now describes the control that does work —
+ship one archive, publish its `.sha256`, hash the file on the server before extracting — and states
+plainly what that control does and does not prove. **Making the build reproducible is a code change
+and therefore a new candidate, not a silent amendment to this one.**
+
+**Three suites asserted a world in which nobody had signed, and would have had to be deleted.**
+`eval-deployment-gate` required `BUILD_ONLY` and `signedBy === null`; `eval-deployment-core`
+required `application.version` to be the one remaining deploy blocker; `eval-venture-plan` required
+gate 1. Every one of them was true and none tested anything durable: they described a moment, and
+the moment ended on the day the property they guarded started to matter. Deleting them would have
+left nothing checking that an *unsigned* record still stops an install.
+
+So the property is now tested in both directions, against fixtures. `PCC_APPROVAL_RECORD` relocates
+which file the two readers parse — it cannot invent a signer, because the signature is parsed out of
+whichever file it lands on — and `fixtures/approval/` carries an unsigned record, a record with a
+signature but no candidate, and a path that does not exist. All three must approve nothing. That
+assertion survives every future signature, which the one it replaces did not.
+
+Full sweep after signing: **33 suites pass, 0 fail**, 7 refuse without credentials or a running
+server. Rehearsal COMPLETE.

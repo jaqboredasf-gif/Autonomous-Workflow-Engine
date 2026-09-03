@@ -543,18 +543,27 @@ console.log('--- against the repository as it actually is ---------------------'
   const facts = await deriveFacts();
   const p = plan(facts);
 
-  eq(p.currentGate.n, 1, 'AWE is at gate 1 — production ready');
+  // Gate 1 closed on 2026-09-03 when 585b749 was signed: the deployment is
+  // approved, and what is left before go-live belongs to Lippolis IT. The
+  // planner moving to gate 2 is the model working, not drifting.
+  eq(p.currentGate.n, 2, 'AWE is at gate 2 — first real proof');
   eq(claimIn(p, 'awe_solves').grade, 'MEASURED', 'the workflow demonstrably runs end to end');
   eq(claimIn(p, 'works_in_production').grade, 'UNAVAILABLE', 'and nothing has run in production');
   eq(claimIn(p, 'measurable_value').grade, 'UNAVAILABLE', 'so no value can be claimed');
 
-  // THE EXPECTED ANSWER, and the reason this suite exists. If the planner ever
-  // stops saying this while PCC is BUILD_ONLY, something has gone wrong with it
-  // rather than with the world.
+  // THE EXPECTED ANSWER, and the reason this suite exists. It stays on the
+  // deployment path after the signature, because a deployment performed once is
+  // not yet a deployment that repeats — only the wording moves, from "clear the
+  // blocker" to "do it a second time from the same package".
   eq(p.highestLeverage.claim, 'repeatable_deployment',
-    'the engineering action is the deployment path');
-  check(/deployment blocker|deployment-gate/i.test(p.highestLeverage.action),
-    'and it names the deployment gate', p.highestLeverage.action);
+    'the engineering action is still the deployment path');
+  check(/deployment blocker|deployment-gate|second installation|same package/i.test(p.highestLeverage.action),
+    'and it names a concrete deployment act', p.highestLeverage.action);
+  check(/customer|Lippolis/i.test(p.highestLeverage.because ?? ''),
+    'and says the remaining wait is the customer\'s, not ours', p.highestLeverage.because);
+  eq((p.highestLeverage.missing ?? []).slice().sort(),
+    ['network.hostname', 'service.enabled_at_boot', 'storage.backed_up_by_customer'],
+    'naming the three facts only Lippolis IT can supply');
   eq(p.founderHighestLeverage.claim, 'problem_economic',
     'the founder action is to measure the baseline');
   check(/BASELINE_DAY\.md/.test(p.founderHighestLeverage.action),

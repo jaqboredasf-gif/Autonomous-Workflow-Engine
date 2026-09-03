@@ -1,6 +1,10 @@
 # The commit approved for installation on LIPELE-RDS02
 
-**Status: A CANDIDATE IS PROPOSED. NOBODY HAS APPROVED IT.**
+**Status: APPROVED — signed by Jack Daly on 2026-09-03 for `585b749`.**
+
+This is the commit that may be installed on LIPELE-RDS02. It is approved at **REHEARSAL VERIFIED**:
+no PCC installation has ever run on Windows Server and no purchase has ever run through PCC in
+production. Read *What this commit is NOT proven to do* before the install, not after.
 
 `PCC_VM_INSTALLATION_RUNBOOK.md` §Step 5 requires a specific commit or tag —
 *"deploy a specific commit or tag, never a moving branch"* — recorded here, in the installation
@@ -89,18 +93,33 @@ that — only a real purchase on the real server can.
 2. Copy both files to the server and verify the hash **before extracting**.
 3. Follow `docs/deployment/PCC_RDS02_EXECUTION_PACKAGE.md` §1.
 
-### Reference hash — compare, do not trust
+### The package hash — and why rebuilding does not reproduce it
 
-A build of `585b749` performed on 2026-09-03 produced:
+**Verify the file you received against the `.sha256` published beside it. Do not expect a rebuild to
+match.**
 
-```
-PCC-585b749.zip   1651 files   13,230,298 bytes
-sha256  37f0bda3b5ff83acd78603345a066a4f6d364c244451478d8a09812f5e98f286
-```
+The packager is deterministic given a staged build — packaging the same staged tree twice produces
+an identical archive, and it sorts entries and fixes archive timestamps to make that true. The
+*build* is not. `scripts/stage-standalone.mjs` writes `RELEASE` as `<commit> <build time>`, so the
+same commit built at two different moments yields two different archives. Two builds of `585b749`
+on 2026-09-03 produced `…13,230,298` bytes / `37f0bda3…` and `…13,230,294` bytes / `a991aac0…`.
 
-This is recorded so a second, independent build can be compared against it — that comparison is the
-check. It is **not** a substitute for building the package yourself, and it is deliberately not
-written into the approval block below.
+So the check the earlier draft of this file described — two people build the approved commit and
+compare hashes — **does not work today**, and saying it did would have been worse than saying
+nothing. The control that does work:
+
+1. One package is built, and its `PCC-<commit>.zip.sha256` is published beside it.
+2. That exact `.zip` is copied to the server.
+3. `Get-FileHash -Algorithm SHA256 PCC-<commit>.zip` on the server must equal that `.sha256`
+   **before extracting**.
+
+This protects against corruption and substitution in transit, which is what the install actually
+faces. It does not prove the archive was built from the named source — for that, read `RELEASE`
+inside the package and compare it to this record.
+
+**Fix belongs to the next release candidate, not this one.** Deriving `RELEASE`'s timestamp from the
+commit date rather than the build clock would make the package byte-reproducible, but it is a code
+change, and a code change means a new candidate rather than silently moving this approval.
 
 ---
 
@@ -109,10 +128,38 @@ written into the approval block below.
 Filling in the two fields below is what makes this an approved release. Leave them blank until the
 decision is actually made — an unsigned record is not an approval, and the gate treats it as one.
 
-- **Approved by**: ________________________
-- **Date**: ________________________
-- **Package sha256** (from the build above): ________________________________________________
-- **Deviations from the candidate above, if any**: ______________________________________
+- **Approved by**: Jack Daly
+- **Date**: 2026-09-03
+- **Verification level**: REHEARSAL VERIFIED — offline suites, typecheck, packaging self-check and a
+  full local install/restart/persist rehearsal. NOT integration verified (never installed on Windows
+  Server) and NOT live verified (zero production executions).
+- **Package sha256**: published as `dist/PCC-<commit>.zip.sha256` beside the archive that is
+  actually shipped. Deliberately not transcribed here: a hash typed next to a signature invites
+  signing without verifying, and per the section above a rebuild will not reproduce it.
+- **Deviations from the candidate above, if any**: none.
+
+### Known external blockers at the time of approval
+
+This signature clears `application.version` and nothing else. Three blockers remain, none of them
+AWE's to clear, and **the deployment cannot go live until Lippolis IT resolves all three**:
+
+| Blocker | Owner | State on 2026-09-03 |
+|---|---|---|
+| `network.hostname` | Lippolis IT | not chosen; the server answers on 192.168.10.152 |
+| `service.enabled_at_boot` | Lippolis IT | nobody has enabled the unit — **the VM does not exist yet** |
+| `storage.backed_up_by_customer` | shared | the backup platform has not been named |
+
+Two further facts cannot be checked from the repository and must be confirmed on the target:
+`measurement.set_on_the_server` (the one thing that must be true *before first start*) and
+`platform.adapter_proven` (flipped by the first supervised install, step 22 of the execution
+package).
+
+### If the code has to change
+
+**This approval is for `585b749` and does not travel.** Any code change — including a fix to the
+packaging determinism described above — produces a new candidate, which is refreshed into this file
+and signed again. Moving the approval silently onto a later commit is the failure this record
+exists to prevent.
 
 Once signed, set `PCC_RELEASE=585b749` in the server's environment file so `/api/health`
 reports the build that is actually running.

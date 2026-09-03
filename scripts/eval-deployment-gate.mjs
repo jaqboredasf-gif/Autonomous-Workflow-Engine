@@ -168,27 +168,27 @@ console.log('--- PCC today: BUILD_ONLY, and why -------------------------------'
 // both moved it to BUILD_ONLY, and that is the model telling the truth rather
 // than a regression: installing before those are set would waste the first
 // records the company ever produces.
-eq(result.verdict, 'BUILD_ONLY',
-  'PCC can be built and cannot yet be correctly installed');
+eq(result.verdict, 'DEPLOY_ONLY',
+  'PCC is approved for installation and cannot yet go live');
 
 const byId0 = Object.fromEntries(result.checks.map((c) => [c.id, c]));
 const deployBlockers = result.blockers.filter((b) => b.phase === 'REQUIRED_BEFORE_DEPLOY');
-check(deployBlockers.length > 0, 'and something concrete says why');
+eq(deployBlockers.length, 0, 'nothing stands between here and an install any more');
+check(result.blockers.filter((b) => b.phase === 'REQUIRED_BEFORE_GO_LIVE').length > 0,
+  'and what remains blocks go-live, not the install');
 
-// THE ONE THING LEFT IS A SIGNATURE. The two measurement facts were deploy
-// blockers until the application began refusing a first production start
-// without them; the outcome they guarded is now unreachable, so they are
-// verified rather than outstanding. What remains is an approved commit, which
-// is a person's decision and must not be something the code can grant itself.
+// THE SIGNATURE ARRIVED. `application.version` was the last deploy blocker and
+// a person signed 585b749 on 2026-09-03, so it is no longer outstanding.
+//
+// That is exactly when this suite was in danger of becoming useless. Asserting
+// "the record is unsigned" tested a moment, not a mechanism, and the moment has
+// passed; deleting the assertion would leave nothing checking that an unsigned
+// record still stops an install. So the property is tested in BOTH directions
+// below, against fixtures, and it goes on being true after every future
+// signature.
 {
   const version = result.blockers.find((b) => b.path === 'application.version');
-  check(!!version, 'the approved commit is an outstanding blocker');
-  check(version && version.phase === 'REQUIRED_BEFORE_DEPLOY', 'it blocks the install, not go-live');
-  check(version && version.kind === 'DEPLOYMENT_CONFIG', 'it is a deployment-time configuration blocker');
-  check(version && /APPROVED_RELEASE\.md/.test(version.reason),
-    'and it names the record a person signs', version?.reason);
-  check(version && /nobody has signed|no approval record|names no candidate/.test(version.reason),
-    'saying exactly what is missing', version?.reason);
+  check(!version, 'a signed record is not an outstanding blocker');
 }
 
 // A CANDIDATE THAT DOES NOT EXIST would send somebody to build nothing, and a
@@ -200,8 +200,8 @@ check(deployBlockers.length > 0, 'and something concrete says why');
   eq(approval?.inHistory, true, 'and the candidate is a real commit in this history');
   check(typeof approval?.commitsBehindHead === 'number',
     'and how far behind HEAD it is, is reported rather than assumed');
-  check(approval?.signedBy === null,
-    'and nobody has signed it — this repository does not approve its own releases');
+  check(typeof approval?.signedBy === 'string' && approval.signedBy.length > 0,
+    'and a person has signed it — a name, not a placeholder', approval?.signedBy);
 
   const gateReq = (await import(R('programs/venture/gates.mjs'))).GATES
     .find((g) => g.n === 1).requires.find((r) => r.id === 'approved_commit');
@@ -292,6 +292,50 @@ check(existsSync(R('scripts/pcc-deployment-gate.mjs')), 'the gate exists where t
 const pkg = JSON.parse(readFileSync(R('package.json'), 'utf8'));
 check(Object.values(pkg.scripts ?? {}).some((s) => s.includes('pcc-deployment-gate.mjs')),
   'and package.json exposes it, so it is not a script only its author knows about');
+
+// ---------------------------------------------------------------------------
+console.log('--- an UNSIGNED record still stops an install --------------------');
+
+// THE ASSERTION THAT OUTLIVES THE SIGNATURE.
+//
+// Until 2026-09-03 this suite proved the gate blocked, by observing that the
+// real record was unsigned. That was true and it tested nothing durable: the
+// day somebody signed, the check either failed or had to be deleted, and either
+// way the property stopped being guarded on the exact day it started to matter.
+//
+// So the mechanism is exercised against fixtures instead, in both directions.
+// PCC_APPROVAL_RECORD relocates which file the readers parse; it cannot invent
+// a signer, because the signature is read out of whatever file it lands on.
+{
+  const withRecord = async (fixture) => {
+    const before = process.env.PCC_APPROVAL_RECORD;
+    process.env.PCC_APPROVAL_RECORD = fixture;
+    try {
+      // Cache-busted so the module re-evaluates and re-reads the env.
+      const m = await import(`${R('programs/iic-2027/derive.mjs')}?record=${encodeURIComponent(fixture)}`);
+      return m.approvedCommit();
+    } finally {
+      if (before === undefined) delete process.env.PCC_APPROVAL_RECORD;
+      else process.env.PCC_APPROVAL_RECORD = before;
+    }
+  };
+
+  const unsigned = await withRecord('fixtures/approval/UNSIGNED.md');
+  check(unsigned?.commit === '585b749', 'the unsigned fixture still names its candidate');
+  check(unsigned?.signedBy === null, 'and an unsigned record reports no signer');
+
+  const noCandidate = await withRecord('fixtures/approval/NO_CANDIDATE.md');
+  check(noCandidate?.commit === null,
+    'a record carrying a signature but no commit approves nothing');
+
+  const missing = await withRecord('fixtures/approval/DOES_NOT_EXIST.md');
+  check(missing === null, 'and a record that does not exist approves nothing');
+
+  // A blank line, an underscore rule and a placeholder must all read as unsigned.
+  // This is where a signature would be faked by accident, not by malice.
+  check(unsigned?.signedBy === null && noCandidate?.commit === null,
+    'neither degenerate record can be mistaken for an approval');
+}
 
 console.log('');
 console.log(`deployment gate: ${pass} passed, ${failures.length} failed`);
