@@ -50,12 +50,30 @@
 // ---------------------------------------------------------------------------
 
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, statSync, readdirSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, readdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
+import { readApprovalRecord } from '../deployment/approval-record.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+/**
+ * The approved commit and who signed it, or null when no record is readable.
+ *
+ * The parse lives in deployment/approval-record.mjs and is imported, not
+ * restated: the same function answers for the deployment gate in the
+ * repository and for this script on a server holding only a package. That
+ * module is in the packager's RUNTIME_PATHS so it travels with this file.
+ *
+ * Inside a package the record sits at <package>/deployment/APPROVED_RELEASE.md,
+ * the same ROOT-relative place it occupies in the repository, so one lookup
+ * answers for both.
+ */
+function approvedReleaseCommit() {
+  return readApprovalRecord(join(ROOT, 'deployment/APPROVED_RELEASE.md'));
+}
 
 function arg(name, fallback = null) {
   const i = process.argv.indexOf(`--${name}`);
@@ -204,6 +222,73 @@ const nssmParam = (service, name) => {
           b.release ? 'PASS' : 'WARN',
           b.release ? `release ${b.release}` : 'PCC_RELEASE is not set — /api/health reports release: null',
           b.release ? null : 'Set PCC_RELEASE to the deployed commit in the environment file. See SOURCE_OF_TRUTH.md.');
+
+      // AND IS IT THE BUILD A PERSON APPROVED?
+      //
+      // Stamping a release only says which build is running. It does not say
+      // whether that build is the one somebody signed for, and those come apart
+      // in exactly the ordinary way: a package is rebuilt to fix a typo in the
+      // runbook, the new zip goes to the server, and the installation of record
+      // now differs from the record. Nothing else in this repository compares
+      // the two, so nothing else would notice.
+      //
+      // The approval record is read from the package when it travels with it,
+      // and from the repository otherwise. Absent, this is a WARN and not a
+      // failure: an installation is allowed to exist without its paperwork
+      // beside it, it is just not allowed to be silent about it.
+      {
+        const approved = approvedReleaseCommit();
+        if (!b.release) {
+          add('Application', 'release.approved', 'WARN',
+              'cannot compare to the approval record — nothing is stamped',
+              'Set PCC_RELEASE first, then re-run.');
+        } else if (!approved) {
+          add('Application', 'release.approved', 'WARN',
+              'no approval record is readable from here',
+              'Copy deployment/APPROVED_RELEASE.md beside the package, or run this from the repository.');
+        } else if (!approved.signedBy) {
+          add('Application', 'release.approved', 'BLOCKED',
+              `the running build is ${b.release} and the approval record naming ${approved.commit} is UNSIGNED`,
+              'An unsigned record approves nothing. Do not put people on this installation until it is signed.');
+        } else if (!b.release.startsWith(approved.commit) && !approved.commit.startsWith(b.release)) {
+          add('Application', 'release.approved', 'BLOCKED',
+              `the running build is ${b.release} but ${approved.commit} is what ${approved.signedBy} approved`,
+              'Install the approved commit, or approve the one that is installed. Do not leave them disagreeing.');
+        } else {
+          add('Application', 'release.approved', 'PASS',
+              `${b.release} is the commit ${approved.signedBy} approved`);
+        }
+      }
+
+      // MEASUREMENT MUST BE TRUE BEFORE THE FIRST REAL PURCHASE, NOT AFTER.
+      //
+      // The application already refuses to start without PCC_ENVIRONMENT and
+      // PCC_ORG_ID, so reaching this line means they are set to something. The
+      // question this asks is different and cannot be answered by a refusal:
+      // is the running installation stamped `production`, or is it a rehearsal
+      // that everyone has started treating as real? A rehearsal database
+      // produces exactly the shape of a good result under the real company
+      // name, which is why derive.mjs refuses to read one — and why an operator
+      // needs to be told, on the day, which one is in front of them.
+      {
+        const env = (b.environment ?? b.checks?.environment?.environment ?? process.env.PCC_ENVIRONMENT ?? '').trim();
+        const org = (b.organization ?? process.env.PCC_ORG_ID ?? '').trim();
+        if (!env) {
+          add('Measurement', 'measurement.environment', 'WARN',
+              'the running installation does not report its environment',
+              'PCC_ENVIRONMENT is set (the app would not have started otherwise) but is not visible here — check it on the server.');
+        } else if (env === 'production') {
+          add('Measurement', 'measurement.environment', 'PASS',
+              `stamped production${org ? ` for ${org}` : ''} — records made here are evidence`);
+        } else {
+          add('Measurement', 'measurement.environment', 'WARN',
+              `stamped "${env}"${org ? ` for ${org}` : ''} — records made here are NOT evidence and no value figure will read from them`,
+              'Correct for a rehearsal. Wrong if real purchasing is about to happen on it: the environment is fixed when the database is created, so a production run needs a production database, not a re-stamped one.');
+        }
+        add('Measurement', 'measurement.organization', org ? 'PASS' : 'WARN',
+            org ? `organization ${org}` : 'no organization id reported',
+            org ? null : 'PCC_ORG_ID is what ties records to a company. Without it nothing can be measured later.');
+      }
 
       add('Application', 'schema.reported', b.schema ? 'PASS' : 'WARN',
           b.schema ? `schema ${b.schema}` : 'no schema version reported');
@@ -661,8 +746,12 @@ const nssmParam = (service, name) => {
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
-const ORDER = ['Application', 'Database', 'Configuration', 'Persistent storage', 'Authentication',
-               'Backup tooling', 'Backup schedule', 'Email', 'Printing', 'TLS/hostname'];
+// 'Measurement' sits directly after 'Application' because it answers the
+// question an operator must not reach the end of the report still holding:
+// will anything done on this installation count. A section appended to the end
+// of a long report is a section people stop reading.
+const ORDER = ['Application', 'Measurement', 'Database', 'Configuration', 'Persistent storage',
+               'Authentication', 'Backup tooling', 'Backup schedule', 'Email', 'Printing', 'TLS/hostname'];
 // NOT CONFIGURED ranks WITH pass, not below it. It means "deliberately absent,
 // and PCC works without it" — printing drives no named printer and there is no
 // mail transport because PCC cannot send. Ranking it as a lesser outcome would

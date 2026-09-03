@@ -33,6 +33,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const require = createRequire(import.meta.url);
 const R = (p) => join(ROOT, p);
 
+import { parseApprovedCommit, parseApprovedSigner } from '../../deployment/approval-record.mjs';
+
 /** No database given, or one that will not say it is production. */
 const NO_USAGE = Object.freeze({ executions: 0, activeDays: 0, organizations: 0, capabilitiesInProduction: 0 });
 
@@ -296,8 +298,10 @@ export function approvedCommit() {
   const path = process.env.PCC_APPROVAL_RECORD ?? 'deployment/APPROVED_RELEASE.md';
   if (!existsSync(R(path))) return null;
   const text = readFileSync(R(path), 'utf8');
-  const commit = /^-\s*\*\*Commit\*\*:\s*`([0-9a-f]{7,40})`/m.exec(text)?.[1] ?? null;
-  const signed = /^-\s*\*\*Approved by\*\*:\s*(?!_)(\S.*)$/m.exec(text)?.[1]?.trim() ?? null;
+  // One parser, shared with scripts/pcc-verify-deployment.mjs — see
+  // deployment/approval-record.mjs for why it is not restated in both.
+  const commit = parseApprovedCommit(text);
+  const signed = parseApprovedSigner(text);
 
   // IS THE CANDIDATE REAL, AND HOW OLD IS IT?
   //

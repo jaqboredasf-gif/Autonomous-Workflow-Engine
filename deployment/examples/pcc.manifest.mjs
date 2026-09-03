@@ -18,6 +18,8 @@ import { declared, unknown, verified } from '../facts.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+import { parseApprovedCommit, parseApprovedSigner } from '../approval-record.mjs';
+
 /**
  * The approved release, READ FROM THE APPROVAL RECORD rather than typed here.
  *
@@ -39,9 +41,9 @@ function approvedVersion() {
     return unknown('no approval record exists — deployment/APPROVED_RELEASE.md names the candidate and carries the signature block');
   }
   const text = readFileSync(path, 'utf8');
-  const commit = /^-\s*\*\*Commit\*\*:\s*`([0-9a-f]{7,40})`/m.exec(text)?.[1] ?? null;
-  const rawSigner = /^-\s*\*\*Approved by\*\*:\s*(.*)$/m.exec(text)?.[1]?.trim() ?? '';
-  const signedBy = rawSigner && !/^_+$/.test(rawSigner) ? rawSigner : null;
+  // One parser — deployment/approval-record.mjs.
+  const commit = parseApprovedCommit(text);
+  const signedBy = parseApprovedSigner(text);
 
   if (!commit) return unknown('deployment/APPROVED_RELEASE.md exists and names no candidate commit');
   if (!signedBy) {

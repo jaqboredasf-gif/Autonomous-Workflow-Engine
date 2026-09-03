@@ -154,6 +154,35 @@ Two further facts cannot be checked from the repository and must be confirmed on
 `platform.adapter_proven` (flipped by the first supervised install, step 22 of the execution
 package).
 
+### Post-approval changes on HEAD — read before installing
+
+**The application is untouched.** `git diff 585b749 HEAD -- apps/` is empty: what runs is exactly
+what was approved, byte for byte. What has moved since the signature is deployment tooling, and one
+piece of it matters enough to name here.
+
+`scripts/pcc-verify-deployment.mjs` — the one command run on the server after installing and after
+every restart — gained two checks it did not have when `585b749` was signed:
+
+- **`release.approved`** — compares the running build to this record and BLOCKS when they disagree
+  or when the record is unsigned. Nothing else in the system compares those two, so nothing else
+  would have noticed an installation drifting away from its paperwork.
+- **`measurement.environment`** — says whether the installation in front of the operator is stamped
+  `production` or is a rehearsal. A rehearsal produces exactly the shape of a good result under the
+  real company name, and the distinction cannot be recovered afterwards.
+
+Both are shipped inside the package, so they only exist on the server if the package is built from a
+commit that contains them. **`585b749` does not.**
+
+**So there is a choice, and it is Jack's:**
+
+| | What you get | What you give up |
+|---|---|---|
+| Install `585b749` as signed | exactly the approved application; no re-signature needed | the server-side verifier cannot tell you whether the build matches this record, or whether the installation is stamped production |
+| Cut and sign a new candidate at HEAD | the same application plus both checks on the server | one more signature, against a commit whose `apps/` diff against `585b749` is empty and can be verified in one command |
+
+Neither is unsafe. The second is recommended precisely because the first install is when those two
+questions are asked for the first time, and it is the moment there is no history to fall back on.
+
 ### If the code has to change
 
 **This approval is for `585b749` and does not travel.** Any code change — including a fix to the

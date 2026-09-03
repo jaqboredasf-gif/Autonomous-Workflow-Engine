@@ -320,6 +320,71 @@ ok(/useradd --system[\s\S]{0,400}install -d -o pcc -g pcc[\s\S]{0,200}\/var\/lib
    'the runbook creates the service account BEFORE the directories it must own');
 ok(/status=203\/EXEC/.test(runbook2), 'and names the symptom when node is not at /usr/bin/node');
 
+// ---------------------------------------------------------------------------
+// ONE APPROVAL PARSER, EXERCISED — not two copies compared.
+//
+// pcc-verify-deployment.mjs has to run on a server that holds a deployment
+// package and nothing else, so it cannot import programs/iic-2027/derive.mjs,
+// which reads half the repository to build the readiness picture. That used to
+// mean a second copy of the parse on the server side, with a test asserting the
+// two copies matched.
+//
+// THAT TEST WAS WORTHLESS AND PASSED ANYWAY. It quoted the regular expressions
+// as text and compared its own reimplementation; changing the verifier's actual
+// placeholder rule left every assertion green. Quoting an implementation is not
+// exercising it. So there is now one module, deployment/approval-record.mjs,
+// imported by the gate, the manifest and the verifier alike, and the checks
+// below run THAT function over records that must not read as approved.
+{
+  const { readApprovalRecord, parseApprovedCommit, parseApprovedSigner } =
+    await import(join(ROOT, 'deployment/approval-record.mjs'));
+
+  const real = readApprovalRecord(join(ROOT, 'deployment/APPROVED_RELEASE.md'));
+  ok(real?.commit === '585b749', 'the approved commit is 585b749', String(real?.commit));
+  ok(typeof real?.signedBy === 'string' && real.signedBy.length > 0,
+     'and a named person signed it', String(real?.signedBy));
+
+  const unsigned = readApprovalRecord(join(ROOT, 'fixtures/approval/UNSIGNED.md'));
+  ok(unsigned?.commit === '585b749', 'an unsigned record still names its candidate');
+  ok(unsigned?.signedBy === null, 'and reports no signer');
+
+  ok(readApprovalRecord(join(ROOT, 'fixtures/approval/NO_CANDIDATE.md')) === null,
+     'a signature with no candidate commit approves nothing');
+  ok(readApprovalRecord(join(ROOT, 'fixtures/approval/DOES_NOT_EXIST.md')) === null,
+     'and a record that is not there approves nothing');
+
+  // EVERY SHAPE A BLANK SIGNATURE ARRIVES IN. The template ships a rule of
+  // underscores; a person clearing the field leaves a space, a dash, or a dot.
+  // All of them mean nobody signed, and the one that slips through is the one
+  // that puts an unapproved build on a server.
+  for (const placeholder of ['', '   ', '________________________', '---', '. . .', '_ _ _', '\t']) {
+    ok(parseApprovedSigner(`- **Approved by**: ${placeholder}`) === null,
+       `a signature line of ${JSON.stringify(placeholder)} is not an approval`);
+  }
+  ok(parseApprovedSigner('- **Approved by**: Jack Daly') === 'Jack Daly',
+     'and a real name is');
+  ok(parseApprovedSigner('- **Approved by**: J') === 'J',
+     'including a short one, because guessing at name length is not our business');
+
+  // The commit parse refuses anything that is not a hex sha in backticks — a
+  // branch name here would send somebody to build a moving target.
+  ok(parseApprovedCommit('- **Commit**: `585b749`') === '585b749', 'a backticked sha parses');
+  ok(parseApprovedCommit('- **Commit**: `pcc-production`') === null, 'a branch name does not');
+  ok(parseApprovedCommit('- **Commit**: 585b749') === null, 'and neither does an unquoted one');
+
+  // The verifier must be importing it rather than keeping a private copy.
+  const verifierSource = readFileSync(join(ROOT, 'scripts/pcc-verify-deployment.mjs'), 'utf8');
+  ok(/from '\.\.\/deployment\/approval-record\.mjs'/.test(verifierSource),
+     'the verifier imports the shared parser');
+  ok(!/\*\*Approved by\*\*/.test(verifierSource),
+     'and keeps no second copy of the signature expression');
+
+  // And it must travel with the package, or the server-side check dies on import.
+  const packager = readFileSync(join(ROOT, 'scripts/package-release.mjs'), 'utf8');
+  ok(/deployment\/approval-record\.mjs/.test(packager),
+     'the packager ships the shared parser beside the verifier');
+}
+
 rmSync(TMP, { recursive: true, force: true });
 
 console.log('');

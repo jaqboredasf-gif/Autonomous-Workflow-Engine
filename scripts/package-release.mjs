@@ -180,6 +180,9 @@ const RUNTIME_PATHS = [
   // what the application does on start.
   'apps/purchasing/src/purchasing/infrastructure/env.ts',
   'apps/purchasing/src/purchasing/organization/po-numbering.mjs',
+  // Imported by pcc-verify-deployment.mjs so an installation can be compared to
+  // the record a person signed, using the same parse the gate uses.
+  'deployment/approval-record.mjs',
 ];
 for (const extra of RUNTIME_PATHS) if (!scripts.includes(extra)) scripts.push(extra);
 scripts.sort();

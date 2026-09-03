@@ -822,3 +822,44 @@ assertion survives every future signature, which the one it replaces did not.
 
 Full sweep after signing: **33 suites pass, 0 fail**, 7 refuse without credentials or a running
 server. Rehearsal COMPLETE.
+
+## 2026-09-03 (first-install hardening: one approval parser, two missing checks, and the recovery nobody had written)
+
+**Two checks Phase 4 asked for were genuinely absent from `pcc-verify-deployment.mjs`.** It reported
+which build was running and warned when nothing was stamped, but it never compared the running build
+to the record a person signed, and it never said whether the installation in front of the operator
+was stamped `production` or was a rehearsal. Both are now checks, both fail loudly, and
+`release.approved` BLOCKS when the running build and the approval record disagree or when the record
+is unsigned — nothing else in the system compares those two, so nothing else would have noticed an
+installation drifting away from its paperwork. `Measurement` is placed second in the report, directly
+after `Application`, because a section at the end of a long report is a section people stop reading,
+and "will anything done here count" is not a question to reach the end still holding.
+
+**A parity test that could not fail was replaced by removing the thing it was testing.** The verifier
+must run on a server holding a deployment package and nothing else, so it could not import
+`programs/iic-2027/derive.mjs`, which reads half the repository. The first attempt at that was a
+second copy of the two regular expressions plus a test asserting the copies matched. **That test
+passed while the copies disagreed** — perturbing the verifier's actual placeholder rule left every
+assertion green, because the test quoted the expressions as text and compared its own
+reimplementation. Quoting an implementation is not exercising it.
+
+So there is now one parser, `deployment/approval-record.mjs`, imported by the gate, the manifest and
+the verifier alike and shipped in the packager's `RUNTIME_PATHS` so it travels to the server. The
+tests exercise *that function* over every shape a blank signature arrives in — the template's
+underscore rule, a space, a dash, a dot, a tab — and over a branch name where a sha belongs.
+Perturbing the parser now fails five checks.
+
+**`docs/deployment/PCC_TOTAL_LOSS_RECOVERY.md` answers a question nothing answered.** Rollback is
+covered thoroughly for a machine you still have; a first install is covered for a machine that never
+held data. Nothing covered the server being gone. Two facts in it are the reason it exists:
+attachments and receipt images are rows **inside** `pcc.sqlite` rather than files beside it, so
+anyone who backs up everything except the database has backed up nothing that matters; and
+`PCC_ENVIRONMENT` / `PCC_ORG_ID` are fixed when the database is created and cannot be re-stamped, so
+a rebuilt database is permanently unmeasurable in a way a restored one is not. The order is
+verifiable at each step, and step 2 — check the backup opens before installing it — exists because
+the failure that destroys a server is the kind that corrupts the newest backup.
+
+**Nothing in `apps/` changed.** `git diff 585b749 HEAD -- apps/` is empty; the approved application
+is what runs. The tooling around it moved, which means the package built from HEAD carries two
+server-side checks that a package built from `585b749` does not — recorded as a stated choice in
+the approval record rather than resolved by quietly moving the signature.
