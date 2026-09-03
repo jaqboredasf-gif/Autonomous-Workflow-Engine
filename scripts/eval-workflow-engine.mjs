@@ -303,8 +303,17 @@ console.log('--- the SECOND workflow: email drafts on the same engine --------')
   check(d('APPROVED_TO_SEND', 'SENT', { reviewedBy: 'mike', markedBy: 'mike' }).ok,
     'reviewed and attributed, it may be marked sent');
 
+  // A draft addressed to nobody may be reviewed but never authorised to go out.
+  eq(d('REVIEWED', 'APPROVED_TO_SEND', { hasRecipient: false }).reason, 'no_recipient',
+    'a draft with no recipient cannot be approved to send');
+  check((d('REVIEWED', 'APPROVED_TO_SEND', { hasRecipient: false }).message ?? '').includes('contact email'),
+    'and the refusal says where to fix it');
+  check(d('GENERATED', 'REVIEWED', { hasRecipient: false }).ok,
+    'and reviewing it is still allowed, so a counter-account order still reaches ORDERED');
+
   // The happy path, step by step.
-  check(d('GENERATED', 'REVIEWED').ok && d('REVIEWED', 'APPROVED_TO_SEND').ok, 'the review path is walkable');
+  check(d('GENERATED', 'REVIEWED').ok && d('REVIEWED', 'APPROVED_TO_SEND', { hasRecipient: true }).ok,
+    'the review path is walkable');
   eq(d('SENT', 'CANCELLED').reason, 'terminal_state', 'a sent draft is finished');
   eq(d('GENERATED', 'REVIEWED', {}, deny).reason, 'missing_permission',
     'a caller without email.review is refused');

@@ -702,3 +702,56 @@ fill on a single successful restatement. It now requires the first sample of fiv
 entirely on a CONFUSING sample, because a beat that goes green on one friendly result is a beat
 everybody learns to ignore — and because evidence that the explanation does *not* work must never
 look like partial evidence that it does.
+
+## 2026-09-03 (a vendor email draft addressed to nobody)
+
+**A purchase order could be recorded as emailed to a vendor who has no email address.**
+
+`composeDraft()` builds a draft's recipients from the purchase order's primary vendor contact, and
+a vendor is allowed to have none — `administration.ts` says so deliberately: *"a counter account at
+a local supply house may have neither."* When there is none, `fulfilment.ts` passes
+`[undefined].filter(Boolean)`, the draft is stored with `to_addrs = '{}'`, and nothing downstream
+looked. `purchase_email_drafts.to_addrs` is `not null default '{}'` with no cardinality constraint;
+the transition trigger checks the status graph and the freeze, not the recipients.
+
+So the draft walked the whole path. `GENERATED → REVIEWED → APPROVED_TO_SEND`, then the email
+screen offered *"Open in my mail client"* as `mailto:?subject=…` — **an empty To field, with no
+warning** — followed by *"I sent it — mark sent."* The result was a `SENT` draft, a real
+`sent_marked_by`, a request advanced to `ORDERED`, and an audit trail stating a vendor had been
+contacted. No vendor had been. The first symptom would have been materials not arriving on a job,
+and the first conclusion would have been that PCC lies.
+
+**The refusal is on the authorisation, not on the draft — and that was the whole decision.**
+
+Refusing to compose a draft with no recipient was the obvious fix and is wrong. `status.mjs` will
+not let a request reach `ORDERED` without `hasReviewedEmailDraft`, so refusing composition would
+strand every counter-account order at `PO_GENERATED` permanently — trading a false record for a
+dead end, on exactly the vendors the product went out of its way to support. Reviewing the wording
+of a purchase order you are about to hand across a counter is a real act. Claiming you emailed it
+is not. `GENERATED → REVIEWED` therefore stays open and only `approveToSend` refuses.
+
+**Written as a `guard`, not a `requires` entry.** `requires: ['hasRecipient']` would have matched
+`markSent` and cost one line, but the engine renders it as `missing_evidence: approveToSend
+requires hasRecipient`, and `actions.ts` puts `err.message` straight on the screen. A guard returns
+`{reason: 'no_recipient', message: …}` — the same shape as `nothingOutstanding` in
+`purchasing-workflow.mjs` — so the purchaser is told to add a contact email to the vendor and
+generate a new draft. The draft froze at review, so the recipient list cannot be patched in place;
+a corrected draft is a new draft, which is what the terminal-state comment already said.
+
+**The button is hidden as well as the transition refused.** Not defence in depth for its own sake:
+`advanceEmailDraftAction` returns `void` and the email page renders no error, so a refusal alone
+would have been a press that silently does nothing — the same failure class being fixed. The
+workflow is the gate; the hidden button is what makes the gate legible.
+
+**No migration.** A `check (cardinality(to_addrs) > 0)` was considered and rejected. It would ban
+the row rather than the claim, and `0026` already settled this: which transitions a draft may make
+is the application's rule, and a policy that also encodes it is a second copy that will disagree.
+The SQLite provider — the one Lippolis actually runs — would have needed the same rule written a
+second way.
+
+**Evidence.** `eval-workflow-engine` 238/0, `eval-purchasing-domain` 502/0, `eval-purchasing` 550/0,
+`eval-proof` 282/0, `eval-second-customer` 235/0, `eval-purchasing-isolation` 174/0,
+`eval-purchasing-web` 116/0, `eval-purchasing-authorization` 386/0, `tsc --noEmit` clean,
+`npm run rehearse` COMPLETE, `npm run deployment-gate` unchanged at 4 blockers. Non-vacuity by
+perturbation: deleting the guard line fails 2 checks in the workflow suite and 1 in the domain
+suite; restored, both green.

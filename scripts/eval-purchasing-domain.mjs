@@ -376,6 +376,29 @@ eq(draftDecide('APPROVED_TO_SEND', 'SENT', { reviewedBy: 'mike', markedBy: null 
    'marking sent requires the human who sent it');
 eq(draftDecide('APPROVED_TO_SEND', 'SENT', { reviewedBy: 'mike', markedBy: 'mike' }).ok, true,
    'a reviewed, approved draft can be recorded as sent by hand');
+
+// A VENDOR WITH NO EMAIL ADDRESS.
+//
+// composeDraft builds `to` from the vendor's primary contact and a vendor is
+// permitted to have none, so an empty recipient list is a real state, not a
+// bug in composition. What was wrong was that the draft could still be
+// approved to send and then marked SENT, leaving a record claiming a vendor
+// had been contacted when the mail client opened with an empty To field.
+eq(draftDecide('REVIEWED', 'APPROVED_TO_SEND', { hasRecipient: false }).reason, 'no_recipient',
+   'a draft addressed to nobody cannot be approved to send');
+eq(draftDecide('REVIEWED', 'APPROVED_TO_SEND', { hasRecipient: true }).ok, true,
+   'and one with a recipient can');
+eq(draftDecide('GENERATED', 'REVIEWED', { hasRecipient: false }).ok, true,
+   'reviewing it stays legal, so an order handed over at the counter still reaches ORDERED');
+eq(composeDraft('VENDOR_PURCHASE_ORDER', {
+     org: { name: 'Lippolis Electric' },
+     purchaseOrder: { poNumber: '26-002-COUNTER-1', estimatedTotalCents: 0 },
+     request: { requestNumber: 'PR-01002', jobNumber: '26-002', needByDate: '2026-08-21', needByTime: '07:00', deliveryMethod: 'PICKUP', deliveryLocationName: 'Counter', requestorName: 'Dave' },
+     vendorContact: null,
+     items: [{ description: '1in EMT coupling', finalOrderQty: 8 * K, unit: 'ea' }],
+     to: [], draftKey: 'po:26-002-COUNTER-1:vendor', sender: { name: 'Mike' },
+   }).to.length, 0,
+   'a vendor with no contact still composes a draft — it is the authorisation that is refused, not the wording');
 eq(EMAIL_DRAFT_WORKFLOW.actionsFrom('SENT').map((a) => a.name), [], 'sent is terminal');
 check(!('send' in composeDraft), 'composition has no send path');
 

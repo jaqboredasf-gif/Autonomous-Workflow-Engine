@@ -29,6 +29,19 @@ export const EMAIL_DRAFT_TERMINAL = ['SENT', 'CANCELLED', 'FAILED'];
 
 const LIVE = EMAIL_DRAFT_STATUSES.filter((s) => !EMAIL_DRAFT_TERMINAL.includes(s));
 
+/**
+ * A draft addressed to nobody may not be authorised to go out. Written as a
+ * guard rather than a `requires` entry so the refusal carries a sentence a
+ * purchaser can act on — the fix is on the vendor record, not on this screen.
+ */
+const hasSomebodyToSendTo = (facts) =>
+  facts.hasRecipient
+    ? true
+    : {
+        reason: 'no_recipient',
+        message: 'this draft has no recipient — add a contact email to the vendor, then generate a new draft',
+      };
+
 export const EMAIL_DRAFT_WORKFLOW = defineWorkflow({
   name: 'purchasing.email_draft',
   states: EMAIL_DRAFT_STATUSES,
@@ -45,6 +58,22 @@ export const EMAIL_DRAFT_WORKFLOW = defineWorkflow({
       to: 'APPROVED_TO_SEND',
       permission: 'email.review',
       event: 'email.draft_approved_to_send',
+      // A DRAFT ADDRESSED TO NOBODY MAY NOT BE AUTHORISED TO GO OUT.
+      //
+      // `to` is built from the vendor's primary contact, and a vendor is
+      // allowed to have none — a counter account at a supply house is a real
+      // case the product supports. The draft is composed anyway, and until now
+      // it walked the whole path: approved to send, "Open in my mail client"
+      // producing `mailto:?subject=...` with an empty To field, then marked
+      // SENT by a purchaser who believed the vendor had been told. The record
+      // then said a vendor was contacted and no vendor was.
+      //
+      // The refusal is here rather than at composition because ORDERED
+      // requires a REVIEWED draft (status.mjs), so refusing to compose one
+      // would strand every counter-account order at PO_GENERATED. Reviewing
+      // the wording of a purchase order you are going to hand over in person
+      // is still a real act; claiming you emailed it is not.
+      guard: hasSomebodyToSendTo,
     },
     markSent: {
       from: 'APPROVED_TO_SEND',

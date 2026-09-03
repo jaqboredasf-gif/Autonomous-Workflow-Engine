@@ -122,13 +122,24 @@ export default async function EmailDraftPage({ params }: { params: Promise<{ id:
                 <button className={buttonClass}>Mark reviewed</button>
               </form>
             ) : null}
-            {d.status === 'REVIEWED' ? (
+            {d.status === 'REVIEWED' && d.to.length > 0 ? (
               <form action={advanceEmailDraftAction}>
                 <input type="hidden" name="requestId" value={id} />
                 <input type="hidden" name="draftId" value={d.id} />
                 <input type="hidden" name="to" value="APPROVED_TO_SEND" />
                 <button className={buttonClass}>Approve to send</button>
               </form>
+            ) : null}
+            {/* The workflow refuses this transition anyway; the button is hidden
+                so the refusal is a sentence rather than a press that does
+                nothing. The draft stays reviewable, so the order can still be
+                marked placed after it is handed over at the counter. */}
+            {d.status === 'REVIEWED' && d.to.length === 0 ? (
+              <p className="text-xs text-amber-700">
+                No recipient: this vendor has no contact email address, so this draft cannot be
+                approved to send. Add one on the vendor, then generate a new draft — or place the
+                order in person and mark it ordered.
+              </p>
             ) : null}
             {d.status === 'APPROVED_TO_SEND' ? (
               <>

@@ -250,6 +250,10 @@ export async function advanceVendorEmailDraft(
       // Only a SENT transition needs an attributable sender; asking for one on
       // every step would refuse a review nobody has claimed to have sent.
       markedBy: to === 'SENT' ? actor.id : null,
+      // Somebody to send it to. Read from the stored row rather than
+      // recomputed, because the draft froze at review and the vendor's contact
+      // may have been filled in since — what was approved is what was read.
+      hasRecipient: (draft.to ?? []).length > 0,
     },
     can: (permission: string) => authorize(actor, permission, { request }).ok,
     effects: {
