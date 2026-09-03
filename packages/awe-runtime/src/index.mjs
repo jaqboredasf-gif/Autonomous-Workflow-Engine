@@ -29,6 +29,15 @@ export { createPlatformService } from './service.mjs';
 
 export { createControlPlaneService } from './control-plane-service.mjs';
 
+// The third service, and the split is again the point:
+//
+//   createPlatformService        run ONE registered tool through the kernel.
+//   createControlPlaneService    run a REGISTERED WORKFLOW — a declared step list.
+//   createGovernedAgentService   run a REGISTERED AGENT — steps PROPOSED at
+//                                runtime by a planner and authorized one at a
+//                                time by the governed agent plane.
+export { createGovernedAgentService } from './agent-service.mjs';
+
 export {
   DEFAULT_ARTIFACT_ROOT,
   createFileArtifactSink,
@@ -54,6 +63,31 @@ export {
   DEFAULT_LEASE_TTL_MS,
   createFileLeaseStore,
   createMemoryLeaseStore,
+  leaseGranted,
+  leaseRefused,
 } from './lease-store.mjs';
+
+// The durable, cross-process implementations of the same three ports. They are
+// exported from the same package as the memory and file stores on purpose: an
+// application chooses a store, not a storage strategy, and the choice is one
+// argument at composition (see `selectStores` below and ADR-0010).
+//
+// The package STILL depends on no database driver. Every one of these takes an
+// injected executor — `call(fn, payload)` and nothing else — so what is
+// underneath is the caller's decision and this package holds no credential, no
+// URL and no connection.
+export {
+  RPC_FUNCTIONS,
+  StoreUnavailableError,
+  assertExecutor,
+  createSupabaseRpcExecutor,
+  isStoreUnavailable,
+} from './postgres/executor.mjs';
+
+export { createPostgresJournalStore } from './postgres/journal-store.mjs';
+export { createPostgresLeaseStore } from './postgres/lease-store.mjs';
+export { createPostgresResultStore } from './postgres/result-store.mjs';
+
+export { STORE_BACKENDS, selectStores } from './store-selection.mjs';
 
 export { createFixedClock, createSteppingClock, instantPlus } from './clock.mjs';

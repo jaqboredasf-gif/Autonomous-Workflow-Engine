@@ -196,11 +196,15 @@ because terminal states accept no further events — the journal enforces this.
 
 ### 7. Three stores, three jobs
 
-| Store | Holds | Successor |
+| Store | Holds | Durable table (0017) |
 |---|---|---|
-| journal store | the append-only CONTROL record. **Digests only.** | append-only control table (ADR-0002) |
-| result store | the tenant-bound DATA record. **Bodies.** | RLS-protected tenant table (ADR-0002) |
-| lease store | who is writing this run right now, and until when. | a row with `SELECT ... FOR UPDATE` or a conditional update (ADR-0002) |
+| journal store | the append-only CONTROL record. **Digests only.** | `awe_run_journals` + `awe_run_journal_entries` |
+| result store | the tenant-bound DATA record. **Bodies.** | `awe_run_results` |
+| lease store | who is writing this run right now, and until when. | `awe_run_leases` |
+
+Each has three implementations — `memory`, `local_file` and `postgres` — behind
+one port, chosen in exactly one place (`selectStores`). The successors ADR-0002
+promised are built; section 12 is what they are and what they guarantee.
 
 Step outputs are *not* in the journal, and the suite asserts it: the serialized
 journal for the reference run contains neither `INV-2291` nor `Northgate`, only
@@ -387,6 +391,86 @@ perturbing the skipped-step bookkeeping turned a test failure into a *hang*: the
 loop re-picked the same step forever and only the run budget would eventually
 have stopped it, after an unbounded number of journal appends.
 
+### 12. The durable execution repository — migration 0017
+
+Three store headers ended with the same sentence: *"the successor is a table, and
+it is ADR-0002."* This is that table, and the eleven functions that are the only
+way the runtime touches it.
+
+**Four tables.**
+
+| Table | Row | Notable constraints |
+|---|---|---|
+| `awe_run_journals` | one per run: tenant, workflow identity, genesis, head, entry count | run-id and org-id grammar, 16-hex digests, `entry_count > 0 or head = genesis`, `unique (run_id, org_id)` |
+| `awe_run_journal_entries` | one per journal entry | composite FK `(run_id, org_id)`, `unique (run_id, entry_digest)`, closed event-type vocabulary, and four checks tying the denormalized columns to the event they came from |
+| `awe_run_leases` | one per run, retained after expiry | fence ≥ 1, `expires_at > acquired_at`, and the stored record must agree with every typed column |
+| `awe_run_results` | one per run: step output BODIES | tenant-stable on update |
+
+**There is no `state` column, and its absence is the point.** `journal.mjs`: "there
+is no stored `state` column anywhere in this package for it to disagree with."
+A denormalized state here would be indexable, convenient, and free to contradict
+the history it was derived from.
+
+**The database supplies atomicity and never rules.** Transitions, the chain, the
+projection and claim/renew/steal/fence stay pure in `awe-control-plane`. What the
+SQL adds is a compare-and-set two workers cannot both win:
+
+* `awe_journal_write` takes the row lock and applies the same three-way
+  `expected_head` semantics the in-memory store always had. Creating a run that
+  does not exist yet is `ON CONFLICT DO NOTHING` plus a re-decision against the
+  winner's row — because `SELECT … FOR UPDATE` locks nothing when there is no
+  row, which is how eight parallel creators all passed the compare-and-set and
+  seven got a unique-violation *error* instead of an orderly refusal. That was a
+  real defect, found by the parallel race and not by review.
+* `awe_lease_acquire` is handed a lease `evaluateClaim` already decided plus the
+  fence the caller read, and answers only *did that decision win*.
+
+**The adapter knows one method: `call(fn, payload)`.** No SQL, no table name, no
+connection string crosses that line, so `@exattime/awe-runtime` still depends on
+no database driver and holds no credential. The same adapter runs over PostgREST
+in a deployment and over `psql` in a container during conformance — the code
+under test is the code that ships.
+
+**Authorization: RLS on, zero client policies.** The G2 shape 0009 set for
+`integration_events` and 0016 had to restore. An `authenticated` user who can
+`INSERT` into `awe_run_journal_entries` can forge an approval. Every function is
+`SECURITY DEFINER` with `search_path = ''`, `EXECUTE` revoked from `PUBLIC`
+before it is granted to anything.
+
+**ADR-0002's Path C is now demonstrated rather than planned.** The conformance
+suite creates a role holding *only* `EXECUTE` on the eleven — no `SELECT`, no
+`INSERT`, no table privilege at all — and the adapter passes its entire contract
+as that role while being refused every direct table access. Path C needs a
+credential, not a redesign.
+
+**One contract, three implementations.** `scripts/lib/store-conformance.mjs` is
+run identically against `memory`, `local_file` and `postgres`: round trip,
+provenance, idempotent create, stale head, append-only, tampered history, tenant
+isolation, terminal immutability, every lifecycle outcome, deterministic event
+order, the full lease cycle, and the result store both ways. It found two defects
+in the *existing* stores — an unchecked cross-tenant result WRITE, and a journal
+write that would accept a rewritten prefix at the current head — and all three
+implementations now refuse both.
+
+**What conformance cannot prove, and what does.** The suite is sequential, so it
+is not a concurrency proof. `scripts/eval-durable-store.mjs` supplies that
+separately, against a throwaway container: eight genuinely parallel backends
+racing to create one run (exactly one wins, seven refused, one entry stored), six
+parallel lease claims (exactly one holder, one fence), and — the one no sequence
+of one-shot calls can show — a second writer observed **blocking** on the first
+transaction's row lock, then being refused once it commits.
+
+**The vertical slice.** The reference invoice workflow runs intake → policy →
+human gate → pause on one service, is approved on a second, resumed to completion
+on a third, and rebuilt from the database by a fourth. The four share no memory;
+the only thing connecting them is Postgres. Replaying the durable event log
+reproduces the timeline, the approver and every tool invocation exactly.
+
+**Not applied.** Migration 0017 is written, validated against a real PostgreSQL
+17 on top of the real 0001-0016 history, and left unapplied to the live project.
+`scripts/rollback-migration-0017.sql` is verified by round trip: applied, rolled
+back, replayed, re-applied.
+
 ## ADR-0002 boundary — the architectural conflict, and how it was resolved
 
 `tools.mjs`, `context.mjs`, `sinks.mjs` and `service.mjs` each state that **no
@@ -436,15 +520,28 @@ session for the B5 queue).
 | a duplicate submission executes once | `control-plane-service.mjs` | the ledger still holds exactly one payment instruction after a resubmit |
 | a condition cannot open a gate by accident | `predicate.mjs` | perturbation on each of: absent-value, numeric strictness, `is_true` strictness, prototype-chain, closed roots, closed keys |
 | a skipped branch is explained, not merely absent | `journal.mjs` + `engine.mjs` | `step.skipped` carries the predicate digest and its comparisons; the actual value is asserted NOT to appear |
+| execution history unreachable from a browser session | migration 0017 | RLS on, **zero** client policies, no table grant to `anon`/`authenticated`, no `EXECUTE` on any of the eleven functions |
+| append-only survives a superuser | 0017 triggers | a superuser `UPDATE` and `DELETE` on a journal entry are both refused, and the suite tries both |
+| a run cannot change tenant, workflow, genesis, or shrink | 0017 trigger | four separate refusals, each asserted |
+| a lease fence can never be lowered | 0017 trigger | asserted against a superuser `UPDATE` |
+| an entry cannot be filed under another tenant's run | composite FK `(run_id, org_id)` | a direct cross-tenant `INSERT` is refused by the database |
+| the runtime needs no table privilege at all | eleven `SECURITY DEFINER` functions | a role holding **only** `EXECUTE` passes the whole conformance contract and is refused every direct `SELECT` |
+| a corrupted row is never resumed | postgres adapter | the stored digest is changed out from under it; the read fails closed as `contract_violation` |
+| an outage never reads as a policy refusal | `StoreUnavailableError` | asserted to be a different type from `KernelError`, and marked retryable |
 
 ## Known limitations
 
-1. **Nothing is durable beyond the local filesystem.** The journal, result and
-   lease stores are memory or file; the successors are ADR-0002. The file lease
-   store's *first* acquisition is genuinely atomic (`open(..., 'wx')`); taking
-   over an EXPIRED lease is read-decide-rename and is not. What closes that gap
-   is the layer above — the monotonic fence and the journal's compare-and-set —
-   and the file that implements it says so rather than implying otherwise.
+1. **Durability exists, but migration 0017 is not applied.** The Postgres
+   adapter is built, conformance-tested against a real PostgreSQL 17 and proven
+   atomic under genuinely parallel writers (section 12) — but the migration has
+   deliberately **not** been applied to the live project, which is a human-gated
+   action with its own rollback script. Until it is, a deployment still runs on
+   the file stores, whose limits are unchanged and stated: the *first*
+   acquisition of a file lease is genuinely atomic (`open(..., 'wx')`); taking
+   over an EXPIRED one is read-decide-rename and is not, and the journal's
+   compare-and-set is read-compare-rename. What narrows those gaps is the layer
+   above — the monotonic fence and the head check — and what closes them is
+   `backend: 'postgres'`.
 2. **No fan-out and no loops.** Conditional execution exists (section 11); a
    step may be skipped, but steps still run one at a time in declared order and
    no step can run twice. Parallel steps interact with the run budget, the step
@@ -466,12 +563,27 @@ session for the B5 queue).
    idempotency key would also cover "the same invoice submitted twice an hour
    apart", and does not exist yet.
 7. **Approvals cannot be made from the MCP surface, by design.** See below.
+8. **No efficient "claim the next runnable run" query, and this is a choice.**
+   There is no `state` column to index, because a stored state could contradict
+   the history it came from. Nothing in the runtime pulls work that way today.
+   When something does, the answer is a projection maintained *by* the event log
+   with its own consistency story — not a mutable status field on the run.
+9. **The conformance suite is not a concurrency proof, and does not claim to
+   be.** It runs sequentially in one process. The concurrency evidence is
+   separate: parallel database backends racing, and a held-open transaction
+   observed blocking another (section 12).
+10. **`org_id` is an opaque string with no foreign key to `orgs`.** Mapping
+   control-plane tenant ids to `orgs.id` is a separate concern and was not
+   invented here (ADR-0010 D5).
 
 ## Commands
 
 ```bash
 # the control-plane suite alone
 bash scripts/eval-control-plane.sh
+
+# the durable execution repository: conformance + real-Postgres gates + slice
+bash scripts/eval-durable-store.sh
 
 # every credential-free suite
 bash scripts/regression.sh --kinds=unit,offline,static
@@ -510,3 +622,35 @@ bash scripts/smoke-mcp.sh
 Output includes the run id, workflow and version, manifest digest, current
 state, pending approval, executed tools with their side-effect class and
 idempotency key, the full hash-chained event timeline, and a final verdict.
+
+## 13. The layer above: the Governed Agent Execution Plane
+
+Everything in this document executes a **declared** step list. From 2026-07-28
+there is a layer above it that executes steps **proposed at runtime** —
+`packages/awe-agent`, described in
+[GOVERNED_AGENT_EXECUTION_PLANE.md](GOVERNED_AGENT_EXECUTION_PLANE.md) and
+decided in [ADR-0011](decisions/0011-agents-propose-runtime-authorizes.md).
+
+What it reuses from this plane, unchanged:
+
+* `policy.mjs` — the deny-by-default tenant grants and the ceiling intersection.
+  An agent's tenant-grant gate IS this engine; there is no second one.
+* `dispatch.mjs` — the controlled tool boundary, all nine refusals and the
+  effect-identity idempotency. Every agent side effect crosses this edge.
+* `manifest.mjs` — an agent definition COMPILES to a workflow manifest (its
+  Execution Surface), so the manifest's own rules apply to an agent's action
+  space.
+* `journal.mjs` — the same append-only hash-chained history. Seven `agent.*`
+  event types were **added** to the transition table, every one with `to: null`,
+  so an agent event records and moves nothing and an agent cannot reach a run
+  state a workflow cannot.
+* The lease, the chain-head compare-and-set and the ADR-0010 stores.
+
+What it does NOT reuse: `engine.mjs`. The run engine walks a declared step list;
+the agent harness authorizes one proposal at a time. They are siblings, and both
+are single writers to a journal.
+
+The one vocabulary change to be aware of here: `RUN_EVENT_TYPES` is now the union
+of `WORKFLOW_EVENT_TYPES` (this plane's, and Runner P is held to all of them) and
+`AGENT_EVENT_TYPES` (the agent plane's, and Runner G is held to all of those).
+

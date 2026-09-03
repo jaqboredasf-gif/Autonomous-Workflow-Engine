@@ -55,8 +55,23 @@ guardrails.
 | [ADR-0007](0007-kill-switch-home.md) | Kill switch lives in `agent_harness_settings`, not `org_settings` | Proposed | H2, H16 |
 | [ADR-0008](0008-harness-eval-runner-number.md) | Harness eval is **Runner 6** (1–5 are taken) | Proposed | H13 |
 | [ADR-0009](0009-competing-c1-migration-artifacts.md) | Two competing C1 migration artifacts under two identity schemes (raises no decision; records the conflict) | Proposed | AC-1 / H2 numbering, Phase 1 deploy |
+| [ADR-0010](0010-durable-execution-repository.md) | Durable execution repository: four tables, eleven functions, one asynchronous store port | **Accepted** | migration 0017 apply |
+| [ADR-0011](0011-agents-propose-runtime-authorizes.md) | Agents propose actions; the governed runtime authorizes and executes them | **Accepted** | every future specialized agent |
 
-All nine are `Proposed`. **H0 is not closed until Jack ratifies ADR-0001…0008** and
+ADR-0011 is `Accepted` outright and nothing about it is human-gated: it adds no
+table, no migration, no credential and no model provider. What it decides is the
+shape of every specialized agent AWE will ever run — dispatch, scheduling,
+reporting, invoice operations, crew coordination, document handling, estimating,
+customer operations — so it is the record to read before designing one. Evidence:
+`packages/awe-agent`, Runner G (`scripts/eval-governed-agent.sh`).
+
+ADR-0010 is the first record here that is `Accepted` rather than `Proposed`, and
+the distinction is exact: the repository, the adapter and the store port are
+implemented, conformance-tested against a real PostgreSQL 17 and in use by Runner
+D. What is NOT accepted is applying migration 0017 to the live project, which
+remains a human-gated action with its own rollback script.
+
+All of ADR-0001…0009 are `Proposed`. **H0 is not closed until Jack ratifies ADR-0001…0008** and
 a DECISION_LOG entry records the ratification date — see
 `docs/architecture/AGENT_HARNESS_H0_EXIT.md`. ADR-0009 was raised later, by the H0
 re-verification session, and is not an H0 exit criterion: it blocks H2, not H1.

@@ -13,7 +13,9 @@
     "./result-store": "./src/result-store.mjs",
     "./clock": "./src/clock.mjs",
     "./file-sinks": "./src/file-sinks.mjs",
-    "./reference/invoice-intake": "./src/reference/invoice-intake.mjs"
+    "./agent-service": "./src/agent-service.mjs",
+    "./reference/invoice-intake": "./src/reference/invoice-intake.mjs",
+    "./reference/invoice-operations-agent": "./src/reference/invoice-operations-agent.mjs"
   },
   "engines": {
     "node": ">=20"

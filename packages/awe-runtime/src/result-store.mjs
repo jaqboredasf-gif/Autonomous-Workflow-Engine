@@ -61,30 +61,68 @@ function tenantChecked(found, org_id) {
   return found.results ?? {};
 }
 
+// The WRITE was not checked, and that was a real hole rather than an omission
+// with no consequence. Keyed on `run_id` alone, a second tenant writing the same
+// derived run id replaced the first tenant's step outputs; the read then
+// correctly refused to show them to the wrong tenant, but the right tenant's
+// data was already gone. Nothing exercised it because the control-plane service
+// never writes results for a run it does not own — which is exactly the kind of
+// invariant that holds until the day something else calls the store.
+function writeRefused(run_id) {
+  return {
+    ok: false,
+    ref: null,
+    reason: 'result_tenant_mismatch',
+    error: `results for run '${run_id}' are not accessible to this tenant`,
+  };
+}
+
 export function createMemoryResultStore() {
   const store = new Map();
   return Object.freeze({
     kind: 'result_store',
     name: 'memory',
     write({ run_id, org_id, results }) {
+      const stored = store.get(run_id) ?? null;
+      if (stored !== null && stored.org_id !== org_id) return writeRefused(run_id);
       store.set(run_id, JSON.parse(canonicalJson(document({ run_id, org_id, results }))));
       return { ok: true, ref: run_id, error: null };
     },
     read({ run_id, org_id }) {
       return tenantChecked(store.get(run_id) ?? null, org_id);
     },
-    list() { return [...store.keys()].sort(); },
+    list({ org_id = null } = {}) {
+      return [...store.entries()]
+        .filter(([, held]) => org_id === null || held.org_id === org_id)
+        .map(([run_id]) => run_id)
+        .sort();
+    },
   });
 }
 
 export function createFileResultStore({ root = 'artifacts' } = {}) {
   const directory = join(root, 'results');
+
+  // The stored envelope, tenant unchecked. A closure and not a method: a
+  // tenant-unchecked read is the one thing this module exists to refuse, so it
+  // must not be reachable from the store interface. `write` needs it to find
+  // out whose row it is about to replace.
+  function raw(run_id) {
+    try {
+      return JSON.parse(readFileSync(containedPath(directory, fileName(run_id)), 'utf8'));
+    } catch {
+      return null;
+    }
+  }
+
   return Object.freeze({
     kind: 'result_store',
     name: 'local_file',
     root: directory,
     write({ run_id, org_id, results }) {
       try {
+        const stored = raw(run_id);
+        if (stored !== null && stored.org_id !== org_id) return writeRefused(run_id);
         const target = containedPath(directory, fileName(run_id));
         mkdirSync(dirname(target), { recursive: true });
         const temp = `${target}.tmp`;
@@ -96,15 +134,13 @@ export function createFileResultStore({ root = 'artifacts' } = {}) {
       }
     },
     read({ run_id, org_id }) {
-      try {
-        return tenantChecked(JSON.parse(readFileSync(containedPath(directory, fileName(run_id)), 'utf8')), org_id);
-      } catch {
-        return {};
-      }
+      return tenantChecked(raw(run_id), org_id);
     },
-    list() {
+    list({ org_id = null } = {}) {
       try {
-        return readdirSync(directory).filter((f) => f.endsWith('.json')).sort().map((f) => f.slice(0, -5));
+        const ids = readdirSync(directory).filter((f) => f.endsWith('.json')).sort().map((f) => f.slice(0, -5));
+        if (org_id === null) return ids;
+        return ids.filter((id) => raw(id)?.org_id === org_id);
       } catch {
         return [];
       }

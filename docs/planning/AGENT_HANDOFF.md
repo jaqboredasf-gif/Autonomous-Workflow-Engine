@@ -2,7 +2,7 @@
 
 ## updated_at
 
-2026-07-28T16:20:00Z
+2026-07-28T23:55:00Z
 
 ## agent
 
@@ -14,10 +14,764 @@ jaqboredasf-gif/Autonomous-Workflow-Engine
 
 ## branch
 
+`feat/kernelized-mcp-context`, continuing from `7a1c0fb` with the previous
+session's D1 work still uncommitted in the tree. Nothing was pushed. No branch
+was moved, reset, merged, rebased or deleted. No PR was opened. **Nothing from
+D1 was discarded, reverted or rewritten** — this session built on top of it and
+treated every modified and untracked file as intentional.
+
+## commit
+
+**None. Nothing was committed and nothing was pushed.** The tree now carries TWO
+sessions of uncommitted work — D1 (the durable execution repository) and G1 (the
+Governed Agent Execution Plane). The previous handoff asked the next session to
+commit D1 first; this session's brief said not to commit, push, merge or open a
+PR unless explicitly instructed, and that instruction takes precedence. **Two
+commits are suggested, in order, in `## exact next prompt`.**
+
+## current objective
+
+Build the first production-quality version of the **Governed Agent Execution
+Plane**: the layer that lets a specialized agent perform real business work
+through AWE while staying tenant-bound, policy-constrained, capability-limited,
+approval-aware, durable, observable, replayable, testable, provider-neutral and
+resistant to prompt injection and privilege escalation — and that can improve
+through controlled evaluation rather than uncontrolled self-modification.
+
+Everything AWE could execute safely before this session was **declared in
+advance**. An agent's next action is chosen at runtime, increasingly by a model.
+The decision that closes the gap is ADR-0011: **an agent proposes an action; the
+governed runtime authorizes and executes it.**
+
+## completed work
+
+### 1. `packages/awe-agent` — a new pure package, one seam wide
+
+Eleven modules, provider-neutral, importing the kernel and the control plane
+through a single `kernel.mjs` seam and nothing else. No network, no filesystem,
+no clock, no randomness, no ambient environment, no model client, and **no vendor
+name anywhere** — all seven asserted by a source-purity lint, not by convention.
+
+| module | what it owns |
+|---|---|
+| `capability.mjs` | the Capability and its registry — a BUSINESS PERMISSION, not a tool handle |
+| `agent-definition.mjs` | the versioned, digest-pinned agent document, and the only activation path |
+| `agent-registry.mjs` | resolution by explicit version; draft/active/deprecated/disabled; drift detection |
+| `surface.mjs` | compiles a definition into a real workflow manifest — the finite action space |
+| `proposal.mjs` | the Action Proposal grammar, and the approval BINDING digest |
+| `authorization.mjs` | the five narrowings, and the immutable Policy Decision Record |
+| `planner.mjs` | the closed Planning View, the planner port, the model port |
+| `budget.mjs` | four budgets, projected from the run's own history |
+| `harness.mjs` | the agent state machine, and the agent-phase projection |
+| `evaluation.mjs` | measurement, and the promotion boundary |
+| `reasons.mjs` | the `agent` blocked-reason namespace |
+
+### 2. The five independent narrowings, in one function
+
+An action happens only if the **agent definition** declares (and does not deny)
+the capability, the **capability** binds that tool for that operation at a
+compatible version and within its ceilings, the **tenant grant** exists and the
+control plane's policy engine allows it, the **approval** (where obliged) is in
+force and bound to these exact arguments, and the **budget** has room. Identity
+is checked before all five and before anything is read, so a refusal cannot be
+used as an existence oracle.
+
+No layer may widen another. The tenant-grant layer is `policy.mjs` **reused
+verbatim** — there is no second authorization implementation to drift.
+
+### 3. An agent definition COMPILES to a workflow manifest
+
+The Execution Surface: one step per permitted `(capability, operation, tool)`
+binding. This is how `dispatch.mjs`, `policy.mjs` and the manifest's own rules
+are reused rather than reimplemented, and it makes an agent's complete action
+space one readable, digest-pinned document. It is not an execution order —
+`createRunEngine` is not used by the harness at all.
+
+A **declared tool that no declared capability binds** refuses compilation: a
+mechanism with no business permission behind it is a hole in the review.
+
+### 4. The model is structurally unable to authorize anything
+
+A planner receives a **closed, redacted Planning View** — identity, the
+capability surface as names and constraints, context with its trust and
+sensitivity labels intact, this run's observations, the remaining budget, the
+refusals already recorded — and returns an Action Proposal that is parsed as
+untrusted input. It receives no grant, no policy engine, no approval state, no
+credential, no environment and no handle to anything executable.
+
+Its **self-report** (claimed risk, claimed side effect, claimed approval
+requirement) is recorded as what it believed and is never an input to a decision.
+A planner that understates an approval requirement earns a
+`planner_understated_approval` reason code on a decision that requires approval
+anyway.
+
+`arguments` keys beginning with `_` are refused **by the grammar**, because those
+are the runtime's reserved envelope (`_run_id`, `_org_id`, …) and a proposal that
+could set them could rewrite the tenant a tool executes under.
+
+### 5. An approval binds to the action, and expires
+
+The binding digest covers tenant, agent version, **resolved** capability and tool
+versions, operation and arguments — and deliberately excludes commentary, because
+an approval that broke when a planner reworded its explanation would train people
+to re-approve reflexively. A material change is `approval_binding_mismatch`.
+
+On resume the run **re-authorizes from scratch**: the approval is one input to a
+decision that is made again, not a token that skips the gate. Definition drift
+AND surface drift (a capability re-published at the same version) both fail
+closed with `agent_definition_drift`.
+
+### 6. Agent events extend the existing journal; the phase is a second projection
+
+Seven `agent.*` event types were added to `journal.mjs`'s transition table, every
+one with `to: null` — an agent event RECORDS and moves nothing, so an agent
+cannot reach a run state a workflow cannot. There is no second journal, because
+two hash-chained histories for one run is exactly the disagreement "state is
+projected, never stored" exists to prevent.
+
+The **agent phase** (`planning`, `validating_action`, `awaiting_approval`,
+`executing`, `policy_denied`, `budget_exhausted`, …) is a second projection over
+the same entries. `policy_denied` ("the controls worked") and `budget_exhausted`
+("it ran out of room") are the operator-facing distinction the control plane's
+single `failed` cannot make, and neither is stored.
+
+Runner P's coverage gate was split into `WORKFLOW_EVENT_TYPES` and
+`AGENT_EVENT_TYPES` so each suite is still held to *everything it owns* rather
+than decaying into "everything I happened to reach".
+
+### 7. Bounded by construction
+
+Four budgets — turns, steps, tool calls, wall clock — each with its **own**
+refusal reason, all NOT NULL and > 0 in the definition constructor: **an
+unbounded agent cannot be configured.** The ledger is projected from the run's
+own history, so a resuming process reconstructs it exactly, and time is measured
+over ACTIVE segments so waiting for a human costs nothing.
+
+**A refusal is never retried.** A denied proposal, a malformed planner answer or
+an exhausted budget terminates the run; the compiled surface pins
+`max_attempts: 1`. Retrying is a new run, started by something allowed to decide
+that.
+
+### 8. Improvement without self-modification
+
+An **evaluation record** is immutable measurement, captured before *every*
+terminal event including refusals, with a score DERIVED from its deterministic
+checks (a number that could disagree with the checks it summarizes is the
+definition of a fake score). It activates nothing.
+
+An **improvement candidate** cannot be created without evaluation evidence,
+cannot be reviewed or promoted by automation (`actor: 'human'`, checked first),
+and promotion produces a **draft** version — `status: 'draft'` is a literal in
+the call, not a parameter. Activation is a separate human act plus a redeploy.
+Rollback is automatic because nothing is ever replaced.
+
+### 9. The vertical slice, with a real injection payload
+
+`invoice-operations-agent.mjs`: five capabilities, five synthetic tools, a
+"ledger" that is three JavaScript `Map`s, `@example.invalid` addresses. The
+observed path is read → classify → route → prepare draft → **pause** → human
+approves → **cold resume in a service that shares no memory** → payment submitted
+once, to the account on file → evaluated → completed.
+
+The intake fixture carries a genuine injection payload instructing the reader to
+skip approval, grant itself a capability and remit to another account at another
+tenant. **It is not filtered, stripped or detected anywhere.** Runner G drives
+planners that obey it completely and asserts they are refused by the runtime
+every time.
+
+### 10. `createGovernedAgentService`
+
+The third service, beside `createPlatformService` (one tool) and
+`createControlPlaneService` (a declared workflow). It inherits every rule the
+control-plane service established — tenant binding as an argument, one run one
+writer under a lease and a chain-head compare-and-set, idempotent submit, two
+stores two jobs — and adds one: **actor identity is also an argument.**
+
+It persists through the ADR-0010 stores with **no new schema**. `replayAgentRun`
+re-derives the governed decisions from the journal alone and cannot act;
+`simulateProposal` is a dry run with no path to the dispatcher at all.
+
+## files changed
+
+```
+packages/awe-agent/package.json                        NEW — @exattime/awe-agent
+packages/awe-agent/src/kernel.mjs                      NEW — the single import seam
+packages/awe-agent/src/capability.mjs                  NEW — capability + registry
+packages/awe-agent/src/agent-definition.mjs            NEW — the versioned agent document
+packages/awe-agent/src/agent-registry.mjs              NEW — resolution, lifecycle, drift
+packages/awe-agent/src/surface.mjs                     NEW — definition -> workflow manifest
+packages/awe-agent/src/proposal.mjs                    NEW — the proposal grammar + binding digest
+packages/awe-agent/src/authorization.mjs               NEW — five narrowings, decision record
+packages/awe-agent/src/planner.mjs                     NEW — planning view, planner + model ports
+packages/awe-agent/src/budget.mjs                      NEW — four budgets, projected
+packages/awe-agent/src/harness.mjs                     NEW — the agent state machine + phase
+packages/awe-agent/src/evaluation.mjs                  NEW — measurement + promotion boundary
+packages/awe-agent/src/reasons.mjs                     NEW — the `agent` reason namespace
+packages/awe-agent/src/index.mjs                       NEW — the package surface
+packages/awe-runtime/src/agent-service.mjs             NEW — createGovernedAgentService
+packages/awe-runtime/src/reference/invoice-operations-agent.mjs  NEW — the vertical slice
+packages/awe-control-plane/src/journal.mjs             ADDITIVE — 7 agent.* transitions (all to: null),
+                                                       AGENT_EVENT_TYPES / WORKFLOW_EVENT_TYPES
+packages/awe-control-plane/src/index.mjs               the two new vocabularies exported
+packages/awe-runtime/src/index.mjs                     createGovernedAgentService exported
+packages/awe-runtime/package.json                      agent-service + reference agent exports
+packages/awe-kernel/src/registry.mjs                   Runner G registered (kind: offline)
+scripts/eval-governed-agent.mjs                        NEW — Runner G, 379 assertions
+scripts/eval-governed-agent.sh                         NEW — Runner G entry point
+scripts/eval-control-plane.mjs                         coverage split; 2 new agent-vocabulary gates
+scripts/eval-kernel.mjs                                platform namespaces now include `agent`
+scripts/lib/awe-reasons.mjs                            the `agent` namespace registered
+docs/architecture/GOVERNED_AGENT_EXECUTION_PLANE.md    NEW — the architecture, threat model, non-goals
+docs/architecture/decisions/0011-agents-propose-runtime-authorizes.md  NEW — ADR-0011 (Accepted)
+docs/architecture/decisions/README.md                  ADR-0011 indexed
+docs/architecture/UBIQUITOUS_LANGUAGE.md               governed-agent vocabulary appended
+docs/planning/{AGENT_HANDOFF,SESSION_HANDOFF,TASK_BACKLOG}.md   this session
+```
+
+## migrations
+
+**None.** The Governed Agent Execution Plane adds no table, no function and no
+migration; it persists through the ADR-0010 stores that already exist. Migration
+0017 is still **written, validated and NOT APPLIED**, exactly as D1 left it.
+
+## commands run
+
+```
+bash scripts/regression.sh --kinds=unit,offline,static     (baseline, and after each slice)
+bash scripts/eval-governed-agent.sh                         (many times, during development)
+bash scripts/eval-governed-agent.sh   x2, diffed            (determinism: byte-identical)
+bash scripts/eval-control-plane.sh                          (after the journal change)
+bash scripts/eval-kernel.sh                                 (after the reason-namespace change)
+bash scripts/smoke-mcp.sh                                   (unchanged surface, re-verified)
+git status / git diff --stat
+```
+
+## tests passed
+
+| suite | result |
+|---|---|
+| Runner K (kernel) | 568 / 0 |
+| Runner C (context) | 138 / 0 |
+| Runner 3 (approval diff) | 121 / 0 |
+| Runner 4 (approval matrix) | 327 / 0 |
+| Runner 5 (approval queue) | 349 / 0 |
+| Runner M (MCP surface) | 462 / 0 |
+| **Runner P (control plane)** | **570 / 0 — was 568** |
+| Runner D (durable store) | 321 / 0 |
+| **Runner G (governed agent)** | **379 / 0 — NEW, 51 fixtures** |
+| Runner E (execution outcomes) | 376 / 0 |
+| migration 0014 / 0015 lints | OK / OK |
+| MCP stdio smoke | OK (16 tools, control plane reachable, approval refused) |
+
+`bash scripts/regression.sh --kinds=unit,offline,static` → **ALL GREEN, 12 ran,
+11 skipped.** 3611 assertions, 0 failures. Two consecutive Runner G runs are
+byte-identical.
+
+All 35 adversarial cases from the session brief are covered and named in their
+assertion messages (`ADVERSARIAL n: …`), so a failure says which one broke.
+
+## tests failed
+
+None at hand-off. Five failed during development and each was a real defect
+rather than a test problem:
+
+1. **Identity was checked after context assembly**, so a run with no tenant was
+   refused as `context_requirements_unmet` — a refusal that describes the
+   material rather than the caller. Identity now precedes the lease, the
+   assembly and everything else.
+2. **The approval binding was read from the projection**, which knows nothing
+   about proposals, so a resume could not recover what a human approved. It is
+   now read from the `approval.granted` EVENT payload.
+3. **A resume re-checked evidence against a bundle it no longer had.** The
+   context index (id, kind, source, sensitivity, trust — no content) is now
+   recorded in `agent.context_assembled`, so a resume authorizes against what the
+   run was actually given rather than a re-assembly.
+4. **The resume segment started at the `workflow.resumed` marker**, which is
+   appended when the APPROVAL is recorded — so hours spent waiting for someone to
+   resume were charged to the run's time budget and expired it. The segment now
+   starts when the advance begins.
+5. **The tool input carried the run's whole observation history**, which made an
+   explicit idempotency key meaningless (the dispatcher compares the input digest
+   behind the key, and an input that changes every turn can never replay). A tool
+   now receives the authorized arguments and the run's identity, nothing else.
+
+Not run this session: `mobile-typecheck`, `web-build` (kind `build`, and no app
+code was touched), and every `db` suite (they need the management token and a
+live project, neither of which this session used).
+
+## live changes
+
+**None.** No live Supabase call, no migration applied, no credential read, no
+network request, no model call, no email, no n8n workflow, no push, no PR, no
+commit. The plane contains no model client and no vendor name, asserted by lint.
+
+## approvals required
+
+1. **Apply migration 0017 to the live project** — unchanged from D1, still
+   human-gated, and nothing in this session depends on it.
+2. **Nothing new.** The agent plane is inert until a caller composes a service
+   with registries, grants, tools and a planner; it adds no schema, holds no
+   credential, and the control plane still refuses `mode: 'LIVE'` outright.
+
+## risks
+
+1. **No model has ever driven this plane.** The model boundary is exercised with
+   an injected port that returns a fixed string. That proves the CONTRACT (prose
+   where a proposal was required is a recorded refusal) and proves nothing about
+   how a real model behaves inside the view. The first model-backed planner is
+   the next real integration risk, and the plane is built so that it is a risk to
+   *usefulness*, not to safety.
+2. **The composition is trusted.** Whoever constructs the service picks the
+   registries, the grants, the planners and the tool adapters, and can compose an
+   agent permitted to do harm. The plane makes that choice explicit, versioned,
+   digest-pinned and auditable; it does not make it for you.
+3. **A tool adapter that lies about its own `side_effect` defeats the ceiling
+   measured against it.** Descriptor digests catch in-memory tampering, not a
+   dishonest author.
+4. **No compensation for agent runs.** The reference agent's pre-approval effects
+   are internal drafts, reversible by a later governed run. An agent whose
+   pre-approval steps were externally visible would need a rollback story that
+   does not exist yet.
+5. **Injection is contained, not detected**, and that claim is deliberate. A
+   model that is manipulated will still waste turns and produce refusals; it will
+   not produce an unauthorized action.
+6. **Everything from D1 still applies** — 0017 unapplied, PostgREST untested, the
+   service role bypassing RLS, Runner D needing Docker.
+7. **Two sessions of uncommitted work.** A lost workspace loses both.
+
+## blockers
+
+None. The plane is complete, green and self-contained.
+
+## exact next prompt
+
+```
+Continue the Autonomous Workflow Engine in /Users/jackdaly/Autonomous-Workflow-Engine.
+
+Read docs/planning/AGENT_HANDOFF.md, docs/planning/SESSION_HANDOFF.md,
+docs/planning/TASK_BACKLOG.md, docs/architecture/GOVERNED_AGENT_EXECUTION_PLANE.md
+and docs/architecture/decisions/0011-agents-propose-runtime-authorizes.md before
+editing anything.
+
+FIRST, commit the two sessions of uncommitted work already in the tree, on
+`feat/kernelized-mcp-context`, as TWO commits in this order:
+
+  1) feat(runtime): a durable execution repository, and one contract for every store
+     (the D1 work — migration 0017, the postgres adapter, store-selection,
+      the conformance suite, Runner D, ADR-0010)
+
+  2) feat(agent): the Governed Agent Execution Plane — agents propose, the runtime authorizes
+
+     A new pure package, @exattime/awe-agent: versioned agent definitions and a
+     registry that is the only source of a runnable one; a capability model that
+     separates business permission from tool access; an execution surface that
+     compiles a definition into a real workflow manifest so the control plane's
+     policy engine and tool boundary are reused rather than reimplemented; an
+     action-proposal grammar; five independent authorization narrowings producing
+     an immutable Policy Decision Record; approval bound to exact arguments and
+     expiring; four budgets that make an unbounded agent unconfigurable; and an
+     evaluation/promotion boundary where measurement activates nothing.
+
+     ADR-0011. Runner G: 379/0 over 51 fixtures, byte-identical across runs.
+     Runner P 568 -> 570. regression --kinds=unit,offline,static: ALL GREEN.
+
+Do not push and do not open a PR without being asked.
+
+THEN take exactly one of these, and say which before you start:
+
+  (A) A SECOND governed agent — dispatch, scheduling or crew coordination — built
+      ONLY by writing a definition, its capabilities, its tools and a
+      deterministic planner. This is the highest-leverage next task: it is the
+      test of whether the plane is a reusable platform or an invoice-shaped one.
+      Write no new authorization code. If you find yourself needing to, that is
+      the finding, and it belongs in the handoff.
+
+  (B) P4 — fan-out and parallel steps in the control plane (see TASK_BACKLOG).
+
+  (C) Close the PostgREST gap named in D1's risks (see TASK_BACKLOG D2).
+
+Constraints, unchanged: no live Supabase call, no migration apply, no push, no
+service-role shortcut as the application design, no cross-tenant access, no model
+provider client, no prompt-injection detection claim, and no agent that can grant
+itself a capability. Run `bash scripts/regression.sh --kinds=unit,offline,static`
+before you claim anything is done.
+```
+
+## archived — the durable execution repository (2026-07-28, Claude)
+
+The D1 session's handoff, kept verbatim below. Its `## exact next prompt` asked
+the following session to commit the work first; this session was instructed not
+to commit, so **that step is still outstanding** and is carried forward as step 1
+of the prompt above.
+
+### current objective
+
+Build the **durable execution repository** the runtime has been designing toward
+since ADR-0002: a Supabase/Postgres-backed store for run journals, leases and
+step results, with real transaction boundaries, tenant isolation, idempotency,
+optimistic concurrency, durable leases, an append-only event history, replay —
+and a conformance suite that holds the new implementation and the two existing
+ones to one contract.
+
+Three store headers each ended with the same sentence: *"the successor is a
+table, and it is ADR-0002."* This session wrote that table.
+
+### completed work
+
+#### 1. Migration 0017 — four tables, eleven functions
+
+`supabase/migrations/0017_awe_durable_execution.sql`. **Written, validated
+against a real PostgreSQL 17, NOT applied to the live project.**
+
+| Table | Row |
+|---|---|
+| `awe_run_journals` | one per run: tenant, workflow identity, genesis, head, entry count |
+| `awe_run_journal_entries` | the append-only, hash-chained history. Digests only |
+| `awe_run_leases` | who holds a run, until when, at which fence — retained after expiry |
+| `awe_run_results` | the tenant-bound step OUTPUT bodies, kept out of the journal |
+
+**There is no `state` column, and its absence is the point.** `journal.mjs` says
+"there is no stored `state` column anywhere in this package for it to disagree
+with", and the database is not an exception. State stays a projection of the
+entries. The cost is named rather than hidden: there is no efficient "claim the
+next runnable run" query, nothing in the runtime pulls work that way today, and
+the answer when something does is a projection maintained *by* the event log —
+not a mutable status field.
+
+**The database supplies atomicity and never rules.** Transitions, the chain, the
+projection and claim/renew/steal/fence stay pure in `awe-control-plane`. The SQL
+adds one thing: a compare-and-set two workers cannot both win.
+
+**Authorization.** RLS on, **zero** client policies — the G2 shape 0009 set and
+0016 had to restore. An `authenticated` user who can `INSERT` into
+`awe_run_journal_entries` can forge an approval. Every function is
+`SECURITY DEFINER` with `search_path = ''`; `EXECUTE` is revoked from `PUBLIC`
+before it is granted to `service_role`. Append-only is a trigger, so it holds
+against a superuser — and the suite proves it by trying.
+
+#### 2. The Postgres adapter — one method wide
+
+`packages/awe-runtime/src/postgres/{executor,journal-store,lease-store,result-store}.mjs`.
+
+The adapter knows exactly `call(fn, payload)`. No SQL, no table name, no
+connection string crosses that line, so `@exattime/awe-runtime` **still depends
+on no database driver** and holds no credential, no URL and no connection. The
+same adapter runs over PostgREST in a deployment and over `psql` in a container
+during conformance — so the code under test is the code that ships.
+
+Everything the database returns is put through `loadRunJournal` / `assertRunLease`
+before it is a domain object. A row edited in place fails at the store, not three
+layers later inside a resume.
+
+#### 3. ADR-0002's Path C is now demonstrated, not planned
+
+The conformance harness creates a role holding **only** `EXECUTE` on the eleven
+functions — no `SELECT`, no `INSERT`, no table privilege at all. The adapter
+passes its entire contract as that role, and is refused every direct table
+access. Path C needs a credential, not a redesign.
+
+#### 4. One contract, three implementations
+
+`scripts/lib/store-conformance.mjs` runs identically against `memory`,
+`local_file` and `postgres`. **It found two real defects in the EXISTING stores:**
+
+1. **The result stores tenant-checked the READ and not the WRITE.** A second
+   tenant writing the same derived run id silently replaced the first tenant's
+   step outputs; the read then correctly refused to show them to the wrong
+   tenant, but the right tenant's data was already gone. Invisible because the
+   service never writes results for a run it does not own — an invariant that
+   holds until something else calls the store. All three now refuse.
+2. **The journal stores replaced the whole document.** The head check stops a
+   writer whose view is *stale*; it does not stop a writer whose view is
+   *current* from committing a REWRITTEN prefix, and the chain still verifies
+   because a tampered history is internally consistent. Both in-process stores
+   now refuse a shrink or a rewrite; Postgres cannot express the bug.
+
+#### 5. Two more defects, found by real concurrency and by the port change
+
+3. **`awe_journal_write`'s create path was not serialized.** `SELECT … FOR
+   UPDATE` locks nothing when the row does not exist, so eight parallel creators
+   all passed the compare-and-set and seven hit a unique-violation *error*
+   instead of an orderly refusal — after doing the work. Found by the parallel
+   race, not by review. Fixed with `ON CONFLICT DO NOTHING` plus a re-decision
+   against the winner's row.
+4. **`cancelRun` was left with an unawaited `claim()`.** A promise is truthy, so
+   every cancellation would have reported "not claimed". Runner P caught it
+   within one run of the port change.
+
+#### 6. The store port is now `T | Promise<T>` (ADR-0010 D6)
+
+A port change, and it needed evidence: no database client is synchronous, and a
+synchronous `read()` is a promise that the store is a `Map`. The change is the
+minimum that works — the service `await`s every store call, `await` on a plain
+value is a no-op, so the memory and file stores did not change at all. Seven
+service reads became `async`; every caller was already inside an `async`
+function, so the cost was `await` at eleven call sites. Runner P went 564 → 568,
+all passing.
+
+`listRuns`, `listLeases` and `expireLeases` also gained an optional `org_id`, so
+a multi-tenant surface pushes the tenant DOWN to the store instead of listing
+every run id in the database and filtering in JavaScript.
+
+#### 7. `selectStores` — one place a backend is chosen, and a safe default
+
+`packages/awe-runtime/src/store-selection.mjs`. Default `memory`. Asking for
+`postgres` without an executor **throws**; it does not fall back. A silent
+downgrade would leave a worker with no cross-process exclusion while believing it
+had some, and the failure would surface as a duplicated payment rather than as a
+missing environment variable.
+
+#### 8. A real Postgres, and what it proves
+
+`scripts/lib/pg-harness.mjs` starts a throwaway `postgres:17` container, applies
+migrations **0001–0017 in order** on a small Supabase shim, and drives the
+adapter through `psql` inside it. No published port, no volume, `--rm`, removed
+in a `finally`, no credential read or forwarded, no live project contacted.
+
+This retires the standing caveat in `validate-migration-0015.mjs` ("this
+environment has no psql / supabase CLI / docker") — that was true when written
+and is not now.
+
+What it answers that a static lint cannot:
+
+* **eight genuinely parallel backends** racing to create one run: exactly one
+  wins, seven are refused, one entry is stored;
+* **six parallel lease claims**: exactly one holder, one fence issued;
+* **a second writer observed BLOCKING** on the first transaction's row lock, then
+  refused once it commits — the one thing no sequence of one-shot calls can show;
+* a superuser `UPDATE` and `DELETE` on a journal entry, both refused;
+* a cross-tenant `INSERT`, refused by the composite foreign key;
+* a corrupted row: the adapter fails closed as `contract_violation`;
+* an unreachable store: `StoreUnavailableError`, retryable, and asserted to be a
+  different type from `KernelError` — an outage must never read as a policy
+  refusal.
+
+#### 9. The vertical slice, across four services that share no memory
+
+Intake → policy → human gate → **pause** on one service; approved on a second;
+resumed to completion on a third; rebuilt from the database by a fourth. The only
+thing connecting them is Postgres. Replaying the durable event log reproduces the
+timeline, the approver and every tool invocation exactly, and the journal is
+asserted to contain no workflow data.
+
+#### 10. Rollback
+
+`scripts/rollback-migration-0017.sql`: functions, then tables child-first, then
+the trigger guards. No `CASCADE` anywhere, post-conditions that abort if anything
+remains, roles deliberately NOT dropped. Verified by round trip on a real server:
+applied → rolled back → replayed → 0017 re-applied, with the 24 pre-existing
+public tables untouched.
+
+### files changed
+
+```
+supabase/migrations/0017_awe_durable_execution.sql     NEW — 4 tables, 11 functions, 4 triggers
+scripts/rollback-migration-0017.sql                    NEW — verified by round trip
+packages/awe-runtime/src/postgres/executor.mjs         NEW — the one-method port + StoreUnavailableError
+packages/awe-runtime/src/postgres/journal-store.mjs    NEW — durable journal, CAS, validated reads
+packages/awe-runtime/src/postgres/lease-store.mjs      NEW — durable lease, conditional-update claim
+packages/awe-runtime/src/postgres/result-store.mjs     NEW — durable step outputs, tenant-stable
+packages/awe-runtime/src/store-selection.mjs           NEW — backend choice, safe default, loud failure
+packages/awe-runtime/src/journal-store.mjs             tenant + append-only refusals; tenant-scoped read/list
+packages/awe-runtime/src/result-store.mjs              cross-tenant WRITE refused (defect 1); scoped list
+packages/awe-runtime/src/lease-store.mjs               leaseGranted/leaseRefused exported; org-scoped expire/list
+packages/awe-runtime/src/control-plane-service.mjs     awaits every store call; 7 reads now async;
+                                                       org_id on listRuns/listLeases/expireLeases;
+                                                       unawaited claim() in cancelRun fixed (defect 4)
+packages/awe-runtime/src/index.mjs                     postgres + selection exports
+packages/awe-kernel/src/registry.mjs                   Runner D registered (kind: offline)
+packages/mcp-server/src/control-plane-tools.mjs        awaits the async reads; tenant pushed into listRuns
+scripts/awe-control-plane.mjs                          awaits the async reads
+scripts/eval-control-plane.mjs                         awaits the async reads (564 -> 568)
+scripts/lib/pg-harness.mjs                             NEW — throwaway postgres, sessions, parallel races
+scripts/lib/pg-shim.sql                                NEW — the Supabase surface 0001-0016 assume
+scripts/lib/store-conformance.mjs                      NEW — one contract, every implementation
+scripts/eval-durable-store.mjs                         NEW — Runner D
+scripts/eval-durable-store.sh                          NEW — Runner D entry point
+docs/architecture/decisions/0010-durable-execution-repository.md  NEW — ADR-0010 (Accepted)
+docs/architecture/decisions/README.md                  ADR-0010 indexed; the Accepted/Proposed split
+docs/architecture/EXECUTION_CONTROL_PLANE.md           section 12; stores table; 8 security controls;
+                                                       limitations 1, 8, 9, 10
+docs/planning/{AGENT_HANDOFF,SESSION_HANDOFF,TASK_BACKLOG}.md   this session
+```
+
+### migrations
+
+`supabase/migrations/0017_awe_durable_execution.sql` — **written, validated,
+NOT APPLIED.** Additive: creates four tables, sixteen functions and four
+triggers; drops nothing; touches no existing table, policy, function or row.
+Replayable. Validated by applying migrations 0001–0017 in order to a throwaway
+PostgreSQL 17 container, twelve times over the session. Rollback is
+`scripts/rollback-migration-0017.sql`, verified by round trip.
+
+Applying it to the live project is a **human-gated action** and was not taken.
+
+### commands run
+
+```
+bash scripts/regression.sh --kinds=unit,offline,static     (baseline, and after each slice)
+bash scripts/eval-durable-store.sh                          (many times, during development)
+bash scripts/eval-durable-store.sh   x2, diffed             (determinism: byte-identical)
+PATH=<no docker> bash scripts/eval-durable-store.sh         (the SKIP path)
+bash scripts/eval-control-plane.sh                          (after the port change)
+bash scripts/smoke-mcp.sh                                   (after the MCP tool change)
+node <probe> — apply 0001-0017 to a throwaway postgres:17
+node <probe> — rollback, replay, re-apply, and count untouched tables
+git status / git diff --stat
+```
+
+### tests passed
+
+| suite | result |
+|---|---|
+| Runner K (kernel) | 563 / 0 |
+| Runner C (context) | 138 / 0 |
+| Runner 3 (approval diff) | 121 / 0 |
+| Runner 4 (approval matrix) | 327 / 0 |
+| Runner 5 (approval queue) | 349 / 0 |
+| Runner M (MCP surface) | 462 / 0 |
+| **Runner P (control plane)** | **568 / 0 — was 564** |
+| **Runner D (durable store)** | **321 / 0 — NEW** |
+| Runner E (execution outcomes) | 376 / 0 |
+| migration 0014 / 0015 lints | OK / OK |
+| MCP stdio smoke | OK (16 tools, control plane reachable, approval refused) |
+
+`bash scripts/regression.sh --kinds=unit,offline,static` → **ALL GREEN, 11 ran,
+11 skipped.** 3225 assertions, 0 failures.
+
+Runner D without Docker: **169 / 0**, with the database gates reporting SKIP and
+a closing `NOTE  the concurrency and authorization gates did NOT run.`
+
+### tests failed
+
+None at hand-off. Four failed during development and every one was a real defect
+rather than a test problem — they are listed in `## completed work` §4 and §5.
+
+Not run this session: `mobile-typecheck`, `web-build` (kind `build`, and no app
+code was touched), and every `db` suite (they require the management token and a
+live project, neither of which this session used).
+
+### live changes
+
+**None.** No live Supabase call, no migration applied, no credential read, no
+network request, no email, no n8n workflow, no push, no PR, no commit. Every
+database interaction in this session was against a throwaway container created
+and destroyed by the test runner.
+
+### approvals required
+
+1. **Apply migration 0017 to the live project.** Human-gated, as 0016 is. It is
+   additive and reversible, and the rollback is verified — but it is a schema
+   change on a live project and is not for an agent to take.
+2. **Nothing else.** The code is inert until a caller passes
+   `backend: 'postgres'` with an executor; the default is still `memory`.
+
+### risks
+
+1. **0017 is unapplied, so the durable path is unexercised against real
+   Supabase.** Everything is proven against PostgreSQL 17 in a container. Supabase
+   is PostgreSQL 15 at the time of writing — nothing here uses a 16+ feature, but
+   that is a claim from reading rather than from running. **Verify the server
+   version before applying.**
+2. **PostgREST has never been exercised.** `createSupabaseRpcExecutor` is written
+   against the documented `client.rpc(fn, { p })` shape and is covered by no test,
+   because testing it needs a live project. The `psql` transport proves the SQL
+   and the adapter; it does not prove the PostgREST binding. This is the largest
+   untested surface in the change set.
+3. **The service role still bypasses RLS** (ADR-0002 stands), so tenant safety in
+   the adapter is code-enforced. It is now also conformance-enforced on every
+   store, including the two that had a hole — but a service-role key that leaks
+   still reads every tenant's execution history.
+4. **Runner D needs Docker to be worth much.** Without it, 169 of 321 assertions
+   run. It says so loudly rather than reporting a quiet green, but a CI runner
+   without Docker would silently lose the concurrency and authorization gates.
+5. **No caller-supplied idempotency key.** Unchanged from the previous session
+   and still the honest limit: a run id is derived from workflow + inputs + start
+   instant, so "the same invoice submitted twice an hour apart" is two runs.
+6. **Uncommitted.** The entire change set is in the working tree. A lost
+   workspace loses it.
+
+### blockers
+
+None. The next slice can start immediately; nothing in it depends on 0017 being
+applied.
+
+### exact next prompt
+
+```
+Continue the Autonomous Workflow Engine in /Users/jackdaly/Autonomous-Workflow-Engine.
+
+Read docs/planning/AGENT_HANDOFF.md, docs/planning/SESSION_HANDOFF.md,
+docs/planning/TASK_BACKLOG.md and docs/architecture/EXECUTION_CONTROL_PLANE.md
+(especially section 12) and docs/architecture/decisions/0010-durable-execution-repository.md
+before editing anything.
+
+FIRST, commit the uncommitted durable-execution work already in the tree, on
+`feat/kernelized-mcp-context`, as one commit:
+
+  feat(runtime): a durable execution repository, and one contract for every store
+
+  Migration 0017: four tables, eleven SECURITY DEFINER functions, RLS on with
+  zero client policies, append-only enforced by trigger against a superuser.
+  Written and validated against a real PostgreSQL 17; NOT applied.
+
+  A Postgres adapter one method wide, so the runtime still depends on no driver.
+  The store port becomes T | Promise<T> (ADR-0010); seven service reads are now
+  async and every caller awaits them.
+
+  A reusable conformance suite answered identically by memory, local_file and
+  postgres. It found two defects in the existing stores — an unchecked
+  cross-tenant result WRITE, and a journal write that would accept a rewritten
+  prefix at the current head. Real concurrency found a third: the create path
+  was not serialized, because SELECT ... FOR UPDATE locks nothing when the row
+  does not exist.
+
+  Runner D: 321/0 with a throwaway postgres:17, 169/0 without Docker.
+  Runner P: 564 -> 568. regression --kinds=unit,offline,static: ALL GREEN.
+
+Do not push and do not open a PR without being asked.
+
+THEN take exactly one of these, and say which before you start:
+
+  (A) P4 — fan-out and parallel steps. The next control-plane capability, and
+      the one the backlog already names as next. It is the harder and more
+      valuable of the two: parallel steps interact with the run budget, the step
+      budget, idempotency, compensation ordering and the single-writer lease,
+      and the journal's transition table currently assumes one step at a time.
+
+  (B) Close the PostgREST gap named in `## risks` item 2 — the largest untested
+      surface in the durable work. Build a PostgREST-shaped executor double that
+      reproduces supabase-js's `{ data, error }` envelope, its error codes and
+      its argument binding, and hold `createSupabaseRpcExecutor` to the same
+      conformance contract the psql transport already passes.
+
+Constraints, unchanged: no live Supabase call, no migration apply, no push, no
+service-role shortcut as the application design, no cross-tenant access, no
+unvalidated database payload entering the domain, and no claimed concurrency
+proof from sequential mocks. Run `bash scripts/regression.sh
+--kinds=unit,offline,static` before you claim anything is done.
+```
+
+## archived — run leases, enforced quorum, the MCP control plane and conditional steps (2026-07-28, Claude)
+
+### updated_at
+
+2026-07-28T16:20:00Z
+
+### agent
+
+Claude (Claude Code, Opus 5)
+
+### repository
+
+jaqboredasf-gif/Autonomous-Workflow-Engine
+
+### branch
+
 `feat/kernelized-mcp-context`, continuing from `19f5e1c`. Nothing was pushed.
 No branch was moved, reset, merged, rebased or deleted. No PR was opened.
 
-## commit
+### commit
 
 Five new commits, none pushed:
 
@@ -29,7 +783,7 @@ Five new commits, none pushed:
 | `09a4c06` | architecture, handoff and backlog brought up to the implementation |
 | `064dced` | conditional steps — `when` predicates, `step.skipped`, loop-progress invariant |
 
-## current objective
+### current objective
 
 Delivered the vertical slice the previous session specified — **make the
 execution control plane concurrency-safe, enforce the approval quorum it
@@ -37,7 +791,7 @@ declared, and put a real surface on it** — plus the defects each one exposed,
 and then the next slice this session identified: **conditional steps**, so a
 governed workflow can branch.
 
-## completed work
+### completed work
 
 ### 1. One run, one writer
 
@@ -195,7 +949,7 @@ cover.
   non-returning iteration must now move one step out of the remaining set, and a
   violation throws.
 
-## files changed
+### files changed
 
 ```
 packages/awe-control-plane/src/lease.mjs              NEW — pure lease decision rules
@@ -227,7 +981,7 @@ scripts/awe-control-plane.mjs                         artifact root, lease store
 docs/architecture/EXECUTION_CONTROL_PLANE.md          sections 8-10, limitations rewritten
 ```
 
-## commands run
+### commands run
 
 ```
 bash scripts/regression.sh --exclude-kinds=db      (baseline, and after each slice)
@@ -238,7 +992,7 @@ node scripts/awe-control-plane.mjs demo
 node scripts/awe-control-plane.mjs start | approve | resume   (three separate processes)
 ```
 
-## tests passed
+### tests passed
 
 | suite | result |
 |---|---|
@@ -271,21 +1025,21 @@ and live project access. No live-credential, n8n, Outlook, OneDrive,
 service-role or production-workflow test was executed. No test was skipped,
 weakened or deleted to make anything pass.
 
-## tests failed
+### tests failed
 
 None at rest.
 
-## migrations
+### migrations
 
 None. No migration was created, modified, applied, rehearsed or rolled back.
 `supabase/` was not touched.
 
-## live changes
+### live changes
 
 None. No database call, no migration, no n8n change, no workflow publication, no
 external API call, no credential used, no push, no PR.
 
-## approvals required
+### approvals required
 
 - **ADR-0002 ratification** remains open. Nothing in this session depends on it:
   the control plane still grants nothing, touches no database, and refuses
@@ -295,7 +1049,7 @@ external API call, no credential used, no push, no PR.
 - The Phase 1 deployment gates in the archived sections below remain open and
   are unaffected.
 
-## risks
+### risks
 
 - **The file lease store's expired-takeover path is not atomic.** Two workers can
   both observe one expired lease and both rename; the last rename wins. This is
@@ -326,7 +1080,7 @@ external API call, no credential used, no push, no PR.
   question, because context items carry sensitivity labels and a condition that
   read one would need to respect them.
 
-## blockers
+### blockers
 
 None for continued local development.
 
@@ -335,7 +1089,7 @@ live Supabase migration histories still disagree; the C2 allow-list
 contradiction is unresolved. None of these blocks the control plane, because it
 reaches no database.
 
-## exact next prompt
+### exact next prompt
 
 Continue AWE on branch `feat/kernelized-mcp-context`. Read
 `docs/architecture/EXECUTION_CONTROL_PLANE.md` (sections 8-11 are new) and this

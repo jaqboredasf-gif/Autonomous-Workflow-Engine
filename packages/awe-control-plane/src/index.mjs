@@ -53,7 +53,8 @@ export {
 } from './policy.mjs';
 
 export {
-  RUN_EVENT_TYPES, RUN_JOURNAL_SCHEMA, RUN_STATES, TERMINAL_STATES, TRANSITIONS,
+  AGENT_EVENT_TYPES, RUN_EVENT_TYPES, RUN_JOURNAL_SCHEMA, RUN_STATES, TERMINAL_STATES,
+  TRANSITIONS, WORKFLOW_EVENT_TYPES,
   createRunJournal, genesisDigest, loadRunJournal, projectRunState, verifyChain,
 } from './journal.mjs';
 

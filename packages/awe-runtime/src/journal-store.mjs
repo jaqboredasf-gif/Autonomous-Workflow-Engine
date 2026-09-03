@@ -38,6 +38,17 @@
 // side effects and only then discover one of them was wasted — which, for a
 // step that issued a payment instruction, is far too late.
 //
+// Two further refusals, added when the durable store made them checkable and
+// the conformance suite made the gap visible:
+//
+//   tenant      a write for a run id another tenant already holds is refused,
+//               rather than replacing that tenant's history.
+//   append-only a write whose document DROPS or REWRITES an entry the store
+//               already holds is refused. The head check alone did not cover
+//               this: a writer whose view is current can still hand back a
+//               tampered prefix, and the chain would verify because a tampered
+//               history is internally consistent.
+//
 // The file store's check is read-compare-rename, so a sufficiently unlucky pair
 // of writers can still interleave inside the window. It is stated here rather
 // than glossed: the durable, genuinely atomic version is a conditional UPDATE
@@ -90,24 +101,102 @@ function headConflict({ stored, expected_head, run_id }) {
   };
 }
 
+/**
+ * The append-only half, and it was genuinely missing here.
+ *
+ * These stores replace the WHOLE document on every write. The head
+ * compare-and-set stops a writer whose view is stale, but it does not stop a
+ * writer whose view is current from committing a document that has DROPPED or
+ * REWRITTEN earlier entries: read the run at head h, hand back a document whose
+ * head is also h but whose seq-3 entry says something else, and the store would
+ * take it. The hash chain would still verify, because the tampered history is
+ * internally consistent — it is just not the history that happened.
+ *
+ * The Postgres store cannot express that bug: existing rows are never touched
+ * and new entries must chain from the stored head. This is the same guarantee,
+ * enforced where the two other stores could not previously offer it, so all
+ * three now answer the conformance suite identically.
+ */
+function appendOnlyConflict({ stored, document }) {
+  if (stored === null || stored === undefined) return null;
+
+  const refusal = (error) => ({
+    ok: false, ref: null, reason: 'journal_append_only', error,
+    conflict: { expected: stored.head ?? null, actual: document.head ?? null },
+  });
+
+  if (document.genesis !== stored.genesis) {
+    return refusal(`run '${document.run_id}' cannot be re-parented onto another genesis`);
+  }
+  const before = stored.entries ?? [];
+  const after = document.entries ?? [];
+  if (after.length < before.length) {
+    return refusal(
+      `run '${document.run_id}' holds ${before.length} entries; this writer offered ${after.length}`,
+    );
+  }
+  for (let i = 0; i < before.length; i += 1) {
+    if (after[i]?.entry_digest !== before[i].entry_digest) {
+      return refusal(
+        `run '${document.run_id}' entry ${i + 1} was rewritten — history is appended to, never amended`,
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * The tenant half of the compare-and-set, added when the Postgres store made it
+ * checkable. Two runs can only share an id by derivation collision, and the
+ * control-plane service already refuses that at `startRun` — but a store whose
+ * WRITE is keyed on run id alone would let the second tenant replace the first
+ * one's history, and "the caller above happens to check" is not a guarantee the
+ * store gets to rely on.
+ */
+function tenantConflict({ stored, document }) {
+  if (stored === null || stored === undefined) return null;
+  if (stored.org_id === document.org_id) return null;
+  return {
+    ok: false,
+    ref: null,
+    reason: 'journal_write_conflict',
+    // Says nothing about who the real owner is.
+    error: `run '${document.run_id}' already exists and is not accessible to this tenant`,
+    conflict: { expected: null, actual: null },
+  };
+}
+
 export function createMemoryJournalStore() {
   const documents = new Map();
   return Object.freeze({
     kind: 'journal_store',
     name: 'memory',
     write(document, { expected_head } = {}) {
-      const conflict = headConflict({
-        stored: documents.get(document.run_id) ?? null, expected_head, run_id: document.run_id,
-      });
+      const stored = documents.get(document.run_id) ?? null;
+      const mismatch = tenantConflict({ stored, document });
+      if (mismatch !== null) return mismatch;
+      const conflict = headConflict({ stored, expected_head, run_id: document.run_id });
       if (conflict !== null) return conflict;
+      const rewrite = appendOnlyConflict({ stored, document });
+      if (rewrite !== null) return rewrite;
       documents.set(document.run_id, JSON.parse(canonicalJson(document)));
       return { ok: true, ref: document.run_id, error: null };
     },
-    read(run_id) {
+    // The optional tenant is a FILTER, not a post-hoc check: a caller that names
+    // a tenant gets null for another tenant's run, indistinguishable from a run
+    // that does not exist.
+    read(run_id, { org_id = null } = {}) {
       const found = documents.get(run_id);
-      return found === undefined ? null : JSON.parse(JSON.stringify(found));
+      if (found === undefined) return null;
+      if (org_id !== null && found.org_id !== org_id) return null;
+      return JSON.parse(JSON.stringify(found));
     },
-    list() { return [...documents.keys()].sort(); },
+    list({ org_id = null } = {}) {
+      return [...documents.entries()]
+        .filter(([, document]) => org_id === null || document.org_id === org_id)
+        .map(([run_id]) => run_id)
+        .sort();
+    },
   });
 }
 
@@ -119,10 +208,13 @@ export function createFileJournalStore({ root = DEFAULT_JOURNAL_ROOT } = {}) {
     root: directory,
     write(document, { expected_head } = {}) {
       try {
-        const conflict = headConflict({
-          stored: this.read(document.run_id), expected_head, run_id: document.run_id,
-        });
+        const stored = this.read(document.run_id);
+        const mismatch = tenantConflict({ stored, document });
+        if (mismatch !== null) return mismatch;
+        const conflict = headConflict({ stored, expected_head, run_id: document.run_id });
         if (conflict !== null) return conflict;
+        const rewrite = appendOnlyConflict({ stored, document });
+        if (rewrite !== null) return rewrite;
         const target = containedPath(directory, fileName(document.run_id));
         mkdirSync(dirname(target), { recursive: true });
         const temp = `${target}.tmp`;
@@ -133,16 +225,28 @@ export function createFileJournalStore({ root = DEFAULT_JOURNAL_ROOT } = {}) {
         return { ok: false, ref: null, error: String(e?.message ?? e) };
       }
     },
-    read(run_id) {
+    read(run_id, { org_id = null } = {}) {
       try {
-        return JSON.parse(readFileSync(containedPath(directory, fileName(run_id)), 'utf8'));
+        const found = JSON.parse(readFileSync(containedPath(directory, fileName(run_id)), 'utf8'));
+        if (org_id !== null && found.org_id !== org_id) return null;
+        return found;
       } catch {
         return null;
       }
     },
-    list() {
+    list({ org_id = null } = {}) {
       try {
-        return readdirSync(directory).filter((f) => f.endsWith('.json')).sort().map((f) => f.slice(0, -5));
+        const ids = readdirSync(directory).filter((f) => f.endsWith('.json')).sort().map((f) => f.slice(0, -5));
+        if (org_id === null) return ids;
+        // The stored id is the FILE name with ':' folded, so the tenant filter
+        // reads each document rather than guessing the id back from the path.
+        return ids.filter((id) => {
+          try {
+            return JSON.parse(readFileSync(containedPath(directory, `${id}.json`), 'utf8')).org_id === org_id;
+          } catch {
+            return false;
+          }
+        });
       } catch {
         return [];
       }

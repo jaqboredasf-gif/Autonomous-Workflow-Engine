@@ -59,7 +59,13 @@ const TERMINAL_ADVANCES = ['completed', 'failed', 'cancelled', 'timed_out'];
  *   tools      — [{ descriptor, adapter }] for the kernel tool catalog
  *   grants     — tenant-scoped tool grants (policy.mjs). Deny by default.
  *   validators — schema reference -> validator function
- *   journals   — journal store (journal-store.mjs)
+ *   journals   — journal store (journal-store.mjs). Pass an UNBOUND store: this
+ *                service is multi-tenant by construction, checks the tenant on
+ *                every operation itself, and needs one unfiltered read in
+ *                `startRun` to tell "your identical resubmission" apart from
+ *                "another tenant already derived this run id". A tenant-BOUND
+ *                store belongs to a single-tenant surface, where that
+ *                distinction cannot arise.
  *   artifacts  — ArtifactSink for durable run reports
  *   audit      — AuditSink for sanitized audit events
  *   clock      — () => ISO instant. Injected: the control plane has none.
@@ -138,7 +144,7 @@ export function createControlPlaneService({
       : assembleContext(request);
   }
 
-  function persist(journal, { expected_head } = {}) {
+  async function persist(journal, { expected_head } = {}) {
     if (journals === null) return { ok: true, ref: null, error: null };
     return journals.write(journal.toDocument(), { expected_head });
   }
@@ -150,10 +156,13 @@ export function createControlPlaneService({
    * has it"), which is a normal outcome for a worker pulling from a queue, not
    * an error.
    */
-  function claim({ run_id, org_id, at }) {
+  async function claim({ run_id, org_id, at }) {
     return leaseStore.acquire({ run_id, org_id, holder: workerId, now: at, ttl_ms: lease_ttl_ms });
   }
 
+  // Awaited by every caller: an unawaited release against a durable store lets
+  // a process exit with the run still leased, and the next worker then waits out
+  // the whole TTL for a run nobody is touching.
   const surrender = (run_id) => leaseStore.release({ run_id, holder: workerId });
 
   /**
@@ -168,12 +177,12 @@ export function createControlPlaneService({
    * backstop that keeps a lapsed worker from corrupting the history on its way
    * out.
    */
-  function commit({ journal, fence, expected_head }) {
-    const hold = leaseStore.verify({ run_id: journal.run_id, holder: workerId, fence, now: now() });
+  async function commit({ journal, fence, expected_head }) {
+    const hold = await leaseStore.verify({ run_id: journal.run_id, holder: workerId, fence, now: now() });
     if (!hold.ok) {
       return { ok: false, ref: null, reason: hold.reason, error: hold.detail };
     }
-    const stored = persist(journal, { expected_head });
+    const stored = await persist(journal, { expected_head });
     if (stored.ok === false) {
       return { ok: false, ref: null, reason: stored.reason ?? 'journal_write_conflict', error: stored.error };
     }
@@ -216,9 +225,9 @@ export function createControlPlaneService({
 
   // Step outputs go to the DATA store, never to the journal. Two stores, two
   // jobs — see result-store.mjs for why this is a boundary and not duplication.
-  const readResults = ({ run_id, org_id }) => (resultStore === null ? {} : resultStore.read({ run_id, org_id }));
-  const writeResults = ({ run_id, org_id, results }) => {
-    if (resultStore !== null) resultStore.write({ run_id, org_id, results });
+  const readResults = async ({ run_id, org_id }) => (resultStore === null ? {} : resultStore.read({ run_id, org_id }));
+  const writeResults = async ({ run_id, org_id, results }) => {
+    if (resultStore !== null) await resultStore.write({ run_id, org_id, results });
   };
 
   // A run report for the CURRENT state of a run. Built from the projection, so
@@ -277,8 +286,16 @@ export function createControlPlaneService({
 
   // Load a run, refusing a tenant that does not own it. This is the guard that
   // makes `resumeRun` and `decideApproval` safe to expose.
-  function loadOwned(run_id, org_id, { at }) {
-    const document = journals === null ? null : journals.read(run_id);
+  async function loadOwned(run_id, org_id, { at }) {
+    // Read UNFILTERED and compare here, deliberately. Pushing the tenant into
+    // the store would collapse `approval_tenant_mismatch` into
+    // `approval_unknown`, and this service draws that distinction on purpose:
+    // the MCP surface collapses the two into one `ambiguous_match` so a caller
+    // cannot use them as an existence oracle, while an OPERATOR looking at their
+    // own machine needs to be told "that run is not yours" rather than "no such
+    // run". The tenant-bound store exists for a single-tenant surface, where the
+    // distinction cannot arise.
+    const document = journals === null ? null : await journals.read(run_id);
     if (document === null) {
       return { ok: false, reason: 'approval_unknown', detail: `no run '${run_id}' is stored`, document: null };
     }
@@ -368,7 +385,7 @@ export function createControlPlaneService({
       // the inputs and the start instant, so two identical submissions landing
       // on two workers collide here — which makes this the same mechanism that
       // stops a duplicate submission, not just a duplicate resume.
-      const claimed = claim({ run_id: context.run_id, org_id, at: started_at });
+      const claimed = await claim({ run_id: context.run_id, org_id, at: started_at });
       if (!claimed.ok) return notClaimed(context.run_id, claimed);
 
       try {
@@ -385,7 +402,7 @@ export function createControlPlaneService({
         // already applies to a repeated tool invocation, one level up. The flag
         // is explicit so a caller can tell "your submission ran" from "your
         // submission was already here" rather than having to infer it.
-        const already = journals === null ? null : journals.read(context.run_id);
+        const already = journals === null ? null : await journals.read(context.run_id);
         if (already !== null) {
           if (already.org_id !== org_id) {
             // Same derived id, different tenant. Not a duplicate — a collision,
@@ -462,10 +479,10 @@ export function createControlPlaneService({
         // `expected_head: null` — this run must not already be stored. A second
         // worker that somehow got past the lease and started the same run id
         // finds its create refused rather than silently replacing a history.
-        const stored = commit({ journal: result.journal, fence: claimed.fence, expected_head: null });
+        const stored = await commit({ journal: result.journal, fence: claimed.fence, expected_head: null });
         if (!stored.ok) return lostMidRun({ context, run_id: context.run_id, org_id, stored, phase: 'start' });
 
-        writeResults({ run_id: context.run_id, org_id, results: stepResults });
+        await writeResults({ run_id: context.run_id, org_id, results: stepResults });
         const written = await report({
           context,
           outcome: result.outcome,
@@ -495,7 +512,7 @@ export function createControlPlaneService({
         // Released whatever happened. A worker that threw must not strand the
         // run for the whole TTL — expiry is the safety net for a process that
         // died, not the normal path for one that merely failed.
-        surrender(context.run_id);
+        await surrender(context.run_id);
       }
     },
 
@@ -533,7 +550,7 @@ export function createControlPlaneService({
         });
       }
 
-      const owned = loadOwned(run_id, org_id, { at: 'decideApproval' });
+      const owned = await loadOwned(run_id, org_id, { at: 'decideApproval' });
       if (!owned.ok) return Object.freeze({ ok: false, run_id, ...owned, document: undefined });
 
       const journal = loadRunJournal(owned.document);
@@ -551,7 +568,7 @@ export function createControlPlaneService({
       // quorum-of-two run would otherwise each append to their own copy of the
       // history and the second write would erase the first vote — turning the
       // quorum into a gate that one person can satisfy by racing.
-      const claimed = claim({ run_id, org_id, at: now(at) });
+      const claimed = await claim({ run_id, org_id, at: now(at) });
       if (!claimed.ok) return notClaimed(run_id, claimed);
 
       try {
@@ -562,7 +579,7 @@ export function createControlPlaneService({
           return Object.freeze({ ok: false, run_id, reason: verdict.reason, detail: verdict.detail });
         }
 
-        const stored = commit({ journal, fence: claimed.fence, expected_head: owned.document.head });
+        const stored = await commit({ journal, fence: claimed.fence, expected_head: owned.document.head });
         if (!stored.ok) {
           // The vote exists only in this worker's in-memory journal and was
           // never written, so refusing here loses nothing: the approver retries
@@ -591,7 +608,7 @@ export function createControlPlaneService({
           journal_ref: stored.ref,
         });
       } finally {
-        surrender(run_id);
+        await surrender(run_id);
       }
     },
 
@@ -604,7 +621,7 @@ export function createControlPlaneService({
      * invocations, and continues.
      */
     async resumeRun({ run_id, org_id = null, deps = {}, cancel = null, now: at = null } = {}) {
-      const owned = loadOwned(run_id, org_id, { at: 'resumeRun' });
+      const owned = await loadOwned(run_id, org_id, { at: 'resumeRun' });
       if (!owned.ok) return Object.freeze({ ok: false, run_id, ...owned, document: undefined });
 
       const journal = loadRunJournal(owned.document);
@@ -634,14 +651,14 @@ export function createControlPlaneService({
       // and a scheduled worker, both told to continue an approved run: without
       // the claim they both load the same journal, both dispatch the payment
       // instruction, and both write a valid-looking history.
-      const claimed = claim({ run_id, org_id, at: started_at });
+      const claimed = await claim({ run_id, org_id, at: started_at });
       if (!claimed.ok) return notClaimed(run_id, claimed);
 
       try {
         const state = journal.state();
         // Seeded from the DATA store, not from the journal: this process shares
         // no memory with the one that paused, and the journal holds only digests.
-        const stepResults = readResults({ run_id: journal.run_id, org_id });
+        const stepResults = await readResults({ run_id: journal.run_id, org_id });
 
         // A rejected approval does not resume — it rolls back. Routing that here
         // rather than making the caller know is deliberate: an operator who says
@@ -650,10 +667,10 @@ export function createControlPlaneService({
           ? await engine.applyDenial({ journal, manifest, context, deps, results: stepResults })
           : await engine.advanceRun({ journal, manifest, context, deps, cancel, results: stepResults });
 
-        const stored = commit({ journal, fence: claimed.fence, expected_head: owned.document.head });
+        const stored = await commit({ journal, fence: claimed.fence, expected_head: owned.document.head });
         if (!stored.ok) return lostMidRun({ context, run_id, org_id, stored, phase: 'resume' });
 
-        writeResults({ run_id: journal.run_id, org_id, results: stepResults });
+        await writeResults({ run_id: journal.run_id, org_id, results: stepResults });
         const written = await report({
           context,
           outcome: result.outcome,
@@ -678,12 +695,12 @@ export function createControlPlaneService({
           ...written,
         });
       } finally {
-        surrender(run_id);
+        await surrender(run_id);
       }
     },
 
     async cancelRun({ run_id, org_id = null, reason = 'operator cancelled', deps = {}, now: at = null } = {}) {
-      const owned = loadOwned(run_id, org_id, { at: 'cancelRun' });
+      const owned = await loadOwned(run_id, org_id, { at: 'cancelRun' });
       if (!owned.ok) return Object.freeze({ ok: false, run_id, ...owned, document: undefined });
 
       const journal = loadRunJournal(owned.document);
@@ -705,7 +722,7 @@ export function createControlPlaneService({
       // resume and takes the lease on the same terms. Cancelling a run another
       // worker is mid-step on is exactly how a compensator ends up undoing a
       // step that is about to be re-applied.
-      const claimed = claim({ run_id, org_id, at: started_at });
+      const claimed = await claim({ run_id, org_id, at: started_at });
       if (!claimed.ok) return notClaimed(run_id, claimed);
 
       try {
@@ -713,9 +730,9 @@ export function createControlPlaneService({
         // compensators need the outputs of the steps they are undoing, and a
         // cancellation that cannot roll back is a cancellation that leaves the
         // tenant half-applied.
-        const stepResults = readResults({ run_id: journal.run_id, org_id });
+        const stepResults = await readResults({ run_id: journal.run_id, org_id });
         const result = await engine.cancelRun({ journal, manifest, context, deps, reason, results: stepResults });
-        const stored = commit({ journal, fence: claimed.fence, expected_head: owned.document.head });
+        const stored = await commit({ journal, fence: claimed.fence, expected_head: owned.document.head });
         if (!stored.ok) return lostMidRun({ context, run_id, org_id, stored, phase: 'cancel' });
 
         return Object.freeze({
@@ -726,36 +743,48 @@ export function createControlPlaneService({
           lease_fence: claimed.fence,
         });
       } finally {
-        surrender(run_id);
+        await surrender(run_id);
       }
     },
 
     // --- inspection ----------------------------------------------------------
 
-    getRun({ run_id, org_id = null } = {}) {
-      const owned = loadOwned(run_id, org_id, { at: 'getRun' });
+    // ASYNC, as of ADR-0010. These used to be synchronous, and a synchronous
+    // read is a promise that the store is a Map — which no database client can
+    // keep. Every existing caller was already inside an async function, so the
+    // change cost `await` at eleven call sites and bought a durable store.
+    async getRun({ run_id, org_id = null } = {}) {
+      const owned = await loadOwned(run_id, org_id, { at: 'getRun' });
       if (!owned.ok) return null;
       return summarize({ document: owned.document, manifest: manifestOf(owned.document) });
     },
 
-    getTimeline({ run_id, org_id = null } = {}) {
-      const run = this.getRun({ run_id, org_id });
+    async getTimeline({ run_id, org_id = null } = {}) {
+      const run = await this.getRun({ run_id, org_id });
       return run === null ? [] : run.timeline;
     },
 
-    getJournalDocument({ run_id, org_id = null } = {}) {
-      const owned = loadOwned(run_id, org_id, { at: 'getJournalDocument' });
+    async getJournalDocument({ run_id, org_id = null } = {}) {
+      const owned = await loadOwned(run_id, org_id, { at: 'getJournalDocument' });
       return owned.ok ? owned.document : null;
     },
 
-    listRuns() { return journals === null ? [] : journals.list(); },
+    /**
+     * listRuns({ org_id }) — the tenant is pushed DOWN to the store rather than
+     * being applied by the caller afterwards. Listing every run id in the
+     * database and filtering in JavaScript would hand a multi-tenant surface the
+     * complete set of run ids on every call.
+     */
+    async listRuns({ org_id = null } = {}) {
+      return journals === null ? [] : journals.list({ org_id });
+    },
 
     // --- concurrency ---------------------------------------------------------
 
     /** Who, if anyone, currently holds this run. Read-only; takes nothing. */
-    getLease({ run_id } = {}) { return leaseStore.read(run_id); },
+    async getLease({ run_id } = {}) { return leaseStore.read(run_id); },
 
-    listLeases() { return leaseStore.list(); },
+    async listLeases({ org_id = null } = {}) { return leaseStore.list({ org_id }); },
 
     /**
      * expireLeases({ now }) — which runs were abandoned, and by whom.
@@ -766,7 +795,9 @@ export function createControlPlaneService({
      * would reset its fence and hand a suspended worker a valid fence again.
      * This is a monitoring call, not a repair.
      */
-    expireLeases({ now: at = null } = {}) { return leaseStore.expire({ now: now(at) }); },
+    async expireLeases({ now: at = null, org_id = null } = {}) {
+      return leaseStore.expire({ now: now(at), org_id });
+    },
 
     /** The worker identity every write in this process is attributed to. */
     holder: workerId,

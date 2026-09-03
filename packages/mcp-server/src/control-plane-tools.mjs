@@ -226,7 +226,7 @@ export const getRun = {
   }),
   inputSchema: { ...ORG_ARG, run_id: z.string().describe('The run to inspect') },
   async body({ run_id }, { context, control }) {
-    const run = control.getRun({ run_id, org_id: context.org_id });
+    const run = await control.getRun({ run_id, org_id: context.org_id });
     if (run === null) {
       // One answer for "no such run" and "not your run". A caller that guessed
       // a run id must not be able to tell which of the two it hit, or the
@@ -260,10 +260,15 @@ export const listPendingApprovals = {
   }),
   inputSchema: { ...ORG_ARG },
   async body(_input, { context, control }) {
-    const pending = control.listRuns()
-      .map((run_id) => control.getRun({ run_id, org_id: context.org_id }))
-      // `getRun` returns null for another tenant's run, so the tenant filter is
-      // the same guard the single-run read uses rather than a second one.
+    // The tenant is named to `listRuns` as well as to `getRun`. The per-run
+    // check was always the guard that mattered, but pushing the tenant down
+    // means a durable store never even returns another tenant's run ids — and
+    // over a database that is the difference between one filtered query and one
+    // query per run in the entire table.
+    const pending = (await Promise.all(
+      (await control.listRuns({ org_id: context.org_id }))
+        .map((run_id) => control.getRun({ run_id, org_id: context.org_id })),
+    ))
       .filter((run) => run !== null && run.pending_approval !== null)
       .map((run) => ({
         run_id: run.run_id,

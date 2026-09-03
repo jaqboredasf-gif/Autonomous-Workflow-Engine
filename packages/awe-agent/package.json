@@ -1,0 +1,24 @@
+{
+  "name": "@exattime/awe-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The AWE Governed Agent Execution Plane: versioned agent definitions, the Capability Registry that separates business permission from raw tool access, the Action Proposal contract a planner must speak, the authorizer that turns a proposal into an immutable Policy Decision Record, approval binding to exact arguments, the execution budget, the governed harness state machine, and the evaluation and candidate-promotion boundary. Pure and provider-neutral; depends only on @exattime/awe-kernel and @exattime/awe-control-plane.",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./capability": "./src/capability.mjs",
+    "./agent-definition": "./src/agent-definition.mjs",
+    "./agent-registry": "./src/agent-registry.mjs",
+    "./surface": "./src/surface.mjs",
+    "./proposal": "./src/proposal.mjs",
+    "./authorization": "./src/authorization.mjs",
+    "./planner": "./src/planner.mjs",
+    "./budget": "./src/budget.mjs",
+    "./harness": "./src/harness.mjs",
+    "./evaluation": "./src/evaluation.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

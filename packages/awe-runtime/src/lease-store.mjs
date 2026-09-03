@@ -72,7 +72,10 @@ function decide({ current, run_id, org_id, holder, now, ttl_ms }) {
   });
 }
 
-const refused = (verdict) => Object.freeze({
+// Exported so the Postgres store answers in the SAME shape rather than in a
+// shape that merely looks the same. A conformance suite that ran against two
+// hand-written result envelopes would be testing the envelopes.
+export const leaseRefused = (verdict) => Object.freeze({
   ok: false,
   reason: verdict.reason,
   detail: verdict.detail,
@@ -81,7 +84,7 @@ const refused = (verdict) => Object.freeze({
   held_by: verdict.held_by ?? null,
 });
 
-const granted = (verdict) => Object.freeze({
+export const leaseGranted = (verdict) => Object.freeze({
   ok: true,
   reason: null,
   detail: verdict.detail ?? null,
@@ -106,9 +109,9 @@ export function createMemoryLeaseStore({ ttl_ms = DEFAULT_LEASE_TTL_MS } = {}) {
 
     acquire({ run_id, org_id = null, holder, now, ttl_ms: ttl = null } = {}) {
       const verdict = decide({ current: leases.get(run_id) ?? null, run_id, org_id, holder, now, ttl_ms: ttl ?? ttl_ms });
-      if (!verdict.ok) return refused(verdict);
+      if (!verdict.ok) return leaseRefused(verdict);
       leases.set(run_id, verdict.lease);
-      return granted(verdict);
+      return leaseGranted(verdict);
     },
 
     verify({ run_id, holder, fence = null, now } = {}) {
@@ -133,16 +136,21 @@ export function createMemoryLeaseStore({ ttl_ms = DEFAULT_LEASE_TTL_MS } = {}) {
     // costs one small row per abandoned run and buys monotonicity.
     //
     // The record is removed on `release`, which is the normal end of a run.
-    expire({ now } = {}) {
+    expire({ now, org_id = null } = {}) {
       return [...leases.entries()]
-        .filter(([, lease]) => isExpired(lease, now))
+        .filter(([, lease]) => isExpired(lease, now) && (org_id === null || lease.org_id === org_id))
         .sort(([a], [b]) => (a < b ? -1 : 1))
         .map(([run_id, lease]) => ({
           run_id, holder: lease.holder, fence: lease.fence, expired_at: lease.expires_at,
         }));
     },
 
-    list() { return [...leases.keys()].sort(); },
+    list({ org_id = null } = {}) {
+      return [...leases.entries()]
+        .filter(([, lease]) => org_id === null || lease.org_id === org_id)
+        .map(([run_id]) => run_id)
+        .sort();
+    },
   });
 }
 
@@ -193,7 +201,7 @@ export function createFileLeaseStore({ root = 'artifacts', ttl_ms = DEFAULT_LEAS
     acquire({ run_id, org_id = null, holder, now, ttl_ms: ttl = null } = {}) {
       const current = readRecord(run_id);
       const verdict = decide({ current, run_id, org_id, holder, now, ttl_ms: ttl ?? ttl_ms });
-      if (!verdict.ok) return refused(verdict);
+      if (!verdict.ok) return leaseRefused(verdict);
 
       const target = pathFor(run_id);
       const body = `${canonicalJson(verdict.lease)}\n`;
@@ -203,16 +211,16 @@ export function createFileLeaseStore({ root = 'artifacts', ttl_ms = DEFAULT_LEAS
         // created the lease between our read and our open, which is exactly the
         // race this call exists to resolve — so re-read and answer with the
         // truth rather than overwriting it.
-        if (createExclusive(target, body)) return granted(verdict);
+        if (createExclusive(target, body)) return leaseGranted(verdict);
         const now_current = readRecord(run_id);
         const second = decide({ current: now_current, run_id, org_id, holder, now, ttl_ms: ttl ?? ttl_ms });
-        if (!second.ok) return refused(second);
+        if (!second.ok) return leaseRefused(second);
         replace(target, `${canonicalJson(second.lease)}\n`);
-        return granted(second);
+        return leaseGranted(second);
       }
 
       replace(target, body);
-      return granted(verdict);
+      return leaseGranted(verdict);
     },
 
     verify({ run_id, holder, fence = null, now } = {}) {
@@ -229,9 +237,9 @@ export function createFileLeaseStore({ root = 'artifacts', ttl_ms = DEFAULT_LEAS
 
     // Reports, never deletes — see the memory store for why deleting an expired
     // lease would silently reset the fence and re-validate a zombie.
-    expire({ now } = {}) {
+    expire({ now, org_id = null } = {}) {
       const swept = [];
-      for (const run_id of this.list()) {
+      for (const run_id of this.list({ org_id })) {
         const lease = readRecord(run_id);
         if (lease !== null && isExpired(lease, now)) {
           swept.push({ run_id, holder: lease.holder, fence: lease.fence, expired_at: lease.expires_at });
@@ -240,9 +248,11 @@ export function createFileLeaseStore({ root = 'artifacts', ttl_ms = DEFAULT_LEAS
       return swept;
     },
 
-    list() {
+    list({ org_id = null } = {}) {
       try {
-        return readdirSync(directory).filter((f) => f.endsWith('.json')).sort().map((f) => f.slice(0, -5));
+        const ids = readdirSync(directory).filter((f) => f.endsWith('.json')).sort().map((f) => f.slice(0, -5));
+        if (org_id === null) return ids;
+        return ids.filter((id) => readRecord(id)?.org_id === org_id);
       } catch {
         return [];
       }

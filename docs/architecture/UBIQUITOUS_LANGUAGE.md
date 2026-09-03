@@ -310,3 +310,181 @@ covered by Runner C and Runner M.
   assemble and compact context, checkpoint and resume. Entity:
   `packages/awe-runtime/src/service.mjs`. Invariant: it executes what it is
   asked to execute and decides nothing about whether the caller may.
+
+## Durable execution terms (2026-07-28, IMPLEMENTED — ADR-0010)
+
+These name things that exist in code today (`supabase/migrations/0017`,
+`packages/awe-runtime/src/postgres/`) and are covered by Runner D. The migration
+is written and validated but **not applied**; the vocabulary is not conditional
+on that, because the adapter and the port are in use either way.
+
+- **Durable execution repository** — the storage substrate a run depends on to
+  survive its own process: the journal (control), the leases (who may write) and
+  the results (data), each behind one port with three implementations. Entity:
+  `packages/awe-runtime/src/{journal,lease,result}-store.mjs` plus
+  `packages/awe-runtime/src/postgres/`. Invariant: it stores and serializes; it
+  decides nothing. Every rule it appears to enforce is a pure function in
+  `packages/awe-control-plane/`.
+
+- **Store backend** — which of `memory`, `local_file` or `postgres` a surface is
+  running on, chosen in exactly one place. Entity:
+  `packages/awe-runtime/src/store-selection.mjs`. Invariant: the default is
+  `memory`, which claims no durability, and asking for `postgres` without an
+  executor is a THROW and never a downgrade. A silent fallback would leave a
+  worker with no cross-process exclusion while believing it had some.
+
+- **Executor** — the transport a durable store is handed: one method,
+  `call(fn, payload)`. Entity: `packages/awe-runtime/src/postgres/executor.mjs`.
+  Invariant: no SQL, table name, column or connection string crosses this
+  boundary, which is what keeps `@exattime/awe-runtime` free of a database
+  driver and of any credential.
+
+- **Store unavailability** — the store could not answer: timeout, dead socket,
+  permission denied. Entity: `StoreUnavailableError`. Invariant: it is NOT a
+  `KernelError` and must never be reported as one. A domain refusal means "the
+  answer is no"; unavailability means "there is no answer", and a caller may
+  retry only the second.
+
+- **Journal write conflict** vs **journal append-only refusal** — two distinct
+  reasons a durable write is refused. `journal_write_conflict`: this writer's
+  view of the chain head is stale, so somebody else got there first.
+  `journal_append_only`: this writer's document DROPS or REWRITES history the
+  store already holds. Invariant: both are returned as DATA. A worker pulling
+  from a queue meets the first constantly and it is not an error.
+
+- **Fence** — the monotonic integer stamped on every lease acquisition that is
+  not a renewal. Entity: `packages/awe-control-plane/src/lease.mjs`, enforced in
+  the durable store by a trigger that refuses any update lowering it. Invariant:
+  it never goes backwards, which is why an expired lease record is reported and
+  never deleted — deleting restarts it at 1 and re-validates a zombie worker.
+
+- **Store conformance** — one behavioural contract answered identically by every
+  implementation. Entity: `scripts/lib/store-conformance.mjs`. Invariant: it is
+  sequential and therefore **not** a concurrency proof; the concurrency evidence
+  is separate, and lives in `scripts/eval-durable-store.mjs` where genuinely
+  parallel database backends race and a held-open transaction is observed
+  blocking another.
+
+## Governed agent terms (2026-07-28, IMPLEMENTED — ADR-0011)
+
+These name things that exist in code today (`packages/awe-agent`,
+`packages/awe-runtime/src/agent-service.mjs`) and are covered by Runner G. Unlike
+the H0 harness terms above, none of them is conditional on an unratified ADR and
+none of them names a table.
+
+- **Governed Agent Execution Plane** — the layer that lets a specialized agent
+  do real business work while staying tenant-bound, capability-limited,
+  policy-constrained, approval-aware, durable and replayable. NOT an agent
+  framework: a framework runs what a model asks for, and this runs what a
+  runtime the model cannot reach has authorized. Entity:
+  `packages/awe-agent`. Invariant: an agent PROPOSES; the runtime AUTHORIZES and
+  EXECUTES (ADR-0011). There is no code path by which a planner reaches a tool.
+
+- **Agent definition** — the versioned, digest-pinned document stating one
+  agent's complete bounded action space: identity, tenant scope, status,
+  capabilities and denied capabilities, tools, policy set, approval profile,
+  context requirements, memory profile, model preference, budget, output
+  contract, evaluation profile and provenance. NOT a prompt and NOT a class.
+  Entity: `agent-definition.mjs`. Invariant: new behaviour requires a NEW
+  VERSION — there is no mutate path, and `active` requires a recorded approver
+  and activator.
+
+- **Agent status** — `draft` (never executable), `active`, `deprecated`
+  (executable only when a caller pins the exact version AND opts in), `disabled`
+  (never executable, and NOT overridable by any argument). Invariant: a kill
+  switch an argument can turn off is not a kill switch.
+
+- **Capability** — a versioned BUSINESS PERMISSION: which operations exist,
+  which tools may serve them at which versions, the side-effect ceiling, the
+  data-classification ceiling, risk, approval threshold, tenant scope, actor
+  roles, idempotency and audit obligations. NOT a tool and NOT a role. Entity:
+  `capability.mjs`. Invariant: **tool access never implies business
+  authorization** — an agent may call a tool only when the definition declares
+  the capability, the capability binds that tool for that operation, the tenant
+  grant exists, the policy allows, and the approval (where obliged) is in force.
+
+- **Agent Execution Surface** — the workflow manifest an agent definition
+  COMPILES to, whose steps are the enumerated (capability, operation, tool)
+  bindings it permits. NOT an execution order: nothing walks it, and the run
+  engine is not used by the agent harness. Entity: `surface.mjs`. Invariant: it
+  is the COARSE ceiling — every finer capability rule is applied on top of it, so
+  compiling can only ever refuse more.
+
+- **Action proposal** — what a planner returns: a requested capability,
+  operation, tool, arguments and idempotency key, plus a SELF-REPORT (reason,
+  evidence, risk, side effect, confidence, claimed approval requirement). NOT an
+  instruction and NOT an authorization. Entity: `proposal.mjs`. Invariant: the
+  self-report is recorded as what the planner believed and is never an input to a
+  decision; an argument key beginning with `_` is refused by the grammar, because
+  it would let a proposal rewrite the tenant a tool executes under.
+
+- **Policy Decision Record** — the immutable, digest-pinned answer to "may this
+  action happen?", naming tenant, actor, agent version, capability version, tool
+  version, operation, data classification, decision, reason codes, evaluated
+  policies and the approval binding. NOT a boolean. Entity:
+  `authorization.mjs`, appended as `agent.policy_decided`. Invariant: a model
+  never reaches its constructor, and a rewritten record does not match its own
+  digest.
+
+- **Approval binding** — the digest an approval attaches to: tenant, agent
+  version, RESOLVED capability and tool versions, operation and arguments,
+  exactly. NOT the proposal digest — rewording an explanation must not invalidate
+  a decision, and changing an argument must. Invariant: a material change is
+  `approval_binding_mismatch`, an approval expires, and a resume RE-AUTHORIZES
+  from scratch rather than treating the approval as a token.
+
+- **Planning view** — the closed, redacted document a planner is handed: the
+  agent's identity, the capability surface as names and constraints, the
+  context with its trust and sensitivity labels intact, this run's observations,
+  the remaining budget and the refusals already recorded. Entity: `planner.mjs`.
+  Invariant: no grant, no policy engine, no approval state, no credential, no
+  environment and no handle to anything executable — asserted by a key-set check
+  and a source lint, not by convention.
+
+- **Planner** — what turns a planning view into a proposal: `deterministic`
+  (rules; a first-class production implementation) or `model` (an injected
+  PORT). NOT the thing that decides whether the action happens. Invariant: no
+  vendor is named anywhere in the plane; a planner that returns junk is
+  `planner_output_malformed` (a domain refusal) and one that throws is
+  `planner_unavailable` (an infrastructure failure), and the two are never
+  conflated.
+
+- **Observation** — a tool result, recorded for the next turn as labelled DATA
+  (`trusted: false`, `treated_as: 'data'`). NOT an instruction. Invariant: text
+  inside a result — including text that asks to skip an approval — can only
+  become an action by way of a proposal the runtime authorizes from scratch.
+
+- **Agent phase** — the finer projection over the same journal entries the run
+  state is projected from: requested, validating, assembling_context, planning,
+  validating_action, awaiting_approval, executing, validating_result,
+  evaluating, completed, failed, cancelled, timed_out, policy_denied,
+  budget_exhausted. NOT a stored field and NOT a second state machine. Entity:
+  `harness.mjs:projectAgentPhase`. Invariant: `policy_denied` ("the controls
+  worked") and `budget_exhausted` ("it ran out of room") are the distinction the
+  control plane's single `failed` cannot make.
+
+- **Execution budget** — four independent limits (turns, steps, tool calls, wall
+  clock), each with its OWN refusal reason, projected from the run's own history
+  so a resuming process reconstructs it exactly. Entity: `budget.mjs`.
+  Invariant: every dimension is NOT NULL and > 0 — an unbounded agent cannot be
+  configured — and time is measured over ACTIVE segments, so waiting for a human
+  costs nothing.
+
+- **Carry document** — the run's DATA: its proposals, observations, outputs and
+  evaluation records, held in the result store. NOT in the journal, because a
+  proposal's arguments are tenant data and a journal is a control-plane record.
+  Invariant: two stores, two jobs — the same rule step outputs already follow.
+
+- **Evaluation record** — the immutable measurement of one run: deterministic
+  checks, policy compliance, tool-use and approval correctness, cost, failure
+  class and a score DERIVED from the checks. Entity: `evaluation.mjs`, captured
+  before every terminal event including refusals. Invariant: it activates
+  nothing.
+
+- **Improvement candidate** — a PROPOSAL to change a prompt, an agent
+  definition, a policy, a capability, a tool, a context strategy, a memory
+  retrieval rule or a model configuration. Invariant: it cannot exist without
+  evaluation evidence, cannot be reviewed or promoted by automation, and
+  promotion produces a DRAFT version that still cannot execute until a separate
+  human activation and a redeploy. Rollback is automatic because nothing is ever
+  replaced.

@@ -2,7 +2,328 @@
 
 Read CONTEXT.md first, then this, then all docs/planning/*.md. One approved task per session.
 Vocabulary authority: docs/architecture/UBIQUITOUS_LANGUAGE.md (2026-07-17; harness
-terms appended 2026-07-27 marked PROPOSED).
+terms appended 2026-07-27 marked PROPOSED; governed-agent terms appended
+2026-07-28 and IMPLEMENTED).
+
+## Current state (2026-07-28, G1 — the Governed Agent Execution Plane, UNCOMMITTED on `feat/kernelized-mcp-context`)
+
+Code-only session on top of D1's uncommitted tree. **No live database call, no
+migration, no credential read, no network request, no model call, no push, no
+PR, no commit.** Nothing from D1 was discarded, reverted or rewritten.
+
+### The decision this session exists to implement
+**ADR-0011 — an agent proposes an action; the governed runtime authorizes and
+executes it.** Everything AWE could execute safely before now was declared in
+advance. An agent's next action is chosen at runtime, increasingly by a model, so
+the authorization decision has to move to the moment of action and out of the
+model's reach.
+
+### Shipped
+- **`packages/awe-agent`** — a new pure package, eleven modules, importing the
+  kernel and the control plane through one seam. No network, no filesystem, no
+  clock, no randomness, no ambient env, no model client and **no vendor name**,
+  all asserted by a purity lint.
+- **The capability model**: a business permission with its own versions, tool
+  bindings, ceilings, risk, approval threshold, tenant and actor restrictions,
+  data classification, idempotency and audit obligations. **Tool access never
+  implies business authorization.**
+- **The Agent Definition and its registry**: versioned, digest-pinned,
+  immutable, with an accountable activation and a `disabled` state no argument
+  can override. New behaviour requires a new version; there is no mutate path.
+- **The Execution Surface**: a definition COMPILES to a real workflow manifest,
+  so `policy.mjs`, `dispatch.mjs` and the manifest rules are reused rather than
+  reimplemented. A tool no capability binds refuses compilation.
+- **The Action Proposal grammar**: unknown keys, unversioned dependencies and
+  arguments beginning with `_` refused by the constructor; the planner's
+  self-report recorded as belief and never as authority.
+- **Five independent narrowings in one function**, producing an immutable,
+  digest-pinned **Policy Decision Record** naming every version it was decided
+  against.
+- **Approval bound to the exact action** — tenant, agent version, resolved
+  capability and tool versions, operation and arguments — and expiring. A resume
+  re-authorizes from scratch and fails closed on definition OR surface drift.
+- **Seven `agent.*` event types added to the existing journal**, all `to: null`,
+  and the **agent phase as a second projection** over the same entries. No second
+  journal, no stored phase.
+- **Four budgets**, each with its own reason, projected from the run's own
+  history. An unbounded agent cannot be configured. A refusal is never retried.
+- **The evaluation and promotion boundary**: measurement activates nothing;
+  a candidate needs evidence, a human review and a human promotion; promotion
+  yields a DRAFT that still cannot execute.
+- **`createGovernedAgentService`** — the third service, inheriting leases,
+  compare-and-set, idempotent submit and two-stores-two-jobs, adding *actor
+  identity is also an argument*, with `replayAgentRun` (cannot act) and
+  `simulateProposal` (no path to the dispatcher).
+- **The vertical slice**: a synthetic invoice operations agent whose intake
+  fixture carries a REAL, unfiltered prompt-injection payload.
+
+### Evidence (offline, this tree)
+`regression.sh --kinds=unit,offline,static`: **ALL GREEN, 12 ran, 11 skipped** —
+3611 assertions, 0 failures. Runner G **379/0** over 51 fixtures, byte-identical
+across two consecutive runs. Runner P **570/0** (was 568). All 35 adversarial
+cases from the brief are covered and named in their assertion messages.
+
+### Five defects found while building it, each real
+1. identity checked after context assembly, so a tenant-less run was refused as
+   `context_requirements_unmet`;
+2. the approval binding read from the projection, which knows nothing about
+   proposals, so a resume could not recover what a human approved;
+3. a resume re-checking evidence against a bundle it no longer had;
+4. the resume segment starting at the `workflow.resumed` marker, so time spent
+   waiting for an operator expired the run's budget;
+5. tool input carrying the whole observation history, which made an explicit
+   idempotency key meaningless.
+
+### The single largest unproven surface
+**No model has ever driven this plane.** The model boundary is exercised with an
+injected port returning a fixed string, which proves the CONTRACT and nothing
+about how a real model behaves inside the view. The plane is built so that this
+is a risk to usefulness, not to safety.
+
+## Scope lock (2026-07-28, G1 — the Governed Agent Execution Plane)
+
+
+Written **before** any implementation, as the session's own contract, and kept
+unedited so the plan and the outcome can be compared.
+
+### The tree this starts from
+Branch `feat/kernelized-mcp-context` at `7a1c0fb`, with the **uncommitted D1
+work present** (migration 0017, `packages/awe-runtime/src/postgres/`,
+`store-selection.mjs`, Runner D, ADR-0010, four modified planning docs). Nothing
+from D1 is discarded, reverted or rewritten; this session builds strictly on top
+of it and the D1 files are treated as intentional.
+
+### What already exists (do not rebuild)
+- **A validated, versioned, digest-pinned manifest** with a closed key set,
+  tenant scope, tool requirements with version ranges, context requirements,
+  approval policy, limits, risk, promotion and steps —
+  `awe-control-plane/src/manifest.mjs`. The Agent Definition must be its sibling,
+  not its replacement.
+- **A registry that is the only source of something executable** —
+  `workflow-registry.mjs`: resolve by id + version requirement + tenant, refuse
+  with a registered reason, no parameter anywhere accepting a definition.
+- **A deny-by-default policy engine over tenant grants** — `policy.mjs`: LIVE
+  refused outright, tenant binding required, three-way side-effect ceiling
+  intersection, approval threshold as the MINIMUM of manifest and grant, and G4
+  (`actor: 'service'` may never approve) checked first.
+- **The controlled tool-invocation boundary** — `dispatch.mjs`: nine refusals
+  before an adapter is called, effect-identity idempotency with cross-process
+  rehydration, injected clock, adapter throw contained as a failed step.
+- **An append-only, hash-chained run journal whose state is PROJECTED** —
+  `journal.mjs`: an explicit transition table, no stored state anywhere.
+- **A durable execution repository behind three ports** with `memory`,
+  `local_file` and `postgres` implementations and a shared conformance suite
+  (D1), plus run leases with fencing and a compare-and-set on the chain head.
+- **Context primitives**: tenant-bound items with declared trust and
+  sensitivity, deterministic assembly with complete exclusion accounting,
+  compaction that can never launder trust or sensitivity.
+- **A synthetic reference vertical slice** — `reference/invoice-intake.mjs`:
+  six tools, a ledger that is a `Map`, `@example.invalid` addresses, failure
+  injection on the adapter.
+
+### The exact gap this session closes
+Everything above executes a **statically declared** step list. Nothing in the
+repository can safely execute an action that was **proposed at runtime** — by a
+model or by anything else — because there is no contract for a proposed action,
+no capability layer between an agent and a tool, no agent definition to bind an
+actor to a bounded action space, no approval that binds to the *arguments* of a
+specific proposal, and no evaluation record with a promotion boundary. That is
+the Governed Agent Execution Plane, and it is what this session builds.
+
+The load-bearing decision, recorded as ADR-0011: **an agent proposes; the
+governed runtime authorizes and executes.** A model never reaches a tool.
+
+### Files expected to change
+- new package `packages/awe-agent/` — `capability.mjs`, `agent-definition.mjs`,
+  `agent-registry.mjs`, `surface.mjs`, `proposal.mjs`, `authorization.mjs`,
+  `planner.mjs`, `budget.mjs`, `harness.mjs`, `evaluation.mjs`, `kernel.mjs`
+  (the single import seam), `index.mjs`
+- new `packages/awe-runtime/src/agent-service.mjs`
+- new `packages/awe-runtime/src/reference/invoice-operations-agent.mjs`
+- new `scripts/eval-governed-agent.{mjs,sh}`, registered in
+  `packages/awe-kernel/src/registry.mjs` as Runner G
+- new `docs/architecture/GOVERNED_AGENT_EXECUTION_PLANE.md`,
+  `docs/architecture/decisions/0011-agents-propose-runtime-authorizes.md`
+- edited `packages/awe-control-plane/src/journal.mjs` (agent event types added to
+  the transition table — additive only, no existing transition changed)
+- edited `packages/awe-control-plane/src/index.mjs`,
+  `packages/awe-runtime/src/index.mjs` (exports)
+- edited `scripts/lib/awe-reasons.mjs` (an `agent` reason namespace)
+- edited `docs/architecture/UBIQUITOUS_LANGUAGE.md`,
+  `docs/architecture/decisions/README.md`, and the planning docs
+
+### Invariants that must survive
+- **State is projected, never stored.** The agent phase is a SECOND projection
+  over the same journal entries, not a column and not a field.
+- **One journal, one writer, append-only.** The agent harness appends through
+  the same journal object under the same lease and the same compare-and-set.
+- **Deny by default at every layer**, and no layer may widen another: a tool
+  needs the agent to declare the capability, the capability to bind the tool,
+  the tenant grant to exist, the policy to allow, and the approval to be in
+  force and bound to *these* arguments.
+- **The model decides nothing.** It receives a redacted planning view, returns a
+  proposal, and the runtime re-derives every authorization fact itself.
+- **Untrusted content stays untrusted.** Text inside a document is data; it
+  cannot grant a capability, and a tool result is an observation, not an
+  instruction.
+- The kernel and the control plane stay free of drivers, clocks, network and
+  ambient environment; the agent package sits above the control plane and below
+  the runtime and imports through one seam.
+- No live credential, no live database, no network, no send path, no n8n.
+
+### Explicit non-goals
+- No model provider client of any kind. The provider boundary is a PORT with a
+  deterministic implementation; no vendor SDK, no key, no HTTP call.
+- No new database migration. The agent plane persists through the D1 stores that
+  already exist; an `agent_*` schema is a separate, later decision.
+- No prompt-injection string filter. Injection is defeated architecturally (the
+  model cannot reach a tool) and the tests assert the boundary, not a blocklist.
+- No agent-authored memory writes. `memory.propose_write` is a proposal that
+  produces a candidate, never a write.
+- No self-modification path: promotion produces a DRAFT definition and requires a
+  named human, and nothing in the harness can call it.
+- No fan-out, no scheduling, no work-queue scanning, no compensation for agent
+  runs (the reference agent's tools are internal-write and reversible by policy,
+  and a compensating agent is a later slice).
+- No commit, no push, no PR.
+
+### Conflicts and overlaps discovered
+1. `docs/architecture/AGENT_HARNESS_*.md` (H0/H1, 2026-07-27) describe an
+   `agent_sessions` / `agent_steps` / `agent_session_types` **table-first**
+   harness whose ADR-0001 is not Accepted, and whose vocabulary is marked
+   PROPOSED in UBIQUITOUS_LANGUAGE. This session implements the same doctrine
+   (G4 "automation approves nothing", the effect ladder, untrusted context)
+   **in code, above the control plane, with no new tables** — so the H0 design
+   is neither contradicted nor implemented. Recorded in the new architecture doc
+   rather than by editing the H0 documents, which are a historical record.
+2. `dispatch.mjs` needs a *manifest* to evaluate policy against. Rather than
+   introduce a second authorization implementation for agents, an agent
+   definition **compiles** to a real, validated workflow manifest — its
+   Execution Surface — whose steps are the enumerated (capability, tool)
+   bindings. The agent's action space is finite and declared, so this is a
+   faithful projection and not a fabricated graph.
+3. `journal.mjs`'s transition table is a closed vocabulary. Agent events are
+   ADDED to it rather than given a second journal, because two hash-chained
+   histories for one run is exactly the disagreement the projection rule exists
+   to prevent.
+
+## Current state (2026-07-28, D1 — the durable execution repository, UNCOMMITTED on `feat/kernelized-mcp-context`)
+
+Code-and-migration session. **No live database call, no migration applied, no
+credential read, no network request, no push, no PR, no commit.** Every database
+interaction was against a throwaway `postgres:17` container created and destroyed
+by the test runner.
+
+### Shipped
+- **Migration 0017** — `awe_run_journals`, `awe_run_journal_entries`,
+  `awe_run_leases`, `awe_run_results`; eleven `SECURITY DEFINER` functions with
+  `search_path = ''`; RLS on with **zero** client policies; append-only enforced
+  by trigger *against a superuser*. Written, validated against a real PostgreSQL
+  17 on top of the real 0001–0016 history, **not applied**.
+- **A Postgres adapter one method wide** (`call(fn, payload)`), so
+  `@exattime/awe-runtime` still depends on no database driver and holds no
+  credential.
+- **ADR-0002's Path C demonstrated**: a role holding only `EXECUTE` on the eleven
+  functions — no table privilege at all — passes the entire store contract.
+- **A reusable conformance suite** answered identically by `memory`, `local_file`
+  and `postgres`, which found **two defects in the existing stores**: the result
+  stores' unchecked cross-tenant WRITE, and a journal write that would accept a
+  rewritten prefix at the current head.
+- **Real concurrency found a third**: `awe_journal_write`'s create path was not
+  serialized, because `SELECT … FOR UPDATE` locks nothing when the row does not
+  exist. Eight parallel creators all passed the compare-and-set.
+- **The store port is now `T | Promise<T>`** (ADR-0010 D6). Seven service reads
+  became async; eleven call sites gained `await`. The port change immediately
+  exposed a fourth defect — an unawaited `claim()` in `cancelRun`.
+- **`selectStores`**: one place a backend is chosen, default `memory`, and asking
+  for `postgres` without an executor throws rather than downgrading.
+- **A vertical slice across four services that share no memory**, connected only
+  by Postgres, with replay reproducing the timeline exactly.
+- **`scripts/rollback-migration-0017.sql`**, verified by round trip.
+
+### Evidence (offline, this tree)
+`regression.sh --kinds=unit,offline,static`: **ALL GREEN, 11 ran, 11 skipped** —
+3225 assertions, 0 failures. Runner D **321/0** with Docker, **169/0** without
+(gates reported as SKIP, loudly). Runner P **568/0** (was 564). Two consecutive
+Runner D runs are byte-identical.
+
+### The single largest untested surface
+`createSupabaseRpcExecutor` — the PostgREST binding — is covered by no test,
+because testing it needs a live project. The `psql` transport proves the SQL and
+the adapter; it does not prove that binding. See AGENT_HANDOFF `## risks` item 2.
+
+## Scope lock (2026-07-28, D1 — durable execution repository)
+
+Written **before** any implementation, as the session's own contract. Kept here
+unedited so the plan and the outcome can be compared.
+
+### Correction to the brief
+The session brief described the tree as branch `chore/agent-handoff-integration`
+with four modified planning docs. The actual tree is branch
+`feat/kernelized-mcp-context` at `7a1c0fb`, **working tree clean**. Nothing was
+discarded to reach that state; the brief was simply describing an older tree.
+All work below starts from `7a1c0fb`.
+
+### What already exists (do not rebuild)
+- **The port is already there, three times over.** `packages/awe-runtime/src/`
+  holds `journal-store.mjs` (`read`/`write(document,{expected_head})`/`list`),
+  `lease-store.mjs` (`read`/`acquire`/`verify`/`release`/`expire`/`list`) and
+  `result-store.mjs` (`read`/`write`/`list`), each with a `memory` and a
+  `local_file` implementation. Every one of their headers already names a table
+  as the successor and cites ADR-0002.
+- **The rules are already pure and already elsewhere.** State transitions,
+  the hash chain and the projection live in `awe-control-plane/src/journal.mjs`;
+  claim/renew/steal/expire/fence live in `awe-control-plane/src/lease.mjs`.
+  Neither reads a clock or touches I/O. A database adapter must not restate
+  those rules — it supplies **atomicity**, not policy.
+- Idempotent submit, run leases with fencing, journal head compare-and-set,
+  approval quorum, conditional steps, compensation, cancellation and timeout are
+  all implemented and covered by Runner P (`scripts/eval-control-plane.sh`).
+- Migrations run `0001`–`0016`. `0016` is promoted but **unapplied**.
+
+### What is missing
+1. No durable store crosses a process boundary with real atomicity. The file
+   journal store's compare-and-set is read-compare-rename and its own header
+   says so; taking over an expired file lease is likewise not atomic.
+2. No schema exists for runs, journal entries, leases or results.
+3. There is no **conformance suite**: each store implementation is tested only
+   incidentally, through the service, so a new implementation has no shared
+   behavioural contract to be held to.
+4. The store ports are synchronous, which no real database client can be.
+
+### Files expected to change
+- new `supabase/migrations/0017_awe_durable_execution.sql`
+- new `packages/awe-runtime/src/postgres/{executor,journal-store,lease-store,result-store}.mjs`
+- new `scripts/lib/store-conformance.mjs`, `scripts/lib/pg-harness.mjs`
+- new `scripts/eval-durable-store.{mjs,sh}`, registered in
+  `packages/awe-kernel/src/registry.mjs`
+- new `docs/architecture/decisions/0010-durable-execution-repository.md`
+- edited `packages/awe-runtime/src/{index,control-plane-service}.mjs` (await the
+  stores), `packages/mcp-server/src/control-plane-tools.mjs` and
+  `scripts/awe-control-plane.mjs` (await the now-async reads)
+- edited `docs/architecture/EXECUTION_CONTROL_PLANE.md` and the planning docs
+
+### Invariants that must survive
+- **State is projected, never stored.** No `state` column anywhere. A durable
+  row that carried a state could disagree with its own history.
+- **Two stores, two jobs.** Journal holds digests; step outputs live in the
+  result store. The schema must not let a workflow's data into the journal.
+- Tenant binding is an argument, never an inference; a refusal must not reveal
+  another tenant's ownership.
+- The fence never goes backwards; an expired lease record is never deleted.
+- Terminal runs accept no further events; a journal is append-only.
+- The control plane and kernel stay free of drivers, clocks and ambient env.
+
+### Explicit non-goals
+- No live Supabase call, no migration apply, no push, no PR, no commit.
+- No work-queue scanning (`claim the next runnable run`). Nothing in the runtime
+  pulls work that way today; a `state` column to index would break the
+  projection invariant. Deliberately deferred.
+- No heartbeat/lease-renew API beyond the existing `acquire`-renews semantics.
+- No FK from the execution tables to `orgs`: the control plane's tenant id is an
+  opaque string (`org_synthetic_alpha`), not `orgs.id uuid`. Mapping the two is
+  a separate concern and is not invented here.
+- No change to the ExatTime domain tables, and no new client RLS policy.
 
 ## Current state (2026-07-27, K4/C1 — kernelized MCP + context primitives, COMMITTED on `feat/kernelized-mcp-context`)
 

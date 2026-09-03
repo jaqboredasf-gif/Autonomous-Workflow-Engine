@@ -92,6 +92,39 @@ export const TRANSITIONS = Object.freeze({
   'compensation.requested': { from: ['running', 'rejected', 'compensating', 'paused', 'awaiting_approval'], to: 'compensating' },
   'compensation.completed': { from: ['compensating'], to: 'compensating' },
   'compensation.failed': { from: ['compensating'], to: 'compensating' },
+  // --- the governed agent plane ---------------------------------------------
+  //
+  // Added for the Governed Agent Execution Plane (`packages/awe-agent`). Every
+  // one of them has `to: null`: an agent event RECORDS a decision and moves
+  // nothing. A run's state still changes only through the workflow, step and
+  // approval events above, so an agent cannot reach a state a workflow cannot,
+  // and the projection below needed no new state.
+  //
+  // They live in THIS table rather than in a second, agent-shaped journal
+  // because two hash-chained histories for one run is precisely the
+  // disagreement "state is projected, never stored" exists to prevent. An
+  // agent run is a run; it is simply one whose steps were proposed at runtime
+  // instead of declared in a manifest.
+  //
+  // All of them occur while the run is `running`. A resumed agent run
+  // re-validates AFTER `workflow.resumed` has returned it to `running`, so a
+  // revalidation refusal is recorded in the same state as a first-pass one.
+  'agent.turn_started': { from: ['running'], to: null },
+  'agent.context_assembled': { from: ['running'], to: null },
+  'agent.action_proposed': { from: ['running'], to: null },
+  'agent.proposal_refused': { from: ['running'], to: null },
+  // The Policy Decision Record: immutable audit evidence of allow /
+  // require_approval / deny, with the versions and reason codes it was decided
+  // on. A model cannot write one, because a model never appends to a journal.
+  'agent.policy_decided': { from: ['running'], to: null },
+  // A tool result, recorded as an OBSERVATION. The distinction is the point:
+  // an observation is data the next turn may read, never an instruction the
+  // runtime obeys.
+  'agent.observation_recorded': { from: ['running'], to: null },
+  // An evaluation record's digest, written before the run terminates. It
+  // records; it can activate nothing.
+  'agent.evaluated': { from: ['running'], to: null },
+
   'workflow.completed': { from: ['running'], to: 'completed' },
   'workflow.failed': { from: ['running', 'compensating', 'rejected'], to: 'failed' },
   'workflow.cancelled': { from: ['running', 'paused', 'awaiting_approval', 'compensating'], to: 'cancelled' },
@@ -99,6 +132,23 @@ export const TRANSITIONS = Object.freeze({
 });
 
 export const RUN_EVENT_TYPES = Object.freeze(Object.keys(TRANSITIONS).sort());
+
+/**
+ * The subset of `RUN_EVENT_TYPES` that only the governed agent plane produces.
+ *
+ * Named as its own vocabulary so each suite can be held to the part of the
+ * table it is responsible for: Runner P covers every WORKFLOW event type and is
+ * explicitly not expected to produce an agent one, and Runner G covers all of
+ * these. Without the split, adding an agent event type would silently weaken
+ * Runner P's coverage gate from "everything" to "everything I happen to reach".
+ */
+export const AGENT_EVENT_TYPES = Object.freeze(
+  RUN_EVENT_TYPES.filter((t) => t.startsWith('agent.')),
+);
+
+export const WORKFLOW_EVENT_TYPES = Object.freeze(
+  RUN_EVENT_TYPES.filter((t) => !t.startsWith('agent.')),
+);
 
 const ENTITY_TYPE = 'workflow_run';
 

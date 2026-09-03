@@ -209,6 +209,28 @@ export const SUITES = [
     tags: ['eval', 'runner-p', 'control-plane', 'security'],
   },
   {
+    id: 'eval-durable-store',
+    name: 'durable execution repository (Runner D — store conformance, real Postgres gates, persistent vertical slice)',
+    // 'offline' and NOT 'db': it declares no credential and contacts no live
+    // project. The Postgres it uses is a throwaway container created and
+    // destroyed by the runner itself, so this suite is safe to run anywhere and
+    // adds nothing to the management-API rate-limit pressure.
+    kind: 'offline',
+    command: 'bash scripts/eval-durable-store.sh',
+    description: 'One store contract answered identically by memory, local_file and the Supabase/Postgres adapter; plus what only a real server can be asked — eight parallel writers with one winner, a transaction observed blocking another, append-only enforced against a superuser, a role holding nothing but EXECUTE doing the runtime\'s whole job, cross-tenant foreign keys, corrupted rows failing closed, and infrastructure errors kept distinct from domain refusals; plus the reference workflow paused, approved and resumed by services that share no memory. Without Docker the conformance half still runs and the database gates report SKIP loudly.',
+    skipIfMissing: ['scripts/eval-durable-store.sh'],
+    tags: ['eval', 'runner-d', 'control-plane', 'durability', 'security'],
+  },
+  {
+    id: 'eval-governed-agent',
+    name: 'governed agent execution plane eval (Runner G, offline deterministic — no keys, no DB, no network, no model)',
+    kind: 'offline',
+    command: 'bash scripts/eval-governed-agent.sh',
+    description: 'The governed agent path end to end on the synthetic invoice operations agent: versioned agent definitions and the registry that is the only source of a runnable one, the capability model that separates business permission from tool access, the compiled execution surface, the action-proposal contract a planner must speak, the five independent authorization narrowings with an immutable Policy Decision Record, approval bound to exact arguments (and expiring), pause and resume across a service that shares no memory, definition and surface drift refused on resume, bounded turns/steps/tool-calls/time, prompt injection defeated architecturally rather than by filtering, append-only history, deterministic replay, and the evaluation/promotion boundary that keeps improvement from becoming self-modification.',
+    skipIfMissing: ['scripts/eval-governed-agent.sh'],
+    tags: ['eval', 'runner-g', 'agent', 'control-plane', 'security'],
+  },
+  {
     id: 'eval-execution',
     name: 'execution-outcome + durable-artifact eval (Runner E, offline deterministic — no keys, no DB, no network)',
     kind: 'offline',
