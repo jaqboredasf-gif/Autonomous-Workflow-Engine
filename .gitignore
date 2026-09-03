@@ -9,3 +9,20 @@ dist/
 # Durable run-report artifacts (scripts/lib/artifact-store.mjs). Evidence of a
 # run, not source — committing them would make every regression run a diff.
 artifacts/
+
+# THE OBSIDIAN VAULT LIVES IN THIS DIRECTORY AND IS NOT PART OF THE REPOSITORY.
+#
+# On 2026-07-28 apps/, fixtures/ and 40 scripts were physically moved out of the
+# tracked layout into "AWE Founder Brain/ENGINEERING/" and the move was never
+# recorded, so git reported 167 deletions for five weeks. A single `git add -A`
+# would have committed the vault and removed the application in the same commit.
+# The files are restored; these entries stop the vault from ever being staged.
+.obsidian/
+.claudian/
+AWE/
+AWE Founder Brain/
+AWE Operational Memory/
+Operational Decision Layer/
+Organizational Reality/
+*.zip
+*.docx
