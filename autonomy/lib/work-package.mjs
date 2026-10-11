@@ -22,7 +22,7 @@ const TEMPLATES = {
     objective: 'Give production records a defined, repeatable route into the evidence layer: a read-only intake command for a verified backup copied off RDS02, and the procedure for bringing the copy back.',
     implementation_plan: [
       'scripts/awe-production-intake.mjs --from <copied backup>: open READ-ONLY; refuse a path inside the repository; run the same integrity check as pcc-backup --check; refuse unless schema_meta environment is "production" and the org id is the one declared; print what it is (counts, date range, release)',
-      'then run, against that file: npm run plan -- --db <file> --org lippolis --json, and proof-case-study --db; write their outputs to .awe/production/ (gitignored), never the database',
+      'then run, against that file: npm run plan -- --db <file> --org <the declared org> --json, and proof-case-study --db; write their outputs to .awe/production/ (gitignored), never the database',
       'docs/proof/PRODUCTION_EVIDENCE_RETURN.md: who copies the nightly backup off RDS02, on what medium, where it may live, that it never enters git, and the command to run',
       'scripts/eval-autonomy.mjs: tests with a rehearsal-stamped and an unstamped database (both refused), a production-stamped fixture (accepted), and a path inside the repo (refused)',
     ],
@@ -42,6 +42,10 @@ const TEMPLATES = {
       'exit 0 only when the copy is accepted and analysed; any refusal exits non-zero and names the reason on stderr (the words "repository", "rehearsal", "unstamped", "organization" or "integrity", as applicable)',
       'on success writes .awe/production/<label>/intake.json: { schema: "awe.production-intake/1", source: { sha256, bytes }, environment, org, counts: { requests, purchase_orders }, analyses: [{ name, exit_code, output }] } and nothing outside .awe/production/',
       'the source file is byte-identical afterwards and gains no -wal/-shm/-journal sidecar',
+      'the decision comes from what the file says about itself (schema_meta environment, the orgs table, integrity), never from its name or path; probes use random names, labels and organization ids',
+      'a refusal writes no intake record; a path inside the repository is refused even when reached through a symlink',
+      'npm lifecycle script names (pre*/post*, install, prepare …) may not be added to package.json',
+      'the engine\'s capability probe (probeCapability in autonomy/lib/observe.mjs, "evidence-return") must report the route present: docs/proof/PRODUCTION_EVIDENCE_RETURN.md needs a line describing copying/bringing/transferring/exporting the backup or database to where plan / case study / evidence run (it matches /(copy|bring|transfer|export).{0,60}(backup|database|pcc\\.sqlite).{0,80}(plan|case[- ]study|evidence|proof)/i on one line)',
     ],
     probes: 'autonomy/probes/production-evidence-intake.mjs',
     acceptance_criteria: [

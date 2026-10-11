@@ -25,7 +25,7 @@ import { deriveEngineeringState } from '../autonomy/lib/state.mjs';
 import { awaitingReview } from '../autonomy/lib/observe.mjs';
 import { evaluate, addScriptsOnly, isTestFile } from '../autonomy/lib/evaluate.mjs';
 import { canonical, hashOf, newCycleId, advance, ledgerEntry, verifyLedger, renderBrief, sha256 } from '../autonomy/lib/cycle.mjs';
-import { createWorktree, commitBuild, pushBranch, checkoutForEvaluation, removeEvaluationCheckout } from '../autonomy/lib/hands.mjs';
+import { createWorktree, commitBuild, pushBranch, checkoutForEvaluation, removeEvaluationCheckout, configFingerprint, checkWorktreeIdentity, changedPaths } from '../autonomy/lib/hands.mjs';
 import { generateWorkPackage } from '../autonomy/lib/work-package.mjs';
 import { checkChange } from '../autonomy/lib/guard.mjs';
 
@@ -44,14 +44,18 @@ const throws = (fn) => { try { fn(); return false; } catch { return true; } };
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
-const run = (over = {}) => ({ id: 1, name: 'verify', status: 'completed', conclusion: 'success', html_url: 'https://example.invalid/1', completed_at: '2026-10-11T10:00:00Z', ...over });
+const run = (over = {}) => ({ id: 1, name: 'verify', status: 'completed', conclusion: 'success', html_url: 'https://example.invalid/1', completed_at: '2026-10-11T10:00:00Z', head_sha: A, ...over });
 const rec = (runs, commit = A) => fromCheckRuns({ check_runs: runs }, { commit, importedBy: 't', importedAt: 't' });
 
 console.log('--- authoritative CI: the exact commit, never borrowed ----------');
 ok(ciVerdict(rec([run()]), A).status === 'PASS', 'a successful verify run for this commit is PASS');
 ok(ciVerdict(rec([run({ conclusion: 'failure' })]), A).status === 'FAIL', 'a failed verify run is FAIL');
 ok(ciVerdict(rec([run({ status: 'in_progress', conclusion: null })]), A).status === 'PENDING', 'a running verify is PENDING, not PASS');
-ok(ciVerdict(rec([run()]), B).status === 'ABSENT', 'green CI for another commit is ABSENT for this one');
+ok(ciVerdict(rec([run({ head_sha: B })], B), A).status === 'ABSENT', 'green CI for another commit is ABSENT for this one');
+ok(ciVerdict(rec([run({ head_sha: undefined })]), A).status === 'ABSENT', 'a run that does not name its head sha is unprovenanced, so ABSENT (review M3)');
+ok(ciVerdict(fromCheckRuns({ jobs: [run()] }, { commit: A, importedBy: 't', importedAt: 't' }), A).status === 'PASS', 'a workflow run\'s jobs document is accepted too');
+ok(ciVerdict(rec([run({ completed_at: '2026-10-11T09:00:00Z' }), run({ id: 2, status: 'in_progress', conclusion: null, completed_at: null })]), A).status === 'PENDING',
+   'a re-run still in progress after a success is PENDING, not PASS (review)');
 ok(ciVerdict(rec([run({ name: 'deploy evidence (non-blocking)' })]), A).status === 'ABSENT', 'only the verify check decides; a green side job is not a verdict');
 ok(ciVerdict(null, A).status === 'ABSENT', 'no record is ABSENT');
 ok(ciVerdict(rec([run({ conclusion: 'failure', completed_at: '2026-10-11T09:00:00Z' }), run({ id: 2, completed_at: '2026-10-11T10:00:00Z' })]), A).status === 'PASS',
@@ -89,6 +93,7 @@ console.log('--- the queue counts other work, not the work in hand ------------'
     { current: 'claude/autonomy-m3', head: 'HEAD' });
   ok(q.length === 1 && q[0].branch === 'autonomy/c1', 'the current branch, a merged branch and an alias of HEAD are not queued work', JSON.stringify(q));
   ok(awaitingReview([b('autonomy/c1'), b('autonomy/c2')], { current: 'x', head: 'y' }).length === 2, 'two other unmerged autonomy branches are two');
+  ok(awaitingReview([b('autonomy/c1'), b('autonomy/c2')], { current: 'autonomy/c1', head: 'y' }).length === 2, 'standing on a cycle branch does not take its PR off the queue (review)');
 }
 
 console.log('--- the work package measures from a commit, not a branch --------');
@@ -111,7 +116,7 @@ const good = {
   pkg: { ...pkg, budget_minutes: 45 }, branch: 'autonomy/c1', policy, blockers,
   changes: [ch('scripts/awe-production-intake.mjs', { status: 'A' }), ch('scripts/eval-autonomy.mjs'), ch('package.json')],
   packageJson: { before: { name: 'x', scripts: { a: '1' } }, after: { name: 'x', scripts: { a: '1', intake: '2' } } },
-  selftest: { exit_code: 0 }, probes: [{ id: 'p', pass: true, detail: '' }], ci: PASS,
+  selftest: { base: { exit_code: 0, passed: 208, failed: 0 }, head: { exit_code: 0, passed: 214, failed: 0 } }, probes: [{ id: 'p', pass: true, detail: '' }], ci: PASS,
   review: { status: 'NO_BLOCKING', findings: [] }, elapsedMinutes: 20,
 };
 const verdict = (over) => evaluate({ ...good, ...over });
@@ -129,7 +134,15 @@ ok(failed({ changes: [ch('scripts/eval-proof.mjs', { status: 'D', added: [] })] 
 ok(failed({ packageJson: { before: good.packageJson.before, after: { ...good.packageJson.after, dependencies: { evil: '1' } } } }, 'file-rules'), 'adding a dependency to package.json is REJECT');
 ok(failed({ packageJson: { before: good.packageJson.before, after: { name: 'x', scripts: { a: 'changed' } } } }, 'file-rules'), 'changing an existing script is REJECT');
 ok(addScriptsOnly({ scripts: { a: '1' } }, { scripts: { a: '1', b: '2' } }).length === 0, 'adding a script is allowed');
-ok(failed({ selftest: { exit_code: 1 } }, 'selftest'), 'a failing self-test is REJECT');
+ok(failed({ selftest: { base: { exit_code: 1, passed: 207, failed: 1 }, head: good.selftest.head } }, 'selftest'), 'the base self-test failing on the head is REJECT (a regression)');
+ok(failed({ selftest: { base: good.selftest.base, head: { exit_code: 0, passed: 150, failed: 0 } } }, 'selftest'), 'a head self-test with fewer passing checks than the base copy is REJECT (tests switched off)');
+ok(failed({ selftest: { base: good.selftest.base, head: { exit_code: 0, passed: 214, failed: 3 } } }, 'selftest'), 'a head self-test that exits 0 while reporting failures is REJECT (exit rewritten)');
+ok(failed({ selftest: { base: good.selftest.base, head: { exit_code: 0, passed: null, failed: null } } }, 'selftest'), 'a head self-test with no summary line is REJECT');
+ok(failed({ changes: [ch('scripts/eval-autonomy.mjs', { added: ["process.on('exit', () => { process.exitCode = 0; });"] })] }, 'tests-not-weakened'), 'rewriting how the suite exits is REJECT');
+ok(failed({ packageJson: { before: good.packageJson.before, after: { name: 'x', scripts: { a: '1', postinstall: 'node evil' } } } }, 'file-rules'), 'adding an npm lifecycle script is REJECT: CI would run it before any test (review B4)');
+ok(failed({ packageJson: { before: good.packageJson.before, after: { name: 'x', scripts: { a: '1', prepare: 'node evil' } } } }, 'file-rules'), 'prepare is a lifecycle script too');
+ok(failed({ tampered: 'git config changed' }, 'integrity'), 'a changed git config or worktree identity is REJECT');
+ok(failed({ previouslyRejected: true, head: A }, 'not-previously-rejected'), 'a head already rejected in this cycle stays rejected on retry (review M2)');
 ok(failed({ probes: [{ id: 'refuses-rehearsal', pass: false, detail: 'accepted it' }] }, 'probes'), 'a failing evaluator probe is REJECT');
 ok(failed({ ci: { status: 'FAIL', detail: 'red' } }, 'ci'), 'red CI is REJECT');
 ok(verdict({ ci: { status: 'ABSENT', detail: 'none' } }).verdict === 'HUMAN_REVIEW', 'missing CI is HUMAN_REVIEW, never ACCEPT');
@@ -189,62 +202,93 @@ console.log('--- the hands reach one autonomy branch, and no further ----------'
     sh(tmp, 'init', '-q', '--bare', remote);
     mkdirSync(repo);
     sh(repo, 'init', '-q', '-b', 'pcc-production');
-    writeFileSync(join(repo, 'a.txt'), 'a\n');
+    mkdirSync(join(repo, '.github'));
+    writeFileSync(join(repo, '.github', 'ci.yml'), 'ci\n');
+    writeFileSync(join(repo, 'tested.mjs'), 'a\n');
     sh(repo, 'add', '.');
     sh(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'base');
     sh(repo, 'remote', 'add', 'origin', remote);
     sh(repo, 'push', '-q', 'origin', 'pcc-production');
     const base = sh(repo, 'rev-parse', 'HEAD');
     const author = { name: 't', email: 't@t' };
+    const allowed = ['allowed.txt', 'tested.mjs'];
+    const build = (wt, since = base) => commitBuild(wt, { branch: 'autonomy/c1', since, allowed, message: 'm', author }, policy, blockers);
 
     ok(throws(() => createWorktree(repo, { path: join(tmp, 'w0'), branch: 'pcc-production-2', base }, policy, blockers)), 'a worktree on a non-autonomy branch is refused');
     ok(throws(() => createWorktree(repo, { path: join(tmp, 'w0'), branch: 'autonomy/x', base: 'HEAD' }, policy, blockers)), 'a base that is not a full commit sha is refused');
-    const wt = join(tmp, 'wt');
-    createWorktree(repo, { path: wt, branch: 'autonomy/c1', base }, policy, blockers);
-    ok(sh(wt, 'rev-parse', '--abbrev-ref', 'HEAD') === 'autonomy/c1', 'the worktree is on its autonomy branch');
+    const wt = createWorktree(repo, { path: join(tmp, 'wt'), branch: 'autonomy/c1', base }, policy, blockers);
+    const fp0 = configFingerprint(repo, wt.gitDir);
+    ok(sh(wt.path, 'rev-parse', '--abbrev-ref', 'HEAD') === 'autonomy/c1', 'the worktree is on its autonomy branch');
 
-    writeFileSync(join(wt, 'allowed.txt'), 'x\n');
-    writeFileSync(join(wt, 'sneaky.txt'), 'y\n');
-    const refused = commitBuild(wt, { branch: 'autonomy/c1', base, allowed: ['allowed.txt'], message: 'm', author }, policy, blockers);
+    writeFileSync(join(wt.path, 'allowed.txt'), 'x\n');
+    writeFileSync(join(wt.path, 'sneaky.txt'), 'y\n');
+    const refused = build(wt);
     ok(!refused.committed && refused.outside.includes('sneaky.txt'), 'a build with an out-of-scope path is not committed at all');
-    ok(sh(wt, 'rev-parse', 'HEAD') === base, 'and nothing was committed, not even the allowed part');
-    rmSync(join(wt, 'sneaky.txt'));
-    // A Builder that commits by itself (here: adds, then deletes, a file the
-    // final diff would never show) gets nothing taken.
-    writeFileSync(join(wt, 'secret.txt'), 's\n');
-    sh(wt, 'add', '.');
-    sh(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'builder commit 1');
-    sh(wt, 'rm', '-q', 'secret.txt');
-    sh(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'builder commit 2');
-    const own = commitBuild(wt, { branch: 'autonomy/c1', base, allowed: ['allowed.txt'], message: 'm', author }, policy, blockers);
+    ok(sh(wt.path, 'rev-parse', 'HEAD') === base, 'and nothing was committed, not even the allowed part');
+    rmSync(join(wt.path, 'sneaky.txt'));
+
+    // Review B1: a staged rename of an L3 file onto an allowed path.
+    sh(wt.path, 'mv', '.github/ci.yml', 'allowed2.txt');
+    const renamed = commitBuild(wt, { branch: 'autonomy/c1', since: base, allowed: [...allowed, 'allowed2.txt'], message: 'm', author }, policy, blockers);
+    ok(!renamed.committed && renamed.outside.includes('.github/ci.yml'), 'a rename is both a deletion and an addition: the deleted L3 file is out of scope', JSON.stringify(renamed));
+    sh(wt.path, 'mv', 'allowed2.txt', '.github/ci.yml');
+
+    // Review B2: an unstaged modification of a tracked file is read without mangling its path.
+    writeFileSync(join(wt.path, 'tested.mjs'), 'a\nb\n');
+    ok(JSON.stringify(changedPaths(wt, base)) === JSON.stringify(['allowed.txt', 'tested.mjs']), 'a modified tracked file is reported by its full path', JSON.stringify(changedPaths(wt, base)));
+
+    // A Builder that commits by itself (adds, then deletes, a file the final diff would never show) gets nothing taken.
+    writeFileSync(join(wt.path, 'secret.txt'), 's\n');
+    sh(wt.path, 'add', 'secret.txt');
+    sh(wt.path, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'builder commit 1');
+    sh(wt.path, 'rm', '-q', 'secret.txt');
+    sh(wt.path, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'builder commit 2');
+    const own = build(wt);
     ok(!own.committed && own.builder_commits.length === 2, 'a Builder\'s own commits are refused, even when the final diff looks clean');
-    sh(wt, 'reset', '-q', '--hard', base);
-    writeFileSync(join(wt, 'allowed.txt'), 'x\n');
-    // A hook the Builder planted is not run by the runner's commit.
-    mkdirSync(join(wt, 'hooks'), { recursive: true });
-    sh(repo, 'config', 'core.hooksPath', join(wt, 'hooks'));
-    writeFileSync(join(wt, 'hooks', 'pre-commit'), `#!/bin/sh\ntouch ${join(tmp, 'HOOK_RAN')}\nexit 0\n`, { mode: 0o755 });
-    rmSync(join(wt, 'hooks'), { recursive: true, force: true });
+    sh(wt.path, 'reset', '-q', '--soft', base);
+
+    // A hook, or an fsmonitor command, configured for the shared repository never runs.
     mkdirSync(join(tmp, 'hooks'));
-    sh(repo, 'config', 'core.hooksPath', join(tmp, 'hooks'));
     writeFileSync(join(tmp, 'hooks', 'pre-commit'), `#!/bin/sh\ntouch ${join(tmp, 'HOOK_RAN')}\nexit 0\n`, { mode: 0o755 });
-    const done = commitBuild(wt, { branch: 'autonomy/c1', base, allowed: ['allowed.txt'], message: 'm', author }, policy, blockers);
+    sh(repo, 'config', 'core.hooksPath', join(tmp, 'hooks'));
+    sh(repo, 'config', 'core.fsmonitor', `touch ${join(tmp, 'FSMONITOR_RAN')}; false`);
+    ok(configFingerprint(repo, wt.gitDir) !== fp0, 'a config change made from the worktree changes the fingerprint the cycle checks');
+    const done = build(wt);
     ok(done.committed && done.head !== base, 'an in-scope build is committed');
-    ok(!existsSync(join(tmp, 'HOOK_RAN')), 'and no git hook ran during the runner\'s commit');
-    ok(throws(() => removeEvaluationCheckout(repo, wt)), 'the hands refuse to remove anything but an evaluation checkout');
+    ok(!existsSync(join(tmp, 'HOOK_RAN')), 'no git hook ran during the runner\'s commit');
+    ok(!existsSync(join(tmp, 'FSMONITOR_RAN')), 'no fsmonitor command ran during the runner\'s status and commit');
+    sh(repo, 'config', '--unset', 'core.hooksPath');
+    sh(repo, 'config', '--unset', 'core.fsmonitor');
+
+    // Review M1: a retry measures the Builder's commits from the runner's last commit, not the base.
+    writeFileSync(join(wt.path, 'allowed.txt'), 'second attempt\n');
+    const retry = build(wt, done.head);
+    ok(retry.committed && retry.head !== done.head, 'a second attempt is collected on top of the runner\'s first commit');
+
+    ok(pushBranch(wt, { branch: 'autonomy/c1', url: remote }, policy, blockers) === retry.head, 'it is pushed to exactly its autonomy branch, at the URL recorded at start');
+    ok(sh(remote, 'rev-parse', 'refs/heads/autonomy/c1') === retry.head, 'the remote has that branch at that commit');
+    ok(sh(remote, 'rev-parse', 'refs/heads/pcc-production') === base, 'the product line on the remote did not move');
+    ok(throws(() => pushBranch(wt, { branch: 'pcc-production', url: remote }, policy, blockers)), 'pushing the worktree to the product line is refused');
+    ok(throws(() => pushBranch(wt, { branch: 'autonomy/c1' }, policy, blockers)), 'a push without the recorded URL is refused');
+    ok(throws(() => removeEvaluationCheckout(repo, wt.path)), 'the hands refuse to remove anything but an evaluation checkout');
     const ev = join(tmp, '.awe', 'eval', 'c1-1');
-    ok(checkoutForEvaluation(repo, { commit: done.head, path: ev }) === done.head, 'the evaluator gets a clean checkout of exactly the built commit');
+    ok(checkoutForEvaluation(repo, { commit: retry.head, path: ev }) === retry.head, 'the evaluator gets a clean checkout of exactly the built commit');
     removeEvaluationCheckout(repo, ev);
     ok(!existsSync(ev), 'and it is removed afterwards');
-    ok(pushBranch(wt, { branch: 'autonomy/c1' }, policy, blockers) === done.head, 'and pushed to exactly its autonomy branch');
-    ok(sh(remote, 'rev-parse', 'refs/heads/autonomy/c1') === done.head, 'the remote has that branch at that commit');
-    ok(sh(remote, 'rev-parse', 'refs/heads/pcc-production') === base, 'the product line on the remote did not move');
-    ok(throws(() => pushBranch(wt, { branch: 'pcc-production' }, policy, blockers)), 'pushing the worktree to the product line is refused');
-    sh(wt, 'reset', '-q', '--hard', base);
-    writeFileSync(join(wt, 'allowed.txt'), 'other\n');
-    sh(wt, 'add', '.');
-    sh(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'diverged');
-    ok(throws(() => pushBranch(wt, { branch: 'autonomy/c1' }, policy, blockers)), 'a non-fast-forward push is rejected, never forced');
+
+    // Review B3, file route: the worktree's .git file rewritten to point elsewhere.
+    const dotgit = join(wt.path, '.git');
+    writeFileSync(dotgit, `gitdir: ${join(tmp, 'elsewhere')}\n`);
+    ok(throws(() => checkWorktreeIdentity(wt)), 'a rewritten .git file is detected');
+    ok(throws(() => build(wt, retry.head)), 'and the hands refuse to commit from that worktree');
+    ok(throws(() => pushBranch(wt, { branch: 'autonomy/c1', url: remote }, policy, blockers)), 'or to push from it');
+    writeFileSync(dotgit, wt.dotgit);
+
+    sh(wt.path, 'reset', '-q', '--hard', base);
+    writeFileSync(join(wt.path, 'allowed.txt'), 'other\n');
+    sh(wt.path, 'add', '.');
+    sh(wt.path, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'diverged');
+    ok(throws(() => pushBranch(wt, { branch: 'autonomy/c1', url: remote }, policy, blockers)), 'a non-fast-forward push is rejected, never forced');
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 }
 
@@ -271,6 +315,13 @@ console.log('--- the probes discriminate (fake intakes) -----------------------'
   const no = await fake("console.error('refused: rehearsal unstamped organization integrity repository'); process.exit(1);\n");
   ok(no.some((p) => p.id === 'accepts-production' && !p.pass), 'an intake that refuses everything fails the acceptance probe');
   ok(no.some((p) => p.id === 'capability-gap-closed' && !p.pass), 'and a branch with no documented procedure leaves the capability gap open');
+  const byName = await fake([
+    "import { mkdirSync, writeFileSync } from 'node:fs';",
+    "const a = process.argv; const from = a[a.indexOf('--from') + 1]; const label = a[a.indexOf('--label') + 1];",
+    "if (/rehearsal|unstamped|development/.test(from)) { console.error('refused: rehearsal unstamped development organization integrity repository ' + from); process.exit(1); }",
+    "mkdirSync('.awe/production/' + label, { recursive: true }); writeFileSync('.awe/production/' + label + '/intake.json', '{}'); process.exit(0);",
+  ].join('\n'));
+  ok(byName.some((p) => p.id === 'accepts-production' && !p.pass), 'an intake that judges by file name refuses the production copy named like a rehearsal (review M4)');
   const scribble = await fake("import { writeFileSync } from 'node:fs'; writeFileSync('stray.txt', 'x'); process.exit(1);\n");
   ok(scribble.some((p) => p.id === 'repository-untouched' && !p.pass), 'an intake that writes into the repository fails the untouched probe');
 }

@@ -154,12 +154,20 @@ npm run cycle -- verify-ledger
   rules (`no-removals`, `add-scripts-only`), the interface the Builder must meet, and the path of
   the evaluator's probes, which are not on the Builder's branch and are hashed into the record.
 - **The hands** (`lib/hands.mjs`) are the only code here that changes git: a worktree on a new
-  `autonomy/*` branch from the base commit, a commit only if every changed path is allowed, a
-  fast-forward push of that one branch. No force, merge, rebase, reset or branch deletion.
+  `autonomy/*` branch from the base commit, a commit only if every changed path (both sides of a
+  rename) is allowed and the Builder committed nothing itself, a fast-forward push of that one
+  branch to the URL recorded at start. No force, merge, rebase, reset or branch deletion. Every
+  command names its git dir explicitly with hooks and fsmonitor off, and the cycle refuses to act
+  if the shared git config or the worktree's `.git` file changed since it started: the Builder
+  shares the repository, so config it writes must never become code the supervisor runs.
 - **The evaluator** (`lib/evaluate.mjs`) judges from the diff against the base commit, the guard,
-  test-weakening rules, the file rules, the Builder branch's self-test, the probes, CI for the
-  pushed head, the budget, and a fresh-session review that saw only the package and the diff.
-  Any FAIL is REJECT; anything it cannot establish is HUMAN_REVIEW; there is no override input.
+  test-weakening rules, the file rules (no npm lifecycle scripts), the BASE commit's self-test run
+  on the head plus the head's own (which may not pass fewer checks), the probes (random names,
+  labels and organizations), provenanced CI for the pushed head, the budget, and a fresh-session
+  review that saw only the package and the diff. Self-tests and probes run on a clean checkout of
+  the pushed commit. Any FAIL is REJECT; a head once rejected stays rejected; evaluation refuses to
+  run without CI and a review, so evidence cannot be withheld to turn REJECT into HUMAN_REVIEW.
+  There is no override input.
 - **The record** (`lib/cycle.mjs`) keeps finding, score, authority, package, build, verification,
   verdict, PR, expected impact, actual impact (UNKNOWN until measured) and human disposition
   (PENDING; derived later from whether the branch was merged). `autonomy/cycles/ledger.jsonl`

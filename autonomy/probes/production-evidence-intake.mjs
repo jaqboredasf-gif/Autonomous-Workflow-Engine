@@ -16,17 +16,19 @@
 // ---------------------------------------------------------------------------
 
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { probeCapability } from '../lib/observe.mjs';
 
-const ORG = 'lippolis';
+// Every name a probe uses is random, so an intake cannot pass by recognizing
+// a fixture's file name, label or organization instead of reading the file.
+const rnd = () => randomBytes(4).toString('hex');
 const fileSha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 const SIDECARS = ['-wal', '-shm', '-journal'];
 
-async function makeFixture(root, path, environment, org = ORG) {
+async function makeFixture(root, path, environment, org) {
   const { openDatabase } = await import(join(root, 'apps/purchasing/src/purchasing/infrastructure/sqlite/database.ts'));
   const db = openDatabase(path);
   if (environment !== 'unstamped') {
@@ -42,12 +44,17 @@ async function makeFixture(root, path, environment, org = ORG) {
 }
 
 export async function run({ root, worktree }) {
+  const ORG = `org-${rnd()}`;
   const results = [];
   const probe = (id, pass, detail) => results.push({ id, pass: !!pass, detail });
   const tmp = mkdtempSync(join(tmpdir(), 'awe-intake-probe-'));
   const intake = join(worktree, 'scripts/awe-production-intake.mjs');
-  const call = (from, label, org = ORG) => spawnSync(process.execPath,
-    [intake, '--from', from, '--org', org, '--label', label], { cwd: worktree, encoding: 'utf8', timeout: 120_000 });
+  const labels = {};
+  const call = (from, id, org = ORG) => {
+    labels[id] = `l-${rnd()}`;
+    return spawnSync(process.execPath, [intake, '--from', from, '--org', org, '--label', labels[id]], { cwd: worktree, encoding: 'utf8', timeout: 120_000 });
+  };
+  const recordOf = (id) => join(worktree, '.awe/production', labels[id] ?? '-', 'intake.json');
   const status = () => spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: worktree, encoding: 'utf8' }).stdout.trim();
 
   try {
@@ -56,13 +63,14 @@ export async function run({ root, worktree }) {
     const before = status();
 
     // 1. A production copy outside the repository is accepted and analysed.
-    const prod = join(tmp, 'pcc-production-copy.sqlite');
-    await makeFixture(root, prod, 'production');
+    // Named like a rehearsal on purpose: the stamp inside decides, not the name.
+    const prod = join(tmp, `rehearsal-${rnd()}.sqlite`);
+    await makeFixture(root, prod, 'production', ORG);
     const sha = fileSha(prod);
     const mtime = statSync(prod).mtimeMs;
     const ok = call(prod, 'probe-accept');
     probe('accepts-production', ok.status === 0, `exit ${ok.status}${ok.status ? `: ${(ok.stderr || ok.stdout).trim().slice(0, 300)}` : ''}`);
-    const recPath = join(worktree, '.awe/production/probe-accept/intake.json');
+    const recPath = recordOf('probe-accept');
     let rec = null;
     try { rec = JSON.parse(readFileSync(recPath, 'utf8')); } catch { /* checked below */ }
     probe('intake-record', rec?.schema === 'awe.production-intake/1' && rec?.source?.sha256 === sha && rec?.environment === 'production' && rec?.org === ORG
@@ -79,24 +87,24 @@ export async function run({ root, worktree }) {
       ['refuses-development', 'development', /development|production/i],
     ];
     for (const [id, env, re] of refusals) {
-      const f = join(tmp, `${env}.sqlite`);
-      await makeFixture(root, f, env);
+      const f = join(tmp, `pcc-production-${rnd()}.sqlite`);
+      await makeFixture(root, f, env, ORG);
       const r = call(f, id);
       probe(id, r.status !== 0 && re.test(r.stderr + r.stdout), `exit ${r.status}: ${(r.stderr || r.stdout).trim().slice(0, 200)}`);
     }
     {
-      const r = call(prod, 'refuses-wrong-org', 'another-company');
+      const r = call(prod, 'refuses-wrong-org', `org-${rnd()}`);
       probe('refuses-wrong-org', r.status !== 0 && /organi[sz]ation|org\b/i.test(r.stderr + r.stdout), `exit ${r.status}: ${(r.stderr || r.stdout).trim().slice(0, 200)}`);
     }
     {
-      const torn = join(tmp, 'torn.sqlite');
+      const torn = join(tmp, `pcc-production-${rnd()}.sqlite`);
       const bytes = readFileSync(prod);
       writeFileSync(torn, bytes.subarray(0, Math.floor(bytes.length / 2)));
       const r = call(torn, 'refuses-torn');
       probe('refuses-torn-copy', r.status !== 0 && /integrity|malformed|not a database|corrupt/i.test(r.stderr + r.stdout), `exit ${r.status}: ${(r.stderr || r.stdout).trim().slice(0, 200)}`);
     }
     {
-      const inside = join(worktree, 'probe-production-copy.sqlite');
+      const inside = join(worktree, `copy-${rnd()}.sqlite`);
       copyFileSync(prod, inside);
       const r = call(inside, 'refuses-in-repo');
       rmSync(inside, { force: true });
@@ -104,17 +112,17 @@ export async function run({ root, worktree }) {
       probe('refuses-in-repository', r.status !== 0 && /repositor/i.test(r.stderr + r.stdout), `exit ${r.status}: ${(r.stderr || r.stdout).trim().slice(0, 200)}`);
     }
     {
-      const inside = join(worktree, 'probe-linked-copy.sqlite');
+      const inside = join(worktree, `copy-${rnd()}.sqlite`);
       copyFileSync(prod, inside);
-      const link = join(tmp, 'looks-outside.sqlite');
+      const link = join(tmp, `pcc-production-${rnd()}.sqlite`);
       symlinkSync(inside, link);
       const r = call(link, 'refuses-symlink');
       rmSync(inside, { force: true });
       for (const s of SIDECARS) rmSync(inside + s, { force: true });
       probe('refuses-symlink-into-repository', r.status !== 0 && /repositor/i.test(r.stderr + r.stdout), `exit ${r.status}: ${(r.stderr || r.stdout).trim().slice(0, 200)}`);
     }
-    for (const id of ['refuses-rehearsal', 'refuses-unstamped', 'refuses-wrong-org', 'refuses-torn', 'refuses-in-repo', 'refuses-symlink']) {
-      if (existsSync(join(worktree, '.awe/production', id, 'intake.json'))) probe(`no-record-on-refusal:${id}`, false, 'a refused copy still produced an intake record');
+    for (const id of Object.keys(labels).filter((x) => x !== 'probe-accept')) {
+      if (existsSync(recordOf(id))) probe(`no-record-on-refusal:${id}`, false, 'a refused copy still produced an intake record');
     }
 
     // 3. Nothing outside .awe/production/ was written into the repository.

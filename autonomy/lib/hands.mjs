@@ -6,72 +6,118 @@
 // policy refuses, before git is asked:
 //
 //   · a branch outside the autonomy prefix, or one an open blocker closes;
-//   · a commit containing any path outside the package's allowed_files
-//     (nothing is staged unless every path qualifies);
-//   · a push that is not a plain fast-forward of that one autonomy branch:
-//     no force, no other refspec, no tags.
+//   · a commit containing any path outside the package's allowed_files,
+//     including either side of a rename (nothing is committed unless every
+//     path qualifies, and the index is re-checked after staging);
+//   · a push that is not a plain fast-forward of that one autonomy branch, to
+//     the URL recorded when the cycle started: no force, no other refspec.
+//
+// THE BUILDER SHARES A REPOSITORY WITH THE SUPERVISOR, so it could write git
+// config (core.fsmonitor, diff.external, a pushurl) or rewrite its worktree's
+// `.git` file to point somewhere else, and have the supervisor's next git
+// command run its code or report its numbers. So every command here names its
+// git dir and work tree explicitly, disables hooks, fsmonitor, external diff
+// and textconv, and the cycle refuses to continue if the shared config or the
+// worktree's admin files changed since it started (configFingerprint).
 //
 // It never merges, rebases, resets, deletes a branch, or touches the product
 // line. A merge is a person's act.
 // ---------------------------------------------------------------------------
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { checkChange } from './guard.mjs';
 
-// Hooks never run: a Builder that wrote a hook (or a hooksPath) must not get
-// code executed by the runner's commit or push.
-const run = (cwd, args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+export const SAFE = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
+const exec = (cwd, args) => execFileSync('git', [...SAFE, ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+const run = (cwd, args) => exec(cwd, args).trim();
+/** A command against the Builder's worktree, never trusting its `.git` file. */
+const inTree = (wt, args) => exec(wt.path, [`--git-dir=${wt.gitDir}`, `--work-tree=${wt.path}`, ...args]);
 
 function refuseRef(branch, policy, blockers) {
   const v = checkChange({ paths: [], ref: branch }, policy, blockers);
   if (v.length) throw new Error(`hands: refusing ${branch}: ${v.map((x) => x.detail).join('; ')}`);
 }
 
-/** A fresh worktree at `path` on a NEW branch cut from the base COMMIT. */
+/**
+ * The files whose change would let the Builder steer git: the shared config
+ * and the worktree's admin files. Hashed at start, compared before every act.
+ */
+export function configFingerprint(root, gitDir) {
+  const common = run(root, ['rev-parse', '--git-common-dir']);
+  const abs = resolve(root, common);
+  const files = [join(abs, 'config'), join(abs, 'info', 'attributes'), join(abs, 'commondir'),
+    ...(gitDir ? ['config', 'config.worktree', 'commondir', 'gitdir'].map((f) => join(gitDir, f)) : [])];
+  const h = createHash('sha256');
+  for (const f of files) h.update(`${f}\0${existsSync(f) ? readFileSync(f, 'utf8') : '<absent>'}\0`);
+  return h.digest('hex');
+}
+
+/** A fresh worktree at `path` on a NEW branch cut from the base COMMIT. Returns its identity. */
 export function createWorktree(root, { path, branch, base }, policy, blockers) {
   refuseRef(branch, policy, blockers);
   if (!/^[0-9a-f]{40}$/.test(base)) throw new Error('hands: base must be a full commit sha');
   run(root, ['worktree', 'add', '-b', branch, path, base]);
-  return run(path, ['rev-parse', 'HEAD']);
+  const gitDir = resolve(path, run(path, ['rev-parse', '--git-dir']));
+  return { path, gitDir, head: run(path, ['rev-parse', 'HEAD']), dotgit: readFileSync(join(path, '.git'), 'utf8') };
 }
 
-/** Paths the Builder changed relative to base, committed or not (untracked included). */
-export function changedPaths(worktree, base) {
-  const committed = run(worktree, ['diff', '--name-only', `${base}..HEAD`]).split('\n').filter(Boolean);
-  const pending = run(worktree, ['status', '--porcelain', '--untracked-files=all']).split('\n').filter(Boolean)
-    .map((l) => l.slice(3).replace(/^.* -> /, ''));
-  return [...new Set([...committed, ...pending])].sort();
+/** Raises if the worktree's `.git` file no longer says what createWorktree wrote. */
+export function checkWorktreeIdentity(wt) {
+  const now = existsSync(join(wt.path, '.git')) ? readFileSync(join(wt.path, '.git'), 'utf8') : '<absent>';
+  if (now !== wt.dotgit) throw new Error(`hands: ${wt.path}/.git was rewritten; refusing to act on that worktree`);
+}
+
+/** NUL-separated porcelain, renames split into delete + add, nothing trimmed. */
+function statusPaths(wt) {
+  const out = inTree(wt, ['status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=all']);
+  return out.split('\0').filter(Boolean).map((e) => e.slice(3));
+}
+
+/** Paths the Builder changed since `since` (committed or not, untracked included, both sides of renames). */
+export function changedPaths(wt, since) {
+  const committed = inTree(wt, ['diff', '--name-only', '-z', '--no-renames', '--no-ext-diff', `${since}..HEAD`]).split('\0').filter(Boolean);
+  return [...new Set([...committed, ...statusPaths(wt)])].sort();
 }
 
 /**
  * Commit everything the Builder left, if and only if every path is allowed.
  * The Builder must not commit: a commit of its own could carry history (a file
- * added, then removed) that the final diff never shows, and it would be pushed.
+ * added, then removed) that the final diff never shows, and it would be
+ * pushed. `since` is the last commit the RUNNER made (the base on attempt 1).
  */
-export function commitBuild(worktree, { branch, base, allowed, message, author }, policy, blockers) {
+export function commitBuild(wt, { branch, since, allowed, message, author }, policy, blockers) {
   refuseRef(branch, policy, blockers);
-  const current = run(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  checkWorktreeIdentity(wt);
+  const current = inTree(wt, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
   if (current !== branch) throw new Error(`hands: worktree is on ${current}, not ${branch}`);
-  const own = run(worktree, ['rev-list', `${base}..HEAD`]).split('\n').filter(Boolean);
-  if (own.length) return { committed: false, outside: [], builder_commits: own, paths: changedPaths(worktree, base) };
-  const paths = changedPaths(worktree, base);
+  const own = inTree(wt, ['rev-list', `${since}..HEAD`]).split('\n').filter(Boolean);
+  if (own.length) return { committed: false, outside: [], builder_commits: own, paths: changedPaths(wt, since) };
+  const paths = changedPaths(wt, since);
   const outside = paths.filter((p) => !allowed.includes(p));
   if (outside.length) return { committed: false, outside, paths };
-  const pending = run(worktree, ['status', '--porcelain', '--untracked-files=all']);
-  if (pending) {
-    run(worktree, ['add', '--', ...allowed.filter((p) => paths.includes(p))]);
-    run(worktree, ['-c', `user.name=${author.name}`, '-c', `user.email=${author.email}`, 'commit', '-q', '--no-verify', '-m', message]);
+  if (paths.length) {
+    inTree(wt, ['add', '-A', '--', ...paths]);
+    // Re-check what is actually staged, by both sides of any rename.
+    const staged = inTree(wt, ['diff', '--cached', '--name-only', '-z', '--no-renames', '--no-ext-diff', since]).split('\0').filter(Boolean);
+    const stagedOutside = staged.filter((p) => !allowed.includes(p));
+    if (stagedOutside.length) return { committed: false, outside: stagedOutside, paths: staged };
+    inTree(wt, ['-c', `user.name=${author.name}`, '-c', `user.email=${author.email}`, 'commit', '-q', '--no-verify', '-m', message]);
   }
-  return { committed: true, outside: [], paths, head: run(worktree, ['rev-parse', 'HEAD']) };
+  return { committed: true, outside: [], paths, head: inTree(wt, ['rev-parse', 'HEAD']).trim() };
 }
 
-/** Push exactly HEAD to exactly refs/heads/<branch>. A rejected (non-fast-forward) push stays rejected. */
-export function pushBranch(worktree, { branch, remote = 'origin' }, policy, blockers) {
+/** Push exactly HEAD to exactly refs/heads/<branch> at `url`. A non-fast-forward push stays rejected. */
+export function pushBranch(wt, { branch, url }, policy, blockers) {
   refuseRef(branch, policy, blockers);
-  const current = run(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  checkWorktreeIdentity(wt);
+  if (!url || /^-/.test(url)) throw new Error('hands: a push needs the remote URL recorded at the start of the cycle');
+  const current = inTree(wt, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
   if (current !== branch) throw new Error(`hands: worktree is on ${current}, not ${branch}`);
-  run(worktree, ['push', '--no-tags', '--no-verify', remote, `HEAD:refs/heads/${branch}`]);
-  return run(worktree, ['rev-parse', 'HEAD']);
+  inTree(wt, ['push', '--no-tags', '--no-verify', url, `HEAD:refs/heads/${branch}`]);
+  return inTree(wt, ['rev-parse', 'HEAD']).trim();
 }
 
 /**

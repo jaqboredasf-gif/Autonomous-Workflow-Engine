@@ -1036,3 +1036,16 @@ hands, evaluator, probes and a hash-chained ledger.
 - *Making autonomy/cycles/ L3 now.* It would be a policy change, and governance changes are outside
   this authorization. The Builder cannot touch it anyway (not in any package's allowed files), and the
   ledger detects edits. Recommended to Jack as an L3 addition.
+
+**Independent review before first use (same day).** A fresh-session adversarial review of the loop
+(no context from its author) found five blocking defects the author's 110 tests missed: a staged
+rename committed an out-of-scope deletion; `.trim()` mangled porcelain output so every correct
+edit of a tracked file was refused; git config written from the Builder's worktree
+(`core.fsmonitor`, ext-diff, pushurl, a rewritten `.git` file) could make the supervisor run code or
+see false diffs; a new `postinstall` script could make CI green; and test-weakening by added lines
+passed because the self-test was the Builder's own. All were fixed before any real cycle ran, each
+with a test, and each fix was mutation-checked. The lesson recorded here: the loop's own author is
+the wrong judge of the loop, which is why the evaluator includes a fresh-session review at all.
+Residual, stated plainly: CI evidence is a file an importer supplies; it now needs each run's
+`head_sha`, but a determined importer could still fabricate one. Closing that needs the engine to
+read GitHub with credentials, or CI to publish signed results: a later milestone, and Jack's call.

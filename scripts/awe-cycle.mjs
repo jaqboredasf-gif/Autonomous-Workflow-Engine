@@ -32,7 +32,7 @@ import { judge } from '../autonomy/lib/engine.mjs';
 import { git } from '../autonomy/lib/git.mjs';
 import { ciVerdict } from '../autonomy/lib/ci-evidence.mjs';
 import { evaluate } from '../autonomy/lib/evaluate.mjs';
-import { createWorktree, commitBuild, pushBranch, checkoutForEvaluation, removeEvaluationCheckout } from '../autonomy/lib/hands.mjs';
+import { createWorktree, commitBuild, pushBranch, checkoutForEvaluation, removeEvaluationCheckout, configFingerprint, checkWorktreeIdentity, SAFE } from '../autonomy/lib/hands.mjs';
 import { newCycleId, advance, ledgerEntry, verifyLedger, expectedImpact, renderBrief, sha256 } from '../autonomy/lib/cycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -66,25 +66,44 @@ function current() {
 }
 const need = (r, ...phases) => { if (!phases.includes(r.phase)) die(`cycle ${r.cycle_id} is ${r.phase}; this step needs ${phases.join(' or ')}`); };
 
-/** -U0 diff of one path, as removed/added lines. */
-function lineDiff(worktree, base, head, path) {
-  const out = spawnSync('git', ['diff', '-U0', '--no-color', `${base}..${head}`, '--', path], { cwd: worktree, encoding: 'utf8' }).stdout;
+/** -U0 diff of one path, as removed/added lines: hunk bodies only, never headers. */
+function lineDiff(base, head, path) {
+  const out = spawnSync('git', [...SAFE, 'diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', `${base}..${head}`, '--', path], { cwd: ROOT, encoding: 'utf8' }).stdout;
   const removed = []; const added = [];
+  let inHunk = false;
   for (const l of out.split('\n')) {
-    if (l.startsWith('---') || l.startsWith('+++')) continue;
+    if (l.startsWith('diff --git ')) { inHunk = false; continue; }
+    if (l.startsWith('@@')) { inHunk = true; continue; }
+    if (!inHunk) continue;
     if (l.startsWith('-')) removed.push(l.slice(1)); else if (l.startsWith('+')) added.push(l.slice(1));
   }
   return { removed, added };
 }
-function changesOf(worktree, base, head) {
+/** Computed in the supervisor's repository by sha, never through the Builder's worktree. */
+function changesOf(base, head) {
   // --raw gives the new mode too: 120000 is a symlink, 160000 a submodule.
-  const raw = spawnSync('git', ['diff', '--raw', '--no-renames', `${base}..${head}`], { cwd: worktree, encoding: 'utf8' }).stdout;
-  return raw.split('\n').filter(Boolean).map((l) => {
-    const [meta, path] = l.split('\t');
-    const [, , newMode, , , status] = meta.split(/\s+/);
-    return { status, path, mode: newMode, ...lineDiff(worktree, base, head, path) };
-  });
+  const raw = spawnSync('git', [...SAFE, 'diff', '--raw', '-z', '--no-renames', '--no-ext-diff', `${base}..${head}`], { cwd: ROOT, encoding: 'utf8' }).stdout;
+  const parts = raw.split('\0').filter(Boolean);
+  const out = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const [, , newMode, , , status] = parts[i].split(/\s+/);
+    const path = parts[i + 1];
+    out.push({ status, path, mode: newMode, ...lineDiff(base, head, path) });
+  }
+  return out;
 }
+const wtOf = (r) => ({ path: r.build.worktree, gitDir: r.build.git_dir, dotgit: r.build.dotgit });
+/** Refuse to act if the Builder could have steered git since the cycle started. */
+function integrity(r) {
+  try { checkWorktreeIdentity(wtOf(r)); } catch (e) { return e.message; }
+  const fp = configFingerprint(ROOT, r.build.git_dir);
+  return fp === r.build.config_sha256 ? null : 'git config or the worktree admin files changed since the cycle started';
+}
+/** "autonomy checks: N passed, M failed" from a self-test's output. */
+const counts = (text) => {
+  const m = /checks: (\d+) passed, (\d+) failed\s*$/m.exec(text ?? '');
+  return m ? { passed: Number(m[1]), failed: Number(m[2]) } : { passed: null, failed: null };
+};
 
 function builderBrief(r) {
   const p = r.package;
@@ -206,8 +225,11 @@ if (cmd === 'start') {
   const branch = `${policy.autonomy_branch_prefix}${id}`;
   const worktree = join(ROOT, '.awe/worktrees', id);
   mkdirSync(dirname(worktree), { recursive: true });
-  createWorktree(ROOT, { path: worktree, branch, base: baseCommit }, policy, blockers);
-  r.build = { branch, base: baseCommit, worktree, attempts: 0, head: null, changes: [] };
+  const remoteUrl = git(ROOT, ['remote', 'get-url', 'origin']);
+  if (!remoteUrl) die('cannot read the origin URL');
+  const wt = createWorktree(ROOT, { path: worktree, branch, base: baseCommit }, policy, blockers);
+  r.build = { branch, base: baseCommit, worktree, git_dir: wt.gitDir, dotgit: wt.dotgit, remote_url: remoteUrl,
+    config_sha256: configFingerprint(ROOT, wt.gitDir), attempts: 0, head: null, changes: [], rejected_heads: [] };
   save(r);
   console.log(`cycle ${id}: ${j.decision.headline}`);
   console.log(`package ${j.pkg.id} prepared; worktree ${relative(ROOT, worktree)} on ${branch} from ${baseCommit.slice(0, 12)}`);
@@ -225,6 +247,7 @@ if (cmd === 'dispatch') {
   if (retry) {
     // A second attempt starts from what the first left, with the evaluator's reasons.
     r.build.previous_rejection = r.evaluation.checks.filter((c) => c.status === 'FAIL');
+    if (r.build.head) r.build.rejected_heads = [...new Set([...(r.build.rejected_heads ?? []), r.build.head])];
     r.history = [...(r.history ?? []), { attempt: r.build.attempts, evaluation: r.evaluation, head: r.build.head }];
     r.evaluation = null;
     r.phase = 'DECIDED';
@@ -250,8 +273,15 @@ if (cmd === 'collect') {
     r.build.report_sha256 = sha256(rep);
     r.build.stopped_by_builder = /^\s*STOPPED:/.test(rep);
   }
-  const res = commitBuild(r.build.worktree, {
-    branch: r.build.branch, base: r.build.base, allowed: r.package.allowed_files,
+  const tamper = integrity(r);
+  if (tamper) {
+    r.build.tampered = tamper;
+    r = advance(r, 'COLLECTED', nowIso());
+    save(r);
+    die(`${tamper}. Nothing was taken. run: npm run cycle -- evaluate`, 1);
+  }
+  const res = commitBuild(wtOf(r), {
+    branch: r.build.branch, since: r.build.head ?? r.build.base, allowed: r.package.allowed_files,
     message: `${r.package.objective.split('.')[0]}\n\nAWE cycle ${r.cycle_id}, work package ${r.package.id}, attempt ${r.build.attempts}.\nBuilt by a bounded Builder session from autonomy/cycles/${r.cycle_id}; not yet evaluated.\nThe evaluator's verdict and the Captain Brief are in the cycle record.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`,
     author: AUTHOR,
   }, policy, blockers);
@@ -271,7 +301,7 @@ if (cmd === 'collect') {
     die(`the Builder changed paths outside allowed_files: ${res.outside.join(', ')}. Nothing was committed. run: npm run cycle -- evaluate`, 1);
   }
   r.build.head = res.head;
-  r.build.changes = changesOf(r.build.worktree, r.build.base, res.head)
+  r.build.changes = changesOf(r.build.base, res.head)
     .map(({ status, path, removed, added }) => ({ status, path, removed_count: removed.length, added_count: added.length }));
   r = advance(r, 'COLLECTED', nowIso());
   save(r);
@@ -284,7 +314,9 @@ if (cmd === 'push') {
   let r = current();
   need(r, 'COLLECTED');
   if (r.build.outside?.length) die('an out-of-scope build is never pushed');
-  const head = pushBranch(r.build.worktree, { branch: r.build.branch }, policy, blockers);
+  const tamper = integrity(r);
+  if (tamper) { r.build.tampered = tamper; save(r); die(`${tamper}; not pushing. run: npm run cycle -- evaluate`, 1); }
+  const head = pushBranch(wtOf(r), { branch: r.build.branch, url: r.build.remote_url }, policy, blockers);
   if (head !== r.build.head) die(`pushed ${head}, but collected ${r.build.head}`);
   r.build.pushed_at = nowIso();
   r = advance(r, 'PUSHED', nowIso());
@@ -296,43 +328,50 @@ if (cmd === 'push') {
 // --- evaluate ---------------------------------------------------------------
 if (cmd === 'evaluate') {
   let r = current();
-  need(r, 'COLLECTED', 'PUSHED');
-  const wt = r.build.worktree;
+  // A build that was taken must have been pushed: CI judges the pushed commit.
+  // Only a build that was refused at collection is evaluated from COLLECTED.
+  const refused = !!(r.build.tampered || r.build.builder_commits?.length || r.build.outside?.length);
+  if (refused) need(r, 'COLLECTED', 'PUSHED'); else need(r, 'PUSHED');
   let input;
-  if (r.build.builder_commits?.length) {
-    input = { builderCommitted: r.build.builder_commits, changes: (r.build.outside ?? []).map((p) => ({ status: '?', path: p, removed: [], added: [] })) };
-  } else if (r.build.outside?.length) {
-    input = { changes: r.build.outside.map((p) => ({ status: '?', path: p, removed: [], added: [] })) };
+  const tamper = r.build.tampered ?? integrity(r);
+  if (refused || tamper) {
+    input = { tampered: tamper, builderCommitted: r.build.builder_commits ?? null,
+      changes: (r.build.outside ?? []).map((p) => ({ status: '?', path: p, removed: [], added: [] })) };
   } else {
     const head = r.build.head;
-    const changes = changesOf(wt, r.build.base, head);
-    const show = (rev, p) => { const o = spawnSync('git', ['show', `${rev}:${p}`], { cwd: wt, encoding: 'utf8' }); return o.status === 0 ? JSON.parse(o.stdout) : null; };
-    const packageJson = changes.some((c) => c.path === 'package.json') ? { before: show(r.build.base, 'package.json'), after: show(head, 'package.json') } : null;
+    const changes = changesOf(r.build.base, head);
+    const show = (rev, p) => { const o = spawnSync('git', [...SAFE, 'show', `${rev}:${p}`], { cwd: ROOT, encoding: 'utf8' }); return o.status === 0 ? o.stdout : null; };
+    const packageJson = changes.some((c) => c.path === 'package.json') ? { before: JSON.parse(show(r.build.base, 'package.json')), after: JSON.parse(show(head, 'package.json')) } : null;
     const ci = ciVerdict(loadCiEvidence(ROOT, head), head);
     if (ci.status === 'PENDING') die(`CI for ${head.slice(0, 12)} is still running; evaluate once it has concluded`);
-    if (ci.status === 'ABSENT' && !argv.includes('--without-ci')) die(`no CI evidence for ${head.slice(0, 12)}; import it, or pass --without-ci to accept a HUMAN_REVIEW verdict`);
+    if (ci.status === 'ABSENT') die(`no provenanced CI evidence for ${head.slice(0, 12)} (${ci.detail}); import it first`);
+    if (!arg('review')) die('an independent review is required: --review <file>');
     if (r.package.probes && fileHash(join(ROOT, r.package.probes)) !== r.inputs.probes_sha256) die('the probe module changed since the cycle started; refusing to evaluate with different probes');
-    // Self-test and probes run on a clean checkout of the pushed commit, not
+    const review = JSON.parse(readText(arg('review')));
+    writeFileSync(join(dirOf(r.cycle_id), `review-${r.build.attempts}.json`), JSON.stringify(review, null, 2) + '\n');
+    r.inputs[`review_${r.build.attempts}_sha256`] = sha256(JSON.stringify(review));
+    // Self-tests and probes run on a clean checkout of the pushed commit, not
     // in the Builder's worktree, which may hold files the commit does not.
     const evalPath = join(ROOT, '.awe/eval', `${r.cycle_id}-${r.build.attempts}`);
     mkdirSync(dirname(evalPath), { recursive: true });
     checkoutForEvaluation(ROOT, { commit: head, path: evalPath });
-    let st; let probes = null;
+    let selftest; let probes = null;
     try {
-      st = spawnSync(process.execPath, ['scripts/eval-autonomy.mjs'], { cwd: evalPath, encoding: 'utf8', timeout: 300_000 });
-      writeFileSync(join(dirOf(r.cycle_id), `selftest-${r.build.attempts}.log`), (st.stdout ?? '') + (st.stderr ?? ''));
+      // BASE copy: the self-test as it was at the base commit, run on the head.
+      const baseCopy = join(evalPath, 'scripts', '.awe-base-eval-autonomy.mjs');
+      writeFileSync(baseCopy, show(r.build.base, 'scripts/eval-autonomy.mjs'));
+      const b = spawnSync(process.execPath, [baseCopy], { cwd: evalPath, encoding: 'utf8', timeout: 300_000 });
+      const h = spawnSync(process.execPath, ['scripts/eval-autonomy.mjs'], { cwd: evalPath, encoding: 'utf8', timeout: 300_000 });
+      writeFileSync(join(dirOf(r.cycle_id), `selftest-${r.build.attempts}.log`),
+        `=== base copy on head ===\n${b.stdout ?? ''}${b.stderr ?? ''}\n=== head copy ===\n${h.stdout ?? ''}${h.stderr ?? ''}`);
+      selftest = { base: { exit_code: b.status, ...counts(b.stdout) }, head: { exit_code: h.status, ...counts(h.stdout) } };
       if (r.package.probes) probes = await (await import(join(ROOT, r.package.probes))).run({ root: ROOT, worktree: evalPath });
     } finally { removeEvaluationCheckout(ROOT, evalPath); }
-    let review = null;
-    if (arg('review')) {
-      review = JSON.parse(readText(arg('review')));
-      writeFileSync(join(dirOf(r.cycle_id), `review-${r.build.attempts}.json`), JSON.stringify(review, null, 2) + '\n');
-      r.inputs[`review_${r.build.attempts}_sha256`] = sha256(JSON.stringify(review));
-    }
-    input = { changes, packageJson, selftest: { exit_code: st.status }, probes, ci, review };
+    input = { changes, packageJson, selftest, probes, ci, review, head,
+      previouslyRejected: (r.build.rejected_heads ?? []).includes(head) };
   }
   const result = evaluate({ pkg: r.package, branch: r.build.branch, elapsedMinutes: r.build.elapsed_minutes ?? null, policy, blockers, ...input });
-  r.evaluation = { ...result, at: nowIso(), attempt: r.build.attempts, probes: input.probes ?? null };
+  r.evaluation = { ...result, at: nowIso(), attempt: r.build.attempts, probes: input.probes ?? null, selftest: input.selftest ?? null };
   r = advance(r, 'EVALUATED', nowIso());
   save(r);
   console.log(`EVALUATOR VERDICT: ${result.verdict}`);
@@ -345,6 +384,8 @@ if (cmd === 'pr') {
   let r = current();
   need(r, 'EVALUATED');
   if (r.evaluation.verdict === 'REJECT') die('a REJECTED build does not get a PR');
+  const unknown = r.evaluation.checks.filter((c) => c.status === 'UNKNOWN').map((c) => c.id);
+  if (unknown.includes('independent-review') || unknown.includes('ci')) die(`a PR needs CI and an independent review on record; unknown: ${unknown.join(', ')}`);
   if (!arg('url') || !arg('number')) die('usage: pr --url <url> --number <n>');
   r.pr = { url: arg('url'), number: Number(arg('number')), draft: true, opened_at: nowIso() };
   r = advance(r, 'PR_OPENED', nowIso());
@@ -405,7 +446,8 @@ if (cmd === 'verify-ledger') {
   const lines = readText(CHAIN_FILE).split('\n').filter(Boolean).map((l) => JSON.parse(l));
   const records = Object.fromEntries(lines.filter((e) => existsSync(join(DURABLE, `${e.cycle_id}.json`)))
     .map((e) => [e.cycle_id, readText(join(DURABLE, `${e.cycle_id}.json`))]));
-  const problems = verifyLedger(lines, records);
+  const problems = [...verifyLedger(lines, records),
+    ...lines.filter((e) => !(e.cycle_id in records)).map((e) => `${e.cycle_id}: its record file autonomy/cycles/${e.cycle_id}.json is missing`)];
   for (const p of problems) console.log(`BROKEN  ${p}`);
   console.log(problems.length ? `ledger: ${problems.length} problem(s)` : `ledger: ${lines.length} cycle(s), chain intact`);
   process.exit(problems.length ? 1 : 0);

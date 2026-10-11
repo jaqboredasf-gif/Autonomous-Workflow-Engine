@@ -30,7 +30,16 @@ const WEAKENING = [
   [/process\.exit\(\s*0\s*\)/, 'exits 0 early, so later checks never run'],
   [/\bif\s*\(\s*(false|0)\s*\)/, 'wraps code in a branch that never runs'],
   [/\bfails\s*(=\s*\[\]|\.length\s*=\s*0|\.splice\s*\()/, 'tampers with the failure tally'],
+  [/process\.exitCode|process\.on\(\s*['"](exit|beforeExit)['"]|process\.reallyExit/, 'rewrites how the suite exits'],
 ];
+// This list is a tripwire, not the guarantee: a block comment around existing
+// checks, say, adds lines and matches nothing here. The guarantee is that the
+// base commit's own self-test is run against the head (selftest.base below):
+// the Builder cannot have edited that copy, so every existing check still runs
+// whatever was done to the head's copy.
+
+/** npm runs these by itself (npm ci, install, publish). A new one is code CI executes before any test. */
+const LIFECYCLE = /^(pre|post)|^(install|prepare|prepack|postpack|prepublish|prepublishOnly|publish|dependencies|uninstall|restart|start|stop|test|version)$/;
 
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -39,6 +48,9 @@ export function addScriptsOnly(before, after) {
   const problems = [];
   const strip = (o) => { const { scripts, ...rest } = o ?? {}; return rest; };
   if (!sameJson(strip(before), strip(after))) problems.push('a field other than "scripts" changed (dependencies, engines, workspaces …)');
+  for (const k of Object.keys(after?.scripts ?? {})) {
+    if (!(k in (before?.scripts ?? {})) && LIFECYCLE.test(k)) problems.push(`script "${k}" is an npm lifecycle name: npm would run it unasked, before CI's tests`);
+  }
   for (const [k, v] of Object.entries(before?.scripts ?? {})) {
     if (!(k in (after?.scripts ?? {}))) problems.push(`script "${k}" was removed`);
     else if (after.scripts[k] !== v) problems.push(`script "${k}" was changed`);
@@ -50,14 +62,21 @@ export function addScriptsOnly(before, after) {
  * changes: [{ status: 'A'|'M'|'D'|'R…', path, removed: string[], added: string[] }]
  *   (removed/added are the -/+ lines of `git diff -U0` for that path)
  * packageJson: { before, after } when package.json changed
- * selftest: { exit_code } · probes: [{ id, pass, detail }]
+ * selftest: { base: { exit_code, passed, failed }, head: { … } } · probes: [{ id, pass, detail }]
  * ci: ciVerdict() for the pushed head · review: { status: 'NO_BLOCKING'|'BLOCKING', findings }
  * elapsedMinutes: dispatch → collection
  */
-export function evaluate({ pkg, branch, changes, builderCommitted = null, packageJson = null, selftest = null, probes = null, ci = null, review = null, elapsedMinutes = null, policy, blockers }) {
+export function evaluate({ pkg, branch, changes, builderCommitted = null, tampered = null, previouslyRejected = false, head = null, packageJson = null, selftest = null, probes = null, ci = null, review = null, elapsedMinutes = null, policy, blockers }) {
   const checks = [];
   const add = (id, status, detail) => checks.push({ id, status, detail });
   const allowed = new Set(pkg.allowed_files);
+
+  // Integrity of the process itself: the shared git config and the worktree's
+  // admin files are what they were at the start, and this head was not
+  // already rejected (evidence against a commit does not expire on retry).
+  if (tampered) add('integrity', 'FAIL', tampered);
+  else add('integrity', 'PASS', 'git config and worktree identity unchanged since the cycle started');
+  if (previouslyRejected) add('not-previously-rejected', 'FAIL', `${head?.slice(0, 12)} was already rejected in this cycle; a retry must change something`);
 
   if (!changes.length) add('non-empty', 'FAIL', 'the Builder changed nothing');
   else add('non-empty', 'PASS', `${changes.length} file(s) changed`);
@@ -97,8 +116,20 @@ export function evaluate({ pkg, branch, changes, builderCommitted = null, packag
   }
   add('file-rules', ruleProblems.length ? 'FAIL' : 'PASS', ruleProblems.length ? ruleProblems.join('; ') : 'every file rule held');
 
+  // Two self-tests. BASE: the base commit's eval-autonomy.mjs, which the
+  // Builder cannot have touched, run against the head: the regression check.
+  // HEAD: the Builder's edited copy, which must pass and must not have fewer
+  // passing checks than the base copy (switching tests off lowers the count).
   if (!selftest) add('selftest', 'UNKNOWN', 'self-test not run');
-  else add('selftest', selftest.exit_code === 0 ? 'PASS' : 'FAIL', `node scripts/eval-autonomy.mjs exit ${selftest.exit_code}`);
+  else {
+    const { base, head: hd } = selftest;
+    const problems = [];
+    if (!base || base.exit_code !== 0 || base.failed !== 0 || base.passed === null) problems.push(`base self-test on the head: exit ${base?.exit_code}, ${base?.passed} passed, ${base?.failed} failed`);
+    if (!hd || hd.exit_code !== 0 || hd.failed !== 0 || hd.passed === null) problems.push(`head self-test: exit ${hd?.exit_code}, ${hd?.passed} passed, ${hd?.failed} failed`);
+    if (base && hd && hd.passed !== null && base.passed !== null && hd.passed < base.passed) problems.push(`head self-test passes ${hd.passed} checks, fewer than the base copy's ${base.passed}`);
+    add('selftest', problems.length ? 'FAIL' : 'PASS', problems.length ? problems.join('; ')
+      : `base copy ${base.passed} passed on the head; head copy ${hd.passed} passed (+${hd.passed - base.passed})`);
+  }
 
   if (!probes) add('probes', 'UNKNOWN', 'probes not run');
   else {
