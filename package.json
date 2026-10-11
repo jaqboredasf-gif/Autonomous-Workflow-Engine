@@ -28,7 +28,11 @@
     "second-customer": "node scripts/eval-second-customer.mjs",
     "pitch": "node scripts/iic-pitch.mjs",
     "narrative": "node scripts/eval-narrative.mjs",
-    "evidence": "node scripts/iic-evidence.mjs"
+    "evidence": "node scripts/iic-evidence.mjs",
+    "verify": "node scripts/awe-verify.mjs",
+    "engineering-state": "node scripts/awe-state.mjs",
+    "guard": "node scripts/awe-guard.mjs",
+    "test:autonomy": "node scripts/eval-autonomy.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"

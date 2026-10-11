@@ -1,0 +1,557 @@
+{
+  "$comment": "The verification registry. Every suite here was discovered in the repository and classified by RUNNING it (2026-10-11, Node 24.21, unbuilt and built, root and non-root), not by reading its name. Nothing here is invented. scripts/eval-autonomy.mjs fails if a scripts/eval-*, scripts/acceptance-*, or supabase/tests/*.sql file is missing from this file, so a new suite cannot be silently left out. Field meanings are in autonomy/README.md.",
+  "version": 1,
+  "environment": {
+    "node": ">=24",
+    "why": "package.json engines; the purchasing store is node:sqlite"
+  },
+  "suites": [
+    {
+      "id": "autonomy-selftest",
+      "name": "Autonomy verification layer self-test",
+      "entry": "scripts/eval-autonomy.mjs",
+      "command": ["node", "scripts/eval-autonomy.mjs"],
+      "category": "unit", "area": "autonomy",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "purchasing-typecheck",
+      "name": "Purchasing TypeScript strict typecheck",
+      "entry": "apps/purchasing/tsconfig.json",
+      "command": ["npm", "run", "typecheck", "-w", "purchasing"],
+      "category": "typecheck", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "purchasing-lint",
+      "name": "Purchasing ESLint",
+      "entry": "apps/purchasing/eslint.config.mjs",
+      "command": ["npm", "run", "lint", "-w", "purchasing"],
+      "category": "lint", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "low", "blocking": false, "authority": "advisory",
+      "profiles": ["ci", "local"],
+      "note": "NON-BLOCKING ON PURPOSE, and reported as FAIL rather than hidden. On pcc-production@bee8e44 it reports 10 errors and 24 warnings that predate this registry. Making it blocking on day one would make CI red for debt nobody introduced. Making it pass by editing the config would weaken the check. Make it blocking once those 10 errors are fixed."
+    },
+    {
+      "id": "purchasing-domain",
+      "name": "Purchasing domain unit tests",
+      "entry": "scripts/eval-purchasing-domain.sh",
+      "command": ["bash", "scripts/eval-purchasing-domain.sh"],
+      "category": "unit", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"], "components": ["scripts/eval-purchasing-domain.mjs"]
+    },
+    {
+      "id": "workflow-engine",
+      "name": "AWE workflow engine and its boundary",
+      "entry": "scripts/eval-workflow-engine.mjs",
+      "command": ["node", "scripts/eval-workflow-engine.mjs"],
+      "category": "unit", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "purchasing-integration",
+      "name": "Purchasing assertion harness (local store + deferred provider)",
+      "entry": "scripts/eval-purchasing.sh",
+      "command": ["bash", "scripts/eval-purchasing.sh"],
+      "category": "integration", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"], "components": ["scripts/eval-purchasing.mjs"]
+    },
+    {
+      "id": "purchasing-authorization",
+      "name": "Purchasing authorization (what each person may do)",
+      "entry": "scripts/eval-purchasing-authorization.sh",
+      "command": ["bash", "scripts/eval-purchasing-authorization.sh"],
+      "category": "security", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"], "components": ["scripts/eval-purchasing-authorization.mjs"]
+    },
+    {
+      "id": "purchasing-isolation",
+      "name": "Tenant isolation (static over migrations + application level)",
+      "entry": "scripts/eval-purchasing-isolation.sh",
+      "command": ["bash", "scripts/eval-purchasing-isolation.sh"],
+      "category": "security", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"], "components": ["scripts/eval-purchasing-isolation.mjs"],
+      "note": "Proves RLS statically and at the application layer only. Postgres-enforced RLS is proven by supabase-local-rls (Docker), not here."
+    },
+    {
+      "id": "purchasing-providers",
+      "name": "Provider conformance without credentials",
+      "entry": "scripts/eval-purchasing-providers.sh",
+      "command": ["bash", "scripts/eval-purchasing-providers.sh"],
+      "category": "integration", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"], "components": ["scripts/eval-purchasing-providers.mjs"]
+    },
+    {
+      "id": "auth-recovery",
+      "name": "Admin recovery paths",
+      "entry": "scripts/eval-auth-recovery.mjs",
+      "command": ["node", "scripts/eval-auth-recovery.mjs"],
+      "category": "security", "area": "purchasing",
+      "requires": ["deps", "nonroot"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"],
+      "note": "Requires a non-root user. One check makes a directory unwritable with chmod 0500, and root ignores that. Measured: as root 81/1, as a normal user 82/0."
+    },
+    {
+      "id": "backup-operations",
+      "name": "Scheduled backup is a real backup",
+      "entry": "scripts/eval-backup-operations.mjs",
+      "command": ["node", "scripts/eval-backup-operations.mjs"],
+      "category": "deployment", "area": "deployment",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "source-of-truth",
+      "name": "Install documents name the deployable branch",
+      "entry": "scripts/eval-source-of-truth.mjs",
+      "command": ["node", "scripts/eval-source-of-truth.mjs"],
+      "category": "deployment", "area": "deployment",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "verify-deployment",
+      "name": "Production verifier can be trusted",
+      "entry": "scripts/eval-verify-deployment.mjs",
+      "command": ["node", "scripts/eval-verify-deployment.mjs"],
+      "category": "deployment", "area": "deployment",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "deployment-core",
+      "name": "Deployment substrate",
+      "entry": "scripts/eval-deployment-core.mjs",
+      "command": ["node", "scripts/eval-deployment-core.mjs"],
+      "category": "deployment", "area": "deployment",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "windows-deployment",
+      "name": "Windows deployment mechanics (from a non-Windows machine)",
+      "entry": "scripts/eval-windows-deployment.mjs",
+      "command": ["node", "scripts/eval-windows-deployment.mjs"],
+      "category": "deployment", "area": "deployment",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"],
+      "note": "Tests the mechanics only. Running on the real Windows host (LIPELE-RDS02) is a human act."
+    },
+    {
+      "id": "onboarding",
+      "name": "Company-data load, checked without a database",
+      "entry": "scripts/eval-onboarding.mjs",
+      "command": ["node", "scripts/eval-onboarding.mjs"],
+      "category": "deployment", "area": "deployment",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "organization-provisioning",
+      "name": "Second organization without editing purchasing",
+      "entry": "scripts/eval-organization-provisioning.mjs",
+      "command": ["node", "scripts/eval-organization-provisioning.mjs"],
+      "category": "integration", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "second-customer",
+      "name": "Could we deploy to a second company tomorrow",
+      "entry": "scripts/eval-second-customer.mjs",
+      "command": ["node", "scripts/eval-second-customer.mjs"],
+      "category": "integration", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "purchasing-redeployability",
+      "name": "How much of PCC is Lippolis (measurement)",
+      "entry": "scripts/eval-purchasing-redeployability.mjs",
+      "command": ["node", "scripts/eval-purchasing-redeployability.mjs"],
+      "category": "measurement", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "normal", "blocking": false, "authority": "measurement",
+      "profiles": ["ci", "local"],
+      "note": "The suite's own header calls it 'a MEASUREMENT, not a gate'. Reported, not blocking."
+    },
+    {
+      "id": "evidence-provenance",
+      "name": "A non-production database cannot pass as production",
+      "entry": "scripts/eval-evidence-provenance.mjs",
+      "command": ["node", "scripts/eval-evidence-provenance.mjs"],
+      "category": "evidence", "area": "proof",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "proof",
+      "name": "Proof system cannot be made to lie",
+      "entry": "scripts/eval-proof.mjs",
+      "command": ["node", "scripts/eval-proof.mjs"],
+      "category": "evidence", "area": "proof",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "case-study-001",
+      "name": "Case Study #001 survives a skeptical reader",
+      "entry": "scripts/eval-case-study-001.mjs",
+      "command": ["node", "scripts/eval-case-study-001.mjs"],
+      "category": "evidence", "area": "proof",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "baseline-activation",
+      "name": "Baseline collection survives contact with the software",
+      "entry": "scripts/eval-baseline-activation.mjs",
+      "command": ["node", "scripts/eval-baseline-activation.mjs"],
+      "category": "evidence", "area": "proof",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "tegg-generalization",
+      "name": "Proof architecture is capability-neutral",
+      "entry": "scripts/eval-tegg-generalization.mjs",
+      "command": ["node", "scripts/eval-tegg-generalization.mjs"],
+      "category": "evidence", "area": "proof",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "normal", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "programs",
+      "name": "Scorecard cannot be flattered; discovery cannot lie",
+      "entry": "scripts/eval-programs.mjs",
+      "command": ["node", "scripts/eval-programs.mjs"],
+      "category": "evidence", "area": "programs",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "evidence",
+      "name": "Evidence layer cannot be flattered",
+      "entry": "scripts/eval-evidence.mjs",
+      "command": ["node", "scripts/eval-evidence.mjs"],
+      "category": "evidence", "area": "programs",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "market-discovery",
+      "name": "Discovery system can tell us we are wrong",
+      "entry": "scripts/eval-market-discovery.mjs",
+      "command": ["node", "scripts/eval-market-discovery.mjs"],
+      "category": "evidence", "area": "programs",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "narrative",
+      "name": "Presentation cannot flatter itself",
+      "entry": "scripts/eval-narrative.mjs",
+      "command": ["node", "scripts/eval-narrative.mjs"],
+      "category": "evidence", "area": "programs",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "normal", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "legacy-approval-diff",
+      "name": "Runner 3: approval-diff engine (Workstream B)",
+      "entry": "scripts/eval-approval-diff.sh",
+      "command": ["bash", "scripts/eval-approval-diff.sh"],
+      "category": "unit", "area": "triage-legacy",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "low", "blocking": false, "authority": "advisory",
+      "profiles": ["ci", "local"], "components": ["scripts/eval-approval-diff.mjs"],
+      "note": "Workstream B code, not on the purchasing product path. Reported, not blocking."
+    },
+    {
+      "id": "legacy-approval-matrix",
+      "name": "Runner 4: approval matrix + outbound drafts (Workstream B)",
+      "entry": "scripts/eval-approval-matrix.sh",
+      "command": ["bash", "scripts/eval-approval-matrix.sh"],
+      "category": "unit", "area": "triage-legacy",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "low", "blocking": false, "authority": "advisory",
+      "profiles": ["ci", "local"], "components": ["scripts/eval-approval-matrix.mjs"]
+    },
+    {
+      "id": "legacy-approval-queue",
+      "name": "Runner 5: approval queue logic (Workstream B)",
+      "entry": "scripts/eval-approval-queue.sh",
+      "command": ["bash", "scripts/eval-approval-queue.sh"],
+      "category": "unit", "area": "triage-legacy",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 120, "criticality": "low", "blocking": false, "authority": "advisory",
+      "profiles": ["ci", "local"], "components": ["scripts/eval-approval-queue.mjs"]
+    },
+    {
+      "id": "legacy-migration-lint-0014",
+      "name": "Migration 0014 structural lint (offline)",
+      "entry": "scripts/lib/validate-migration-0014.mjs",
+      "command": ["node", "scripts/lib/validate-migration-0014.mjs"],
+      "category": "lint", "area": "triage-legacy",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 60, "criticality": "low", "blocking": false, "authority": "advisory",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "legacy-migration-lint-0015",
+      "name": "Migration 0015 structural lint + engine/SQL parity (offline)",
+      "entry": "scripts/lib/validate-migration-0015.mjs",
+      "command": ["node", "scripts/lib/validate-migration-0015.mjs"],
+      "category": "lint", "area": "triage-legacy",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 60, "criticality": "low", "blocking": false, "authority": "advisory",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "legacy-mobile-typecheck",
+      "name": "Exattime mobile app typecheck",
+      "entry": "apps/mobile/tsconfig.json",
+      "command": ["npm", "exec", "-w", "apps/mobile", "--", "tsc", "--noEmit"],
+      "category": "typecheck", "area": "exattime-legacy",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 300, "criticality": "low", "blocking": false, "authority": "advisory",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "purchasing-build",
+      "name": "Purchasing production build (+ postbuild stage-standalone and check-deployable)",
+      "entry": "apps/purchasing/package.json",
+      "command": ["npm", "run", "build", "-w", "purchasing"],
+      "category": "build", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": false,
+      "timeout_s": 600, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"],
+      "artifacts": ["apps/purchasing/.next/standalone/apps/purchasing/server.js"],
+      "note": "Every requires_build suite below is BLOCKED, not FAILED, when this does not pass in the same run. The build failure is the one failure reported."
+    },
+    {
+      "id": "purchasing-web",
+      "name": "Website acceptance over real HTTP",
+      "entry": "scripts/eval-purchasing-web.sh",
+      "command": ["bash", "scripts/eval-purchasing-web.sh"],
+      "category": "integration", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": true,
+      "timeout_s": 600, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"], "components": ["scripts/eval-purchasing-web.mjs"],
+      "note": "The script runs its own production build, then serves it on 127.0.0.1."
+    },
+    {
+      "id": "startup-refusal",
+      "name": "Misconfigured production start refuses and writes nothing",
+      "entry": "scripts/eval-startup-refusal.sh",
+      "command": ["bash", "scripts/eval-startup-refusal.sh"],
+      "category": "security", "area": "purchasing",
+      "requires": ["deps"], "offline": true, "requires_build": true,
+      "timeout_s": 900, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"], "components": ["scripts/eval-startup-refusal.mjs"],
+      "note": "Slowest suite here (it rebuilds, then starts the server repeatedly)."
+    },
+    {
+      "id": "venture-plan",
+      "name": "Planning system gives sensible advice",
+      "entry": "scripts/eval-venture-plan.mjs",
+      "command": ["node", "scripts/eval-venture-plan.mjs"],
+      "category": "evidence", "area": "programs",
+      "requires": ["deps"], "offline": true, "requires_build": true,
+      "timeout_s": 300, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"],
+      "note": "NOT HERMETIC. Its 'against the repository as it actually is' section expects a built artifact. Measured unbuilt: 264/3, all three about artifact.built. Built: passes."
+    },
+    {
+      "id": "deployment-gate",
+      "name": "\"Can we deploy?\" stays honest",
+      "entry": "scripts/eval-deployment-gate.mjs",
+      "command": ["node", "scripts/eval-deployment-gate.mjs"],
+      "category": "deployment", "area": "deployment",
+      "requires": ["deps"], "offline": true, "requires_build": true,
+      "timeout_s": 300, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"],
+      "note": "NOT HERMETIC for the same reason as venture-plan. Measured unbuilt: FAIL. Built: 103/0."
+    },
+    {
+      "id": "release-package",
+      "name": "Release package handed to the installer is complete",
+      "entry": "scripts/eval-release-package.mjs",
+      "command": ["node", "scripts/eval-release-package.mjs"],
+      "category": "deployment", "area": "deployment",
+      "requires": ["deps"], "offline": true, "requires_build": true,
+      "timeout_s": 600, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
+      "id": "local-rehearsal",
+      "name": "Install, run, restart and persist locally (cold start + idempotency)",
+      "entry": "scripts/rehearse-locally.sh",
+      "command": ["bash", "scripts/rehearse-locally.sh"],
+      "category": "rehearsal", "area": "deployment",
+      "requires": ["deps", "tool:curl"], "offline": true, "requires_build": true,
+      "timeout_s": 600, "criticality": "high", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"],
+      "components": ["scripts/eval-production-coldstart.mjs", "scripts/eval-production-idempotency.mjs"],
+      "note": "The two components need the server this script starts. Run alone, they fail with ECONNREFUSED, which is a harness misuse, not a defect."
+    },
+    {
+      "id": "backup-timer",
+      "name": "Backup systemd timer, in a container",
+      "entry": "scripts/eval-backup-timer.sh",
+      "command": ["bash", "scripts/eval-backup-timer.sh"],
+      "category": "deployment", "area": "deployment",
+      "requires": ["docker-daemon"], "offline": false, "requires_build": false,
+      "timeout_s": 900, "criticality": "normal", "blocking": false, "authority": "authoritative",
+      "profiles": ["docker"], "env_exit_codes": [2],
+      "ci_excluded_because": "Needs a Docker daemon and pulls node:24-bookworm. Runnable on a GitHub runner, but kept out of the minimal verification job; candidate for a separate non-blocking Docker job."
+    },
+    {
+      "id": "packaged-idempotence",
+      "name": "Packaged application: install twice, company-system checks",
+      "entry": "scripts/eval-idempotence.sh",
+      "command": ["bash", "scripts/eval-idempotence.sh"],
+      "category": "deployment", "area": "deployment",
+      "requires": ["docker-daemon"], "offline": false, "requires_build": false,
+      "timeout_s": 1200, "criticality": "high", "blocking": false, "authority": "authoritative",
+      "profiles": ["docker"], "components": ["scripts/eval-deployment.mjs"],
+      "ci_excluded_because": "Builds the production Docker image (network + several minutes). Same Docker-job candidate."
+    },
+    {
+      "id": "restore-rehearsal",
+      "name": "A restored database carries a working purchasing system",
+      "entry": "scripts/restore-rehearsal.sh",
+      "command": ["bash", "scripts/restore-rehearsal.sh"],
+      "category": "rehearsal", "area": "deployment",
+      "requires": ["docker-daemon"], "offline": false, "requires_build": false,
+      "timeout_s": 1200, "criticality": "high", "blocking": false, "authority": "authoritative",
+      "profiles": ["docker"], "components": ["scripts/eval-restore-rehearsal.mjs"],
+      "ci_excluded_because": "Builds the Docker image and runs two containers. Same Docker-job candidate."
+    },
+    {
+      "id": "clean-machine",
+      "name": "Install from a clean export of the repository",
+      "entry": "scripts/eval-clean-machine.sh",
+      "command": ["bash", "scripts/eval-clean-machine.sh"],
+      "category": "rehearsal", "area": "deployment",
+      "requires": ["tool:rsync", "docker-daemon"], "offline": false, "requires_build": false,
+      "timeout_s": 1800, "criticality": "high", "blocking": false, "authority": "authoritative",
+      "profiles": ["docker"],
+      "ci_excluded_because": "Runs a full npm ci from the network in a fresh export and needs rsync and Docker. Same Docker-job candidate."
+    },
+    {
+      "id": "supabase-local-rls",
+      "name": "Postgres-enforced RLS on a local Supabase stack",
+      "entry": "scripts/verify-supabase-live.sh",
+      "command": ["bash", "scripts/verify-supabase-live.sh"],
+      "category": "security", "area": "purchasing",
+      "requires": ["docker-daemon"], "offline": false, "requires_build": false,
+      "timeout_s": 1800, "criticality": "high", "blocking": false, "authority": "authoritative",
+      "profiles": ["docker"], "env_exit_codes": [2],
+      "components": ["supabase/tests/tenant_isolation.sql", "supabase/tests/membership_and_provisioning.sql"],
+      "ci_excluded_because": "Starts a local Supabase stack through the Supabase CLI and Docker. Touches no hosted project, but is heavy. Same Docker-job candidate."
+    },
+    {
+      "id": "purchasing-supabase-web",
+      "name": "Website on Supabase persistence",
+      "entry": "scripts/eval-purchasing-supabase-web.sh",
+      "command": ["bash", "scripts/eval-purchasing-supabase-web.sh"],
+      "category": "integration", "area": "purchasing",
+      "requires": ["env:NEXT_PUBLIC_SUPABASE_ANON_KEY", "env:SUPABASE_SERVICE_ROLE_KEY"], "offline": false, "requires_build": false,
+      "timeout_s": 900, "criticality": "normal", "blocking": false, "authority": "authoritative",
+      "profiles": ["manual"], "env_exit_codes": [2], "components": ["scripts/eval-purchasing-supabase-web.mjs"],
+      "ci_excluded_because": "Needs a running local Supabase stack, a running dev server and their keys. The pilot runs on the SQLite store, so this is not the deployed path."
+    },
+    {
+      "id": "purchasing-e2e",
+      "name": "Whole purchase through the website, on Supabase",
+      "entry": "scripts/eval-purchasing-e2e.mjs",
+      "command": ["node", "scripts/eval-purchasing-e2e.mjs"],
+      "category": "integration", "area": "purchasing",
+      "requires": ["env:SUPABASE_URL", "env:SUPABASE_SERVICE_ROLE_KEY"], "offline": false, "requires_build": false,
+      "timeout_s": 900, "criticality": "normal", "blocking": false, "authority": "authoritative",
+      "profiles": ["manual"],
+      "ci_excluded_because": "Needs a running server and a Supabase service-role key. Without them it crashes ('supabaseKey is required') instead of exiting 2, so its requirements must be checked before it runs."
+    },
+    {
+      "id": "pcc-operability",
+      "name": "Can the two people who use this actually use it",
+      "entry": "scripts/eval-pcc-operability.mjs",
+      "command": ["node", "scripts/eval-pcc-operability.mjs"],
+      "category": "rehearsal", "area": "purchasing",
+      "requires": ["env:PILOT_PASSWORD"], "offline": false, "requires_build": false,
+      "timeout_s": 600, "criticality": "normal", "blocking": false, "authority": "authoritative",
+      "profiles": ["manual"],
+      "ci_excluded_because": "Needs a running pilot server seeded with the local fixture users and their shared password. It is an operator walkthrough, not a CI check."
+    },
+    {
+      "id": "legacy-web-build",
+      "name": "Exattime admin web production build",
+      "entry": "apps/web/package.json",
+      "command": ["npm", "run", "build", "-w", "apps/web"],
+      "category": "build", "area": "exattime-legacy",
+      "requires": ["deps", "env:NEXT_PUBLIC_SUPABASE_URL", "env:NEXT_PUBLIC_SUPABASE_ANON_KEY"], "offline": true, "requires_build": false,
+      "timeout_s": 600, "criticality": "low", "blocking": false, "authority": "advisory",
+      "profiles": ["manual"],
+      "ci_excluded_because": "Prerender creates a Supabase client at module load and fails with 'supabaseUrl is required' unless both public variables are set. Not the product line."
+    },
+    {
+      "id": "legacy-regression",
+      "name": "Workstream A/B full regression against the HOSTED project",
+      "entry": "scripts/regression.sh",
+      "command": ["bash", "scripts/regression.sh"],
+      "category": "live", "area": "triage-legacy",
+      "requires": ["env:SUPABASE_ACCESS_TOKEN", "env:SUPABASE_SERVICE_ROLE_KEY", "env:EMAIL", "env:PASSWORD"], "offline": false, "requires_build": false,
+      "timeout_s": 1800, "criticality": "low", "blocking": false, "authority": "advisory",
+      "profiles": ["live-human-only"], "live_writes": true,
+      "components": ["scripts/acceptance-slice1.sh", "scripts/acceptance-slice2.sh", "scripts/acceptance-slice3.sh", "scripts/acceptance-slice4.sh", "scripts/acceptance-slice5.sh", "scripts/eval-intake.sh", "scripts/eval-classification.sh", "scripts/parity-route-live.mjs"],
+      "ci_excluded_because": "READS AND WRITES THE HOSTED SUPABASE PROJECT with the management token. Never run autonomously or in CI (L3). Also uses macOS-only date -v."
+    },
+    {
+      "id": "legacy-classification-live",
+      "name": "Runner 2B: live model classification eval",
+      "entry": "scripts/eval-classification-live.sh",
+      "command": ["bash", "scripts/eval-classification-live.sh"],
+      "category": "live", "area": "triage-legacy",
+      "requires": ["env:SUPABASE_ACCESS_TOKEN", "env:ANTHROPIC_API_KEY"], "offline": false, "requires_build": false,
+      "timeout_s": 1800, "criticality": "low", "blocking": false, "authority": "advisory",
+      "profiles": ["live-human-only"], "live_writes": true,
+      "ci_excluded_because": "Paid model calls, and it writes to the hosted project. Human-run only."
+    }
+  ]
+}

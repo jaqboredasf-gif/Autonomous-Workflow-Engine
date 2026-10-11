@@ -1,0 +1,73 @@
+{
+  "$comment": "Known blockers that autonomous work must never repair. A record here closes the paths in `forbidden_paths` (and refs in `forbidden_refs`) to every autonomous change. scripts/awe-guard.mjs enforces that, and a blocker can only be lifted by a human editing this file. Detectors (autonomy/lib/detectors.mjs) may report that a blocker LOOKS resolved; that never changes `status`. Discovering one of these problems is not permission to fix it.",
+  "version": 1,
+  "blockers": [
+    {
+      "id": "S1",
+      "title": "Hosted Supabase audit-event deletion vulnerability; live remediation state unknown",
+      "status": "HUMAN_REVIEW_REQUIRED",
+      "autonomous_action": "OBSERVE_AND_ESCALATE_ONLY",
+      "severity": "critical",
+      "opened": "2026-07-26",
+      "owner": "Jack",
+      "summary": "On 2026-07-26 the hosted project carried 16 undeclared *_org_{select,insert,update,delete} policies on integration_events, time_entry_audits, crews and crew_members, gated on current_org_id() with no role check. A fixture worker could read 310 events, delete 11 message.approved events and insert a forged one, all verified in rolled-back transactions. Fixes exist on security/c1-policy-cleanup, security/phase-1-remediation and the codex stack. None is merged into pcc-production. Whether the hosted project has been remediated is unknown: this environment has no credentials and the network policy blocks api.supabase.com.",
+      "evidence": [
+        "main:docs/planning/TASK_BACKLOG.md#S1",
+        "main:docs/planning/DECISION_LOG.md (2026-07-26, Task B5)",
+        "docs/autonomy/CURRENT_STATE.md section 7 item 3"
+      ],
+      "resolution_requires": "Jack confirms the hosted project's live policy state, decides which remediation (if any) to apply, dry-runs it in a rolled-back transaction, applies it with explicit authorization, and then updates this record.",
+      "detector": "s1-fix-on-product-line",
+      "forbidden_paths": [
+        "supabase/migrations/**",
+        "supabase/tests/**",
+        "supabase/config.toml",
+        "packages/mcp-server/**",
+        "scripts/acceptance-slice*.sh",
+        "scripts/verify-supabase-live.sh",
+        "scripts/lib/db.mjs"
+      ],
+      "forbidden_refs": ["security/*"]
+    },
+    {
+      "id": "MIGRATION-0016",
+      "title": "Migration identity collision: 0016 means different things on different branches, and may differ from live",
+      "status": "HUMAN_REVIEW_REQUIRED",
+      "autonomous_action": "OBSERVE_AND_ESCALATE_ONLY",
+      "severity": "high",
+      "opened": "2026-10-11",
+      "owner": "Jack",
+      "summary": "supabase/migrations/0016_* is purchasing_control on pcc-production, manual_intake_bridge on claude/awe-iic-evidence-campaign-073p0v, and drop_undeclared_client_policies on security/c1-policy-cleanup, codex/durable-execution-plane and wip/agent-execution-plane-2026-07-28 (which also renumbers the security fixes to 0017-0020, while pcc-production's 0017-0020 are purchasing). security/phase-1-remediation uses timestamped names instead. Four migrations were found applied out of band to a local database on 2026-08-10 (docs/recovered/). By the repository's own rule ('stop when the repository, the migration history and the live state disagree'), no schema work may proceed until a human reconciles this.",
+      "evidence": [
+        "docs/recovered/2026-08-10-local-out-of-band-migrations/README.md",
+        "docs/autonomy/CURRENT_STATE.md section 7 item 2"
+      ],
+      "resolution_requires": "Jack decides the canonical migration sequence across the product line and the security and triage branches, and records what the hosted project has actually applied (supabase_migrations.schema_migrations). Then he updates this record.",
+      "detector": "migration-number-collision",
+      "forbidden_paths": [
+        "supabase/migrations/**",
+        "docs/recovered/**",
+        "scripts/lib/validate-migration-*.mjs"
+      ],
+      "forbidden_refs": []
+    },
+    {
+      "id": "GOV-1",
+      "title": "Branch divergence: main is not the product line",
+      "status": "HUMAN_REVIEW_REQUIRED",
+      "autonomous_action": "OBSERVE_AND_ESCALATE_ONLY",
+      "severity": "medium",
+      "opened": "2026-10-11",
+      "owner": "Jack",
+      "summary": "The default branch main stopped on 2026-07-27 and does not contain PCC. pcc-production is the product source of truth (SOURCE_OF_TRUTH.md; Jack, 2026-10-11). main and pcc-production give agents contradictory rules: main requires docs/planning/AGENT_HANDOFF.md updates, enforced by CI; pcc-production retired that file on 2026-09-01. There are 24 remote branches and 10+ open draft PRs, including a 4-deep stacked tower whose root has no PR. Reconciliation was explicitly deferred by Jack on 2026-10-11.",
+      "evidence": [
+        "SOURCE_OF_TRUTH.md",
+        "docs/autonomy/CURRENT_STATE.md section 7 items 1 and 6"
+      ],
+      "resolution_requires": "Jack decides how main, pcc-production and the open draft PRs are reconciled, possibly by making pcc-production the default branch.",
+      "detector": "default-branch-divergence",
+      "forbidden_paths": [],
+      "forbidden_refs": ["main", "pcc-production", "claude/purchasing-control-center"]
+    }
+  ]
+}

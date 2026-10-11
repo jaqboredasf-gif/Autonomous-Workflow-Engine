@@ -14,6 +14,15 @@ git log --oneline -15 # what the last sessions actually did
 
 Read `SOURCE_OF_TRUTH.md` before touching anything a server runs.
 
+To know whether the code is green, do not trust a session's report, including your own. Run it:
+
+```bash
+npm run verify && npm run engineering-state   # .awe/verify.json, .awe/engineering-state.json
+```
+
+`autonomy/blockers.json` lists problems no agent may repair (S1, MIGRATION-0016, GOV-1). Finding one
+is a reason to escalate, not permission to fix it. See `autonomy/README.md`.
+
 ## While working
 
 - One major task per branch.
