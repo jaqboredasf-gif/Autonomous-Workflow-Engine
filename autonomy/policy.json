@@ -31,7 +31,10 @@
     "capability/purchasing/authorization.mjs",
     "autonomy/policy.json",
     "autonomy/blockers.json",
-    "autonomy/suites.json"
+    "autonomy/suites.json",
+    "autonomy/human-facts.json",
+    "autonomy/attestations.jsonl",
+    "autonomy/deployment-readiness.json"
   ],
-  "l3_note": "autonomy/suites.json is L3 because changing what is registered, or whether it blocks, changes what 'green' means. An agent that could edit it could make any failure non-blocking."
+  "l3_note": "autonomy/attestations.jsonl is L3 because only a person may attest; human-facts.json and deployment-readiness.json because editing them redefines what verified and ready mean. autonomy/suites.json is L3 because changing what is registered, or whether it blocks, changes what 'green' means. An agent that could edit it could make any failure non-blocking."
 }

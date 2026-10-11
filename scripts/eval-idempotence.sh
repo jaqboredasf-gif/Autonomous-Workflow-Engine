@@ -77,8 +77,14 @@ wait_for_health() {
 
 # `start_pcc <extra docker args...>` — the same image, same volume, every time.
 start_pcc() {
+    # PCC_ENVIRONMENT and PCC_ORG_ID are required at first start since e69827a
+    # (2026-09-03) and stamped into the database once. This suite went five
+    # weeks unrun after that and failed at its first start; found by the deploy
+    # CI job on 2026-10-11. `rehearsal` keeps these records out of any evidence.
   docker run -d --name "$NAME" -p "127.0.0.1:${PORT}:3000" -v "${VOL}:/data" \
     -e NODE_ENV=production \
+    -e PCC_ENVIRONMENT=rehearsal \
+    -e PCC_ORG_ID=idempotence-test \
     -e SESSION_SECRET="$SECRET" \
     -e PCC_DATABASE_PATH=/data/pcc.sqlite \
     -e APP_BASE_URL="$ACCEPTANCE_BASE_URL" \

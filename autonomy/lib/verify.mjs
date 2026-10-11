@@ -38,7 +38,7 @@ const CATEGORIES = new Set(['unit', 'integration', 'security', 'typecheck', 'lin
   'deployment', 'evidence', 'measurement', 'rehearsal', 'live']);
 const CRITICALITY = new Set(['critical', 'high', 'normal', 'low']);
 const AUTHORITY = new Set(['authoritative', 'advisory', 'measurement']);
-const REQUIREMENT = /^(deps|nonroot|docker-daemon|tool:[a-z0-9._-]+|env:[A-Z0-9_]+)$/;
+const REQUIREMENT = /^(deps|nonroot|docker-daemon|tool:[a-z0-9._-]+|env:[A-Z0-9_]+|image:[a-z0-9./_-]+:[A-Za-z0-9._-]+)$/;
 
 /** The suite whose artifact every requires_build suite depends on. */
 export const BUILD_SUITE = 'purchasing-build';
@@ -125,7 +125,7 @@ export function nodeSatisfies(range, version) {
  * Unmet requirements for one suite, given an environment probe. The probe is
  * injected so the rules are testable without the environment they describe.
  *
- * probe: { node, nodeRange, env, isRoot, depsInstalled, hasTool(name), dockerUp,
+ * probe: { node, nodeRange, env, isRoot, depsInstalled, hasTool(name), dockerUp, hasImage(ref),
  *          buildStatus /* status of BUILD_SUITE in this run, or null *\/, artifactExists }
  */
 export function preflight(suite, probe) {
@@ -137,6 +137,10 @@ export function preflight(suite, probe) {
     else if (r === 'docker-daemon' && !probe.dockerUp) unmet.push('no reachable Docker daemon');
     else if (r.startsWith('tool:') && !probe.hasTool(r.slice(5))) unmet.push(`${r.slice(5)} not on PATH`);
     else if (r.startsWith('env:') && !probe.env[r.slice(4)]) unmet.push(`${r.slice(4)} not set`);
+    // A base image must already be on the machine. Whether it can be PULLED is
+    // a network question with a rate limit attached; asking it here would make
+    // BLOCKED depend on the weather. CI pulls first, as its own visible step.
+    else if (r.startsWith('image:') && !(probe.dockerUp && probe.hasImage(r.slice(6)))) unmet.push(`image ${r.slice(6)} not present locally`);
   }
   if (suite.requires_build) {
     if (probe.buildStatus && probe.buildStatus !== 'PASS') {
@@ -212,6 +216,7 @@ export function probeEnvironment(root, nodeRange) {
       if (dockerCache === null) dockerCache = spawnSync('docker', ['info'], { stdio: 'ignore', timeout: 20000 }).status === 0;
       return dockerCache;
     },
+    hasImage: (ref) => spawnSync('docker', ['image', 'inspect', ref], { stdio: 'ignore', timeout: 20000 }).status === 0,
     artifactExists: existsSync(join(root, 'apps/purchasing/.next/standalone/apps/purchasing/server.js')),
   };
 }

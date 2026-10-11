@@ -87,6 +87,10 @@ wait_for_health() {
 
 # --- 1. the source system ---------------------------------------------------
 step "starting the SOURCE instance (a first install)"
+# PCC_ENVIRONMENT/PCC_ORG_ID: required at first start since e69827a (2026-09-03);
+# this rehearsal went unrun and failed at first start until the deploy CI job
+# found it on 2026-10-11. The restored instance must declare the same pair, or
+# it refuses: the stamp in the restored database has to match.
 docker volume create "$SRC_VOL" >/dev/null
 docker run -d --name "$SRC_NAME" -p "127.0.0.1:${SRC_PORT}:3000" -v "${SRC_VOL}:/data" \
   -e NODE_ENV=production \
@@ -95,6 +99,8 @@ docker run -d --name "$SRC_NAME" -p "127.0.0.1:${SRC_PORT}:3000" -v "${SRC_VOL}:
   -e APP_BASE_URL="http://localhost:${SRC_PORT}" \
   -e PCC_ALLOW_INSECURE_HTTP=1 \
   -e PCC_DATABASE_ALLOW_CREATE=1 \
+  -e PCC_ENVIRONMENT=rehearsal \
+  -e PCC_ORG_ID=restore-rehearsal \
   -e PCC_ORG_NAME="$ORG" \
   -e PCC_ORG_ADDRESS="$ORG_ADDRESS" \
   -e PCC_ORG_PHONE="$ORG_PHONE" \
@@ -159,6 +165,8 @@ docker run -d --name "$DST_NAME" -p "127.0.0.1:${DST_PORT}:3000" -v "${DST_VOL}:
   -e PCC_DATABASE_PATH=/data/pcc.sqlite \
   -e APP_BASE_URL="http://localhost:${DST_PORT}" \
   -e PCC_ALLOW_INSECURE_HTTP=1 \
+  -e PCC_ENVIRONMENT=rehearsal \
+  -e PCC_ORG_ID=restore-rehearsal \
   -e PCC_ORG_NAME="$ORG" \
   -e PCC_ORG_ADDRESS="$ORG_ADDRESS" \
   -e PCC_ORG_PHONE="$ORG_PHONE" \

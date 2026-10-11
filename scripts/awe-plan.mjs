@@ -35,9 +35,16 @@ const derived = await deriveFacts({ db: arg('db'), org: arg('org'), warn: (m) =>
 const facts = mergeFacts(derived, DECLARED);
 const result = plan(facts);
 
+// The baseline gate (autonomy/lib/attestations.mjs) rides on top of the plan,
+// not inside it: it is a human attestation, not a claim the planner ranks, and
+// it must be impossible to read the plan without seeing it.
+const { baseline } = await (await import(join(ROOT, 'autonomy/lib/human-evidence.mjs'))).loadHumanEvidence(ROOT);
+
 if (flag('json')) {
-  console.log(JSON.stringify({ facts, plan: result, warnings }, null, 2));
+  console.log(JSON.stringify({ facts, plan: result, warnings, baseline }, null, 2));
 } else {
+  const bar = '!'.repeat(72);
+  if (baseline.banner) console.log(`${bar}\n  ${baseline.banner}\n  ${baseline.how_to_clear}\n${bar}\n`);
   for (const w of warnings) console.error(`NOTE: ${w}\n`);
   console.log(render(result));
 }

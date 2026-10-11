@@ -9,7 +9,17 @@ npm run verify                 # registered suites, profile "ci" → .awe/verify
 npm run engineering-state      # → .awe/engineering-state.json: is autonomous work safe, and why
 npm run guard -- --base origin/pcc-production   # would an autonomous change touch a closed path?
 npm run test:autonomy          # the layer's own adversarial tests
+
+# Milestone 2B — deployment confidence
+node scripts/awe-verify.mjs --profile deploy --out .awe-deploy   # needs Docker + node:24-bookworm-slim
+npm run readiness -- --verify .awe-deploy/verify.json            # → .awe-deploy/deployment-readiness.json
+npm run attest -- --list                                         # human facts and their state
+npm run attest                                                   # a PERSON records one (refuses agents and CI)
 ```
+
+**While nobody has attested `baseline_captured_before_first_transaction`, `npm run plan`,
+`npm run engineering-state` and `npm run readiness` print:
+BASELINE REQUIRED BEFORE FIRST REAL PCC TRANSACTION.** Nothing but a person can clear it.
 
 There is no Builder, no scheduler and no model call here. This layer only observes.
 
@@ -20,6 +30,11 @@ There is no Builder, no scheduler and no model call here. This layer only observ
 | `suites.json` | Every verification entrypoint in the repo, classified by running it | **L3 (Jack).** Editing it changes what "green" means |
 | `blockers.json` | Known problems autonomy must never repair (S1, MIGRATION-0016, GOV-1) | **L3.** Only a human edit lifts a blocker |
 | `policy.json` | Limits and the standing L3 path list | **L3** |
+| `human-facts.json` | Facts only a person can establish, and which (few) have a machine check | **L3** |
+| `attestations.jsonl` | Append-only human attestations; written only by `npm run attest` | **L3. Never written by an agent** |
+| `deployment-readiness.json` | The seven deployment questions, their evidence suites, what each does not prove | **L3** |
+| `lib/attestations.mjs` | Fact states (UNKNOWN / HUMAN_VERIFIED / HUMAN_REFUTED / MACHINE_VERIFIED) and the baseline gate (pure) | |
+| `lib/readiness.mjs` | Deployment readiness derivation (pure). Never says production ready | |
 | `lib/verify.mjs` | Registry validation, preflight, classification, the runner | |
 | `lib/state.mjs` | The engineering-state derivation (pure) | |
 | `lib/guard.mjs` | Closed-path and closed-ref checks (pure) | |
@@ -68,3 +83,22 @@ a non-CI profile; an invalid registry; or a blocking suite that FAILED or was BL
 A blocker's `forbidden_paths` and `forbidden_refs` are closed to every autonomous change while its
 status is anything other than `RESOLVED`. Detectors may report that a blocker *looks* resolved; that
 changes nothing. Discovering a problem is not permission to repair it.
+
+## Deployment readiness (Milestone 2B)
+
+The Lippolis target is **Windows Server** (LIPELE-RDS02). The `deploy` profile proves the
+platform-neutral half: the packaged application, a clean-environment install, installing twice,
+startup, persistence, backup, restore, and restored state matching expected state. It runs on Linux
+containers. Every question in `deployment-readiness.json` states what it does **not** prove, and
+names the human fact that closes the gap on the real server.
+
+Two verdicts, never "production ready":
+
+- **install**: `NOT_READY` · `MACHINE_EVIDENCE_INCOMPLETE` · `READY_FOR_SUPERVISED_FIRST_INSTALL`.
+  It also requires that the application code verified is identical to the signed release in
+  `deployment/APPROVED_RELEASE.md`.
+- **first_transaction**: `NOT_CLEARED` until every fact required before the first real transaction
+  is attested, the baseline first.
+
+The CI job `deploy evidence (non-blocking)` runs this on every PR into `pcc-production`. It cannot
+fail the workflow until it has a record of being reliable.

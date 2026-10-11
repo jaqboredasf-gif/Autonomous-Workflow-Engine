@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { deriveEngineeringState } from '../autonomy/lib/state.mjs';
 import { runDetectors } from '../autonomy/lib/detectors.mjs';
 import { git } from '../autonomy/lib/git.mjs';
+import { loadHumanEvidence } from '../autonomy/lib/human-evidence.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -46,12 +47,14 @@ const state = deriveEngineeringState({
   detections: runDetectors(ROOT, blockers),
   head: git(ROOT, ['rev-parse', 'HEAD']),
   now: new Date().toISOString(),
+  human: await loadHumanEvidence(ROOT),
 });
 
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'engineering-state.json'), JSON.stringify(state, null, 2) + '\n');
 
 const a = state.autonomy;
+if (state.banner) console.log(`${'='.repeat(72)}\n  ${state.banner}\n${'='.repeat(72)}`);
 console.log(`AWE ENGINEERING STATE — ${state.commit?.slice(0, 12) ?? 'unknown commit'} (${state.branch ?? 'unknown branch'})`);
 if (state.verification) {
   const s = state.verification.summary;

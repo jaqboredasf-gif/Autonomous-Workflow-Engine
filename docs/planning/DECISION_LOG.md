@@ -919,3 +919,56 @@ each classified by *running* it, unbuilt and built, as root and as a normal user
   rehearsal "passed"; on the non-root runner the server never started. Fixed with a portable
   template and a refusal on an empty directory. Reproduced (old script, non-root: FAIL) and
   verified (fixed, non-root: PASS) before pushing. It is a harness fix, not a product change.
+
+## 2026-10-11 (deployment confidence — autonomy Milestone 2B)
+
+**The question: if PCC is installed at Lippolis, how confident should anyone be that installation,
+startup, persistence, backup and recovery will work? At the start of the day the honest answer was
+"we cannot say".** The three container suites that exercise those paths had not run in weeks, and
+when run, all three failed before testing anything.
+
+**They had rotted, not broken.** Since `e69827a` (2026-09-03) a first production start refuses
+without `PCC_ENVIRONMENT` and `PCC_ORG_ID`, and the container suites set neither. Since `5003684`
+(2026-08-18) every bootstrap or invited password must be replaced at first sign-in, and
+`eval-restore-rehearsal.mjs`, which both container suites drive, still signed in and carried on.
+Each product change was right. The harness simply was not run afterwards. Fixed in the harness only:
+the containers declare `rehearsal` and a fixed org id, and the harness replaces each temporary
+password the way a person must. No assertion was removed. This is the strongest argument yet for
+the CI job: a suite nobody runs is a suite that silently stops meaning anything.
+
+**Decisions made against an obvious alternative:**
+
+- **The Lippolis target is Windows Server, and the readiness model says so on every answer.**
+  The container suites prove the platform-neutral half: the packaged application, the shared Node
+  tools (pcc-backup, pcc-restore, pcc-verify-*) and the data paths. Each question in
+  `autonomy/deployment-readiness.json` states what it does not prove and which human fact closes
+  that gap on LIPELE-RDS02. The alternative, reporting green containers as "deployable", would have
+  been true on Linux and misleading for the one machine that matters.
+- **Two verdicts, never "production ready".** Install is at best
+  `READY_FOR_SUPERVISED_FIRST_INSTALL`, and only when the application verified is identical to the
+  signed release. First transaction stays `NOT_CLEARED` until people attest. A single verdict would
+  have let green machines imply a measured, safe first purchase.
+- **Human facts are a JSONL ledger written by one interactive command, not a field anyone can
+  edit.** `npm run attest` refuses CI, agent sessions and non-terminals. `HUMAN_REFUTED` exists
+  because "checked, and not true" (for example S1 still live) must not collapse into UNKNOWN. A
+  machine check can make a fact MACHINE_VERIFIED only where the catalog names one. The baseline has
+  none, deliberately.
+- **Frozen baseline files do not clear the baseline gate.** A frozen file says a baseline exists,
+  not that it predates the first real purchase; only someone at Lippolis knows that.
+- **`backup-timer` and `supabase-local-rls` stay out of the deploy profile.** One proves a Linux
+  systemd timer; the other a store the pilot does not use. Neither bears on RDS02.
+- **The deploy job is non-blocking (`continue-on-error`)** until it has a record here. Its first CI
+  run: 10/10 PASS in about 4 minutes, install `READY_FOR_SUPERVISED_FIRST_INSTALL`.
+
+**Failure injection (reverted, never committed), each detected:** base image absent → BLOCKED
+before running, readiness INCOMPLETE. Built server truncated → FAIL (SyntaxError, server never up).
+Application does not compile → FAIL (image did not build). Backup skips its write → FAIL in both
+`backup-operations` and the restore rehearsal. Restore silently rewrites attachment bytes with every
+row intact → FAIL on the byte-for-byte check (sha c7791e… vs 41d84e…). A count-based check would
+have passed that last one.
+
+**Risks found and recorded:** each container suite builds the image and leaves its build cache. A
+local sandbox reached ENOSPC with 28 GB of cache, and the same pattern could exhaust a CI runner's
+disk. The production build fetches Google Fonts at build time, so the build machine needs internet
+access (the server does not). Docker Hub rate limits are real; the CI job retries once, then uses
+Google's Docker Hub mirror, and an absent image is BLOCKED, never a mid-build crash.
