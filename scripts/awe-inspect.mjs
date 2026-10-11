@@ -11,39 +11,27 @@
 // itself: run `npm run verify` (and the deploy profile) first, or it reports
 // the evidence as stale, which is itself a finding.
 //
-// It changes nothing. It never dispatches the work package: there is no
-// Builder yet, by Jack's decision (2026-10-11).
+// It changes nothing and dispatches nothing. Acting on the decision is
+// scripts/awe-cycle.mjs, which uses the same judgement (autonomy/lib/engine.mjs).
 // ---------------------------------------------------------------------------
 
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { observe } from '../autonomy/lib/observe.mjs';
-import { inspect, gateIndex } from '../autonomy/lib/inspect.mjs';
-import { classify } from '../autonomy/lib/authority.mjs';
-import { prioritize, decide } from '../autonomy/lib/prioritize.mjs';
-import { generateWorkPackage } from '../autonomy/lib/work-package.mjs';
+import { judge } from '../autonomy/lib/engine.mjs';
+import { git } from '../autonomy/lib/git.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const asJson = process.argv.includes('--json');
 const now = new Date();
 
 const obs = await observe(ROOT, { now });
-const plan = obs.plan?.plan;
-const ctx = {
-  gates: gateIndex(obs.plan),
-  currentGate: plan?.currentGate?.n ?? 1,
-  grades: new Map((plan?.claims ?? []).map((c) => [c.id, c.grade])),
-};
-const findings = inspect(obs).map((x) => ({ ...x, authority: classify(x, obs.policy, obs.blockers) }));
-const ranked = prioritize(findings, ctx);
-const decision = decide(ranked, {
-  engineeringVerdict: obs.engineering.autonomy.verdict,
-  openAutonomyPrs: obs.autonomy_prs.unmerged_branches.length,
-  prLimit: obs.autonomy_prs.limit,
+const productRef = obs.product_line.ref;
+const { plan, ctx, ranked, decision, topMachine, pkg } = judge(obs, {
+  now: now.toISOString(),
+  base: { ref: productRef, commit: git(ROOT, ['rev-parse', productRef]) },
 });
-const topMachine = ranked.find((x) => x.authority.class === 'MACHINE_EXECUTABLE' && x.action.kind !== 'observe-only') ?? null;
-const pkg = topMachine ? generateWorkPackage(topMachine, { policy: obs.policy, blockers: obs.blockers, now: now.toISOString() }) : null;
 
 const record = {
   schema: 'awe.inspection/1',
@@ -53,6 +41,8 @@ const record = {
     iic_deadline: obs.iic.evidence_deadline, days_to_deadline: obs.iic.days_to_deadline, baseline: obs.human.baseline.status },
   state: {
     engineering: obs.engineering.autonomy.verdict,
+    verification_source: obs.engineering.verification_source,
+    ci: obs.verify.authoritative,
     verification: obs.verify.ci ? { commit: obs.verify.ci.commit, fresh: obs.verify.ci.fresh, verdict: obs.verify.ci.verdict } : null,
     deploy_verification: obs.verify.deploy ? { commit: obs.verify.deploy.commit, fresh: obs.verify.deploy.fresh } : null,
     install_readiness: obs.readiness.install.verdict,
@@ -71,7 +61,7 @@ if (asJson) { console.log(JSON.stringify(record, null, 2)); process.exit(0); }
 const line = '─'.repeat(78);
 if (obs.human.baseline.banner) console.log(`${'!'.repeat(78)}\n  ${obs.human.baseline.banner}\n${'!'.repeat(78)}`);
 console.log(`AWE INSPECTION — ${obs.head?.slice(0, 7)}${obs.dirty ? ' (dirty)' : ''} — gate ${ctx.currentGate} "${plan?.currentGate?.name}" — ${obs.iic.days_to_deadline} days to IIC evidence deadline`);
-console.log(`engineering ${obs.engineering.autonomy.verdict} · install ${obs.readiness.install.verdict} · product line last commit ${obs.product_line.days_since_commit} days ago · ${obs.autonomy_prs.unmerged_branches.length}/${obs.autonomy_prs.limit} autonomy PRs open`);
+console.log(`engineering ${obs.engineering.autonomy.verdict} (verification: ${obs.engineering.verification_source ?? 'none'}; CI ${obs.verify.authoritative.status}) · install ${obs.readiness.install.verdict} · product line last commit ${obs.product_line.days_since_commit} days ago · ${obs.autonomy_prs.unmerged_branches.length}/${obs.autonomy_prs.limit} autonomy PRs open`);
 console.log(`\n${line}\n  ${decision.headline}\n${line}`);
 for (const r of decision.reasons) console.log(`  · ${r}`);
 

@@ -17,6 +17,16 @@
       "profiles": ["ci", "local"]
     },
     {
+      "id": "autonomy-cycle",
+      "name": "Autonomy closed loop: CI evidence, evaluator, hands, cycle record and ledger",
+      "entry": "scripts/eval-autonomy-cycle.mjs",
+      "command": ["node", "scripts/eval-autonomy-cycle.mjs"],
+      "category": "unit", "area": "autonomy",
+      "requires": [], "offline": true, "requires_build": false,
+      "timeout_s": 180, "criticality": "critical", "blocking": true, "authority": "authoritative",
+      "profiles": ["ci", "local"]
+    },
+    {
       "id": "purchasing-typecheck",
       "name": "Purchasing TypeScript strict typecheck",
       "entry": "apps/purchasing/tsconfig.json",

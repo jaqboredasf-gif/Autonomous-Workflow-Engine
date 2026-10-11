@@ -3,6 +3,7 @@
 //
 //   npm run engineering-state                 # reads .awe/verify.json
 //   node scripts/awe-state.mjs --verify path/to/verify.json --out .awe
+//   node scripts/awe-state.mjs --local-only   # ignore imported CI evidence
 //
 // Writes <out>/engineering-state.json: which commit was examined, what passed,
 // failed and was blocked, which blockers are open and what can be observed
@@ -24,6 +25,8 @@ import { deriveEngineeringState } from '../autonomy/lib/state.mjs';
 import { runDetectors } from '../autonomy/lib/detectors.mjs';
 import { git } from '../autonomy/lib/git.mjs';
 import { loadHumanEvidence } from '../autonomy/lib/human-evidence.mjs';
+import { loadCiEvidence } from '../autonomy/lib/observe.mjs';
+import { ciVerdict } from '../autonomy/lib/ci-evidence.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -42,10 +45,17 @@ else {
   catch (e) { verifyError = `${relative(ROOT, verifyPath)} is unreadable: ${e.message}`; }
 }
 
+// Authoritative CI for HEAD, when imported (scripts/awe-ci-evidence.mjs) and
+// the tree is clean. --local-only ignores it, to see what this machine alone says.
+const head = git(ROOT, ['rev-parse', 'HEAD']);
+const clean = git(ROOT, ['status', '--porcelain', '--untracked-files=normal']) === '';
+const ci = argv.includes('--local-only') ? null
+  : clean ? ciVerdict(loadCiEvidence(ROOT, head), head) : { status: 'ABSENT', detail: 'dirty tree: HEAD is not what CI verified' };
+
 const state = deriveEngineeringState({
-  verify, verifyError, blockers, policy,
+  verify, verifyError, blockers, policy, ci,
   detections: runDetectors(ROOT, blockers),
-  head: git(ROOT, ['rev-parse', 'HEAD']),
+  head,
   now: new Date().toISOString(),
   human: await loadHumanEvidence(ROOT),
 });
@@ -60,6 +70,9 @@ if (state.verification) {
   const s = state.verification.summary;
   console.log(`verification ${state.verification.verdict}: pass ${s.pass}, fail ${s.fail}, blocked ${s.blocked}, skipped ${s.skipped}`);
 }
+if (state.ci) console.log(`authoritative CI: ${state.ci.status} — ${state.ci.detail}`);
+console.log(`verification source: ${state.verification_source ?? 'none'}`);
+for (const n of state.notes) console.log(`  note: ${n}`);
 console.log(`\nAUTONOMY: ${a.verdict}`);
 for (const r of a.reasons) console.log(`  · [${r.level}] ${r.reason}`);
 console.log('\nBLOCKERS (observe and escalate only)');

@@ -32,9 +32,11 @@
     "verify": "node scripts/awe-verify.mjs",
     "engineering-state": "node scripts/awe-state.mjs",
     "guard": "node scripts/awe-guard.mjs",
-    "test:autonomy": "node scripts/eval-autonomy.mjs",
+    "test:autonomy": "node scripts/eval-autonomy.mjs && node scripts/eval-autonomy-cycle.mjs",
     "attest": "node scripts/awe-attest.mjs",
-    "inspect": "node scripts/awe-inspect.mjs"
+    "inspect": "node scripts/awe-inspect.mjs",
+    "cycle": "node scripts/awe-cycle.mjs",
+    "ci-evidence": "node scripts/awe-ci-evidence.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"

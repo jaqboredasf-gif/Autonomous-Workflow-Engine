@@ -25,12 +25,18 @@ import { deriveEngineeringState } from './state.mjs';
 import { deriveReadiness } from './readiness.mjs';
 import { loadHumanEvidence } from './human-evidence.mjs';
 import { signedRelease } from './release.mjs';
+import { ciVerdict } from './ci-evidence.mjs';
 
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 const runJson = (root, args) => {
   const r = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   try { return JSON.parse(r.stdout); } catch { return null; }
 };
+
+/** Authoritative CI evidence imported for `commit` (scripts/awe-ci-evidence.mjs), or null. */
+export function loadCiEvidence(root, commit) {
+  return commit ? readJson(join(root, '.awe/ci', `${commit}.json`)) : null;
+}
 
 function grepDocs(root, dirs, pattern) {
   const hits = [];
@@ -63,7 +69,7 @@ function todoMarkers(root, dirs) {
   return out;
 }
 
-function probe(root, cap) {
+export function probeCapability(root, cap) {
   const p = cap.probe;
   if (p.kind === 'file-on-ref') {
     const refOk = git(root, ['rev-parse', '--verify', '-q', p.ref]);
@@ -98,6 +104,12 @@ function probe(root, cap) {
   return { observable: false, reason: `unknown probe ${p.kind}` };
 }
 
+/** Pure: which autonomy branches are queued for review, given where we stand. */
+export function awaitingReview(branches, { current, head }) {
+  return branches.filter((b) => !b.merged && b.branch !== current && b.tip !== head)
+    .map(({ branch, ahead }) => ({ branch, ahead }));
+}
+
 export async function observe(root, { now = new Date() } = {}) {
   const head = git(root, ['rev-parse', 'HEAD']);
   const tree = treeFacts(root);
@@ -112,10 +124,15 @@ export async function observe(root, { now = new Date() } = {}) {
   const gate = runJson(root, [join(root, 'scripts/pcc-deployment-gate.mjs'), '--json']);
   const plan = runJson(root, [join(root, 'scripts/awe-plan.mjs'), '--json']);
 
+  // Authoritative CI for this exact commit, when a clean tree makes HEAD the
+  // thing being judged. A dirty tree is not the commit CI verified.
+  const ciRecord = loadCiEvidence(root, head);
+  const ci = tree.dirty === false ? ciVerdict(ciRecord, head)
+    : { status: 'ABSENT', detail: 'the working tree is dirty, so HEAD is not what CI verified' };
   const engineering = deriveEngineeringState({
     verify: fresh(ciVerify) ? ciVerify : null,
     verifyError: ciVerify && !fresh(ciVerify) ? `verify.json is for ${ciVerify.tree?.commit?.slice(0, 7)}${ciVerify.tree?.dirty ? ' (dirty)' : ''}, not HEAD` : null,
-    blockers, policy, detections, head, now: now.toISOString(), human,
+    blockers, policy, detections, head, now: now.toISOString(), human, ci,
   });
   const spec = readJson(join(root, 'autonomy/deployment-readiness.json'));
   const readiness = deriveReadiness({
@@ -128,10 +145,18 @@ export async function observe(root, { now = new Date() } = {}) {
   const productRef = 'origin/pcc-production';
   const productLast = git(root, ['log', '-1', '--format=%cs %h %s', productRef]);
   const productDate = productLast?.slice(0, 10) ?? null;
+  // Autonomy work awaiting review: unmerged autonomy branches OTHER than the
+  // one this observation runs from. The branch being observed is the work in
+  // hand, not a PR queued in front of it (M3 counted its own PR against
+  // itself). A branch whose tip is HEAD is the same work under another name.
   const branches = (git(root, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin']) ?? '')
     .split('\n').filter((b) => /^origin\/(claude\/autonomy-|autonomy\/)/.test(b));
-  const unmergedAutonomy = branches.filter((b) => git(root, ['merge-base', '--is-ancestor', b, productRef]) === null)
-    .map((b) => ({ branch: b.replace(/^origin\//, ''), ahead: Number(git(root, ['rev-list', '--count', `${productRef}..${b}`]) ?? 0) }));
+  const unmergedAutonomy = awaitingReview(branches.map((b) => ({
+    branch: b.replace(/^origin\//, ''),
+    tip: git(root, ['rev-parse', b]),
+    merged: git(root, ['merge-base', '--is-ancestor', b, productRef]) !== null,
+    ahead: Number(git(root, ['rev-list', '--count', `${productRef}..${b}`]) ?? 0),
+  })), { current: tree.branch, head });
 
   // The IIC evidence deadline, read from the spec that states it.
   const spec2027 = existsSync(join(root, 'programs/iic-2027/MASTER_SPEC.md')) ? readFileSync(join(root, 'programs/iic-2027/MASTER_SPEC.md'), 'utf8') : '';
@@ -141,7 +166,7 @@ export async function observe(root, { now = new Date() } = {}) {
   const daysTo = (iso) => (iso ? Math.round((Date.parse(iso) - Date.parse(now.toISOString().slice(0, 10))) / 864e5) : null);
 
   const capabilities = readJson(join(root, 'autonomy/capabilities.json')).capabilities
-    .map((c) => ({ ...c, result: probe(root, c) }));
+    .map((c) => ({ ...c, result: probeCapability(root, c) }));
 
   // TODO markers on the path that actually ships (purchasing app, proof,
   // deployment tooling). Markers elsewhere are not evidence about the pilot.
@@ -159,6 +184,7 @@ export async function observe(root, { now = new Date() } = {}) {
     verify: {
       ci: ciVerify ? { commit: ciVerify.tree?.commit, fresh: fresh(ciVerify), verdict: ciVerify.verdict, summary: ciVerify.summary, profile: ciVerify.profile,
         suites: ciVerify.suites.map((s) => ({ id: s.id, status: s.status, blocking: s.blocking, reason: s.reason, area: s.area, category: s.category })) } : null,
+      authoritative: { ...ci, record: ciRecord ? { commit: ciRecord.commit, imported_at: ciRecord.imported_at, imported_by: ciRecord.imported_by, source_sha256: ciRecord.source_sha256 } : null },
       deploy: deployVerify ? { commit: deployVerify.tree?.commit, fresh: fresh(deployVerify), verdict: deployVerify.verdict, summary: deployVerify.summary } : null,
     },
     engineering, readiness, gate, plan, human, blockers, detections, policy,

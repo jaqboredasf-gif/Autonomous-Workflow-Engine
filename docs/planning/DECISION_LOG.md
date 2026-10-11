@@ -1004,3 +1004,35 @@ an organization's own goal ordering; authority classification by the same guard 
 "no" as a first-class decision when a person is the bottleneck; and the cost of the machine's own
 output to the human reviewing it, counted explicitly. For a customer, "the review queue" would be
 "the approver's inbox".
+
+## 2026-10-11 (the loop closes once, under supervision — autonomy Milestone 4)
+
+**Decision.** Jack approved bounded supervised execution: two tracks, with Track A (baseline, RDS02,
+first install) Jack's and Lippolis IT's, and Track B (AWE autonomy) proceeding in parallel. #17, #19
+and #20 were merged into `pcc-production` in stack order with merge commits, each only after its CI was
+green, and the merged tree was confirmed identical to the commit CI verified (7913615). The
+product line then got its first CI run (555c882, success). The smallest closed loop was then built:
+`awe-cycle` (start → dispatch → collect → push → evaluate → pr → finish), with CI evidence,
+hands, evaluator, probes and a hash-chained ledger.
+
+**Decided against, and why:**
+- *Squash or rebase merges for the stack.* They would have rewritten #19 and #20 onto commits that
+  were not the ones CI verified. Merge commits keep the verified trees.
+- *The engine fetching CI itself.* The engine makes no network call, which is what the source scans
+  in both self-tests hold it to. CI evidence is a file imported by whoever can read GitHub, keyed
+  to a full commit sha, with run URLs and a hash, so a person can check it. The cost: an importer
+  could lie. Mitigation: the record names the runs, and the evaluator's CI check is one of nine.
+- *Treating CI PASS as overriding a local FAIL.* A local BLOCKED is the environment (root); a local
+  FAIL on the same commit is a disagreement, and AGENTS.md says to stop on disagreement.
+- *The Builder pushing and opening its own PR.* The Builder only edits a worktree. The hands commit
+  only if every path is allowed (an out-of-scope build is committed not at all, not partly), and
+  push only `autonomy/*`, fast-forward. The Builder cannot reach the product line through the
+  runner, and the evaluator rechecks everything from the diff anyway.
+- *Letting the Builder's tests prove the build.* The probes that matter are on the supervisor's
+  checkout, hashed into the record before dispatch, and adversarial (rehearsal, unstamped, wrong
+  organization, torn copy, in-repository and symlinked copies, source unchanged, repository
+  untouched, the engine's own capability probe). The Builder's tests may only grow.
+- *A scheduler.* Not built. One supervised cycle first; unattended running is a later decision.
+- *Making autonomy/cycles/ L3 now.* It would be a policy change, and governance changes are outside
+  this authorization. The Builder cannot touch it anyway (not in any package's allowed files), and the
+  ledger detects edits. Recommended to Jack as an L3 addition.

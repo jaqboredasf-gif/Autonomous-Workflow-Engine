@@ -127,3 +127,43 @@ dispatches nothing. There is no Builder.
   serves an unmeasured North Star claim, clears a score floor, the engineering state is not
   NOT_SAFE, and the open autonomy PR count is under the limit. Otherwise it prints why, and when the
   top finding is a person's: `DO NOT BUILD ANYTHING. JACK IS THE BOTTLENECK.`
+
+## The closed loop (Milestone 4: one supervised cycle, end to end)
+
+```bash
+node scripts/awe-ci-evidence.mjs --commit <HEAD sha> --check-runs runs.json   # CI's verdict for HEAD
+npm run cycle -- start          # observe → judge → STOP, or ONE package + worktree on autonomy/<cycle>
+npm run cycle -- dispatch       # writes builder-brief-<n>.md: the Builder's only context
+#   … a separate Builder session edits files in .awe/worktrees/<cycle> and nothing else …
+npm run cycle -- collect --report builder-report.md   # commits iff every path is allowed
+npm run cycle -- push           # fast-forward push of autonomy/<cycle>; CI runs on push
+node scripts/awe-ci-evidence.mjs --commit <build head> --check-runs runs.json
+npm run cycle -- evaluate --review review.json        # ACCEPT · REJECT · HUMAN_REVIEW
+npm run cycle -- pr --url <draft PR> --number <n>     # only if not REJECT
+npm run cycle -- finish         # Captain Brief + autonomy/cycles/<cycle>.json + ledger line
+npm run cycle -- verify-ledger
+```
+
+- **Authoritative CI** (`lib/ci-evidence.mjs`). The engine reads the `verify` check's conclusion
+  for the exact HEAD commit, imported with its run ids, URLs and a hash. When it is PASS, a local
+  BLOCKED (the root container) is a note, not a failure; a local blocking FAIL on the same commit
+  is a disagreement and still NOT_SAFE. A record for another commit is ABSENT, never borrowed.
+- **The queue** counts unmerged autonomy branches other than the one being observed (M3 counted
+  its own PR against itself).
+- **The package** is measured from a base COMMIT, not `origin/pcc-production`, and carries file
+  rules (`no-removals`, `add-scripts-only`), the interface the Builder must meet, and the path of
+  the evaluator's probes, which are not on the Builder's branch and are hashed into the record.
+- **The hands** (`lib/hands.mjs`) are the only code here that changes git: a worktree on a new
+  `autonomy/*` branch from the base commit, a commit only if every changed path is allowed, a
+  fast-forward push of that one branch. No force, merge, rebase, reset or branch deletion.
+- **The evaluator** (`lib/evaluate.mjs`) judges from the diff against the base commit, the guard,
+  test-weakening rules, the file rules, the Builder branch's self-test, the probes, CI for the
+  pushed head, the budget, and a fresh-session review that saw only the package and the diff.
+  Any FAIL is REJECT; anything it cannot establish is HUMAN_REVIEW; there is no override input.
+- **The record** (`lib/cycle.mjs`) keeps finding, score, authority, package, build, verification,
+  verdict, PR, expected impact, actual impact (UNKNOWN until measured) and human disposition
+  (PENDING; derived later from whether the branch was merged). `autonomy/cycles/ledger.jsonl`
+  chains each finished record by sha256, so an edit to history is detected.
+- **Limits.** One cycle at a time; a cycle does not start from a Builder worktree; two attempts;
+  45 minutes from first dispatch to collection; the PR-queue limit is the decision's, as in M3.
+  Nothing in the loop merges, deploys, or touches production. Scheduling it is not built.
