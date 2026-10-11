@@ -39,6 +39,9 @@ import { inspect, gateIndex } from '../autonomy/lib/inspect.mjs';
 import { prioritize, decide, score as scoreFinding, HYPOTHESIS_CONFIDENCE_CAP } from '../autonomy/lib/prioritize.mjs';
 import { classify as classifyAuthority } from '../autonomy/lib/authority.mjs';
 import { generateWorkPackage } from '../autonomy/lib/work-package.mjs';
+import { DatabaseSync } from 'node:sqlite';
+import { createHash, randomBytes } from 'node:crypto';
+import { symlinkSync, statSync, copyFileSync } from 'node:fs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const load = (p) => JSON.parse(readFileSync(join(ROOT, p), 'utf8'));
@@ -494,6 +497,91 @@ ok(wp.acceptance_criteria.every((c) => c.command && c.expect), 'acceptance crite
 ok(wp.max_attempts === 2 && wp.budget_minutes === 45, 'it carries the approved limits: 2 attempts, 45 minutes');
 ok(generateWorkPackage({ ...lint, priority: lint.priority }, { policy, blockers, now: 't' }).status === 'NO_TEMPLATE',
    'there is no package for work nobody has scoped');
+
+console.log('--- production records enter only through the intake ------------');
+
+{
+  // Fixtures live in the system temp directory, never in the repository. Names,
+  // labels and organization ids are random so nothing can key on them.
+  const rnd = (n = 6) => randomBytes(n).toString('hex');
+  const tmp = mkdtempSync(join(tmpdir(), 'awe-intake-'));
+  const intake = (args) => spawnSync(process.execPath, [join(ROOT, 'scripts/awe-production-intake.mjs'), ...args],
+    { cwd: ROOT, encoding: 'utf8', timeout: 240_000 });
+  const hash = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
+  const fixture = (environment, org, { name = `${rnd()}.sqlite`, dir = tmp } = {}) => {
+    const path = join(dir, name);
+    const db = new DatabaseSync(path);
+    db.exec(`create table orgs (id text primary key, name text not null);
+      create table purchase_requests (id text primary key, org_id text not null, created_at text not null);
+      create table purchase_orders (id text primary key, org_id text not null, request_id text not null);
+      create table schema_meta (key text primary key, value text not null);`);
+    db.prepare('insert into orgs values (?, ?)').run(org, `Org ${org}`);
+    for (let i = 0; i < 3; i++) db.prepare('insert into purchase_requests values (?, ?, ?)').run(`r${i}`, org, `2026-09-0${i + 1}T09:00:00Z`);
+    db.prepare('insert into purchase_orders values (?, ?, ?)').run('p0', org, 'r0');
+    if (environment) db.prepare(`insert into schema_meta values ('environment', ?)`).run(environment);
+    db.prepare(`insert into schema_meta values ('version', '0040-fixture')`).run();
+    db.close();
+    return path;
+  };
+  const outBase = join(ROOT, '.awe', 'production');
+  const recordFor = (label) => join(outBase, label, 'intake.json');
+  const sidecars = (p) => ['-wal', '-shm', '-journal'].filter((s) => existsSync(p + s));
+
+  try {
+    // Production-stamped, declared org: accepted, analysed, recorded.
+    const org = `org-${rnd()}`;
+    const label = `t-${rnd()}`;
+    // Named like a rehearsal on purpose: the decision is the stamp, not the name.
+    const prod = fixture('production', org, { name: `rehearsal-${rnd()}.sqlite` });
+    const before = hash(prod);
+    const r = intake(['--from', prod, '--org', org, '--label', label]);
+    ok(r.status === 0, 'intake: a production-stamped copy for the declared organization is accepted (exit 0)', `${r.status} ${r.stderr}`);
+    const rec = existsSync(recordFor(label)) ? JSON.parse(readFileSync(recordFor(label), 'utf8')) : null;
+    ok(rec?.schema === 'awe.production-intake/1' && rec.environment === 'production' && rec.org === org,
+       'intake: it writes .awe/production/<label>/intake.json as awe.production-intake/1');
+    ok(rec?.source?.sha256 === before && rec.source.bytes === statSync(prod).size, 'intake: the record carries the source sha256 and size');
+    ok(rec?.counts?.requests === 3 && rec.counts.purchase_orders === 1, 'intake: and the organization\'s counts');
+    ok(Array.isArray(rec?.analyses) && ['plan', 'case-study'].every((n) => rec.analyses.some((a) => a.name === n && Number.isInteger(a.exit_code) && typeof a.output === 'string')),
+       'intake: plan and case study are recorded with their exit codes, and their failure is not fatal');
+    ok(hash(prod) === before && sidecars(prod).length === 0, 'intake: the source is byte-identical afterwards and gains no sidecar');
+    ok(readdirSync(join(outBase)).every((f) => !f.startsWith('.work')), 'intake: its private working copy is removed');
+    rmSync(join(outBase, label), { recursive: true, force: true });
+
+    const refused = (args, word, name) => {
+      const lbl = `t-${rnd()}`;
+      const res = intake([...args, '--label', lbl]);
+      ok(res.status !== 0 && new RegExp(word, 'i').test(res.stderr) && !existsSync(recordFor(lbl)),
+         `intake: ${name} is refused, naming "${word}", and writes no record`, `${res.status} ${res.stderr.slice(0, 200)}`);
+    };
+    const rorg = `org-${rnd()}`;
+    refused(['--from', fixture('rehearsal', rorg, { name: `production-${rnd()}.sqlite` }), '--org', rorg], 'rehearsal', 'a rehearsal-stamped database');
+    refused(['--from', fixture(null, rorg), '--org', rorg], 'unstamped', 'an unstamped database');
+    refused(['--from', fixture('production', rorg), '--org', `org-${rnd()}`], 'organization', 'a production copy for a different organization');
+    const corrupt = join(tmp, `${rnd()}.sqlite`);
+    writeFileSync(corrupt, randomBytes(8192));
+    refused(['--from', corrupt, '--org', rorg], 'integrity', 'a file that is not an intact database');
+
+    // Inside the repository: refused, directly and through a symlink from outside.
+    mkdirSync(join(ROOT, '.awe'), { recursive: true });
+    const inRepoDir = mkdtempSync(join(ROOT, '.awe', `intake-probe-${rnd()}-`));
+    try {
+      // Built in the temp directory and byte-copied in: no database is opened inside the repository.
+      const inRepo = join(inRepoDir, `${rnd()}.sqlite`);
+      copyFileSync(fixture('production', rorg), inRepo);
+      refused(['--from', inRepo, '--org', rorg], 'repository', 'a copy inside the repository');
+      const link = join(tmp, `${rnd()}.sqlite`);
+      symlinkSync(inRepo, link);
+      refused(['--from', link, '--org', rorg], 'repository', 'a copy inside the repository reached through a symlink');
+    } finally {
+      rmSync(inRepoDir, { recursive: true, force: true });
+    }
+    const pkg = load('package.json');
+    ok(!Object.keys(pkg.scripts).some((k) => /^(pre|post)|^(install|uninstall|prepare|prepublish|prepack|publish|restart|start|stop|test)$/.test(k)),
+       'intake: no npm lifecycle script exists to run anything implicitly');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
 
 console.log('--- the verification layer cannot change anything --------------');
 
