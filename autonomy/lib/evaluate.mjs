@@ -66,7 +66,7 @@ export function addScriptsOnly(before, after) {
  * ci: ciVerdict() for the pushed head · review: { status: 'NO_BLOCKING'|'BLOCKING', findings }
  * elapsedMinutes: dispatch → collection
  */
-export function evaluate({ pkg, branch, changes, builderCommitted = null, tampered = null, previouslyRejected = false, head = null, packageJson = null, selftest = null, probes = null, ci = null, review = null, elapsedMinutes = null, policy, blockers }) {
+export function evaluate({ pkg, branch, changes, builderCommitted = null, disclosedBreaches = null, tampered = null, previouslyRejected = false, head = null, packageJson = null, selftest = null, probes = null, ci = null, review = null, elapsedMinutes = null, policy, blockers }) {
   const checks = [];
   const add = (id, status, detail) => checks.push({ id, status, detail });
   const allowed = new Set(pkg.allowed_files);
@@ -76,9 +76,16 @@ export function evaluate({ pkg, branch, changes, builderCommitted = null, tamper
   // already rejected (evidence against a commit does not expire on retry).
   if (tampered) add('integrity', 'FAIL', tampered);
   else add('integrity', 'PASS', 'git config and worktree identity unchanged since the cycle started');
+  // A breach of the brief's rules that leaves no trace in the commit (a
+  // forbidden git command on the working tree, say) is visible only if the
+  // Builder discloses it. Disclosed, it is what the brief says it is: a REJECT.
+  // A Builder's claims of success are never evidence; its admissions are.
+  if (disclosedBreaches?.length) add('builder-rules', 'FAIL', `the Builder disclosed: ${disclosedBreaches.join('; ')}`);
   if (previouslyRejected) add('not-previously-rejected', 'FAIL', `${head?.slice(0, 12)} was already rejected in this cycle; a retry must change something`);
 
-  if (!changes.length) add('non-empty', 'FAIL', 'the Builder changed nothing');
+  const refusedAtCollection = !!(tampered || builderCommitted?.length || disclosedBreaches?.length);
+  if (!changes.length && refusedAtCollection) add('non-empty', 'UNKNOWN', 'not measured: the attempt was refused at collection, before its changes were taken');
+  else if (!changes.length) add('non-empty', 'FAIL', 'the Builder changed nothing');
   else add('non-empty', 'PASS', `${changes.length} file(s) changed`);
 
   const outside = changes.filter((c) => !allowed.has(c.path));

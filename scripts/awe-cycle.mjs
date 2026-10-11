@@ -4,11 +4,14 @@
 //   npm run cycle -- start                    observe, judge, and either stop or
 //                                             prepare ONE package + worktree
 //   npm run cycle -- dispatch                 mark the Builder dispatched (attempt n)
-//   npm run cycle -- collect [--report f]     commit what the Builder left, if in scope
+//   npm run cycle -- collect [--report f] [--breach "…"]
+//                                             commit what the Builder left, if in scope and
+//                                             no rule breach was disclosed
 //   npm run cycle -- push                     push autonomy/<cycle> (fast-forward only)
 //   npm run cycle -- evaluate [--review f]    the independent verdict
 //   npm run cycle -- pr --url U --number N    record the draft PR a person will review
 //   npm run cycle -- finish                   Captain Brief + record + ledger line
+//   npm run cycle -- note --text "…"          the supervisor's own acts, on the record
 //   npm run cycle -- status | verify-ledger
 //
 // WHO DOES WHAT. This script judges, records and holds the hands (hands.mjs).
@@ -239,8 +242,8 @@ if (cmd === 'dispatch') {
     if (r.build.tampered) die('this cycle\'s integrity check failed; it is not retried');
     // A refusal at collection belongs to that attempt; the next one is collected afresh.
     r.history = [...(r.history ?? []), { attempt: r.build.attempts, evaluation: r.evaluation, head: r.build.head,
-      refused: { outside: r.build.outside ?? null, builder_commits: r.build.builder_commits ?? null } }];
-    delete r.build.outside; delete r.build.builder_commits;
+      refused: { outside: r.build.outside ?? null, builder_commits: r.build.builder_commits ?? null, disclosed_breaches: r.build.disclosed_breaches ?? null } }];
+    delete r.build.outside; delete r.build.builder_commits; delete r.build.disclosed_breaches;
     r.evaluation = null;
     r.phase = 'DECIDED';
   }
@@ -264,6 +267,16 @@ if (cmd === 'collect') {
     writeFileSync(join(dirOf(r.cycle_id), `builder-report-${r.build.attempts}.md`), rep);
     r.build.report_sha256 = sha256(rep);
     r.build.stopped_by_builder = /^\s*STOPPED:/.test(rep);
+  }
+  // A rule breach the Builder disclosed in its report (recorded by the
+  // supervisor with --breach) refuses the attempt, as a Builder commit does.
+  if (arg('breach')) {
+    r.build.disclosed_breaches = [arg('breach')];
+    r.build.collected_at = nowIso();
+    r.build.elapsed_minutes = (Date.parse(r.build.collected_at) - Date.parse(r.build.dispatched_at)) / 60000;
+    r = advance(r, 'COLLECTED', nowIso());
+    save(r);
+    die(`the Builder disclosed a rule breach (${arg('breach')}); this attempt is refused. run: npm run cycle -- evaluate`, 1);
   }
   const tamper = integrity(r);
   if (tamper) {
@@ -322,12 +335,12 @@ if (cmd === 'evaluate') {
   let r = current();
   // A build that was taken must have been pushed: CI judges the pushed commit.
   // Only a build that was refused at collection is evaluated from COLLECTED.
-  const refused = !!(r.build.tampered || r.build.builder_commits?.length || r.build.outside?.length);
+  const refused = !!(r.build.tampered || r.build.builder_commits?.length || r.build.outside?.length || r.build.disclosed_breaches?.length);
   if (refused) need(r, 'COLLECTED', 'PUSHED'); else need(r, 'PUSHED');
   let input;
   const tamper = r.build.tampered ?? integrity(r);
   if (refused || tamper) {
-    input = { tampered: tamper, builderCommitted: r.build.builder_commits ?? null,
+    input = { tampered: tamper, builderCommitted: r.build.builder_commits ?? null, disclosedBreaches: r.build.disclosed_breaches ?? null,
       changes: (r.build.outside ?? []).map((p) => ({ status: '?', path: p, removed: [], added: [] })) };
   } else {
     const head = r.build.head;
@@ -430,6 +443,17 @@ if (cmd === 'finish') {
   appendFileSync(CHAIN_FILE, JSON.stringify(ledgerEntry(r, text, lines.at(-1))) + '\n');
   console.log(renderBrief(r));
   console.log(`wrote autonomy/cycles/${r.cycle_id}.json, .md and a ledger line; commit them on the supervisor's branch`);
+  process.exit(0);
+}
+
+// --- note -------------------------------------------------------------------
+// The supervisor's own acts that the steps do not capture, on the record.
+if (cmd === 'note') {
+  const r = current();
+  if (!arg('text')) die('usage: note --text "…"');
+  r.supervisor_notes = [...(r.supervisor_notes ?? []), { at: nowIso(), phase: r.phase, text: arg('text') }];
+  save(r);
+  console.log('noted');
   process.exit(0);
 }
 

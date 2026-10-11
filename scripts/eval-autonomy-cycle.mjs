@@ -158,6 +158,7 @@ ok(failed({ elapsedMinutes: 46 }, 'budget'), 'a spent budget is REJECT');
 ok(failed({ changes: [] }, 'non-empty'), 'a build that changes nothing is REJECT');
 ok(failed({ changes: [ch('scripts/awe-production-intake.mjs', { status: 'A', mode: '120000' })] }, 'scope'), 'an allowed path committed as a symlink is REJECT');
 ok(failed({ builderCommitted: ['c0ffee'] }, 'scope'), 'a Builder that committed by itself is REJECT');
+ok(failed({ disclosedBreaches: ['ran git checkout -- package.json'] }, 'builder-rules'), 'a rule breach the Builder disclosed is REJECT, as the brief says');
 ok(verdict({ builderVerdict: 'ACCEPT', override: true, ci: { status: 'ABSENT', detail: '' } }).verdict === 'HUMAN_REVIEW', 'there is no override input: a Builder claiming ACCEPT changes nothing');
 ok(isTestFile('scripts/eval-autonomy.mjs') && isTestFile('a/b.test.ts') && isTestFile('supabase/tests/x.sql') && !isTestFile('scripts/awe-production-intake.mjs'),
    'test files are recognized by name, and the intake is not one');
