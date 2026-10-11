@@ -25,7 +25,7 @@ import { deriveEngineeringState } from '../autonomy/lib/state.mjs';
 import { awaitingReview } from '../autonomy/lib/observe.mjs';
 import { evaluate, addScriptsOnly, isTestFile } from '../autonomy/lib/evaluate.mjs';
 import { canonical, hashOf, newCycleId, advance, ledgerEntry, verifyLedger, renderBrief, sha256 } from '../autonomy/lib/cycle.mjs';
-import { createWorktree, commitBuild, pushBranch } from '../autonomy/lib/hands.mjs';
+import { createWorktree, commitBuild, pushBranch, checkoutForEvaluation, removeEvaluationCheckout } from '../autonomy/lib/hands.mjs';
 import { generateWorkPackage } from '../autonomy/lib/work-package.mjs';
 import { checkChange } from '../autonomy/lib/guard.mjs';
 
@@ -139,6 +139,8 @@ ok(failed({ review: { status: 'BLOCKING', findings: [{ blocking: true, summary: 
 ok(failed({ review: { status: 'NO_BLOCKING', findings: [{ blocking: true, summary: 'x' }] } }, 'independent-review'), 'a blocking finding cannot hide behind a NO_BLOCKING label');
 ok(failed({ elapsedMinutes: 46 }, 'budget'), 'a spent budget is REJECT');
 ok(failed({ changes: [] }, 'non-empty'), 'a build that changes nothing is REJECT');
+ok(failed({ changes: [ch('scripts/awe-production-intake.mjs', { status: 'A', mode: '120000' })] }, 'scope'), 'an allowed path committed as a symlink is REJECT');
+ok(failed({ builderCommitted: ['c0ffee'] }, 'scope'), 'a Builder that committed by itself is REJECT');
 ok(verdict({ builderVerdict: 'ACCEPT', override: true, ci: { status: 'ABSENT', detail: '' } }).verdict === 'HUMAN_REVIEW', 'there is no override input: a Builder claiming ACCEPT changes nothing');
 ok(isTestFile('scripts/eval-autonomy.mjs') && isTestFile('a/b.test.ts') && isTestFile('supabase/tests/x.sql') && !isTestFile('scripts/awe-production-intake.mjs'),
    'test files are recognized by name, and the intake is not one');
@@ -207,8 +209,33 @@ console.log('--- the hands reach one autonomy branch, and no further ----------'
     ok(!refused.committed && refused.outside.includes('sneaky.txt'), 'a build with an out-of-scope path is not committed at all');
     ok(sh(wt, 'rev-parse', 'HEAD') === base, 'and nothing was committed, not even the allowed part');
     rmSync(join(wt, 'sneaky.txt'));
+    // A Builder that commits by itself (here: adds, then deletes, a file the
+    // final diff would never show) gets nothing taken.
+    writeFileSync(join(wt, 'secret.txt'), 's\n');
+    sh(wt, 'add', '.');
+    sh(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'builder commit 1');
+    sh(wt, 'rm', '-q', 'secret.txt');
+    sh(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'builder commit 2');
+    const own = commitBuild(wt, { branch: 'autonomy/c1', base, allowed: ['allowed.txt'], message: 'm', author }, policy, blockers);
+    ok(!own.committed && own.builder_commits.length === 2, 'a Builder\'s own commits are refused, even when the final diff looks clean');
+    sh(wt, 'reset', '-q', '--hard', base);
+    writeFileSync(join(wt, 'allowed.txt'), 'x\n');
+    // A hook the Builder planted is not run by the runner's commit.
+    mkdirSync(join(wt, 'hooks'), { recursive: true });
+    sh(repo, 'config', 'core.hooksPath', join(wt, 'hooks'));
+    writeFileSync(join(wt, 'hooks', 'pre-commit'), `#!/bin/sh\ntouch ${join(tmp, 'HOOK_RAN')}\nexit 0\n`, { mode: 0o755 });
+    rmSync(join(wt, 'hooks'), { recursive: true, force: true });
+    mkdirSync(join(tmp, 'hooks'));
+    sh(repo, 'config', 'core.hooksPath', join(tmp, 'hooks'));
+    writeFileSync(join(tmp, 'hooks', 'pre-commit'), `#!/bin/sh\ntouch ${join(tmp, 'HOOK_RAN')}\nexit 0\n`, { mode: 0o755 });
     const done = commitBuild(wt, { branch: 'autonomy/c1', base, allowed: ['allowed.txt'], message: 'm', author }, policy, blockers);
     ok(done.committed && done.head !== base, 'an in-scope build is committed');
+    ok(!existsSync(join(tmp, 'HOOK_RAN')), 'and no git hook ran during the runner\'s commit');
+    ok(throws(() => removeEvaluationCheckout(repo, wt)), 'the hands refuse to remove anything but an evaluation checkout');
+    const ev = join(tmp, '.awe', 'eval', 'c1-1');
+    ok(checkoutForEvaluation(repo, { commit: done.head, path: ev }) === done.head, 'the evaluator gets a clean checkout of exactly the built commit');
+    removeEvaluationCheckout(repo, ev);
+    ok(!existsSync(ev), 'and it is removed afterwards');
     ok(pushBranch(wt, { branch: 'autonomy/c1' }, policy, blockers) === done.head, 'and pushed to exactly its autonomy branch');
     ok(sh(remote, 'rev-parse', 'refs/heads/autonomy/c1') === done.head, 'the remote has that branch at that commit');
     ok(sh(remote, 'rev-parse', 'refs/heads/pcc-production') === base, 'the product line on the remote did not move');
@@ -256,7 +283,10 @@ for (const p of ['autonomy/lib/ci-evidence.mjs', 'autonomy/lib/evaluate.mjs', 'a
 }
 {
   const hands = readFileSync(join(ROOT, 'autonomy/lib/hands.mjs'), 'utf8');
-  ok(!/--force|['"]-f['"]|\+refs|\bmerge\b['"]|['"]rebase['"]|['"]reset['"]|branch['"],\s*['"]-D/.test(hands.replace(/^\/\/.*$/gm, '')), 'the hands contain no force, merge, rebase, reset or branch deletion');
+  const code = hands.replace(/^\/\/.*$/gm, '');
+  const pushLines = code.split('\n').filter((l) => /['"]push['"]/.test(l));
+  ok(pushLines.length === 1 && !/force|['"]-f['"]|\+/.test(pushLines[0]), 'the one push in the hands is never forced and pushes one explicit ref', pushLines.join(' | '));
+  ok(!/['"]merge['"]|['"]rebase['"]|['"]reset['"]|['"]-D['"]|['"]--delete['"]/.test(code), 'the hands contain no merge, rebase, reset or branch deletion');
   const cycle = readFileSync(join(ROOT, 'scripts/awe-cycle.mjs'), 'utf8');
   ok(!/\[\s*['"](push|commit|merge|rebase|reset|checkout|worktree)['"]/.test(cycle), 'awe-cycle changes git only through the hands');
   ok(!/merge_pull_request|gh pr merge|--admin/.test(cycle), 'awe-cycle has no way to merge');

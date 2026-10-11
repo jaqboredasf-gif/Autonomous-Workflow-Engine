@@ -54,7 +54,7 @@ export function addScriptsOnly(before, after) {
  * ci: ciVerdict() for the pushed head · review: { status: 'NO_BLOCKING'|'BLOCKING', findings }
  * elapsedMinutes: dispatch → collection
  */
-export function evaluate({ pkg, branch, changes, packageJson = null, selftest = null, probes = null, ci = null, review = null, elapsedMinutes = null, policy, blockers }) {
+export function evaluate({ pkg, branch, changes, builderCommitted = null, packageJson = null, selftest = null, probes = null, ci = null, review = null, elapsedMinutes = null, policy, blockers }) {
   const checks = [];
   const add = (id, status, detail) => checks.push({ id, status, detail });
   const allowed = new Set(pkg.allowed_files);
@@ -63,8 +63,13 @@ export function evaluate({ pkg, branch, changes, packageJson = null, selftest = 
   else add('non-empty', 'PASS', `${changes.length} file(s) changed`);
 
   const outside = changes.filter((c) => !allowed.has(c.path));
-  add('scope', outside.length ? 'FAIL' : 'PASS',
-    outside.length ? `outside allowed_files: ${outside.map((c) => c.path).join(', ')}` : `every changed path is in allowed_files`);
+  const linked = changes.filter((c) => c.mode === '120000' || c.mode === '160000');
+  const scopeProblems = [
+    ...(outside.length ? [`outside allowed_files: ${outside.map((c) => c.path).join(', ')}`] : []),
+    ...(linked.length ? [`symlink or submodule: ${linked.map((c) => c.path).join(', ')}`] : []),
+    ...(builderCommitted?.length ? [`the Builder committed ${builderCommitted.length} commit(s) itself; only the runner commits`] : []),
+  ];
+  add('scope', scopeProblems.length ? 'FAIL' : 'PASS', scopeProblems.length ? scopeProblems.join('; ') : 'every changed path is an allowed regular file');
 
   const violations = checkChange({ paths: changes.map((c) => c.path), ref: branch }, policy, blockers);
   add('guard', violations.length ? 'FAIL' : 'PASS',

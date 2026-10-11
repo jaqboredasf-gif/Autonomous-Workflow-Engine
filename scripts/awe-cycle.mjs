@@ -32,7 +32,7 @@ import { judge } from '../autonomy/lib/engine.mjs';
 import { git } from '../autonomy/lib/git.mjs';
 import { ciVerdict } from '../autonomy/lib/ci-evidence.mjs';
 import { evaluate } from '../autonomy/lib/evaluate.mjs';
-import { createWorktree, commitBuild, pushBranch } from '../autonomy/lib/hands.mjs';
+import { createWorktree, commitBuild, pushBranch, checkoutForEvaluation, removeEvaluationCheckout } from '../autonomy/lib/hands.mjs';
 import { newCycleId, advance, ledgerEntry, verifyLedger, expectedImpact, renderBrief, sha256 } from '../autonomy/lib/cycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -77,10 +77,12 @@ function lineDiff(worktree, base, head, path) {
   return { removed, added };
 }
 function changesOf(worktree, base, head) {
-  const ns = spawnSync('git', ['diff', '--name-status', '--no-renames', `${base}..${head}`], { cwd: worktree, encoding: 'utf8' }).stdout;
-  return ns.split('\n').filter(Boolean).map((l) => {
-    const [status, path] = l.split('\t');
-    return { status, path, ...lineDiff(worktree, base, head, path) };
+  // --raw gives the new mode too: 120000 is a symlink, 160000 a submodule.
+  const raw = spawnSync('git', ['diff', '--raw', '--no-renames', `${base}..${head}`], { cwd: worktree, encoding: 'utf8' }).stdout;
+  return raw.split('\n').filter(Boolean).map((l) => {
+    const [meta, path] = l.split('\t');
+    const [, , newMode, , , status] = meta.split(/\s+/);
+    return { status, path, mode: newMode, ...lineDiff(worktree, base, head, path) };
   });
 }
 
@@ -255,6 +257,13 @@ if (cmd === 'collect') {
   }, policy, blockers);
   r.build.collected_at = nowIso();
   r.build.elapsed_minutes = (Date.parse(r.build.collected_at) - Date.parse(r.build.dispatched_at)) / 60000;
+  if (!res.committed && res.builder_commits?.length) {
+    r.build.builder_commits = res.builder_commits;
+    r.build.outside = res.paths.filter((p) => !r.package.allowed_files.includes(p));
+    r = advance(r, 'COLLECTED', nowIso());
+    save(r);
+    die(`the Builder committed ${res.builder_commits.length} commit(s) itself; the runner commits. Nothing was taken. run: npm run cycle -- evaluate`, 1);
+  }
   if (!res.committed) {
     r.build.outside = res.outside;
     r = advance(r, 'COLLECTED', nowIso());
@@ -290,21 +299,30 @@ if (cmd === 'evaluate') {
   need(r, 'COLLECTED', 'PUSHED');
   const wt = r.build.worktree;
   let input;
-  if (r.build.outside?.length) {
+  if (r.build.builder_commits?.length) {
+    input = { builderCommitted: r.build.builder_commits, changes: (r.build.outside ?? []).map((p) => ({ status: '?', path: p, removed: [], added: [] })) };
+  } else if (r.build.outside?.length) {
     input = { changes: r.build.outside.map((p) => ({ status: '?', path: p, removed: [], added: [] })) };
   } else {
     const head = r.build.head;
     const changes = changesOf(wt, r.build.base, head);
     const show = (rev, p) => { const o = spawnSync('git', ['show', `${rev}:${p}`], { cwd: wt, encoding: 'utf8' }); return o.status === 0 ? JSON.parse(o.stdout) : null; };
     const packageJson = changes.some((c) => c.path === 'package.json') ? { before: show(r.build.base, 'package.json'), after: show(head, 'package.json') } : null;
-    const st = spawnSync(process.execPath, ['scripts/eval-autonomy.mjs'], { cwd: wt, encoding: 'utf8', timeout: 300_000 });
-    writeFileSync(join(dirOf(r.cycle_id), `selftest-${r.build.attempts}.log`), (st.stdout ?? '') + (st.stderr ?? ''));
-    let probes = null;
-    if (r.package.probes) {
-      if (fileHash(join(ROOT, r.package.probes)) !== r.inputs.probes_sha256) die('the probe module changed since the cycle started; refusing to evaluate with different probes');
-      probes = await (await import(join(ROOT, r.package.probes))).run({ root: ROOT, worktree: wt });
-    }
     const ci = ciVerdict(loadCiEvidence(ROOT, head), head);
+    if (ci.status === 'PENDING') die(`CI for ${head.slice(0, 12)} is still running; evaluate once it has concluded`);
+    if (ci.status === 'ABSENT' && !argv.includes('--without-ci')) die(`no CI evidence for ${head.slice(0, 12)}; import it, or pass --without-ci to accept a HUMAN_REVIEW verdict`);
+    if (r.package.probes && fileHash(join(ROOT, r.package.probes)) !== r.inputs.probes_sha256) die('the probe module changed since the cycle started; refusing to evaluate with different probes');
+    // Self-test and probes run on a clean checkout of the pushed commit, not
+    // in the Builder's worktree, which may hold files the commit does not.
+    const evalPath = join(ROOT, '.awe/eval', `${r.cycle_id}-${r.build.attempts}`);
+    mkdirSync(dirname(evalPath), { recursive: true });
+    checkoutForEvaluation(ROOT, { commit: head, path: evalPath });
+    let st; let probes = null;
+    try {
+      st = spawnSync(process.execPath, ['scripts/eval-autonomy.mjs'], { cwd: evalPath, encoding: 'utf8', timeout: 300_000 });
+      writeFileSync(join(dirOf(r.cycle_id), `selftest-${r.build.attempts}.log`), (st.stdout ?? '') + (st.stderr ?? ''));
+      if (r.package.probes) probes = await (await import(join(ROOT, r.package.probes))).run({ root: ROOT, worktree: evalPath });
+    } finally { removeEvaluationCheckout(ROOT, evalPath); }
     let review = null;
     if (arg('review')) {
       review = JSON.parse(readText(arg('review')));
