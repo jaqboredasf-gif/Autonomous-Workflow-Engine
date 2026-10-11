@@ -5,7 +5,8 @@ is not reconciled; see blocker GOV-1); keep the limits in section 4; S1 and MIGR
 observe-and-escalate only (`autonomy/blockers.json`). **Milestone 2A (the verification foundation)
 is implemented:** `autonomy/README.md`. **Milestone 2B (deployment confidence) is implemented,** with the
 Inspector/Prioritizer deliberately deferred by Jack (2026-10-11) in favour of evidence for the first
-Lippolis installation. No Builder, scheduler or Inspector exists.
+Lippolis installation. **Milestone 3 step 1 is implemented** (Inspector, Prioritizer, Authority Classifier, Work Package
+Generator; `npm run inspect`). No Builder or scheduler exists.
 Grounded in `docs/autonomy/CURRENT_STATE.md`. Every design choice cites the existing mechanism it
 reuses or the gap it answers.
 

@@ -1,0 +1,27 @@
+{
+  "$comment": "Structural capabilities the improvement engine checks for, even when every test passes. Each entry is a deterministic PROBE against the repository, not an opinion. A failed probe becomes a finding only with evidence tying it to the North Star, and the remedy it proposes is a HYPOTHESIS with lower confidence than the gap itself. An entry here is not a promise to build anything. L3: adding a capability here changes what the engine looks for.",
+  "version": 1,
+  "capabilities": [
+    {
+      "id": "ci-on-product-line",
+      "capability": "Verification runs on the product line itself",
+      "probe": { "kind": "file-on-ref", "ref": "origin/pcc-production", "path": ".github/workflows/awe-verify.yml" },
+      "north_star": "Every claim AWE makes about itself rests on verified engineering state; without CI on pcc-production, that state is a session's report again.",
+      "claims": ["repeatable_deployment"]
+    },
+    {
+      "id": "windows-deploy-verification",
+      "capability": "The Windows install path (NSSM service, IIS/ARR, scheduled backup task) is exercised by a machine before LIPELE-RDS02",
+      "probe": { "kind": "workflow-runs-on", "pattern": "windows" },
+      "north_star": "The first installation is the gate to works_in_production; the Windows half of it has no machine evidence at all.",
+      "claims": ["works_in_production", "repeatable_deployment"]
+    },
+    {
+      "id": "production-evidence-return",
+      "capability": "A defined, repeatable route for production records to reach the evidence layer (plan, readiness, case study)",
+      "probe": { "kind": "evidence-return", "tools": ["scripts/proof-case-study.mjs", "scripts/awe-plan.mjs"], "docs_glob": ["docs/proof", "docs/deployment"] },
+      "north_star": "measurable_value and the first case study are computed from the production database; if nothing defines how its records leave RDS02, the first measured outcome waits on improvisation.",
+      "claims": ["works_in_production", "measurable_value"]
+    }
+  ]
+}

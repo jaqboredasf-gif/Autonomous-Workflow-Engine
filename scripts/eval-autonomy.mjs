@@ -35,6 +35,10 @@ import { deriveEngineeringState } from '../autonomy/lib/state.mjs';
 import { findMigrationCollisions, DETECTOR_NAMES } from '../autonomy/lib/detectors.mjs';
 import { parseLedger, resolveFacts, baselineGate, validateRecord, BASELINE_FACT, BASELINE_BANNER } from '../autonomy/lib/attestations.mjs';
 import { deriveReadiness, answerQuestion } from '../autonomy/lib/readiness.mjs';
+import { inspect, gateIndex } from '../autonomy/lib/inspect.mjs';
+import { prioritize, decide, score as scoreFinding, HYPOTHESIS_CONFIDENCE_CAP } from '../autonomy/lib/prioritize.mjs';
+import { classify as classifyAuthority } from '../autonomy/lib/authority.mjs';
+import { generateWorkPackage } from '../autonomy/lib/work-package.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const load = (p) => JSON.parse(readFileSync(join(ROOT, p), 'utf8'));
@@ -370,12 +374,128 @@ ok(preflight(suite({ requires: ['image:node:24-bookworm-slim'] }), probe({ hasIm
 ok(preflight(suite({ requires: ['image:node:24-bookworm-slim'] }), probe({ dockerUp: false, hasImage: () => true })).length === 1,
    'and so is a present image with no daemon');
 
+console.log('--- the improvement engine thinks before it acts ---------------');
+
+// A synthetic observation of the world as it stood on 2026-10-11, so the
+// ranking can be asserted without depending on what the repository says today.
+const gatesPlan = { plan: {
+  currentGate: { n: 2, name: 'First real proof' },
+  gates: [{ n: 1, claims: ['awe_solves', 'repeatable_deployment'] }, { n: 2, claims: ['problem_economic', 'works_in_production', 'measurable_value'] },
+    { n: 3, claims: ['not_hardcoded', 'multi_capability', 'repeatable_deployment'] }, { n: 4, claims: ['problem_real', 'external_pain', 'external_want', 'will_pay'] }],
+  claims: ['problem_real', 'problem_economic', 'works_in_production', 'measurable_value', 'external_pain'].map((id) => ({ id, grade: 'UNAVAILABLE', because: 'x' }))
+    .concat([{ id: 'awe_solves', grade: 'MEASURED' }, { id: 'repeatable_deployment', grade: 'INFERRED' }]),
+  founderHighestLeverage: { claim: 'problem_economic', grade: 'UNAVAILABLE', because: 'x', thenNext: { action: 'interview' } },
+}, facts: { discovery: { interviews: 0, externalInterviews: 0 } } };
+const humanUnknown = { facts: resolveFacts(catalog, [], {}), baseline: baselineGate(resolveFacts(catalog, [], {})) };
+const obs = (over = {}) => ({
+  plan: gatesPlan, human: humanUnknown, blockers, detections: {}, policy,
+  readiness: { install: { verdict: 'READY_FOR_SUPERVISED_FIRST_INSTALL' }, untested_assumptions: rspec.untested_assumptions, not_deployment_blockers: rspec.not_deployment_blockers },
+  gate: { blockers: [{ path: 'network.hostname', owner: 'CUSTOMER_IT', phase: 'REQUIRED_BEFORE_GO_LIVE', reason: 'not chosen' }] },
+  verify: { ci: { commit: 'h', fresh: true, suites: [{ id: 'purchasing-lint', status: 'FAIL', blocking: false, category: 'lint', area: 'purchasing', reason: 'exited 1' }] }, deploy: { fresh: true } },
+  product_line: { ref: 'origin/pcc-production', last_commit: '2026-09-03 bee8e44 x', days_since_commit: 38 },
+  autonomy_prs: { unmerged_branches: [{ branch: 'claude/autonomy-m2a-verification', ahead: 2 }, { branch: 'claude/autonomy-m2b-deployment-confidence', ahead: 4 }], limit: 2 },
+  iic: { evidence_deadline: '2027-01-31', days_to_deadline: 112 },
+  capabilities: [
+    { id: 'ci-on-product-line', result: { observable: true, present: false, evidence: ['absent'] } },
+    { id: 'windows-deploy-verification', result: { observable: true, present: false, evidence: ['0 windows workflows'] } },
+    { id: 'production-evidence-return', result: { observable: true, present: false, evidence: ['no procedure'] } },
+  ],
+  todos: { markers: [] }, lippolis_it: { outstanding_items: ['Node.js 24', 'NSSM'], source: 'RDS02 §7' },
+  ...over,
+});
+const pctx = (o) => ({ gates: gateIndex(o.plan), currentGate: 2, grades: new Map(o.plan.plan.claims.map((c) => [c.id, c.grade])) });
+const runEngine = (o) => {
+  const fs = inspect(o).map((x) => ({ ...x, authority: classifyAuthority(x, policy, blockers) }));
+  const ranked = prioritize(fs, pctx(o));
+  return { ranked, decision: decide(ranked, { engineeringVerdict: 'PROCEED_WITH_RESTRICTIONS', openAutonomyPrs: o.autonomy_prs.unmerged_branches.length, prLimit: o.autonomy_prs.limit }) };
+};
+const today = runEngine(obs());
+const ids = today.ranked.map((x) => x.id);
+ok(today.ranked.every((x) => x.evidence.length > 0 && x.evidence.every((e) => e.source && e.detail !== undefined)),
+   'every finding carries evidence; nothing is asserted without a source');
+ok(today.ranked.every((x) => ['OBSERVED', 'HYPOTHESIZED'].includes(x.kind)), 'every finding says whether it is observed or hypothesized');
+ok(today.ranked.filter((x) => x.kind === 'HYPOTHESIZED').every((x) => x.priority.breakdown.confidence <= HYPOTHESIS_CONFIDENCE_CAP),
+   'a hypothesis is never scored with more than 0.5 confidence');
+ok(ids[0] === 'baseline-before-first-transaction', 'the irreversible baseline ranks first', ids.slice(0, 3).join(','));
+ok(ids.indexOf('install-pcc-at-lippolis') < ids.indexOf('first-external-interview'),
+   'installing PCC (gate 2) outranks a discovery interview (gate 4), whatever the effort');
+ok(today.ranked.find((x) => x.id === 'lippolis-it-prerequisites').priority.score >= today.ranked.find((x) => x.id === 'install-pcc-at-lippolis').priority.score,
+   'what the install depends on inherits its priority');
+ok(ids.indexOf('verification-not-on-product-line') > ids.indexOf('install-pcc-at-lippolis'), 'merging CI does not outrank the installation');
+const lint = today.ranked.find((x) => x.id === 'suite-fail-purchasing-lint');
+ok(lint && lint.category === 'debt' && lint.priority.breakdown.north_star[0] === 0 && ids.indexOf(lint.id) > 6, 'lint debt is found, and ranks near the bottom');
+ok(lint?.authority.class === 'HUMAN_APPROVAL_REQUIRED', 'fixing product lint is product code: approval required');
+ok(today.decision.build === false && today.decision.headline === 'DO NOT BUILD ANYTHING. JACK IS THE BOTTLENECK.',
+   'on the real situation the engine concludes: DO NOT BUILD. JACK IS THE BOTTLENECK.');
+ok(today.decision.reasons.some((r) => /await review/.test(r)), 'and says why: the review queue is full');
+ok(JSON.stringify(runEngine(obs())) === JSON.stringify(today), 'the same observations give the same ranking and decision');
+
+const authOf = (id) => today.ranked.find((x) => x.id === id)?.authority.class;
+ok(authOf('baseline-before-first-transaction') === 'JACK_ACTION_REQUIRED', 'the baseline is Jack\'s');
+ok(authOf('lippolis-it-prerequisites') === 'EXTERNAL_DEPENDENCY', 'the IT prerequisites are external');
+ok(authOf('windows-install-unverified') === 'HUMAN_APPROVAL_REQUIRED', 'a new CI workflow is prepared, never self-approved (L3)');
+ok(authOf('production-evidence-return') === 'MACHINE_EXECUTABLE', 'a read-only tooling script outside L3 is machine-executable');
+ok(authOf('blocker-s1') === 'BLOCKED' && authOf('blocker-migration-0016') === 'BLOCKED', 'open blockers are BLOCKED');
+const sneaky = { ...today.ranked.find((x) => x.id === 'production-evidence-return'), blocker: undefined,
+  action: { actor: 'MACHINE', touches: ['supabase/migrations/0039_fix.sql'], effort: 'LOW' } };
+ok(classifyAuthority(sneaky, policy, blockers).class === 'BLOCKED', 'a machine action that touches a blocker\'s paths is BLOCKED, whatever it claims to be');
+ok(classifyAuthority({ ...sneaky, action: { actor: 'MACHINE', touches: ['autonomy/suites.json'], effort: 'LOW' } }, policy, blockers).class === 'HUMAN_APPROVAL_REQUIRED',
+   'and one that touches the registry needs approval');
+
+// The engine can say BUILD, and only when every condition holds.
+const clear = runEngine(obs({ autonomy_prs: { unmerged_branches: [], limit: 2 } }));
+ok(clear.decision.build === true && clear.decision.best_machine.id === 'production-evidence-return',
+   'with the review queue clear it would build the best machine action, not a janitor task');
+const notSafe = decide(clear.ranked, { engineeringVerdict: 'NOT_SAFE', openAutonomyPrs: 0, prLimit: 2 });
+ok(!notSafe.build && notSafe.reasons.some((r) => /NOT_SAFE/.test(r)), 'a NOT_SAFE engineering state stops building');
+const janitorOnly = runEngine(obs({ autonomy_prs: { unmerged_branches: [], limit: 2 },
+  capabilities: obs().capabilities.map((c) => ({ ...c, result: { ...c.result, present: true } })) }));
+ok(!janitorOnly.decision.build && janitorOnly.decision.reasons.some((r) => /no finding is both machine-executable|tidying/.test(r)),
+   'with only tidying left for the machine, it builds nothing rather than manufacture work');
+ok(inspect(obs({ capabilities: obs().capabilities.map((c) => ({ ...c, result: { ...c.result, present: true } })) }))
+   .every((x) => !['production-evidence-return', 'windows-install-unverified', 'verification-not-on-product-line'].includes(x.id)),
+   'a capability that is present produces no finding');
+const attestedWorld = obs({ human: { facts: resolveFacts(catalog, catalog.facts.map((fc) => rec({ fact: fc.id })), {}),
+  baseline: baselineGate(resolveFacts(catalog, [rec()], {}), { frozenBaselines: 1 }) } });
+ok(!inspect(attestedWorld).some((x) => x.id === 'baseline-before-first-transaction'), 'once a person attests the baseline, it stops being a finding');
+
+// The formula is the contract: pin it, so a weight cannot drift unnoticed.
+const canon = { id: 'c', kind: 'OBSERVED', confidence: 1, claims: ['works_in_production'],
+  action: { effort: 'HIGH' }, factors: { value: [3, ''], unlock: [3, ''], risk: [1, ''], urgency: [3, ''] } };
+ok(scoreFinding(canon, pctx(obs())).score === 23.3, 'score = (5·NS + 2·(value+unlock+risk+urgency)) × confidence ÷ effort: NS 3, 3/3/1/3, HIGH → 23.3',
+   String(scoreFinding(canon, pctx(obs())).score));
+ok(scoreFinding({ ...canon, action: { effort: 'MEDIUM' } }, pctx(obs())).score === 28 && scoreFinding({ ...canon, action: { effort: 'LOW' } }, pctx(obs())).score === 35,
+   'and effort divides by 1.25 (MEDIUM) and 1 (LOW)');
+ok(scoreFinding({ ...canon, kind: 'HYPOTHESIZED', confidence: 0.9 }, pctx(obs())).score === 11.7, 'a hypothesis at 0.9 is scored at 0.5');
+// Anti-janitor, with a tidy task that IS machine-executable and the best the machine has.
+const tidyWorld = obs({ autonomy_prs: { unmerged_branches: [], limit: 2 },
+  capabilities: obs().capabilities.map((c) => ({ ...c, result: { ...c.result, present: true } })),
+  verify: { ci: { commit: 'h', fresh: true, suites: [] }, deploy: { fresh: true } },
+  todos: { markers: Array.from({ length: 40 }, (_, i) => ({ file: `deployment/x${i}.mjs`, line: 1, text: 'TODO tidy' })) } });
+const tidy = runEngine(tidyWorld);
+ok(tidy.ranked.find((x) => x.id === 'todo-markers-deployed-path')?.authority.class === 'MACHINE_EXECUTABLE',
+   'fixture: the tidy task is machine-executable and the best the machine has');
+ok(!tidy.decision.build && tidy.decision.reasons.some((r) => /tidying, not leverage/.test(r)),
+   'and the engine still refuses to build it: tidying is not leverage', tidy.decision.reasons.join(' | '));
+
+const wp = generateWorkPackage(clear.ranked.find((x) => x.id === 'production-evidence-return'), { policy, blockers, now: 't' });
+ok(wp.status === 'PREPARED_NOT_DISPATCHED', 'a work package is prepared, never dispatched (there is no Builder)');
+ok(wp.allowed_files.length > 0 && wp.allowed_files.every((p) => checkChange({ paths: [p], ref: 'autonomy/x' }, policy, blockers).length === 0),
+   'every file a package allows passes the guard');
+ok(JSON.stringify(wp.forbidden_files) === JSON.stringify(closedPaths(policy, blockers)), 'its forbidden list is exactly the guard\'s closed paths');
+ok(wp.acceptance_criteria.every((c) => c.command && c.expect), 'acceptance criteria are commands with expected outcomes');
+ok(wp.max_attempts === 2 && wp.budget_minutes === 45, 'it carries the approved limits: 2 attempts, 45 minutes');
+ok(generateWorkPackage({ ...lint, priority: lint.priority }, { policy, blockers, now: 't' }).status === 'NO_TEMPLATE',
+   'there is no package for work nobody has scoped');
+
 console.log('--- the verification layer cannot change anything --------------');
 
 const sources = ['autonomy/lib/verify.mjs', 'autonomy/lib/state.mjs', 'autonomy/lib/guard.mjs',
   'autonomy/lib/detectors.mjs', 'autonomy/lib/git.mjs', 'scripts/awe-verify.mjs', 'scripts/awe-state.mjs', 'scripts/awe-guard.mjs',
   'autonomy/lib/attestations.mjs', 'autonomy/lib/human-evidence.mjs', 'autonomy/lib/readiness.mjs',
-  'scripts/awe-readiness.mjs', 'scripts/awe-attest.mjs']
+  'scripts/awe-readiness.mjs', 'scripts/awe-attest.mjs',
+  'autonomy/lib/observe.mjs', 'autonomy/lib/inspect.mjs', 'autonomy/lib/prioritize.mjs', 'autonomy/lib/authority.mjs',
+  'autonomy/lib/work-package.mjs', 'autonomy/lib/release.mjs', 'scripts/awe-inspect.mjs']
   .map((p) => [p, readFileSync(join(ROOT, p), 'utf8')]);
 for (const [p, src] of sources) {
   ok(!/['"](push|commit|merge|rebase|reset|checkout|tag|fetch)['"]/.test(src), `${p} issues no mutating git command`);
