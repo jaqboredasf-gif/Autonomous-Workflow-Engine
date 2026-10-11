@@ -11,7 +11,10 @@ import { execFileSync } from 'node:child_process';
 
 export function git(root, args) {
   try {
-    return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    // Hooks and fsmonitor off: a Builder sharing this repository could have
+    // configured either to run code on the supervisor's next read.
+    return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', ...args],
+      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch { return null; }
 }
 

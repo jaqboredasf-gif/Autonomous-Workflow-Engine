@@ -127,3 +127,51 @@ dispatches nothing. There is no Builder.
   serves an unmeasured North Star claim, clears a score floor, the engineering state is not
   NOT_SAFE, and the open autonomy PR count is under the limit. Otherwise it prints why, and when the
   top finding is a person's: `DO NOT BUILD ANYTHING. JACK IS THE BOTTLENECK.`
+
+## The closed loop (Milestone 4: one supervised cycle, end to end)
+
+```bash
+node scripts/awe-ci-evidence.mjs --commit <HEAD sha> --check-runs runs.json   # CI's verdict for HEAD
+npm run cycle -- start          # observe → judge → STOP, or ONE package + worktree on autonomy/<cycle>
+npm run cycle -- dispatch       # writes builder-brief-<n>.md: the Builder's only context
+#   … a separate Builder session edits files in .awe/worktrees/<cycle> and nothing else …
+npm run cycle -- collect --report builder-report.md   # commits iff every path is allowed
+npm run cycle -- push           # fast-forward push of autonomy/<cycle>; CI runs on push
+node scripts/awe-ci-evidence.mjs --commit <build head> --check-runs runs.json
+npm run cycle -- evaluate --review review.json        # ACCEPT · REJECT · HUMAN_REVIEW
+npm run cycle -- pr --url <draft PR> --number <n>     # only if not REJECT
+npm run cycle -- finish         # Captain Brief + autonomy/cycles/<cycle>.json + ledger line
+npm run cycle -- verify-ledger
+```
+
+- **Authoritative CI** (`lib/ci-evidence.mjs`). The engine reads the `verify` check's conclusion
+  for the exact HEAD commit, imported with its run ids, URLs and a hash. When it is PASS, a local
+  BLOCKED (the root container) is a note, not a failure; a local blocking FAIL on the same commit
+  is a disagreement and still NOT_SAFE. A record for another commit is ABSENT, never borrowed.
+- **The queue** counts unmerged autonomy branches other than the one being observed (M3 counted
+  its own PR against itself).
+- **The package** is measured from a base COMMIT, not `origin/pcc-production`, and carries file
+  rules (`no-removals`, `add-scripts-only`), the interface the Builder must meet, and the path of
+  the evaluator's probes, which are not on the Builder's branch and are hashed into the record.
+- **The hands** (`lib/hands.mjs`) are the only code here that changes git: a worktree on a new
+  `autonomy/*` branch from the base commit, a commit only if every changed path (both sides of a
+  rename) is allowed and the Builder committed nothing itself, a fast-forward push of that one
+  branch to the URL recorded at start. No force, merge, rebase, reset or branch deletion. Every
+  command names its git dir explicitly with hooks and fsmonitor off, and the cycle refuses to act
+  if the shared git config or the worktree's `.git` file changed since it started: the Builder
+  shares the repository, so config it writes must never become code the supervisor runs.
+- **The evaluator** (`lib/evaluate.mjs`) judges from the diff against the base commit, the guard,
+  test-weakening rules, the file rules (no npm lifecycle scripts), the BASE commit's self-test run
+  on the head plus the head's own (which may not pass fewer checks), the probes (random names,
+  labels and organizations), provenanced CI for the pushed head, the budget, and a fresh-session
+  review that saw only the package and the diff. Self-tests and probes run on a clean checkout of
+  the pushed commit. Any FAIL is REJECT; a head once rejected stays rejected; evaluation refuses to
+  run without CI and a review, so evidence cannot be withheld to turn REJECT into HUMAN_REVIEW.
+  There is no override input.
+- **The record** (`lib/cycle.mjs`) keeps finding, score, authority, package, build, verification,
+  verdict, PR, expected impact, actual impact (UNKNOWN until measured) and human disposition
+  (PENDING; derived later from whether the branch was merged). `autonomy/cycles/ledger.jsonl`
+  chains each finished record by sha256, so an edit to history is detected.
+- **Limits.** One cycle at a time; a cycle does not start from a Builder worktree; two attempts;
+  45 minutes from first dispatch to collection; the PR-queue limit is the decision's, as in M3.
+  Nothing in the loop merges, deploys, or touches production. Scheduling it is not built.

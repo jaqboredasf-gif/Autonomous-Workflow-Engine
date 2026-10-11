@@ -1,0 +1,668 @@
+{
+  "schema": "awe.cycle/1",
+  "cycle_id": "c20261011T150928Z-d2c64fe",
+  "phase": "FINISHED",
+  "timeline": [
+    {
+      "phase": "OBSERVED",
+      "at": "2026-10-11T15:09:28.695Z"
+    },
+    {
+      "phase": "DECIDED",
+      "at": "2026-10-11T15:09:29.443Z"
+    },
+    {
+      "phase": "DISPATCHED",
+      "at": "2026-10-11T15:09:33.959Z"
+    },
+    {
+      "phase": "COLLECTED",
+      "at": "2026-10-11T15:15:03.503Z"
+    },
+    {
+      "phase": "EVALUATED",
+      "at": "2026-10-11T15:15:03.557Z"
+    },
+    {
+      "phase": "DISPATCHED",
+      "at": "2026-10-11T15:15:17.720Z"
+    },
+    {
+      "phase": "COLLECTED",
+      "at": "2026-10-11T15:17:25.739Z"
+    },
+    {
+      "phase": "PUSHED",
+      "at": "2026-10-11T15:17:27.577Z"
+    },
+    {
+      "phase": "EVALUATED",
+      "at": "2026-10-11T15:22:17.891Z"
+    },
+    {
+      "phase": "FINISHED",
+      "at": "2026-10-11T15:22:24.673Z"
+    }
+  ],
+  "supervisor": "Claude Code session_01VAB2nrzaLBHFWrW2GugzF4, supervised by Jack (authorization 2026-10-11)",
+  "observed": {
+    "commit": "d2c64fefee1db7e29edacb98c47a796584d2df9c",
+    "branch": "claude/autonomy-m4-closed-loop",
+    "engineering": "PROCEED_WITH_RESTRICTIONS",
+    "engineering_reasons": [
+      {
+        "level": "PROCEED_WITH_RESTRICTIONS",
+        "reason": "3 open blocker(s) close paths to autonomous change: S1, MIGRATION-0016, GOV-1"
+      }
+    ],
+    "verification_source": "ci",
+    "ci": {
+      "status": "PASS",
+      "detail": "verify succeeded on d2c64fefee1d (https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/actions/runs/38149688344/job/114500363306)"
+    },
+    "notes": [
+      "no local verification (verify.json is for b60f6c1 (dirty), not HEAD); authoritative CI verified this commit"
+    ],
+    "gate": 2,
+    "days_to_deadline": 112,
+    "baseline": "OPEN",
+    "install_readiness": "NOT_READY",
+    "open_autonomy_prs": 0
+  },
+  "inputs": {
+    "inspection_sha256": "cb6a55ef0e0123d5499925579e1ca253c96f38b01e030422791a95bfcd861f08",
+    "ci_evidence_sha256": "64c0bb5208674886033918625ce7e8a76c5640266a3dbbaca2c84372474a7e84",
+    "policy_sha256": "7640d74dde7bb96ef7b318ebcc0bca67ab15a52d9e1ebf812ecc7ff9c2ac25f1",
+    "blockers_sha256": "fc9e9ab5c6eafc7470e54b0dc6f5e983317fd99229b1bdff9b989c9a5ae9aa12",
+    "suites_sha256": "30f67a5586a0854593659aea4cd38a9aa429b42635c216a007475db4bdcf90e5",
+    "capabilities_sha256": "3bcdfb0883e41a1543954c2bf4f21b67f8707afa3571dec74e76fbaee044e348",
+    "probes_sha256": "b1dbc7c8c52e94089398f1afc78e833cc210e66bf3893c6c724580569ba2cdeb",
+    "builder_brief_1_sha256": "ba4552ee61939bc16bfbe406b9170c0c53cb7d088f902a651ffd65a3c265cbce",
+    "builder_brief_2_sha256": "e01b2980c7de337b4ee0a0e9d1995e888069b20318427fddb6edcc041bf93084",
+    "review_2_sha256": "b2dec4b0fecb4130e3352bf05576cf072a5335c1c48eb36a96ed5115d05e32d8"
+  },
+  "decision": {
+    "build": true,
+    "headline": "BUILD: production-evidence-return (score 17.3)",
+    "reasons": [],
+    "top": {
+      "id": "baseline-before-first-transaction",
+      "score": 31.2,
+      "finding": "The Lippolis baseline has not been captured, and it must exist before the first real purchase runs through PCC.",
+      "authority": {
+        "class": "JACK_ACTION_REQUIRED",
+        "why": "needs a person at Lippolis, a decision, or a review"
+      },
+      "claims": [
+        "problem_economic",
+        "measurable_value"
+      ]
+    },
+    "selected": "production-evidence-return",
+    "selected_finding": {
+      "id": "production-evidence-return",
+      "score": 17.3,
+      "finding": "Nothing defines how production records reach the evidence layer. Plan and case study read the database only as a local file, neither ships to the server, and the server has no outbound network.",
+      "authority": {
+        "class": "MACHINE_EXECUTABLE",
+        "why": "every path it touches (scripts/awe-production-intake.mjs, docs/proof/PRODUCTION_EVIDENCE_RETURN.md, scripts/eval-autonomy.mjs, package.json) is outside L3, product code and open blockers"
+      },
+      "claims": [
+        "works_in_production",
+        "measurable_value"
+      ]
+    },
+    "ranked": [
+      {
+        "id": "baseline-before-first-transaction",
+        "score": 31.2,
+        "authority": "JACK_ACTION_REQUIRED"
+      },
+      {
+        "id": "install-pcc-at-lippolis",
+        "score": 23.3,
+        "authority": "JACK_ACTION_REQUIRED"
+      },
+      {
+        "id": "lippolis-it-prerequisites",
+        "score": 23.3,
+        "authority": "EXTERNAL_DEPENDENCY"
+      },
+      {
+        "id": "production-evidence-return",
+        "score": 17.3,
+        "authority": "MACHINE_EXECUTABLE"
+      },
+      {
+        "id": "first-external-interview",
+        "score": 17,
+        "authority": "JACK_ACTION_REQUIRED"
+      },
+      {
+        "id": "windows-install-unverified",
+        "score": 12.4,
+        "authority": "HUMAN_APPROVAL_REQUIRED"
+      },
+      {
+        "id": "verification-stale",
+        "score": 12,
+        "authority": "MACHINE_EXECUTABLE"
+      },
+      {
+        "id": "blocker-s1",
+        "score": 5.8,
+        "authority": "BLOCKED"
+      },
+      {
+        "id": "blocker-gov-1",
+        "score": 4.3,
+        "authority": "BLOCKED"
+      },
+      {
+        "id": "blocker-migration-0016",
+        "score": 4.3,
+        "authority": "BLOCKED"
+      }
+    ]
+  },
+  "package": {
+    "schema": "awe.work-package/1",
+    "id": "wp-production-evidence-return",
+    "status": "PREPARED_NOT_DISPATCHED",
+    "prepared_at": "2026-10-11T15:09:28.695Z",
+    "finding": "production-evidence-return",
+    "objective": "Give production records a defined, repeatable route into the evidence layer: a read-only intake command for a verified backup copied off RDS02, and the procedure for bringing the copy back.",
+    "evidence": [
+      {
+        "source": "repository",
+        "detail": "scripts/proof-case-study.mjs, scripts/awe-plan.mjs read the production database only through --db (a local file)"
+      },
+      {
+        "source": "repository",
+        "detail": "release package ENTRY_SCRIPTS ships none of them (scripts/package-release.mjs)"
+      },
+      {
+        "source": "repository",
+        "detail": "no document in docs/proof, docs/deployment describes moving production records to where plan/case-study run"
+      },
+      {
+        "source": "repository",
+        "detail": "RDS02 has no outbound network at runtime (PCC_RDS02_EXECUTION_PACKAGE.md §7)"
+      }
+    ],
+    "why_now": "highest-scoring MACHINE_EXECUTABLE finding (score 17.3); needed within weeks of installation, not before it",
+    "north_star": {
+      "claims": [
+        "works_in_production",
+        "measurable_value"
+      ],
+      "relationship": "serves works_in_production, measurable_value (gate 2; current gate 2)"
+    },
+    "base": {
+      "ref": "origin/pcc-production",
+      "commit": "555c8825e77af831edc22ddeddbe86a0d54193d2"
+    },
+    "affected_files": [
+      "scripts/awe-production-intake.mjs",
+      "docs/proof/PRODUCTION_EVIDENCE_RETURN.md",
+      "scripts/eval-autonomy.mjs",
+      "package.json",
+      ".gitignore"
+    ],
+    "allowed_files": [
+      "scripts/awe-production-intake.mjs",
+      "docs/proof/PRODUCTION_EVIDENCE_RETURN.md",
+      "scripts/eval-autonomy.mjs",
+      "package.json",
+      ".gitignore"
+    ],
+    "file_rules": {
+      "scripts/eval-autonomy.mjs": "no-removals",
+      ".gitignore": "no-removals",
+      "package.json": "add-scripts-only"
+    },
+    "interface": [
+      "node scripts/awe-production-intake.mjs --from <file> --org <id> [--label <name>] [--from-date YYYY-MM-DD --to-date YYYY-MM-DD]",
+      "exit 0 only when the copy is accepted and analysed; any refusal exits non-zero and names the reason on stderr (the words \"repository\", \"rehearsal\", \"unstamped\", \"organization\" or \"integrity\", as applicable)",
+      "on success writes .awe/production/<label>/intake.json: { schema: \"awe.production-intake/1\", source: { sha256, bytes }, environment, org, counts: { requests, purchase_orders }, analyses: [{ name, exit_code, output }] } and nothing outside .awe/production/",
+      "the source file is byte-identical afterwards and gains no -wal/-shm/-journal sidecar",
+      "the decision comes from what the file says about itself (schema_meta environment, the orgs table, integrity), never from its name or path; probes use random names, labels and organization ids",
+      "analyses (plan, case study) are recorded with their exit codes in analyses[] and are not fatal: a case study without --from-date/--to-date may exit non-zero, and the intake still succeeds once the copy itself is accepted",
+      "a refusal writes no intake record; a path inside the repository is refused even when reached through a symlink",
+      "npm lifecycle script names (pre*/post*, install, prepare …) may not be added to package.json",
+      "the engine's capability probe (probeCapability in autonomy/lib/observe.mjs, \"evidence-return\") must report the route present: docs/proof/PRODUCTION_EVIDENCE_RETURN.md needs a line describing copying/bringing/transferring/exporting the backup or database to where plan / case study / evidence run (it matches /(copy|bring|transfer|export).{0,60}(backup|database|pcc\\.sqlite).{0,80}(plan|case[- ]study|evidence|proof)/i on one line)"
+    ],
+    "probes": "autonomy/probes/production-evidence-intake.mjs",
+    "forbidden_files": [
+      "**/.env*",
+      ".github/**",
+      "Dockerfile",
+      "apps/purchasing/src/**/auth*",
+      "apps/purchasing/src/**/authorization*",
+      "apps/purchasing/src/**/session*",
+      "autonomy/attestations.jsonl",
+      "autonomy/blockers.json",
+      "autonomy/capabilities.json",
+      "autonomy/deployment-readiness.json",
+      "autonomy/human-facts.json",
+      "autonomy/policy.json",
+      "autonomy/suites.json",
+      "capability/purchasing/authorization.mjs",
+      "deploy/**",
+      "deployment/APPROVED_RELEASE.md",
+      "deployment/approval-record.mjs",
+      "docker-compose.yml",
+      "docs/recovered/**",
+      "organizations/**",
+      "packages/mcp-server/**",
+      "programs/iic-2027/derive.mjs",
+      "programs/iic-2027/facts.mjs",
+      "programs/venture/claims.mjs",
+      "programs/venture/gates.mjs",
+      "scripts/*.ps1",
+      "scripts/acceptance-slice*.sh",
+      "scripts/install-production.*",
+      "scripts/lib/db.mjs",
+      "scripts/lib/validate-migration-*.mjs",
+      "scripts/verify-supabase-live.sh",
+      "supabase/**",
+      "supabase/config.toml",
+      "supabase/migrations/**",
+      "supabase/tests/**"
+    ],
+    "implementation_plan": [
+      "scripts/awe-production-intake.mjs --from <copied backup>: open READ-ONLY; refuse a path inside the repository; run the same integrity check as pcc-backup --check; refuse unless schema_meta environment is \"production\" and the org id is the one declared; print what it is (counts, date range, release)",
+      "then run, against that file: npm run plan -- --db <file> --org <the declared org> --json, and proof-case-study --db; write their outputs to .awe/production/ (gitignored), never the database",
+      "docs/proof/PRODUCTION_EVIDENCE_RETURN.md: who copies the nightly backup off RDS02, on what medium, where it may live, that it never enters git, and the command to run",
+      "scripts/eval-autonomy.mjs: tests with a rehearsal-stamped and an unstamped database (both refused), a production-stamped fixture (accepted), and a path inside the repo (refused)"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "scope",
+        "command": "evaluator: git diff --name-status <base.commit>..<head>",
+        "expect": "every changed path is in allowed_files and obeys file_rules"
+      },
+      {
+        "id": "guard",
+        "command": "evaluator: checkChange(diff paths, autonomy/<cycle>)",
+        "expect": "no violation"
+      },
+      {
+        "id": "tests-not-weakened",
+        "command": "evaluator: diff of every test file",
+        "expect": "no test file deleted, no line removed from an existing test, no skip/only added"
+      },
+      {
+        "id": "selftest",
+        "command": "node scripts/eval-autonomy.mjs",
+        "expect": "exit 0, including new intake checks"
+      },
+      {
+        "id": "probes",
+        "command": "evaluator: autonomy/probes/production-evidence-intake.mjs",
+        "expect": "every probe passes: production accepted; rehearsal, unstamped, wrong org, corrupt and in-repository copies refused; source unchanged; nothing written outside .awe/production/; the engine's own capability probe reports the gap closed"
+      },
+      {
+        "id": "ci",
+        "command": "GitHub Actions \"AWE verify\" on the pushed autonomy/<cycle> head",
+        "expect": "verify concluded success for that exact commit"
+      }
+    ],
+    "tests": [
+      "scripts/eval-autonomy.mjs (new intake section)",
+      "full ci profile"
+    ],
+    "rollback": "Revert the PR. The command is new and read-only; nothing else depends on it, and no data is written anywhere but .awe/.",
+    "risk": "LOW. Read-only. The one real risk is a production database copied into the repository; the command refuses repo paths and .gitignore covers .awe/.",
+    "max_attempts": 2,
+    "budget_minutes": 45,
+    "stopping_conditions": [
+      "any changed path outside allowed_files",
+      "awe-guard reports a violation",
+      "a blocking suite fails on the PR head after the second attempt",
+      "a test is deleted, skipped, or an assertion weakened",
+      "the 45-minute budget is spent",
+      "the acceptance criteria would need to change"
+    ]
+  },
+  "build": {
+    "branch": "autonomy/c20261011T150928Z-d2c64fe",
+    "base": "555c8825e77af831edc22ddeddbe86a0d54193d2",
+    "worktree": "/home/user/Autonomous-Workflow-Engine/.awe/worktrees/c20261011T150928Z-d2c64fe",
+    "git_dir": "/home/user/Autonomous-Workflow-Engine/.git/worktrees/c20261011T150928Z-d2c64fe",
+    "dotgit": "gitdir: /home/user/Autonomous-Workflow-Engine/.git/worktrees/c20261011T150928Z-d2c64fe\n",
+    "remote_url": "https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine",
+    "config_sha256": "bd697113acf50692a0a4898f0dd6589b685de14336e4dbe9b6be27dc8d579a17",
+    "attempts": 2,
+    "head": "67968a5c73ebd2abedf8c8de0ac6e9363e764ae6",
+    "changes": [
+      {
+        "status": "A",
+        "path": "docs/proof/PRODUCTION_EVIDENCE_RETURN.md",
+        "removed_count": 0,
+        "added_count": 83
+      },
+      {
+        "status": "M",
+        "path": "package.json",
+        "removed_count": 0,
+        "added_count": 1
+      },
+      {
+        "status": "A",
+        "path": "scripts/awe-production-intake.mjs",
+        "removed_count": 0,
+        "added_count": 251
+      },
+      {
+        "status": "M",
+        "path": "scripts/eval-autonomy.mjs",
+        "removed_count": 0,
+        "added_count": 88
+      }
+    ],
+    "rejected_heads": [],
+    "dispatched_at": "2026-10-11T15:09:33.959Z",
+    "report_sha256": "698175835d21f6fbc0a6bc556893ed885ea55b810f159877cb403ae794425f72",
+    "stopped_by_builder": false,
+    "collected_at": "2026-10-11T15:17:25.714Z",
+    "elapsed_minutes": 7.862583333333333,
+    "previous_rejection": [
+      {
+        "id": "builder-rules",
+        "status": "FAIL",
+        "detail": "the Builder disclosed: ran 'git checkout -- package.json' (a forbidden git command) to discard its own uncommitted edit"
+      },
+      {
+        "id": "non-empty",
+        "status": "FAIL",
+        "detail": "the Builder changed nothing"
+      }
+    ],
+    "pushed_at": "2026-10-11T15:17:27.577Z"
+  },
+  "evaluation": {
+    "verdict": "REJECT",
+    "checks": [
+      {
+        "id": "integrity",
+        "status": "PASS",
+        "detail": "git config and worktree identity unchanged since the cycle started"
+      },
+      {
+        "id": "non-empty",
+        "status": "PASS",
+        "detail": "4 file(s) changed"
+      },
+      {
+        "id": "scope",
+        "status": "PASS",
+        "detail": "every changed path is an allowed regular file"
+      },
+      {
+        "id": "guard",
+        "status": "PASS",
+        "detail": "clean on autonomy/c20261011T150928Z-d2c64fe"
+      },
+      {
+        "id": "tests-not-weakened",
+        "status": "PASS",
+        "detail": "no test removed, changed, skipped or short-circuited"
+      },
+      {
+        "id": "file-rules",
+        "status": "PASS",
+        "detail": "every file rule held"
+      },
+      {
+        "id": "selftest",
+        "status": "PASS",
+        "detail": "base copy 208 passed on the head; head copy 222 passed (+14)"
+      },
+      {
+        "id": "probes",
+        "status": "PASS",
+        "detail": "13/13 probes passed"
+      },
+      {
+        "id": "ci",
+        "status": "FAIL",
+        "detail": "verify concluded failure on 67968a5c73eb (https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/actions/runs/38150658304/job/114503250968)"
+      },
+      {
+        "id": "budget",
+        "status": "PASS",
+        "detail": "7.9 of 45 minutes"
+      },
+      {
+        "id": "independent-review",
+        "status": "PASS",
+        "detail": "7 non-blocking finding(s)"
+      }
+    ],
+    "at": "2026-10-11T15:22:17.891Z",
+    "attempt": 2,
+    "probes": [
+      {
+        "id": "exists",
+        "pass": true,
+        "detail": "scripts/awe-production-intake.mjs exists"
+      },
+      {
+        "id": "accepts-production",
+        "pass": true,
+        "detail": "exit 0"
+      },
+      {
+        "id": "intake-record",
+        "pass": true,
+        "detail": "schema awe.production-intake/1, sha matches, env production, org org-62374fcb, analyses 2, counts {\"requests\":0,\"purchase_orders\":0}"
+      },
+      {
+        "id": "source-unchanged",
+        "pass": true,
+        "detail": "byte-identical, no sidecar"
+      },
+      {
+        "id": "refuses-rehearsal",
+        "pass": true,
+        "detail": "exit 2: awe-production-intake: REFUSED (rehearsal) — /tmp/awe-intake-probe-y9r0sV/pcc-production-31ac05dc.sqlite declares itself a rehearsal database. Its records describe no real organization.\nawe-production"
+      },
+      {
+        "id": "refuses-unstamped",
+        "pass": true,
+        "detail": "exit 2: awe-production-intake: REFUSED (unstamped) — /tmp/awe-intake-probe-y9r0sV/pcc-production-ffc50095.sqlite carries no schema_meta environment stamp. It cannot be shown to be production, and an unstamped"
+      },
+      {
+        "id": "refuses-development",
+        "pass": true,
+        "detail": "exit 2: awe-production-intake: REFUSED (environment) — /tmp/awe-intake-probe-y9r0sV/pcc-production-9c6546c9.sqlite declares itself \"development\", not \"production\".\nawe-production-intake: no intake record was "
+      },
+      {
+        "id": "refuses-wrong-org",
+        "pass": true,
+        "detail": "exit 2: awe-production-intake: REFUSED (organization) — /tmp/awe-intake-probe-y9r0sV/rehearsal-b09f56e4.sqlite contains no organization with id \"org-6208bfdf\" (1 organization(s) present). The declared organiz"
+      },
+      {
+        "id": "refuses-torn-copy",
+        "pass": true,
+        "detail": "exit 2: awe-production-intake: REFUSED (integrity) — /tmp/awe-intake-probe-y9r0sV/pcc-production-e768f9aa.sqlite failed the integrity check — database disk image is malformed. Treat this copy as unusable.\nawe"
+      },
+      {
+        "id": "refuses-in-repository",
+        "pass": true,
+        "detail": "exit 2: awe-production-intake: REFUSED (repository) — /home/user/Autonomous-Workflow-Engine/.awe/eval/c20261011T150928Z-d2c64fe-2/copy-5b69f55e.sqlite is inside the repository (/home/user/Autonomous-Workflow-"
+      },
+      {
+        "id": "refuses-symlink-into-repository",
+        "pass": true,
+        "detail": "exit 2: awe-production-intake: REFUSED (repository) — /tmp/awe-intake-probe-y9r0sV/pcc-production-53d7d297.sqlite is inside the repository (/home/user/Autonomous-Workflow-Engine/.awe/eval/c20261011T150928Z-d2"
+      },
+      {
+        "id": "repository-untouched",
+        "pass": true,
+        "detail": "git status unchanged; outputs are ignored"
+      },
+      {
+        "id": "capability-gap-closed",
+        "pass": true,
+        "detail": "scripts/proof-case-study.mjs, scripts/awe-plan.mjs read the production database only through --db (a local file) | release package ENTRY_SCRIPTS ships none of them (scripts/package-release.mjs) | procedure found: docs/proof/PRODUCTION_EVIDENCE_RETURN.md:45 | RDS02 has no outbound network at runtime (PCC_RDS02_EXECUTION_PACKAGE.md §7)"
+      }
+    ],
+    "selftest": {
+      "base": {
+        "exit_code": 0,
+        "passed": 208,
+        "failed": 0
+      },
+      "head": {
+        "exit_code": 0,
+        "passed": 222,
+        "failed": 0
+      }
+    }
+  },
+  "pr": null,
+  "impact": {
+    "expected": {
+      "claims": [
+        "works_in_production",
+        "measurable_value"
+      ],
+      "north_star": "serves works_in_production, measurable_value (gate 2; current gate 2)",
+      "value": "the first measured outcome is computed from these records",
+      "unlock": "measurable_value and the case study read through it once production exists"
+    },
+    "actual": {
+      "status": "UNKNOWN",
+      "why": "nothing has run against production data"
+    }
+  },
+  "human_disposition": {
+    "status": "PENDING",
+    "how": "derived later: was the cycle branch merged into the product line, or closed?"
+  },
+  "supervisor_notes": [
+    {
+      "at": "2026-10-11T15:15:03.444Z",
+      "phase": "DISPATCHED",
+      "text": "Mid-cycle change to the supervisor's evaluator, disclosed: the Builder's attempt-1 report disclosed running 'git checkout -- package.json' (forbidden by the brief's rules; any breach is a REJECT). The evaluator had no input for a disclosed breach, so a strictly tighter rule was added before collection: collect --breach refuses the attempt and evaluate fails 'builder-rules'. Nothing was loosened; probes (hashed at start) are unchanged."
+    },
+    {
+      "at": "2026-10-11T15:15:17.656Z",
+      "phase": "EVALUATED",
+      "text": "Attempt-1 evaluation lists 'non-empty: FAIL — the Builder changed nothing'. That is an evaluator reporting defect, not a fact: a refused attempt's changes are never taken, so they were not measured (the worktree held 3 changed files). Fixed for later evaluations (UNKNOWN: not measured). The REJECT stands on builder-rules alone."
+    },
+    {
+      "at": "2026-10-11T15:22:12.256Z",
+      "phase": "PUSHED",
+      "text": "CI on the build head 67968a5 (run 38150658304): all 40 registered suites PASS (verify.json in artifact 11705913207: pass 40, fail 1 non-blocking lint, blocked 0), but the 'Autonomy guard' step failed: scripts/awe-guard.mjs on pcc-production reads GITHUB_HEAD_REF with ??, and on a push event GITHUB_HEAD_REF is the empty string, so the ref was '' and the autonomy-branch rule refused it. A pre-existing defect in the verification infrastructure (M2A), never exercised until the first autonomy/* push. The evaluator's own guard check on the same four paths is clean. The verdict is not overridden: CI is red, so CI is FAIL."
+    },
+    {
+      "at": "2026-10-11T15:22:24.619Z",
+      "phase": "EVALUATED",
+      "text": "Disposition of the result: no draft PR, because the evaluator rejected the build and a REJECTED build does not get one. The branch autonomy/c20261011T150928Z-d2c64fe stays pushed for audit. Root cause of the red CI is in the guard CLI, not the build. The fix (empty GITHUB_HEAD_REF falls through to GITHUB_REF_NAME, with a test) goes to a separate small PR against pcc-production that Jack must merge. Cycle 2 then re-runs the same package on a base whose CI can pass. Expected business impact unchanged; actual impact UNKNOWN."
+    }
+  ],
+  "history": [
+    {
+      "attempt": 1,
+      "evaluation": {
+        "verdict": "REJECT",
+        "checks": [
+          {
+            "id": "integrity",
+            "status": "PASS",
+            "detail": "git config and worktree identity unchanged since the cycle started"
+          },
+          {
+            "id": "builder-rules",
+            "status": "FAIL",
+            "detail": "the Builder disclosed: ran 'git checkout -- package.json' (a forbidden git command) to discard its own uncommitted edit"
+          },
+          {
+            "id": "non-empty",
+            "status": "FAIL",
+            "detail": "the Builder changed nothing"
+          },
+          {
+            "id": "scope",
+            "status": "PASS",
+            "detail": "every changed path is an allowed regular file"
+          },
+          {
+            "id": "guard",
+            "status": "PASS",
+            "detail": "clean on autonomy/c20261011T150928Z-d2c64fe"
+          },
+          {
+            "id": "tests-not-weakened",
+            "status": "PASS",
+            "detail": "no test removed, changed, skipped or short-circuited"
+          },
+          {
+            "id": "file-rules",
+            "status": "PASS",
+            "detail": "every file rule held"
+          },
+          {
+            "id": "selftest",
+            "status": "UNKNOWN",
+            "detail": "self-test not run"
+          },
+          {
+            "id": "probes",
+            "status": "UNKNOWN",
+            "detail": "probes not run"
+          },
+          {
+            "id": "ci",
+            "status": "UNKNOWN",
+            "detail": "no CI evidence for the pushed head"
+          },
+          {
+            "id": "budget",
+            "status": "PASS",
+            "detail": "5.5 of 45 minutes"
+          },
+          {
+            "id": "independent-review",
+            "status": "UNKNOWN",
+            "detail": "no independent review recorded"
+          }
+        ],
+        "at": "2026-10-11T15:15:03.557Z",
+        "attempt": 1,
+        "probes": null,
+        "selftest": null
+      },
+      "head": null,
+      "refused": {
+        "outside": null,
+        "builder_commits": null,
+        "disclosed_breaches": [
+          "ran 'git checkout -- package.json' (a forbidden git command) to discard its own uncommitted edit"
+        ]
+      }
+    }
+  ],
+  "outcome": {
+    "status": "REJECTED after 2 attempt(s)"
+  },
+  "remaining": [
+    "windows-install-unverified (HUMAN_APPROVAL_REQUIRED, score 12.4): No machine has ever run the Windows install path (NSSM service, IIS/ARR, scheduled backup task); 4 deployment assumptions are listed as provable \"RDS02 only\".",
+    "verification-stale (MACHINE_EXECUTABLE, score 12): The newest verification is for b60f6c1, not HEAD; the engineering state cannot be trusted for this commit.",
+    "blocker-s1 (BLOCKED, score 5.8): S1: Hosted Supabase audit-event deletion vulnerability; live remediation state unknown",
+    "blocker-gov-1 (BLOCKED, score 4.3): GOV-1: Branch divergence: main is not the product line",
+    "blocker-migration-0016 (BLOCKED, score 4.3): MIGRATION-0016: Migration identity collision: 0016 means different things on different branches, and may differ from live",
+    "evaluator ci: FAIL — verify concluded failure on 67968a5c73eb (https://github.com/jaqboredasf-gif/Autonomous-Workflow-Engine/actions/runs/38150658304/job/114503250968)"
+  ],
+  "jack": [
+    "baseline-before-first-transaction: Capture the baseline at Lippolis (docs/proof/BASELINE_DAY.md), freeze it, attest it",
+    "install-pcc-at-lippolis: Install the signed release on LIPELE-RDS02 following docs/deployment/FIRST_LIPPOLIS_DEPLOYMENT.md, then attest each step",
+    "lippolis-it-prerequisites: Lippolis IT installs Node 24, IIS, URL Rewrite, ARR and NSSM on RDS02 and answers hostname, boot start and backup rotation. Jack chases.",
+    "first-external-interview: Record one interview with a purchaser at another trades business (programs/discovery/interview.mjs protocol)"
+  ],
+  "next": "Nothing for the machine above the floor. baseline-before-first-transaction is the constraint.",
+  "finished_at": "2026-10-11T15:22:24.673Z"
+}

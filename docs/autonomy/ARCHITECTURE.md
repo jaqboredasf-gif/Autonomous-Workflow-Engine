@@ -6,7 +6,10 @@ observe-and-escalate only (`autonomy/blockers.json`). **Milestone 2A (the verifi
 is implemented:** `autonomy/README.md`. **Milestone 2B (deployment confidence) is implemented,** with the
 Inspector/Prioritizer deliberately deferred by Jack (2026-10-11) in favour of evidence for the first
 Lippolis installation. **Milestone 3 step 1 is implemented** (Inspector, Prioritizer, Authority Classifier, Work Package
-Generator; `npm run inspect`). No Builder or scheduler exists.
+Generator; `npm run inspect`). **Milestone 4 is implemented** (approved 2026-10-11): one
+supervised cycle end to end (`npm run cycle`): CI-aware observation, a bounded Builder session on an
+`autonomy/*` worktree, an independent evaluator, a draft PR, a Captain Brief and a hash-chained
+cycle record. No scheduler exists; nothing merges or deploys.
 Grounded in `docs/autonomy/CURRENT_STATE.md`. Every design choice cites the existing mechanism it
 reuses or the gap it answers.
 

@@ -247,7 +247,9 @@ export function inspect(obs) {
 
   // --- 9. Verification evidence itself -------------------------------------
   const ci = obs.verify.ci;
-  if (!ci || !ci.fresh) {
+  // Stale LOCAL evidence matters only when nothing authoritative covers HEAD:
+  // with CI PASS for this exact commit, the local run is a convenience.
+  if ((!ci || !ci.fresh) && obs.verify.authoritative?.status !== 'PASS') {
     out.push(f({
       id: 'verification-stale',
       category: 'reliability',

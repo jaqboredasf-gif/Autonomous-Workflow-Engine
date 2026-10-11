@@ -495,6 +495,16 @@ ok(wp.max_attempts === 2 && wp.budget_minutes === 45, 'it carries the approved l
 ok(generateWorkPackage({ ...lint, priority: lint.priority }, { policy, blockers, now: 't' }).status === 'NO_TEMPLATE',
    'there is no package for work nobody has scoped');
 
+console.log('--- the guard CLI reads the branch the way CI reports it ---------');
+{
+  // A push event sets GITHUB_HEAD_REF to "" and the branch in GITHUB_REF_NAME.
+  const guardCli = (env) => spawnSync(process.execPath, [join(ROOT, 'scripts/awe-guard.mjs'), '--paths', 'scripts/awe-production-intake.mjs'],
+    { cwd: ROOT, encoding: 'utf8', env: { ...process.env, GITHUB_HEAD_REF: '', GITHUB_REF_NAME: '', ...env } });
+  ok(guardCli({ GITHUB_REF_NAME: 'autonomy/c1' }).status === 0, 'on a push event (GITHUB_HEAD_REF empty) the guard reads the pushed autonomy branch and passes it');
+  ok(guardCli({ GITHUB_REF_NAME: 'pcc-production' }).status === 1, 'and still refuses the product line pushed the same way');
+  ok(guardCli({ GITHUB_HEAD_REF: 'autonomy/c2', GITHUB_REF_NAME: '21/merge' }).status === 0, 'on a pull_request event the PR head branch decides');
+}
+
 console.log('--- the verification layer cannot change anything --------------');
 
 const sources = ['autonomy/lib/verify.mjs', 'autonomy/lib/state.mjs', 'autonomy/lib/guard.mjs',
