@@ -1,0 +1,84 @@
+{
+  "$comment": "What 'deployment confidence' means, question by question, and which evidence answers each. scripts/awe-readiness.mjs derives .awe/deployment-readiness.json from this, a verify.json (profile deploy), the deployment gate and the human facts. A question is answered by suites that PASSED on the commit being assessed, never by this file. THE LIPPOLIS TARGET IS WINDOWS SERVER (LIPELE-RDS02: Node 24 + NSSM + IIS/ARR + a scheduled backup task; docs/deployment/PCC_RDS02_EXECUTION_PACKAGE.md). The container suites prove the platform-neutral application, packaging and the shared Node tools (pcc-backup, pcc-restore, pcc-verify-*). They do not prove the Windows mechanics, and every answer below says which half it covers. L3: editing this changes what 'ready' means.",
+  "version": 1,
+  "target": {
+    "organization": "lippolis",
+    "host": "LIPELE-RDS02",
+    "platform": "windows-server",
+    "authoritative_runbook": "docs/deployment/PCC_RDS02_EXECUTION_PACKAGE.md"
+  },
+  "questions": [
+    {
+      "id": "clean_install",
+      "question": "Can PCC install from a clean environment?",
+      "evidence": ["clean-machine", "release-package", "purchasing-build"],
+      "proves": "From an export carrying only repository content, the image builds from the lockfile, the preflight passes in a clean node:24 container, and PCC starts with data outside the source tree. The release package (PCC-<commit>.zip) is complete and loads its own scripts.",
+      "does_not_prove": "The Windows install from the zip: Node 24 MSI, NSSM service registration, C:\\ProgramData ACLs.",
+      "lippolis_facts": ["rds02_preflight_clean", "pcc_installed_at_lippolis"]
+    },
+    {
+      "id": "install_twice",
+      "question": "Can PCC be installed twice safely?",
+      "evidence": ["packaged-idempotence"],
+      "static_evidence": ["windows-deployment"],
+      "proves": "Restarting, restarting with PCC_DATABASE_ALLOW_CREATE still set, destroying and recreating the container (an upgrade), and starting again lose nothing: users, vendors, jobs, request, PO number, receipt, attachments byte for byte, audit history, PO sequence position.",
+      "does_not_prove": "Re-running Deploy-PCCProduction.ps1 on Windows. windows-deployment checks that script's mechanics statically, from Linux.",
+      "lippolis_facts": ["pcc_installed_at_lippolis"]
+    },
+    {
+      "id": "starts_after_install",
+      "question": "Can the application start after installation?",
+      "evidence": ["local-rehearsal", "packaged-idempotence", "clean-machine", "startup-refusal"],
+      "proves": "The packaged artifact starts, reports healthy and serves a complete purchase, on Node and in a container. A misconfigured production start refuses and writes nothing.",
+      "does_not_prove": "Start under NSSM as a Windows service, behind IIS/ARR, and after a reboot.",
+      "lippolis_facts": ["pcc_installed_at_lippolis", "rds02_reboot_survival"]
+    },
+    {
+      "id": "persistence",
+      "question": "Does expected state persist?",
+      "evidence": ["local-rehearsal", "packaged-idempotence"],
+      "proves": "After shutdown and restart, and after container recreation, the same database is opened (not recreated) and every record survives.",
+      "does_not_prove": "Persistence across a Windows reboot at C:\\ProgramData\\pcc\\data.",
+      "lippolis_facts": ["rds02_reboot_survival"]
+    },
+    {
+      "id": "backup_completes",
+      "question": "Can backup complete?",
+      "evidence": ["backup-operations", "restore-rehearsal", "clean-machine"],
+      "proves": "pcc-backup.mjs takes a consistent online backup of a running system and verifies it. The scheduled-backup logic is a backup.",
+      "does_not_prove": "That the Windows scheduled task exists, runs as the right account, succeeds nightly, and writes to storage that Lippolis IT itself backs up.",
+      "lippolis_facts": ["rds02_backup_task_verified"]
+    },
+    {
+      "id": "restore_completes",
+      "question": "Can restore complete?",
+      "evidence": ["restore-rehearsal", "clean-machine"],
+      "proves": "pcc-restore.mjs restores a backup into a fresh volume and the restored database passes verification before it is trusted.",
+      "does_not_prove": "Restore on the server's paths, with its service stopped, as its account.",
+      "lippolis_facts": ["rds02_restore_drill"]
+    },
+    {
+      "id": "restored_matches",
+      "question": "Does restored state match expected state?",
+      "evidence": ["restore-rehearsal"],
+      "proves": "A second instance on the restored data shows every fact put into the source, through the web interface, including attachments compared byte for byte, and the source was never touched.",
+      "does_not_prove": "The same with Lippolis's real data volume.",
+      "lippolis_facts": ["rds02_restore_drill"]
+    }
+  ],
+  "untested_assumptions": [
+    { "id": "windows-service", "assumption": "NSSM supervises PCC correctly: starts, stops, restarts, and exits rather than looping on a configuration refusal.", "where_proven": "RDS02 only (proof register steps 4, 6, 8)" },
+    { "id": "iis-arr", "assumption": "IIS with ARR proxies to the backend, then HTTPS once a certificate exists.", "where_proven": "RDS02 only (Configure-PCCIIS.ps1)" },
+    { "id": "backup-task-account", "assumption": "The scheduled backup task runs as an account that can read the live database and write the backup directory.", "where_proven": "RDS02 only" },
+    { "id": "customer-storage-backup", "assumption": "The backup directory is on storage Lippolis IT backs up off the machine.", "where_proven": "Lippolis IT (deployment gate: storage.backed_up_by_customer)" },
+    { "id": "node-sqlite-windows", "assumption": "Node 24's node:sqlite behaves the same on Windows Server as on Linux (WAL, file locking, paths).", "where_proven": "RDS02 only" },
+    { "id": "build-network", "assumption": "The machine that builds PCC-<commit>.zip can reach the npm registry and Google Fonts (next/font fetches Geist at build time). Found 2026-10-11 when a sandboxed build failed on the font fetch.", "where_proven": "the build machine; not the server, which receives a built artifact" },
+    { "id": "base-image-drift", "assumption": "node:24-bookworm-slim at verification time behaves like the image Node 24 at install time. The container suites pull it by tag, not digest.", "where_proven": "partially: every deploy-profile run records the date it ran" },
+    { "id": "po-sequence-data", "assumption": "The paper PO history entered at initialization is correct.", "where_proven": "a person, before the first live PO (fact po_sequence_initialized)" },
+    { "id": "real-users", "assumption": "Mike, Rick and the foremen can complete their day in PCC on Lippolis's own browsers and network.", "where_proven": "the first real transaction (fact first_real_purchase_completed)" }
+  ],
+  "not_deployment_blockers": [
+    { "id": "S1", "why": "S1 concerns the hosted Supabase project used by the earlier time-tracking and triage work. The Lippolis PCC pilot runs on the local SQLite store, so S1 does not gate this installation. It remains an open blocker in its own right." },
+    { "id": "MIGRATION-0016", "why": "The supabase/migrations collision does not touch the SQLite store's schema, which PCC migrates itself on startup (deployment gate: database.migrations_ready)." }
+  ]
+}

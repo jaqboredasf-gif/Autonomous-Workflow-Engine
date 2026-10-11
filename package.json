@@ -16,7 +16,7 @@
     "proof": "node scripts/eval-proof.mjs",
     "proof:case-study": "node scripts/proof-case-study.mjs",
     "programs": "node scripts/eval-programs.mjs",
-    "readiness": "node scripts/iic-readiness.mjs",
+    "readiness": "node scripts/awe-readiness.mjs",
     "deployment-gate": "node scripts/pcc-deployment-gate.mjs",
     "rehearse": "bash scripts/rehearse-locally.sh",
     "plan": "node scripts/awe-plan.mjs",
@@ -32,7 +32,8 @@
     "verify": "node scripts/awe-verify.mjs",
     "engineering-state": "node scripts/awe-state.mjs",
     "guard": "node scripts/awe-guard.mjs",
-    "test:autonomy": "node scripts/eval-autonomy.mjs"
+    "test:autonomy": "node scripts/eval-autonomy.mjs",
+    "attest": "node scripts/awe-attest.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"

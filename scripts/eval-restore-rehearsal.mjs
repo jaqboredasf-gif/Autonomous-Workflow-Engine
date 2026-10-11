@@ -123,7 +123,9 @@ function browser() {
         body: JSON.stringify({ email, password }), redirect: 'manual',
       });
       absorb(res);
-      return { status: res.status };
+      let body = {};
+      try { body = await res.json(); } catch { /* an error status may carry no JSON */ }
+      return { status: res.status, redirectTo: body?.redirectTo ?? null };
     },
     /**
      * Post a form the way a browser without JavaScript would, carrying the
@@ -184,6 +186,27 @@ function browser() {
   };
 }
 
+// EVERY PASSWORD SOMEBODY ELSE CHOSE IS TEMPORARY. Since 5003684 (2026-08-18)
+// the first sign-in on a bootstrap or invited password lands on
+// /change-password and nothing else opens until it is replaced. This harness
+// predated that and could no longer get past its own sign-in, which went
+// unnoticed for eight weeks because nothing ran it; the deploy CI job found it
+// on 2026-10-11. The write pass now replaces each temporary password, exactly
+// as a person must; the verify pass, against a restarted or restored copy,
+// signs in with the replacement, which is what proves credentials survived.
+const ADMIN_OWN_PASSWORD = process.env.PCC_ADMIN_OWN_PASSWORD ?? 'restore rehearsal: the administrator chose this';
+const FOREMAN_OWN_PASSWORD = 'restore rehearsal: the foreman chose this';
+async function signInAsOwner(session, email, temporary, own) {
+  if (MODE !== 'write') return session.signIn(email, own);
+  const first = await session.signIn(email, temporary);
+  if (first.status !== 200 || first.redirectTo !== '/change-password') return first;
+  const changed = await session.submit('/change-password', 'Save my password',
+    [['currentPassword', temporary], ['newPassword', own], ['confirmPassword', own]]);
+  const after = await session.go('/');
+  const replaced = changed.status < 400 && !(after.location ?? '').includes('/change-password');
+  return { status: replaced ? 200 : changed.status, redirectTo: replaced ? null : '/change-password' };
+}
+
 // ===========================================================================
 console.log(`\n--- the application answers (${MODE}) ---------------------------`);
 
@@ -196,7 +219,7 @@ const live = await fetch(`${BASE}/api/health/live`).then((r) => ({ status: r.sta
 check(live.status === 200, 'liveness answers');
 
 const admin = browser();
-const adminSignIn = await admin.signIn(EMAIL, PASSWORD);
+const adminSignIn = await signInAsOwner(admin, EMAIL, PASSWORD, ADMIN_OWN_PASSWORD);
 if (!check(adminSignIn.status === 200, 'the administrator signs in', `status ${adminSignIn.status}`)) {
   console.log(`\nrehearsal checks: ${pass} passed, ${failures.length} failed`);
   process.exit(1);
@@ -289,7 +312,7 @@ if (MODE === 'write') {
   check(users.body.includes(FOREMAN_EMAIL), 'and appears in administration');
 
   const foreman = browser();
-  const foremanIn = await foreman.signIn(FOREMAN_EMAIL, FOREMAN_PASSWORD);
+  const foremanIn = await signInAsOwner(foreman, FOREMAN_EMAIL, FOREMAN_PASSWORD, FOREMAN_OWN_PASSWORD);
   check(foremanIn.status === 200, 'the second user can sign in before the backup', `status ${foremanIn.status}`);
 
   // THE REQUEST, RAISED BY THE FOREMAN, WITH A FILE ATTACHED.
@@ -412,7 +435,7 @@ if (MODE === 'verify') {
 
   // --- people and credentials ---------------------------------------------
   const foreman = browser();
-  const foremanIn = await foreman.signIn(want.foreman, FOREMAN_PASSWORD);
+  const foremanIn = await signInAsOwner(foreman, want.foreman, FOREMAN_PASSWORD, FOREMAN_OWN_PASSWORD);
   check(foremanIn.status === 200, 'the second user still signs in — credentials survived',
     `status ${foremanIn.status}`);
 

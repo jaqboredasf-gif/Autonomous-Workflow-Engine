@@ -27,7 +27,7 @@
 
 import { closedPaths, openBlockers } from './guard.mjs';
 
-export function deriveEngineeringState({ verify, verifyError = null, blockers, policy, detections = {}, head, now }) {
+export function deriveEngineeringState({ verify, verifyError = null, blockers, policy, detections = {}, head, now, human = null }) {
   const reasons = [];
   const notSafe = (r) => reasons.push({ level: 'NOT_SAFE', reason: r });
 
@@ -81,6 +81,12 @@ export function deriveEngineeringState({ verify, verifyError = null, blockers, p
         ? 'Detector suggests this may be resolved. Status changes only when a human updates autonomy/blockers.json.'
         : undefined,
     })),
+    // Human facts are reported, never used to decide `verdict`: engineering may
+    // proceed while nobody has been to Lippolis. The baseline banner rides along
+    // so no reader of this file can miss it.
+    banner: human?.baseline?.banner ?? null,
+    baseline: human?.baseline ?? null,
+    human_facts: human ? human.facts.map((f) => ({ id: f.id, state: f.state, attested_by: f.attested_by ?? null, date: f.date ?? null })) : null,
     autonomy: {
       verdict,
       safe_to_proceed: verdict !== 'NOT_SAFE',
