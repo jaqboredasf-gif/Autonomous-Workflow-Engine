@@ -863,3 +863,59 @@ the failure that destroys a server is the kind that corrupts the newest backup.
 is what runs. The tooling around it moved, which means the package built from HEAD carries two
 server-side checks that a package built from `585b749` does not — recorded as a stated choice in
 the approval record rather than resolved by quietly moving the signature.
+
+## 2026-10-11 (verification becomes a file, not a claim — autonomy Milestone 2A)
+
+**Until today nothing in CI ran a single test on `pcc-production`.** The only workflow the
+repository had ever run validated a markdown file, and it had been deleted from this line on
+2026-09-01. Every "tests pass" in a commit message was the author's own report. Jack approved the
+autonomous-development architecture (`docs/autonomy/ARCHITECTURE.md`) on 2026-10-11, with
+`pcc-production` as its source of truth and the verification foundation built first.
+
+**What was built:** a registry of every verification entrypoint (`autonomy/suites.json`, 52 suites,
+each classified by *running* it, unbuilt and built, as root and as a normal user), one runner
+(`scripts/awe-verify.mjs` → `.awe/verify.json`), a derived engineering state
+(`scripts/awe-state.mjs`), a blocker registry with a path guard (`autonomy/blockers.json`,
+`scripts/awe-guard.mjs`), and a verification-only workflow (`.github/workflows/awe-verify.yml`).
+
+**Decisions made against an obvious alternative:**
+
+- **BLOCKED is decided before a suite runs, never by reading its log.** The tempting version maps
+  "Cannot find module" or "ECONNREFUSED" to BLOCKED. That same rule would turn a genuinely broken
+  import into BLOCKED, softening a real failure. So BLOCKED comes only from a *declared*
+  requirement (`deps`, `nonroot`, `env:X`, `tool:x`, `docker-daemon`, Node version), a
+  prerequisite that did not pass, or an exit code the suite itself documents (this repo's
+  convention is 2). A crash after every requirement checked out is a FAIL.
+- **Purchasing lint is registered as FAIL and non-blocking, not fixed and not hidden.** It reports
+  10 errors that predate this work. Blocking on it would make CI red for debt nobody introduced;
+  loosening the lint config would weaken the check. It shows as `known_debt` until fixed.
+- **The registry, blockers and policy are L3.** Whoever can edit `suites.json` can make any failure
+  non-blocking, so no autonomous change may touch it (`autonomy/policy.json`).
+- **Blockers are lifted only by a human edit.** Detectors may report that S1 or the 0016 collision
+  *looks* resolved; that changes neither the blocker nor the guard. Discovering a problem is not
+  permission to repair it.
+- **Results are not committed.** `.awe/` is gitignored and uploaded as a CI artifact. A committed
+  verify.json is a claim about a tree that has since moved on, the same failure as the retired
+  handoff file.
+- **Docker-based suites are registered but not in the minimal CI job.** They are runnable on a
+  GitHub runner but take minutes and pull images. Each records why it is excluded, and they are the
+  obvious second, non-blocking job.
+
+**Found while building it (recorded, not acted on):**
+
+- `eval-auth-recovery` fails only as root: one check relies on `chmod 0500`, which root ignores.
+  Registered as `requires: nonroot`.
+- `eval-venture-plan` and `eval-deployment-gate` are not hermetic. They pass only when a production
+  build exists on disk. Registered as `requires_build`.
+- Disabling the tenant refusal in `proof/ledger.mjs` alone leaves `eval-proof` green, because
+  `proof/value.mjs` refuses the same record first. Isolation holds; the ledger's own guard has no
+  test that isolates it. Disabling `value.mjs`'s guard does fail the suite (281/1).
+- The 0016 collision is wider than the audit said: four variants (purchasing_control,
+  drop_undeclared_client_policies, manual_intake_bridge, m365_integration_plane), and 0017–0020
+  collide too.
+- **The first CI run caught a real defect that root had been hiding.** `scripts/rehearse-locally.sh`
+  called `mktemp -d -t pcc-rehearsal`, which works on macOS but fails on GNU. `DATA` came back
+  empty, so the rehearsal database went to `/pcc.sqlite`. As root that write succeeds and the
+  rehearsal "passed"; on the non-root runner the server never started. Fixed with a portable
+  template and a refusal on an empty directory. Reproduced (old script, non-root: FAIL) and
+  verified (fixed, non-root: PASS) before pushing. It is a harness fix, not a product change.
