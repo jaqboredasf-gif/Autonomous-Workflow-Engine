@@ -43,7 +43,7 @@ async function makeFixture(root, path, environment, org) {
   for (const s of SIDECARS) rmSync(path + s, { force: true });
 }
 
-export async function run({ root, worktree }) {
+export async function run({ root, worktree, env = process.env }) {
   const ORG = `org-${rnd()}`;
   const results = [];
   const probe = (id, pass, detail) => results.push({ id, pass: !!pass, detail });
@@ -52,7 +52,7 @@ export async function run({ root, worktree }) {
   const labels = {};
   const call = (from, id, org = ORG) => {
     labels[id] = `l-${rnd()}`;
-    return spawnSync(process.execPath, [intake, '--from', from, '--org', org, '--label', labels[id]], { cwd: worktree, encoding: 'utf8', timeout: 120_000 });
+    return spawnSync(process.execPath, [intake, '--from', from, '--org', org, '--label', labels[id]], { cwd: worktree, encoding: 'utf8', timeout: 120_000, env });
   };
   const recordOf = (id) => join(worktree, '.awe/production', labels[id] ?? '-', 'intake.json');
   const status = () => spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: worktree, encoding: 'utf8' }).stdout.trim();

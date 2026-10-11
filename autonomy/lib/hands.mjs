@@ -28,6 +28,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { checkChange } from './guard.mjs';
 
 export const SAFE = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
@@ -48,7 +49,13 @@ function refuseRef(branch, policy, blockers) {
 export function configFingerprint(root, gitDir) {
   const common = run(root, ['rev-parse', '--git-common-dir']);
   const abs = resolve(root, common);
-  const files = [join(abs, 'config'), join(abs, 'info', 'attributes'), join(abs, 'commondir'),
+  // Global and system config too: the Builder can write ~/.gitconfig as easily
+  // as .git/config (gpg.program, url.*.insteadOf). They are fingerprinted rather
+  // than switched off because the environment's own signing and proxy live there.
+  const home = process.env.HOME || homedir();
+  const globals = [process.env.GIT_CONFIG_GLOBAL, join(home, '.gitconfig'),
+    join(process.env.XDG_CONFIG_HOME || join(home, '.config'), 'git', 'config'), process.env.GIT_CONFIG_SYSTEM, '/etc/gitconfig'].filter(Boolean);
+  const files = [...globals, join(abs, 'config'), join(abs, 'info', 'attributes'), join(abs, 'commondir'),
     ...(gitDir ? ['config', 'config.worktree', 'commondir', 'gitdir'].map((f) => join(gitDir, f)) : [])];
   const h = createHash('sha256');
   for (const f of files) h.update(`${f}\0${existsSync(f) ? readFileSync(f, 'utf8') : '<absent>'}\0`);
@@ -127,6 +134,8 @@ export function pushBranch(wt, { branch, url }, policy, blockers) {
  */
 export function checkoutForEvaluation(root, { commit, path }) {
   if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('hands: commit must be a full sha');
+  if (existsSync(path)) removeEvaluationCheckout(root, path); // left over from a crash
+  run(root, ['worktree', 'prune']);
   run(root, ['worktree', 'add', '--detach', path, commit]);
   return run(path, ['rev-parse', 'HEAD']);
 }

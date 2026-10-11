@@ -43,6 +43,7 @@ const TEMPLATES = {
       'on success writes .awe/production/<label>/intake.json: { schema: "awe.production-intake/1", source: { sha256, bytes }, environment, org, counts: { requests, purchase_orders }, analyses: [{ name, exit_code, output }] } and nothing outside .awe/production/',
       'the source file is byte-identical afterwards and gains no -wal/-shm/-journal sidecar',
       'the decision comes from what the file says about itself (schema_meta environment, the orgs table, integrity), never from its name or path; probes use random names, labels and organization ids',
+      'analyses (plan, case study) are recorded with their exit codes in analyses[] and are not fatal: a case study without --from-date/--to-date may exit non-zero, and the intake still succeeds once the copy itself is accepted',
       'a refusal writes no intake record; a path inside the repository is refused even when reached through a symlink',
       'npm lifecycle script names (pre*/post*, install, prepare …) may not be added to package.json',
       'the engine\'s capability probe (probeCapability in autonomy/lib/observe.mjs, "evidence-return") must report the route present: docs/proof/PRODUCTION_EVIDENCE_RETURN.md needs a line describing copying/bringing/transferring/exporting the backup or database to where plan / case study / evidence run (it matches /(copy|bring|transfer|export).{0,60}(backup|database|pcc\\.sqlite).{0,80}(plan|case[- ]study|evidence|proof)/i on one line)',

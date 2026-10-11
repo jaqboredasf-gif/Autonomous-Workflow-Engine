@@ -23,7 +23,8 @@
 // durable record to autonomy/cycles/ for the supervisor to commit.
 // ---------------------------------------------------------------------------
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, appendFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, appendFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -32,6 +33,7 @@ import { judge } from '../autonomy/lib/engine.mjs';
 import { git } from '../autonomy/lib/git.mjs';
 import { ciVerdict } from '../autonomy/lib/ci-evidence.mjs';
 import { evaluate } from '../autonomy/lib/evaluate.mjs';
+import { changesOf as diffChanges } from '../autonomy/lib/diff.mjs';
 import { createWorktree, commitBuild, pushBranch, checkoutForEvaluation, removeEvaluationCheckout, configFingerprint, checkWorktreeIdentity, SAFE } from '../autonomy/lib/hands.mjs';
 import { newCycleId, advance, ledgerEntry, verifyLedger, expectedImpact, renderBrief, sha256 } from '../autonomy/lib/cycle.mjs';
 
@@ -66,32 +68,7 @@ function current() {
 }
 const need = (r, ...phases) => { if (!phases.includes(r.phase)) die(`cycle ${r.cycle_id} is ${r.phase}; this step needs ${phases.join(' or ')}`); };
 
-/** -U0 diff of one path, as removed/added lines: hunk bodies only, never headers. */
-function lineDiff(base, head, path) {
-  const out = spawnSync('git', [...SAFE, 'diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', `${base}..${head}`, '--', path], { cwd: ROOT, encoding: 'utf8' }).stdout;
-  const removed = []; const added = [];
-  let inHunk = false;
-  for (const l of out.split('\n')) {
-    if (l.startsWith('diff --git ')) { inHunk = false; continue; }
-    if (l.startsWith('@@')) { inHunk = true; continue; }
-    if (!inHunk) continue;
-    if (l.startsWith('-')) removed.push(l.slice(1)); else if (l.startsWith('+')) added.push(l.slice(1));
-  }
-  return { removed, added };
-}
-/** Computed in the supervisor's repository by sha, never through the Builder's worktree. */
-function changesOf(base, head) {
-  // --raw gives the new mode too: 120000 is a symlink, 160000 a submodule.
-  const raw = spawnSync('git', [...SAFE, 'diff', '--raw', '-z', '--no-renames', '--no-ext-diff', `${base}..${head}`], { cwd: ROOT, encoding: 'utf8' }).stdout;
-  const parts = raw.split('\0').filter(Boolean);
-  const out = [];
-  for (let i = 0; i + 1 < parts.length; i += 2) {
-    const [, , newMode, , , status] = parts[i].split(/\s+/);
-    const path = parts[i + 1];
-    out.push({ status, path, mode: newMode, ...lineDiff(base, head, path) });
-  }
-  return out;
-}
+const changesOf = (base, head) => diffChanges(ROOT, base, head);
 const wtOf = (r) => ({ path: r.build.worktree, gitDir: r.build.git_dir, dotgit: r.build.dotgit });
 /** Refuse to act if the Builder could have steered git since the cycle started. */
 function integrity(r) {
@@ -99,6 +76,17 @@ function integrity(r) {
   const fp = configFingerprint(ROOT, r.build.git_dir);
   return fp === r.build.config_sha256 ? null : 'git config or the worktree admin files changed since the cycle started';
 }
+/**
+ * The environment Builder code runs in during evaluation: no credentials, a
+ * throwaway HOME, no global or system git config. The head's self-test and the
+ * intake are the Builder's code; they must not run as the supervisor.
+ */
+function untrustedEnv(home) {
+  const keep = ['PATH', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'NODE_OPTIONS_DISABLED'];
+  const env = Object.fromEntries(keep.filter((k) => process.env[k]).map((k) => [k, process.env[k]]));
+  return { ...env, HOME: home, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', CI: '', NO_COLOR: '1' };
+}
+
 /** "autonomy checks: N passed, M failed" from a self-test's output. */
 const counts = (text) => {
   const m = /checks: (\d+) passed, (\d+) failed\s*$/m.exec(text ?? '');
@@ -248,7 +236,11 @@ if (cmd === 'dispatch') {
     // A second attempt starts from what the first left, with the evaluator's reasons.
     r.build.previous_rejection = r.evaluation.checks.filter((c) => c.status === 'FAIL');
     if (r.build.head) r.build.rejected_heads = [...new Set([...(r.build.rejected_heads ?? []), r.build.head])];
-    r.history = [...(r.history ?? []), { attempt: r.build.attempts, evaluation: r.evaluation, head: r.build.head }];
+    if (r.build.tampered) die('this cycle\'s integrity check failed; it is not retried');
+    // A refusal at collection belongs to that attempt; the next one is collected afresh.
+    r.history = [...(r.history ?? []), { attempt: r.build.attempts, evaluation: r.evaluation, head: r.build.head,
+      refused: { outside: r.build.outside ?? null, builder_commits: r.build.builder_commits ?? null } }];
+    delete r.build.outside; delete r.build.builder_commits;
     r.evaluation = null;
     r.phase = 'DECIDED';
   }
@@ -356,18 +348,23 @@ if (cmd === 'evaluate') {
     mkdirSync(dirname(evalPath), { recursive: true });
     checkoutForEvaluation(ROOT, { commit: head, path: evalPath });
     let selftest; let probes = null;
+    const sandboxHome = mkdtempSync(join(tmpdir(), 'awe-eval-home-'));
+    const env = untrustedEnv(sandboxHome);
     try {
       // BASE copy: the self-test as it was at the base commit, run on the head.
       const baseCopy = join(evalPath, 'scripts', '.awe-base-eval-autonomy.mjs');
       writeFileSync(baseCopy, show(r.build.base, 'scripts/eval-autonomy.mjs'));
-      const b = spawnSync(process.execPath, [baseCopy], { cwd: evalPath, encoding: 'utf8', timeout: 300_000 });
-      const h = spawnSync(process.execPath, ['scripts/eval-autonomy.mjs'], { cwd: evalPath, encoding: 'utf8', timeout: 300_000 });
+      const b = spawnSync(process.execPath, [baseCopy], { cwd: evalPath, encoding: 'utf8', timeout: 300_000, env });
+      const h = spawnSync(process.execPath, ['scripts/eval-autonomy.mjs'], { cwd: evalPath, encoding: 'utf8', timeout: 300_000, env });
       writeFileSync(join(dirOf(r.cycle_id), `selftest-${r.build.attempts}.log`),
         `=== base copy on head ===\n${b.stdout ?? ''}${b.stderr ?? ''}\n=== head copy ===\n${h.stdout ?? ''}${h.stderr ?? ''}`);
       selftest = { base: { exit_code: b.status, ...counts(b.stdout) }, head: { exit_code: h.status, ...counts(h.stdout) } };
-      if (r.package.probes) probes = await (await import(join(ROOT, r.package.probes))).run({ root: ROOT, worktree: evalPath });
-    } finally { removeEvaluationCheckout(ROOT, evalPath); }
-    input = { changes, packageJson, selftest, probes, ci, review, head,
+      if (r.package.probes) probes = await (await import(join(ROOT, r.package.probes))).run({ root: ROOT, worktree: evalPath, env });
+    } finally { removeEvaluationCheckout(ROOT, evalPath); rmSync(sandboxHome, { recursive: true, force: true }); }
+    // Builder code ran above. If anything the supervisor trusts changed, say so.
+    const after = integrity(r);
+    if (after) input = { tampered: `during evaluation: ${after}` };
+    input = input ?? { changes, packageJson, selftest, probes, ci, review, head,
       previouslyRejected: (r.build.rejected_heads ?? []).includes(head) };
   }
   const result = evaluate({ pkg: r.package, branch: r.build.branch, elapsedMinutes: r.build.elapsed_minutes ?? null, policy, blockers, ...input });

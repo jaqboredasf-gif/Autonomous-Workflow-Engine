@@ -62,6 +62,10 @@ export function ciVerdict(record, commit) {
   // evidence: every required run must carry head_sha (the check-runs and jobs
   // APIs both report it), so a hand-written {conclusion: success} is ABSENT.
   if (req.some((c) => c.head_sha !== commit)) return { status: 'ABSENT', detail: `a "${REQUIRED_CHECK}" run lacks head_sha ${commit.slice(0, 12)}; unprovenanced evidence is not evidence` };
+  // And it must name its runner: a GitHub Actions run id (jobs API) or the
+  // github-actions app (check-runs API). Still forgeable by a determined
+  // importer; it is provenance a person can follow, not authentication.
+  if (req.some((c) => !c.run_id && c.app !== 'github-actions')) return { status: 'ABSENT', detail: `a "${REQUIRED_CHECK}" run names neither a workflow run id nor the github-actions app` };
   const others = record.checks.filter((c) => c.name !== REQUIRED_CHECK).map((c) => `${c.name}: ${c.conclusion ?? c.status}`);
   // Any run still going (a re-run, say) means the verdict is not in yet.
   const running = req.find((c) => c.status !== 'completed');

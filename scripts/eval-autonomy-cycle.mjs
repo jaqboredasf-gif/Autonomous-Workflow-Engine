@@ -27,6 +27,8 @@ import { evaluate, addScriptsOnly, isTestFile } from '../autonomy/lib/evaluate.m
 import { canonical, hashOf, newCycleId, advance, ledgerEntry, verifyLedger, renderBrief, sha256 } from '../autonomy/lib/cycle.mjs';
 import { createWorktree, commitBuild, pushBranch, checkoutForEvaluation, removeEvaluationCheckout, configFingerprint, checkWorktreeIdentity, changedPaths } from '../autonomy/lib/hands.mjs';
 import { generateWorkPackage } from '../autonomy/lib/work-package.mjs';
+import { changesOf } from '../autonomy/lib/diff.mjs';
+import { symlinkSync } from 'node:fs';
 import { checkChange } from '../autonomy/lib/guard.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -44,7 +46,7 @@ const throws = (fn) => { try { fn(); return false; } catch { return true; } };
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
-const run = (over = {}) => ({ id: 1, name: 'verify', status: 'completed', conclusion: 'success', html_url: 'https://example.invalid/1', completed_at: '2026-10-11T10:00:00Z', head_sha: A, ...over });
+const run = (over = {}) => ({ id: 1, name: 'verify', status: 'completed', conclusion: 'success', html_url: 'https://example.invalid/1', completed_at: '2026-10-11T10:00:00Z', head_sha: A, run_id: 9, ...over });
 const rec = (runs, commit = A) => fromCheckRuns({ check_runs: runs }, { commit, importedBy: 't', importedAt: 't' });
 
 console.log('--- authoritative CI: the exact commit, never borrowed ----------');
@@ -53,6 +55,8 @@ ok(ciVerdict(rec([run({ conclusion: 'failure' })]), A).status === 'FAIL', 'a fai
 ok(ciVerdict(rec([run({ status: 'in_progress', conclusion: null })]), A).status === 'PENDING', 'a running verify is PENDING, not PASS');
 ok(ciVerdict(rec([run({ head_sha: B })], B), A).status === 'ABSENT', 'green CI for another commit is ABSENT for this one');
 ok(ciVerdict(rec([run({ head_sha: undefined })]), A).status === 'ABSENT', 'a run that does not name its head sha is unprovenanced, so ABSENT (review M3)');
+ok(ciVerdict(rec([run({ run_id: undefined })]), A).status === 'ABSENT', 'a run naming neither a workflow run id nor the github-actions app is ABSENT');
+ok(ciVerdict(rec([run({ run_id: undefined, app: { slug: 'github-actions' } })]), A).status === 'PASS', 'a check run from the github-actions app is provenanced');
 ok(ciVerdict(fromCheckRuns({ jobs: [run()] }, { commit: A, importedBy: 't', importedAt: 't' }), A).status === 'PASS', 'a workflow run\'s jobs document is accepted too');
 ok(ciVerdict(rec([run({ completed_at: '2026-10-11T09:00:00Z' }), run({ id: 2, status: 'in_progress', conclusion: null, completed_at: null })]), A).status === 'PENDING',
    'a re-run still in progress after a success is PENDING, not PASS (review)');
@@ -292,6 +296,53 @@ console.log('--- the hands reach one autonomy branch, and no further ----------'
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 }
 
+console.log('--- the diff the evaluator judges is read from real git ---------');
+{
+  // Review N1: hand-built `changes` hid a mis-parsed --raw line. This reads a real commit.
+  const sh = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const repo = mkdtempSync(join(tmpdir(), 'awe-diff-'));
+  try {
+    sh(repo, 'init', '-q', '-b', 'main');
+    mkdirSync(join(repo, 'scripts'));
+    writeFileSync(join(repo, 'scripts', 'eval-x.mjs'), 'ok(1);\nok(2);\n');
+    writeFileSync(join(repo, 'gone.mjs'), 'x\n');
+    sh(repo, 'add', '.');
+    sh(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'base');
+    const base = sh(repo, 'rev-parse', 'HEAD');
+    writeFileSync(join(repo, 'scripts', 'eval-x.mjs'), 'ok(1);\n--n;\nok(3);\n');
+    writeFileSync(join(repo, 'new.mjs'), 'n\n');
+    symlinkSync('../autonomy/policy.json', join(repo, 'link.mjs'));
+    sh(repo, 'rm', '-q', 'gone.mjs');
+    sh(repo, 'add', '-A');
+    sh(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'head');
+    const head = sh(repo, 'rev-parse', 'HEAD');
+    const c = Object.fromEntries(changesOf(repo, base, head).map((x) => [x.path, x]));
+    ok(c['scripts/eval-x.mjs']?.status === 'M' && c['new.mjs']?.status === 'A' && c['gone.mjs']?.status === 'D' && c['link.mjs']?.status === 'A',
+       'statuses M, A, D are read from git', JSON.stringify(Object.values(c).map((x) => [x.path, x.status, x.mode])));
+    ok(c['link.mjs']?.mode === '120000' && c['new.mjs']?.mode === '100644', 'the new mode is read: a symlink is 120000');
+    ok(c['scripts/eval-x.mjs']?.removed.length === 1 && c['scripts/eval-x.mjs']?.added.includes('--n;'), 'a removed line and an added line starting with -- are counted, not mistaken for headers');
+    const v = evaluate({ ...good, changes: Object.values(c), packageJson: null, pkg: { ...good.pkg, allowed_files: Object.keys(c) } });
+    ok(v.verdict === 'REJECT' && v.checks.find((x) => x.id === 'scope').status === 'FAIL' && v.checks.find((x) => x.id === 'tests-not-weakened').status === 'FAIL',
+       'and the evaluator, fed real git output, rejects the symlink and the weakened test file without crashing');
+  } finally { rmSync(repo, { recursive: true, force: true }); }
+}
+{
+  // Review B3 (global route): a change to the global git config is detected.
+  const tmp = mkdtempSync(join(tmpdir(), 'awe-gcfg-'));
+  const prev = process.env.GIT_CONFIG_GLOBAL;
+  try {
+    execFileSync('git', ['init', '-q', tmp]);
+    process.env.GIT_CONFIG_GLOBAL = join(tmp, 'global.cfg');
+    writeFileSync(process.env.GIT_CONFIG_GLOBAL, '[user]\n\tname = t\n');
+    const fp = configFingerprint(tmp, null);
+    writeFileSync(process.env.GIT_CONFIG_GLOBAL, '[user]\n\tname = t\n[gpg]\n\tprogram = /tmp/evil\n');
+    ok(configFingerprint(tmp, null) !== fp, 'a change to the global git config (gpg.program, url.insteadOf) changes the fingerprint');
+  } finally {
+    if (prev === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = prev;
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 console.log('--- the probes discriminate (fake intakes) -----------------------');
 {
   const { run: runProbes } = await import(join(ROOT, 'autonomy/probes/production-evidence-intake.mjs'));
@@ -327,7 +378,7 @@ console.log('--- the probes discriminate (fake intakes) -----------------------'
 }
 
 console.log('--- judgement stays separate from the hands ----------------------');
-for (const p of ['autonomy/lib/ci-evidence.mjs', 'autonomy/lib/evaluate.mjs', 'autonomy/lib/cycle.mjs', 'autonomy/lib/engine.mjs', 'scripts/awe-ci-evidence.mjs']) {
+for (const p of ['autonomy/lib/ci-evidence.mjs', 'autonomy/lib/evaluate.mjs', 'autonomy/lib/cycle.mjs', 'autonomy/lib/engine.mjs', 'autonomy/lib/diff.mjs', 'scripts/awe-ci-evidence.mjs']) {
   const src = readFileSync(join(ROOT, p), 'utf8');
   ok(!/\[\s*['"](push|commit|merge|rebase|reset|checkout|tag|worktree)['"]/.test(src), `${p} issues no mutating git command`);
   ok(!/\bfetch\(|https?:\/\/(?!localhost|example\.invalid)/.test(src), `${p} makes no network call`);

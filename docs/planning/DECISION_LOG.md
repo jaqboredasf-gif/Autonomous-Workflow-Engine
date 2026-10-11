@@ -1049,3 +1049,13 @@ the wrong judge of the loop, which is why the evaluator includes a fresh-session
 Residual, stated plainly: CI evidence is a file an importer supplies; it now needs each run's
 `head_sha`, but a determined importer could still fabricate one. Closing that needs the engine to
 read GitHub with credentials, or CI to publish signed results: a later milestone, and Jack's call.
+The same reviewer re-checked the fixes. Eleven findings were confirmed fixed. It found one new
+blocking defect that the fixes had introduced: `--raw` fields were read at the wrong positions,
+so the evaluator would have crashed on every correct build and the symlink check never fired.
+Lesson: tests that build `changes` by hand prove nothing about parsing git output. Now fixed,
+with a test against a real repository. It also found three hardening gaps:
+- global and system git config was not fingerprinted;
+- the Builder's code ran with the supervisor's environment during evaluation;
+- refusal state carried into a retry.
+All three are fixed. Builder code now runs with a throwaway HOME, no global git config and no
+tokens, and the config fingerprint is re-checked after it runs.
