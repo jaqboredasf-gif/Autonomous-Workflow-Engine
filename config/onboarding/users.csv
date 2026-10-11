@@ -1,0 +1,6 @@
+full_name,email,roles,approver,receiver,workshop_assignment,job_assignments,login_enabled
+# Mike Lippolis,mike@lippoliselectric.com,WORKSHOP_APPROVER,yes,yes,yes,,yes
+# Rick Example,rick@lippoliselectric.com,WORKSHOP_APPROVER,yes,yes,yes,,yes
+# Dave Example,dave@lippoliselectric.com,FOREMAN,no,yes,no,24-118;25-007,yes
+# Karen Example,karen@lippoliselectric.com,OFFICE,no,yes,yes,,yes
+# Ann Example,ann@lippoliselectric.com,ACCOUNTING,no,no,no,,yes

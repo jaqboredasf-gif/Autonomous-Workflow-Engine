@@ -1,0 +1,94 @@
+{
+  "$comment": "Facts the North Star needs that no agent can establish. A fact is UNKNOWN until a person attests it (autonomy/attestations.jsonl, written only by `npm run attest`, which refuses to run without a human at a terminal). A few facts also have a MACHINE check: a record the repository can see. A machine check can make a fact MACHINE_VERIFIED, but a fact with machine_check null can only ever become HUMAN_VERIFIED or HUMAN_REFUTED. This file is L3 (autonomy/policy.json): an agent that could edit it could redefine what 'verified' means. Deployment facts that IT supplies (hostname, boot start, backups of the VM) live in the deployment model (deployment/facts.mjs, `npm run deployment-gate`), not here; this file does not duplicate them.",
+  "version": 1,
+  "states": {
+    "UNKNOWN": "nobody has attested it and nothing the repository can see establishes it",
+    "HUMAN_VERIFIED": "a named person attested it is true, on a date",
+    "HUMAN_REFUTED": "a named person checked and attested it is NOT true; a negative result, not an absence",
+    "MACHINE_VERIFIED": "a record in this repository establishes it (only for facts with a machine_check)"
+  },
+  "facts": [
+    {
+      "id": "baseline_captured_before_first_transaction",
+      "statement": "The Lippolis purchasing baseline was observed and frozen (npm run baseline:freeze) BEFORE any real purchase was processed in PCC.",
+      "why": "A baseline cannot govern work that predates it. Purchases processed before it exists are permanently unvaluable, and the first real measured business outcome depends on this. docs/proof/BASELINE_DAY.md, docs/proof/FIRST_REAL_PROOF_ACTIVATION.md.",
+      "required_before": "first_real_transaction",
+      "gate": "BASELINE",
+      "machine_check": null,
+      "supporting_signal": "frozen-baseline-files",
+      "evidence_hint": "path of the frozen record under proof/baselines/frozen/ and the date of the first real PCC purchase"
+    },
+    {
+      "id": "rds02_preflight_clean",
+      "statement": "scripts/preflight-windows.ps1 on LIPELE-RDS02 reported READY TO INSTALL with 0 blockers.",
+      "why": "Every Windows-specific prerequisite (Node 24, NSSM, IIS/ARR, paths, permissions) is checked only on the real server. No CI run can prove it.",
+      "required_before": "installation",
+      "machine_check": null,
+      "evidence_hint": "saved preflight output"
+    },
+    {
+      "id": "pcc_installed_at_lippolis",
+      "statement": "PCC is installed on LIPELE-RDS02 from a hash-verified PCC-<commit>.zip, and `node scripts/pcc-verify-deployment.mjs --service pcc` reports READY FOR ACCEPTANCE TESTING.",
+      "why": "works_in_production starts here. Nothing measurable happens before it.",
+      "required_before": "first_real_transaction",
+      "machine_check": null,
+      "evidence_hint": "artifact commit + sha256, verifier output"
+    },
+    {
+      "id": "po_sequence_initialized",
+      "statement": "The PO sequence was initialized from the paper history before the first live PO (PCC_RDS02_EXECUTION_PACKAGE.md section 2), or it was confirmed that no prior sequence exists.",
+      "why": "A PO number that collides with a paper PO is a real-world error the system cannot detect after the fact.",
+      "required_before": "first_real_transaction",
+      "machine_check": null,
+      "evidence_hint": "which job/vendor pairs were entered"
+    },
+    {
+      "id": "rds02_backup_task_verified",
+      "statement": "On LIPELE-RDS02, install-backup-task.ps1 -Verify shows the task enabled with last result 0, and `pcc-backup.mjs --check` reports verified with counts.",
+      "why": "CI proves the backup tool works. Only the server proves the backup is scheduled, runs as the right account, and lands on storage that is itself backed up.",
+      "required_before": "first_real_transaction",
+      "machine_check": null,
+      "evidence_hint": "task verify output, backup --check output"
+    },
+    {
+      "id": "rds02_restore_drill",
+      "statement": "On LIPELE-RDS02, a real backup was restored to a scratch path with pcc-restore.mjs and reported its requests readable (proof register step 17).",
+      "why": "A backup nobody has restored is a hope. CI restores in containers; the server's paths, permissions and service account are only proven there.",
+      "required_before": "first_real_transaction",
+      "machine_check": null,
+      "evidence_hint": "restore output"
+    },
+    {
+      "id": "rds02_reboot_survival",
+      "statement": "After a reboot of LIPELE-RDS02, the pcc service came back on its own and the verifier still reports READY.",
+      "why": "The runbook calls this 'the one that cannot be inferred'. No container test can stand in for a Windows service at boot.",
+      "required_before": "first_real_transaction",
+      "machine_check": null,
+      "evidence_hint": "verifier output after reboot"
+    },
+    {
+      "id": "first_real_purchase_completed",
+      "statement": "A genuine Lippolis purchase went request → approval → PO → receipt in PCC, in production (PCC_ENVIRONMENT=production), with nobody working around the system.",
+      "why": "The first production execution; works_in_production moves only on real use.",
+      "required_before": null,
+      "machine_check": null,
+      "evidence_hint": "request id / PO number, date, people involved, anything they had to work around"
+    },
+    {
+      "id": "stakeholder_interview_completed",
+      "statement": "At least one discovery interview with a person who does purchasing at a trades business has been recorded.",
+      "why": "problem_real and customer discovery start at zero without it.",
+      "required_before": null,
+      "machine_check": "discovery-interview-records",
+      "evidence_hint": "the interview record imported with npm run evidence -- --import"
+    },
+    {
+      "id": "s1_live_remediated",
+      "statement": "The hosted Supabase project was checked live and no longer carries the 16 undeclared *_org_* policies on integration_events, time_entry_audits, crews and crew_members.",
+      "why": "Blocker S1. The cloud environment has no credentials and cannot reach api.supabase.com; only a person can check. Attest HUMAN_REFUTED if the check finds them still present.",
+      "required_before": null,
+      "machine_check": null,
+      "evidence_hint": "the pg_policies query and its output (no credentials)"
+    }
+  ]
+}

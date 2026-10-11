@@ -1,0 +1,68 @@
+# ---------------------------------------------------------------------------
+# pcc-backup-docker.service — the same backup, on the DOCKER deployment path.
+#
+# INSTALL IT UNDER THE OTHER NAME:
+#   sudo cp deploy/pcc-backup-docker.service /etc/systemd/system/pcc-backup.service
+#   sudo cp deploy/pcc-backup.timer          /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now pcc-backup.timer
+#
+# WHY A UNIT RATHER THAN SOMETHING NEW. A Linux host running Docker already has
+# systemd, so scheduling belongs there: one timer, one service, inspected with
+# the same three commands as everything else on the machine. Adding a scheduler
+# container, a cron daemon inside the image, or a second supervision system
+# would be a new thing to run, patch, monitor and explain.
+#
+# WHY A THROWAWAY node CONTAINER RATHER THAN `docker compose exec`. The PCC
+# runtime image contains the application and nothing else — no scripts, by
+# design, since the build refuses to ship anything it does not need. So the
+# backup runs the SAME scripts/pcc-backup.mjs from the repository, mounted
+# read-only, against the SAME volume, as the same uid the application uses.
+# This is the form already documented in the handoff §8 backup drill.
+#
+# WHAT HAS TO EXIST FIRST:
+#   * the repository on the host, at the path in ExecStart below
+#   * the Docker volume PCC uses (pcc-data in the supplied compose file)
+#   * PCC_REPO / PCC_VOLUME set in /etc/pcc-backup.env if either differs:
+#       PCC_REPO=/opt/pcc-src
+#       PCC_VOLUME=pcc-data
+# ---------------------------------------------------------------------------
+
+[Unit]
+Description=Purchasing Control Center — verified database backup (Docker)
+Documentation=file:///opt/pcc/docs/deployment/PCC_IT_DEPLOYMENT_HANDOFF.md
+After=docker.service network-online.target
+Wants=docker.service
+
+[Service]
+Type=oneshot
+
+# Defaults that match the supplied compose file. Override either in
+# /etc/pcc-backup.env without editing this unit.
+Environment=PCC_REPO=/opt/pcc-src
+Environment=PCC_VOLUME=pcc-data
+Environment=PCC_NODE_IMAGE=node:24-bookworm-slim
+EnvironmentFile=-/etc/pcc-backup.env
+
+# --user 1000:1000 is the uid the application runs as and the uid that owns the
+# volume; running as root here would leave root-owned backups in a directory the
+# application cannot manage.
+#
+# Retention is 30 full copies — see the reasoning in deploy/pcc-backup.service.
+ExecStart=/usr/bin/docker run --rm \
+    --user 1000:1000 \
+    -v ${PCC_VOLUME}:/data \
+    -v ${PCC_REPO}/scripts:/scripts:ro \
+    ${PCC_NODE_IMAGE} \
+    node /scripts/pcc-backup.mjs --db /data/pcc.sqlite --out /data/backups --keep 30
+
+# Pulling the node image on a machine that has never seen it can take longer
+# than the default. The backup itself is seconds.
+TimeoutStartSec=15min
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pcc-backup
+
+[Install]
+# Started by pcc-backup.timer. See the note in deploy/pcc-backup.service.

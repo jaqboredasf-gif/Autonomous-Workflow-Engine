@@ -441,3 +441,566 @@ Append-only. Newest first. Format: date — decision — why — supersedes (if 
   asserts identical message-type, business-role and blocked-reason vocabularies (missing
   OR extra both fail). Branch-logic divergence is still possible and is exactly what
   acceptance slice 4 (B3-live) must retire.
+
+## 2026-08-12 (go-live pass — decisions rescued from stale session handoffs)
+
+`PCC_NEXT_SESSION_HANDOFF.md`, `PCC_NEXT_SESSION_PROMPT.md` and
+`SESSION_TRANSITION_COMMANDS.md` were untracked working notes from an earlier session,
+pinned to commit `b5e1a60` and to test counts and a lint problem that no longer describe
+the repository. Everything in them was either implemented (BR-011, Lippolis branding, the
+dashboard hierarchy, the provider seams), documented elsewhere (`PCC_PERMISSION_MATRIX.md`,
+`PCC_UI_HANDOFF/`, `docs/deployment/`), or obsolete. They have been removed so the
+repository has one obvious source of truth for installation.
+
+Two product decisions from those notes were NOT recorded anywhere else and are still true
+of the code, so they are preserved here rather than lost:
+
+- **Priority is derived from the need-by date, not entered by the requester.** There is no
+  priority field for somebody to set. `domain/dashboard.mjs` computes urgency and overdue
+  state from `needByDate`/`needByTime`. This is deliberate — a self-declared priority field
+  becomes "everything is urgent" within a fortnight — and it should not be changed casually.
+- **A requester's preferred vendor is stored as an attributed note, not written to
+  `vendor_id`.** `withVendorSuggestion()` in `app/actions.ts` appends the suggestion to the
+  request notes. The vendor on a purchase order is the workshop's decision, recorded during
+  review; letting the field firewall be crossed by a requester's suggestion would make the
+  request's vendor and the order's vendor the same field, and the audit trail could no
+  longer show that purchasing chose differently.
+
+Also settled in this pass, and recorded because it changes application behaviour:
+
+- **A purchase order cannot be generated while the PO sequence is the built-in
+  placeholder.** `po_number_sequences.initialized_at` is null until an administrator saves
+  the office's own number; `application/fulfilment.ts` refuses allocation with
+  `po_sequence_uninitialized` while it is. The demonstration seed sets it (so development
+  and the eval suites work); the production bootstrap does not. The difference is data, not
+  an environment check.
+  **SUPERSEDED 2026-08-13** — see *The Lippolis PO numbering rule* below. The guard was
+  protecting a real risk against the wrong model, and went with the model.
+
+## 2026-08-13 (second pass) — making the numbering rule safe for real Lippolis data
+
+The rule itself was already implemented and is unchanged. This pass closed the gaps between
+"correct" and "safe to hand to an office", and all of them were about what happens when a person
+is involved.
+
+- **The pilot store had no fence on the identifier.** Postgres has made `po_number` permanent by
+  trigger since 0016; SQLite — the thing that actually runs at Lippolis — had a comment claiming a
+  service-layer guard that was never written. Nothing in the application updates those columns, which
+  is exactly why the absence was invisible. `purchase_orders` now carries the same two triggers in
+  both providers: the number, its three components and its request cannot be changed, and the row
+  cannot be deleted. A purchase order that can be deleted is a number that can be issued twice.
+
+- **The upgrade rebuild silently dropped those triggers.** `drop table` takes a table's triggers
+  with it, and the rebuild that retires the old global uniqueness recreates the table — so the
+  databases *most* recently migrated would have been the ones running unguarded, until the next
+  restart re-ran SCHEMA. Triggers are now carried across with the indexes, and asserted after the
+  rebuild rather than after a restart.
+
+- **"No paper history" was unrecordable.** A pair with no declaration and a pair the office had
+  checked and found new were the same row — absent. `initializePoSequence` with a next number of 1
+  now records the decision (`declarePoPairNewAction`), which changes no count and is the entire
+  point: it converts an open question into an answered one. Without it the go-live check can only
+  ever say "this might be a problem", which is the kind of warning operators learn to skip.
+
+- **A pair already in use could be moved forward silently.** Moving one is legitimate — an office
+  reconciling a gap after an outage — and a bad accident, and the two are told apart only by whether
+  the person had seen the orders already out there. Refused with `sequence_already_issued` naming
+  the count and the most recent number, unless acknowledged. Backwards stays refused regardless.
+
+- **The format is duplicated in exactly one other place, and now it is fenced.** Postgres has to
+  build the number inside `next_po_number_for()` for the allocation to remain a single statement, so
+  `formatPoNumber` is not literally the only implementation. The migration validator asserts the SQL
+  expression against the domain's own `PO_NUMBER_SEPARATOR` and against `formatPoNumber`'s output,
+  so changing one without the other fails the suite. A future change of separator or casing from a
+  real Lippolis PO is a two-line edit in known places, not a hunt.
+
+- **Vendor codes derived but never chosen are now surfaced.** A code identical to what PCC derives
+  from the name has never been looked at by the office. The verifier re-derives and reports them —
+  detecting the fact rather than recording that somebody opened a screen — because after a vendor's
+  first purchase order its code is frozen.
+
+**The verifier now sorts every pair into four states** — in use, continued from paper, confirmed
+new, unresolved — and separately lists active jobs nobody has been asked about, each with the exact
+operator action. Reported per job rather than per possible pair: the vendors a job will use are not
+knowable in advance, and a screenful of job × vendor combinations is noise that trains people to
+skip the section. Pairs and jobs appearing after go-live are ordinary business and are not flagged.
+
+## 2026-08-13 — the Lippolis PO numbering rule, from Mike and Paul
+
+**A purchase order number is `job number + vendor + a sequence that counts from 1 for that
+pair`.** `1234-COOPER-1`, `1234-COOPER-2`, `1234-GRAYBAR-1`, `5678-COOPER-1`. Given directly by
+the purchasing stakeholders on 2026-08-12; implemented as given.
+
+**What it replaced.** A single per-organization counter formatted `LE-52901` — a placeholder
+standing in for an answer nobody had, guarded by a refusal (`po_sequence_uninitialized`) until an
+administrator supplied "the next number from the paper book". The guard was right about the
+danger and wrong about the shape: there is no one Lippolis sequence, so there was never a single
+number to supply.
+
+**Decisions taken in implementing it, and why:**
+
+- **The vendor's code is a stored field, not a derivation.** `vendors.code` / 
+  `purchase_vendors.code`, derived from the display name once and then frozen. A code recomputed
+  from the name would renumber a supplier's paperwork the day somebody corrects a spelling. It is
+  unique per organization, and changeable only until the vendor's first purchase order.
+- **The derivation does not abbreviate.** `Cooper Electric Supply Co.` becomes
+  `COOPERELECTRICSUPPLYCO`, not `CESC`. An abbreviation invented here would be a name nobody at
+  Lippolis chose, printed on a supplier's paperwork. Where the office wants a short code, an
+  administrator sets it — a decision with a person behind it.
+- **The job segment keeps its hyphens** (`24-118`), because that is what is on the drawing. The
+  identifier is still unambiguous: a vendor code can never contain a hyphen, so `parsePoNumber`
+  splits from the right.
+- **No zero-padding**, and no configurable prefix or suffix. The stakeholder examples are
+  unpadded; padding would have been an invented format.
+- **Allocation is one statement.** An upsert with `RETURNING` per (org, job, vendor), inside the
+  transaction that writes the order — SQLite under `begin immediate`, Postgres in
+  `next_po_number_for()`. The compare-and-set it replaced was safe against a lost update but could
+  fail spuriously under contention; this cannot, and the concurrency gate now asserts *no gap* as
+  well as *no duplicate*.
+- **`unique (org_id, sequence_value)` on `purchase_orders` had to go**, replaced by
+  `(org_id, job_number, vendor_id, sequence_value)`. Under the real rule `1234-COOPER-1` and
+  `1234-GRAYBAR-1` both carry sequence 1 and neither is a duplicate. SQLite cannot ALTER a
+  constraint away, so `database.ts` rebuilds the table from its own `sqlite_master` definition —
+  keeping the foreign keys and checks that reconstructing from `pragma table_info` would silently
+  drop — and runs `pragma foreign_key_check` afterwards.
+- **The components are snapshotted onto the order** (`job_number`, `vendor_code`,
+  `sequence_value`) beside the permanent `po_number`. A number stays explainable years later
+  without depending on the directory still saying the same thing.
+- **Allocation happens at issuance only.** Viewing a request, refreshing the page or abandoning a
+  draft burns nothing; asking twice returns the same number without advancing the counter; a
+  failed transaction rolls the counter back with it. An issued number is never reused.
+
+**What remains a business question, and is now the only one:** whether any job-and-vendor pair
+PCC will be used for already has purchase orders written on paper. For those pairs an
+administrator sets where the count had reached (Administration → PO numbering) — forward-only,
+refused at or below anything PCC has issued, audited. `pcc-verify-production.mjs` lists every pair
+about to issue its first number, so the question is asked by the go/no-go check rather than
+remembered.
+
+## 2026-08-12 (build mode → deploy/observe/refine mode)
+
+**PCC feature development stops being speculative from this point.**
+
+The application-controlled work is finished: the production-readiness pass, the restore
+rehearsal, deployment idempotence, the placeholder-PO guard, the data-outside-checkout
+guard, the installation runbook, the preflight and the storage tooling all exist and are
+tested. What PCC does not have is a single hour of real use by the people it was built
+for.
+
+Until it does, further feature work is guessing — and the repository has enough evidence
+now to make that guessing unnecessary rather than merely unwise.
+
+**From now, product changes should be driven by:**
+
+- Phase A smoke-test failures — things that do not work on the real VM
+- Phase B user friction — what Mike, Rick or a foreman actually stumbles over
+- production defects — anything that misbehaves with real data
+- purchasing stakeholder feedback — the office asking for something concrete
+- operational evidence — logs, storage growth, backup timings, health history
+
+**Explicitly NOT a reason to change PCC:** an architectural preference, a pattern that
+would be tidier, a capability another system has, or a feature nobody has asked for. That
+includes the two standing invitations in this repository — migrating to PostgreSQL and
+extracting attachments to object storage. Both have documented, measurable triggers
+(`PCC_PRODUCTION_ARCHITECTURE.md` §3 and §4). Neither trigger has fired. Doing either now
+would trade a working simple thing for a speculative complicated one, days before real
+users first touch it.
+
+**This does not freeze bug fixes.** A defect is a defect and gets fixed. The distinction is
+between *making PCC do what it already claims to do* — always in scope — and *making PCC do
+something new* — which now needs evidence from an actual user.
+
+The success condition for the next phase is not a feature. It is a fortnight of purchasing
+that nobody had to work around.
+
+## 2026-09-01 (AGENT_HANDOFF is retired; the canonical artifacts are the handoff)
+
+**`AGENTS.md` required `docs/planning/AGENT_HANDOFF.md` to be updated before ending every
+meaningful task. It has not been updated since 2026-08-05, it names a repository and a branch that
+are not the ones being worked on, and a GitHub workflow fails any pull request that does not touch
+it. The rule and the reality have disagreed for four weeks and the reality kept being right.**
+
+Both designs were written out before choosing.
+
+**A — restore the handoff as canonical.** Update it now, and update it every task. It is a single
+file a person can read in two minutes, it carries the one thing no command reports — what the last
+session was *trying* to do — and the CI check already exists.
+
+Rejected, for one reason that is not effort: **it would be a second source of project truth.**
+Every field the handoff carries except "current objective" is now derived by something that cannot
+go stale. `npm run readiness` reports where the company stands. `npm run plan` reports what to do
+next and why. `npm run deployment-gate` reports whether it can be installed. `npm run evidence`
+reports what real evidence is missing. `git log` reports what changed. A hand-written file
+restating those is a file that is *wrong between updates*, and the failure mode is the expensive
+one: a person reads the stale version and believes it, because it looks like a status report and
+status reports do not usually lie.
+
+The 2026-08-05 file is the proof. It says the branch is `claude/lippolis-purchasing-dashboard-3ixte2`
+and the objective is a management walkthrough of a prototype. Both were true. Neither has been true
+since.
+
+**B — retire the rule in favour of the canonical artifacts.** Chosen.
+
+- `AGENTS.md` now names the commands an agent runs at the start and end of a task, and requires the
+  one thing they cannot produce: a `DECISION_LOG.md` entry when a decision is made that the code
+  does not explain by itself.
+- `docs/planning/AGENT_HANDOFF.md` is stamped RETIRED at the top and kept. It is an accurate record
+  of 5 August and deleting it would lose that; what it is not is a description of today.
+- `.github/workflows/agent-handoff.yml` and `scripts/validate-agent-handoff.sh` are deleted. A CI
+  check that requires every pull request to touch a retired file is a ritual that teaches people to
+  edit a document without reading it, which is worse than no check.
+
+**What was actually lost by choosing B:** the sentence "what the last session was trying to do".
+That is real, and it is why the commit message convention in this repository is a full paragraph
+rather than a subject line — the intent lives with the change that carried it, where it cannot go
+stale, and `git log` is the reader.
+
+## 2026-09-01 (evidence collection becomes a command, not a code edit)
+
+**Four facts the readiness scorecard reads had no way in except hand-editing
+`programs/iic-2027/facts.mjs`, and all four had sat at zero since the day that file was written.**
+
+`narrative.plainLanguageTests`, `narrative.mockPitches`, `differentiation.alternativesAnalysed` and
+`businessModel.unitDefined`. Each is cheap — five people and ten minutes each, four extra questions
+in a conversation already happening — and each requires a person to open a JavaScript module
+afterwards and type a number with a note. That never happened, and it was not laziness. **The
+friction was the reason.**
+
+**Three decisions, in the order they were made.**
+
+**1. Alternatives and unit-of-sale go on the interview record, not in a new store.** They come out of
+the same twenty minutes as the pain does. A second form asking again for the company name and the
+date is a second form that stops being filled in, and the brief for this work said as much: do not
+make Jack re-enter the same facts. So `interview()` gained two optional blocks, `alternatives[]` and
+`commercial{}`, and `programs/discovery/` gained two analyses over them.
+
+**2. The capture format is a field sheet, not JSON and not a UI.** `key: value` lines with the
+allowed words written in a comment next to each key, fillable on a phone in a car park, converted by
+`npm run evidence -- --import`. This is the pattern `scripts/baseline-import.mjs` already
+established for stopwatch readings and it exists for the same reason: asking one person to produce
+structured data *while* collecting evidence guarantees either bad evidence or none. **The importer
+refuses rather than guesses** — an unknown key, a missing attribution, a value outside the enum,
+each with its line number, and nothing is written until every one is fixed.
+
+**3. The founder queue is a command, not a document.** The obvious deliverable was a file called
+`JACK_EVIDENCE_QUEUE.md`. It was rejected for the reason the whole session exists: a written queue
+is correct on the day it is written and quietly wrong afterwards, and the failure mode is that
+somebody reads a stale list and does the wrong errand. `npm run evidence -- --queue` is regenerated
+from the same facts as `npm run plan`, so it cannot disagree with it. Same argument for
+`--snapshot`, which answers "if the pitch were tomorrow, what could we truthfully say" and derives
+its list of prohibited sentences **from what is absent**, each one carrying the fact that would
+retire it. A typed list of prohibitions goes stale in the flattering direction — the sentence stays
+forbidden long after it became true — so people stop reading it.
+
+**What was deliberately not built:** a CRM, a dashboard, a survey app, a second planner, a pricing
+model, or anything that would let a well-received rehearsal look like market evidence.
+`scripts/eval-evidence.mjs` asserts the last one directly: five glowing mock pitches move customer
+discovery, problem evidence and external validation by exactly zero.
+
+**One threshold was raised rather than lowered.** The `plain_language_test` evidence slot used to
+fill on a single successful restatement. It now requires the first sample of five and empties
+entirely on a CONFUSING sample, because a beat that goes green on one friendly result is a beat
+everybody learns to ignore — and because evidence that the explanation does *not* work must never
+look like partial evidence that it does.
+
+## 2026-09-03 (a vendor email draft addressed to nobody)
+
+**A purchase order could be recorded as emailed to a vendor who has no email address.**
+
+`composeDraft()` builds a draft's recipients from the purchase order's primary vendor contact, and
+a vendor is allowed to have none — `administration.ts` says so deliberately: *"a counter account at
+a local supply house may have neither."* When there is none, `fulfilment.ts` passes
+`[undefined].filter(Boolean)`, the draft is stored with `to_addrs = '{}'`, and nothing downstream
+looked. `purchase_email_drafts.to_addrs` is `not null default '{}'` with no cardinality constraint;
+the transition trigger checks the status graph and the freeze, not the recipients.
+
+So the draft walked the whole path. `GENERATED → REVIEWED → APPROVED_TO_SEND`, then the email
+screen offered *"Open in my mail client"* as `mailto:?subject=…` — **an empty To field, with no
+warning** — followed by *"I sent it — mark sent."* The result was a `SENT` draft, a real
+`sent_marked_by`, a request advanced to `ORDERED`, and an audit trail stating a vendor had been
+contacted. No vendor had been. The first symptom would have been materials not arriving on a job,
+and the first conclusion would have been that PCC lies.
+
+**The refusal is on the authorisation, not on the draft — and that was the whole decision.**
+
+Refusing to compose a draft with no recipient was the obvious fix and is wrong. `status.mjs` will
+not let a request reach `ORDERED` without `hasReviewedEmailDraft`, so refusing composition would
+strand every counter-account order at `PO_GENERATED` permanently — trading a false record for a
+dead end, on exactly the vendors the product went out of its way to support. Reviewing the wording
+of a purchase order you are about to hand across a counter is a real act. Claiming you emailed it
+is not. `GENERATED → REVIEWED` therefore stays open and only `approveToSend` refuses.
+
+**Written as a `guard`, not a `requires` entry.** `requires: ['hasRecipient']` would have matched
+`markSent` and cost one line, but the engine renders it as `missing_evidence: approveToSend
+requires hasRecipient`, and `actions.ts` puts `err.message` straight on the screen. A guard returns
+`{reason: 'no_recipient', message: …}` — the same shape as `nothingOutstanding` in
+`purchasing-workflow.mjs` — so the purchaser is told to add a contact email to the vendor and
+generate a new draft. The draft froze at review, so the recipient list cannot be patched in place;
+a corrected draft is a new draft, which is what the terminal-state comment already said.
+
+**The button is hidden as well as the transition refused.** Not defence in depth for its own sake:
+`advanceEmailDraftAction` returns `void` and the email page renders no error, so a refusal alone
+would have been a press that silently does nothing — the same failure class being fixed. The
+workflow is the gate; the hidden button is what makes the gate legible.
+
+**No migration.** A `check (cardinality(to_addrs) > 0)` was considered and rejected. It would ban
+the row rather than the claim, and `0026` already settled this: which transitions a draft may make
+is the application's rule, and a policy that also encodes it is a second copy that will disagree.
+The SQLite provider — the one Lippolis actually runs — would have needed the same rule written a
+second way.
+
+**Evidence.** `eval-workflow-engine` 238/0, `eval-purchasing-domain` 502/0, `eval-purchasing` 550/0,
+`eval-proof` 282/0, `eval-second-customer` 235/0, `eval-purchasing-isolation` 174/0,
+`eval-purchasing-web` 116/0, `eval-purchasing-authorization` 386/0, `tsc --noEmit` clean,
+`npm run rehearse` COMPLETE, `npm run deployment-gate` unchanged at 4 blockers. Non-vacuity by
+perturbation: deleting the guard line fails 2 checks in the workflow suite and 1 in the domain
+suite; restored, both green.
+
+## 2026-09-03 (the release candidate moves to the tip, and the branch documentation stops lying)
+
+**`e69827a` was refreshed to `585b749` rather than signed.** The approval record's own instruction
+is to *"either refresh the commit below to the tip or state deliberately that an older one is being
+installed"*, and this was not a case for the second option: thirty commits separate them, and one
+of them fixes a defect that would have recorded a purchase order as emailed to a vendor with no
+email address. Installing the older candidate would have installed that. The rest of the thirty are
+the Windows deployment line, second-organization provisioning, the evidence and discovery programs
+and per-job-vendor PO numbering; none touches the schema, which stays at `0001`–`0038` with the
+SQLite version unchanged at `0040-audit-interaction-id`.
+
+**The signature block was left blank, and the reference hash was deliberately kept out of it.** The
+gate reads `Approved by` and nothing else grants approval, so filling it in is the one thing this
+session could not do. A build of `585b749` was performed and its sha256 recorded — but in the
+*Before installing* section, labelled as something to compare a second independent build against,
+not in the approval block. Writing it into the block would have let somebody sign without building,
+which is the check the two-party hash exists to provide.
+
+**`pcc-production` was fast-forwarded 56 commits onto the local tip.** It had sat at `58068f3`
+(2026-08-18) while the branch it is cut from moved to 2026-09-01. Nothing was overwritten: the old
+tip is an ancestor of the new one and the push was a fast-forward. `SOURCE_OF_TRUTH.md` was
+corrected in the same pass, because it told operators that
+`claude/purchasing-control-center` was "the earlier codex line, last updated 10 Aug 2026" and
+superseded — while that branch was, in fact, where every commit since was landing. Load-bearing
+documentation that is wrong about which branch is current is worse than none, and
+`eval-source-of-truth.mjs` exists precisely because this document is the only thing between an
+operator and installing the wrong code.
+
+**Two preservation branches were pushed before anything else happened**:
+`backup/purchasing-control-center-2026-09-03` (the 56 PCC commits) and
+`backup/tegg-mock-sprint-2026-09-03` (6 commits whose remote branch had been deleted). Both are
+untouched by the reconciliation above and exist so that no reading of this decision depends on
+`pcc-production` having been moved correctly.
+
+## 2026-09-03 (585b749 is signed, and the tests that watched for a signature are rewritten)
+
+**Jack Daly approved `585b749` at REHEARSAL VERIFIED.** The gate moved from four blockers to three;
+all three are Lippolis IT's — a hostname, a boot-enabled service, and a named backup platform — and
+the planner correctly advanced from gate 1 to gate 2.
+
+**The hash in the approval block was replaced with the truth about hashes.** The record previously
+told two people to build the approved commit and compare. They cannot. Packaging *is* deterministic
+— repackaging the same staged tree twice produced the identical archive — but `stage-standalone.mjs`
+writes `RELEASE` as `<commit> <build time>`, so two builds of `585b749` minutes apart produced
+13,230,298 bytes / `37f0bda3…` and 13,230,294 bytes / `a991aac0…`. A verification instruction that
+does not work is worse than none, because the person following it concludes something is wrong with
+the source rather than with the instruction. The record now describes the control that does work —
+ship one archive, publish its `.sha256`, hash the file on the server before extracting — and states
+plainly what that control does and does not prove. **Making the build reproducible is a code change
+and therefore a new candidate, not a silent amendment to this one.**
+
+**Three suites asserted a world in which nobody had signed, and would have had to be deleted.**
+`eval-deployment-gate` required `BUILD_ONLY` and `signedBy === null`; `eval-deployment-core`
+required `application.version` to be the one remaining deploy blocker; `eval-venture-plan` required
+gate 1. Every one of them was true and none tested anything durable: they described a moment, and
+the moment ended on the day the property they guarded started to matter. Deleting them would have
+left nothing checking that an *unsigned* record still stops an install.
+
+So the property is now tested in both directions, against fixtures. `PCC_APPROVAL_RECORD` relocates
+which file the two readers parse — it cannot invent a signer, because the signature is parsed out of
+whichever file it lands on — and `fixtures/approval/` carries an unsigned record, a record with a
+signature but no candidate, and a path that does not exist. All three must approve nothing. That
+assertion survives every future signature, which the one it replaces did not.
+
+Full sweep after signing: **33 suites pass, 0 fail**, 7 refuse without credentials or a running
+server. Rehearsal COMPLETE.
+
+## 2026-09-03 (first-install hardening: one approval parser, two missing checks, and the recovery nobody had written)
+
+**Two checks Phase 4 asked for were genuinely absent from `pcc-verify-deployment.mjs`.** It reported
+which build was running and warned when nothing was stamped, but it never compared the running build
+to the record a person signed, and it never said whether the installation in front of the operator
+was stamped `production` or was a rehearsal. Both are now checks, both fail loudly, and
+`release.approved` BLOCKS when the running build and the approval record disagree or when the record
+is unsigned — nothing else in the system compares those two, so nothing else would have noticed an
+installation drifting away from its paperwork. `Measurement` is placed second in the report, directly
+after `Application`, because a section at the end of a long report is a section people stop reading,
+and "will anything done here count" is not a question to reach the end still holding.
+
+**A parity test that could not fail was replaced by removing the thing it was testing.** The verifier
+must run on a server holding a deployment package and nothing else, so it could not import
+`programs/iic-2027/derive.mjs`, which reads half the repository. The first attempt at that was a
+second copy of the two regular expressions plus a test asserting the copies matched. **That test
+passed while the copies disagreed** — perturbing the verifier's actual placeholder rule left every
+assertion green, because the test quoted the expressions as text and compared its own
+reimplementation. Quoting an implementation is not exercising it.
+
+So there is now one parser, `deployment/approval-record.mjs`, imported by the gate, the manifest and
+the verifier alike and shipped in the packager's `RUNTIME_PATHS` so it travels to the server. The
+tests exercise *that function* over every shape a blank signature arrives in — the template's
+underscore rule, a space, a dash, a dot, a tab — and over a branch name where a sha belongs.
+Perturbing the parser now fails five checks.
+
+**`docs/deployment/PCC_TOTAL_LOSS_RECOVERY.md` answers a question nothing answered.** Rollback is
+covered thoroughly for a machine you still have; a first install is covered for a machine that never
+held data. Nothing covered the server being gone. Two facts in it are the reason it exists:
+attachments and receipt images are rows **inside** `pcc.sqlite` rather than files beside it, so
+anyone who backs up everything except the database has backed up nothing that matters; and
+`PCC_ENVIRONMENT` / `PCC_ORG_ID` are fixed when the database is created and cannot be re-stamped, so
+a rebuilt database is permanently unmeasurable in a way a restored one is not. The order is
+verifiable at each step, and step 2 — check the backup opens before installing it — exists because
+the failure that destroys a server is the kind that corrupts the newest backup.
+
+**Nothing in `apps/` changed.** `git diff 585b749 HEAD -- apps/` is empty; the approved application
+is what runs. The tooling around it moved, which means the package built from HEAD carries two
+server-side checks that a package built from `585b749` does not — recorded as a stated choice in
+the approval record rather than resolved by quietly moving the signature.
+
+## 2026-10-11 (verification becomes a file, not a claim — autonomy Milestone 2A)
+
+**Until today nothing in CI ran a single test on `pcc-production`.** The only workflow the
+repository had ever run validated a markdown file, and it had been deleted from this line on
+2026-09-01. Every "tests pass" in a commit message was the author's own report. Jack approved the
+autonomous-development architecture (`docs/autonomy/ARCHITECTURE.md`) on 2026-10-11, with
+`pcc-production` as its source of truth and the verification foundation built first.
+
+**What was built:** a registry of every verification entrypoint (`autonomy/suites.json`, 52 suites,
+each classified by *running* it, unbuilt and built, as root and as a normal user), one runner
+(`scripts/awe-verify.mjs` → `.awe/verify.json`), a derived engineering state
+(`scripts/awe-state.mjs`), a blocker registry with a path guard (`autonomy/blockers.json`,
+`scripts/awe-guard.mjs`), and a verification-only workflow (`.github/workflows/awe-verify.yml`).
+
+**Decisions made against an obvious alternative:**
+
+- **BLOCKED is decided before a suite runs, never by reading its log.** The tempting version maps
+  "Cannot find module" or "ECONNREFUSED" to BLOCKED. That same rule would turn a genuinely broken
+  import into BLOCKED, softening a real failure. So BLOCKED comes only from a *declared*
+  requirement (`deps`, `nonroot`, `env:X`, `tool:x`, `docker-daemon`, Node version), a
+  prerequisite that did not pass, or an exit code the suite itself documents (this repo's
+  convention is 2). A crash after every requirement checked out is a FAIL.
+- **Purchasing lint is registered as FAIL and non-blocking, not fixed and not hidden.** It reports
+  10 errors that predate this work. Blocking on it would make CI red for debt nobody introduced;
+  loosening the lint config would weaken the check. It shows as `known_debt` until fixed.
+- **The registry, blockers and policy are L3.** Whoever can edit `suites.json` can make any failure
+  non-blocking, so no autonomous change may touch it (`autonomy/policy.json`).
+- **Blockers are lifted only by a human edit.** Detectors may report that S1 or the 0016 collision
+  *looks* resolved; that changes neither the blocker nor the guard. Discovering a problem is not
+  permission to repair it.
+- **Results are not committed.** `.awe/` is gitignored and uploaded as a CI artifact. A committed
+  verify.json is a claim about a tree that has since moved on, the same failure as the retired
+  handoff file.
+- **Docker-based suites are registered but not in the minimal CI job.** They are runnable on a
+  GitHub runner but take minutes and pull images. Each records why it is excluded, and they are the
+  obvious second, non-blocking job.
+
+**Found while building it (recorded, not acted on):**
+
+- `eval-auth-recovery` fails only as root: one check relies on `chmod 0500`, which root ignores.
+  Registered as `requires: nonroot`.
+- `eval-venture-plan` and `eval-deployment-gate` are not hermetic. They pass only when a production
+  build exists on disk. Registered as `requires_build`.
+- Disabling the tenant refusal in `proof/ledger.mjs` alone leaves `eval-proof` green, because
+  `proof/value.mjs` refuses the same record first. Isolation holds; the ledger's own guard has no
+  test that isolates it. Disabling `value.mjs`'s guard does fail the suite (281/1).
+- The 0016 collision is wider than the audit said: four variants (purchasing_control,
+  drop_undeclared_client_policies, manual_intake_bridge, m365_integration_plane), and 0017–0020
+  collide too.
+- **The first CI run caught a real defect that root had been hiding.** `scripts/rehearse-locally.sh`
+  called `mktemp -d -t pcc-rehearsal`, which works on macOS but fails on GNU. `DATA` came back
+  empty, so the rehearsal database went to `/pcc.sqlite`. As root that write succeeds and the
+  rehearsal "passed"; on the non-root runner the server never started. Fixed with a portable
+  template and a refusal on an empty directory. Reproduced (old script, non-root: FAIL) and
+  verified (fixed, non-root: PASS) before pushing. It is a harness fix, not a product change.
+
+## 2026-10-11 (deployment confidence — autonomy Milestone 2B)
+
+**The question: if PCC is installed at Lippolis, how confident should anyone be that installation,
+startup, persistence, backup and recovery will work? At the start of the day the honest answer was
+"we cannot say".** The three container suites that exercise those paths had not run in weeks, and
+when run, all three failed before testing anything.
+
+**They had rotted, not broken.** Since `e69827a` (2026-09-03) a first production start refuses
+without `PCC_ENVIRONMENT` and `PCC_ORG_ID`, and the container suites set neither. Since `5003684`
+(2026-08-18) every bootstrap or invited password must be replaced at first sign-in, and
+`eval-restore-rehearsal.mjs`, which both container suites drive, still signed in and carried on.
+Each product change was right. The harness simply was not run afterwards. Fixed in the harness only:
+the containers declare `rehearsal` and a fixed org id, and the harness replaces each temporary
+password the way a person must. No assertion was removed. This is the strongest argument yet for
+the CI job: a suite nobody runs is a suite that silently stops meaning anything.
+
+**Decisions made against an obvious alternative:**
+
+- **The Lippolis target is Windows Server, and the readiness model says so on every answer.**
+  The container suites prove the platform-neutral half: the packaged application, the shared Node
+  tools (pcc-backup, pcc-restore, pcc-verify-*) and the data paths. Each question in
+  `autonomy/deployment-readiness.json` states what it does not prove and which human fact closes
+  that gap on LIPELE-RDS02. The alternative, reporting green containers as "deployable", would have
+  been true on Linux and misleading for the one machine that matters.
+- **Two verdicts, never "production ready".** Install is at best
+  `READY_FOR_SUPERVISED_FIRST_INSTALL`, and only when the application verified is identical to the
+  signed release. First transaction stays `NOT_CLEARED` until people attest. A single verdict would
+  have let green machines imply a measured, safe first purchase.
+- **Human facts are a JSONL ledger written by one interactive command, not a field anyone can
+  edit.** `npm run attest` refuses CI, agent sessions and non-terminals. `HUMAN_REFUTED` exists
+  because "checked, and not true" (for example S1 still live) must not collapse into UNKNOWN. A
+  machine check can make a fact MACHINE_VERIFIED only where the catalog names one. The baseline has
+  none, deliberately.
+- **Frozen baseline files do not clear the baseline gate.** A frozen file says a baseline exists,
+  not that it predates the first real purchase; only someone at Lippolis knows that.
+- **`backup-timer` and `supabase-local-rls` stay out of the deploy profile.** One proves a Linux
+  systemd timer; the other a store the pilot does not use. Neither bears on RDS02.
+- **The deploy job is non-blocking (`continue-on-error`)** until it has a record here. Its first CI
+  run: 10/10 PASS in about 4 minutes, install `READY_FOR_SUPERVISED_FIRST_INSTALL`.
+
+**Failure injection (reverted, never committed), each detected:** base image absent → BLOCKED
+before running, readiness INCOMPLETE. Built server truncated → FAIL (SyntaxError, server never up).
+Application does not compile → FAIL (image did not build). Backup skips its write → FAIL in both
+`backup-operations` and the restore rehearsal. Restore silently rewrites attachment bytes with every
+row intact → FAIL on the byte-for-byte check (sha c7791e… vs 41d84e…). A count-based check would
+have passed that last one.
+
+**Risks found and recorded:** each container suite builds the image and leaves its build cache. A
+local sandbox reached ENOSPC with 28 GB of cache, and the same pattern could exhaust a CI runner's
+disk. The production build fetches Google Fonts at build time, so the build machine needs internet
+access (the server does not). Docker Hub rate limits are real; the CI job retries once, then uses
+Google's Docker Hub mirror, and an absent image is BLOCKED, never a mid-build crash.
+
+## 2026-10-11 (the improvement engine thinks before it acts — autonomy Milestone 3, step 1)
+
+**Inspector, prioritizer, authority classifier and work-package generator, with no Builder.** Jack's
+instruction: first prove the system can think about what matters, before it is given permission to
+act.
+
+**It composes; it does not replace.** North-Star alignment is the venture plan's gate order
+(`npm run plan --json`); deployment facts come from the deployment gate; readiness, engineering
+state, blockers and attestations come from their own derivations. The engine adds only what nothing
+else observed: a few git facts (product-line idleness, unmerged autonomy branches) and three
+deterministic capability probes (`autonomy/capabilities.json`).
+
+**The first ranking was wrong, and was fixed rather than trusted.** Weighted 3·NS with effort up to
+÷2, it put "one discovery interview" above "install PCC", because installing is hard. It also put
+"merge the CI PRs" second overall, through a borrowed link to `repeatable_deployment`: that claim is
+unproven because of Lippolis IT facts, not CI. Fixed: North Star weight 5, effort a milder divisor
+(at most 1.5), no borrowed claim, and dependencies inherit the score of what they block. The
+corrected order (baseline, install, the IT prerequisites it depends on, production evidence return,
+external interview) is pinned by tests, and each weight change is proven to fail them.
+
+**The engine's answer on 2026-10-11 is DO NOT BUILD ANYTHING. JACK IS THE BOTTLENECK.** The review
+queue is at its limit (2 autonomy PRs), and the top five findings belong to Jack or Lippolis IT. Its
+best machine action, a read-only intake for production records copied off RDS02, is prepared as a
+work package and not dispatched.
+
+**Dogfooding: what may become general AWE capability (not generalized yet).** An evidence-only
+finding schema (observed vs hypothesized); a transparent, composable priority formula that accepts
+an organization's own goal ordering; authority classification by the same guard that enforces it;
+"no" as a first-class decision when a person is the bottleneck; and the cost of the machine's own
+output to the human reviewing it, counted explicitly. For a customer, "the review queue" would be
+"the approver's inbox".

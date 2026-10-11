@@ -6,3 +6,13 @@ node_modules/
 dist/
 .DS_Store
 !.env.example
+
+# Deployment packages. Built by scripts/package-release.mjs from a specific
+# commit; deterministic, so anybody can rebuild the exact bytes rather than
+# fetch a 13 MB binary out of git history.
+/dist/
+
+# Verification output (scripts/awe-verify.mjs, awe-state.mjs). Derived per run,
+# never committed: a committed result would be a stale claim about a later tree.
+/.awe/
+/.awe-deploy/

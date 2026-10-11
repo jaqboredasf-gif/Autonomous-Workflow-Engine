@@ -1,0 +1,41 @@
+{
+  "$comment": "Standing authority boundaries for autonomous changes (docs/autonomy/ARCHITECTURE.md section 3, approved by Jack 2026-10-11). These are L3 and change only with Jack's approval. Paths here are closed to autonomous edits whether or not any blocker is open. Blockers (autonomy/blockers.json) add to this list; they never subtract from it.",
+  "version": 1,
+  "limits": {
+    "work_packages_per_cycle": 1,
+    "builder_attempts": 2,
+    "autonomous_minutes": 45,
+    "open_autonomy_prs": 2,
+    "recursive_cycles": false
+  },
+  "autonomy_branch_prefix": "autonomy/",
+  "l3_paths": [
+    ".github/**",
+    "supabase/**",
+    "deploy/**",
+    "deployment/APPROVED_RELEASE.md",
+    "deployment/approval-record.mjs",
+    "Dockerfile",
+    "docker-compose.yml",
+    "scripts/install-production.*",
+    "scripts/*.ps1",
+    "**/.env*",
+    "organizations/**",
+    "programs/iic-2027/facts.mjs",
+    "programs/iic-2027/derive.mjs",
+    "programs/venture/claims.mjs",
+    "programs/venture/gates.mjs",
+    "apps/purchasing/src/**/auth*",
+    "apps/purchasing/src/**/authorization*",
+    "apps/purchasing/src/**/session*",
+    "capability/purchasing/authorization.mjs",
+    "autonomy/policy.json",
+    "autonomy/blockers.json",
+    "autonomy/suites.json",
+    "autonomy/human-facts.json",
+    "autonomy/attestations.jsonl",
+    "autonomy/deployment-readiness.json",
+    "autonomy/capabilities.json"
+  ],
+  "l3_note": "autonomy/attestations.jsonl is L3 because only a person may attest; human-facts.json and deployment-readiness.json because editing them redefines what verified and ready mean. autonomy/suites.json is L3 because changing what is registered, or whether it blocks, changes what 'green' means. An agent that could edit it could make any failure non-blocking."
+}

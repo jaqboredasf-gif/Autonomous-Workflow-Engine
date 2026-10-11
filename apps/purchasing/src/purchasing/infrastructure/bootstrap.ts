@@ -1,0 +1,602 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// ---------------------------------------------------------------------------
+// bootstrap.ts — what a database contains on a PRODUCTION first start.
+//
+// THE DEFECT THIS EXISTS TO CLOSE, stated plainly because it is the worst one
+// this application has had:
+//
+// `seed()` runs on any empty database, and it creates the pilot cast — ten
+// accounts including `admin@example.invalid` with the ADMIN role — each with
+// the password `Purchasing!2026`, which is written in seed.ts, in the README,
+// and in this repository. Nothing about it is conditional on the environment.
+//
+// So the first production container to start against an empty volume came up
+// with a published administrator password. Anybody who could reach the URL
+// could sign in as an administrator, read every purchase order, invite
+// themselves a user and change the PO sequence. Verified by doing it against
+// the built image before this file existed.
+//
+// The demo cast is not wrong — it is what makes the pilot demonstrable, and
+// the eval suites sign in as those people. It is wrong IN PRODUCTION, so that
+// is where it is refused.
+//
+// WHAT A PRODUCTION DATABASE GETS INSTEAD
+//
+//   the organization           named by PCC_ORG_NAME
+//   the roles                  the same six; they are structure, not data
+//   the email templates        editable copies of the built-in wording
+//   the workshop + office      the two destinations that are not job sites
+//   the request sequence  (purchase order numbers need no counter to seed —
+//                          each job-and-vendor pair counts from 1 on its own)
+//   ONE administrator          from PCC_BOOTSTRAP_ADMIN_EMAIL/_PASSWORD
+//
+// No vendors, no jobs, no people. Those are the company's, they are entered
+// through Admin, and inventing them would mean Mike deleting somebody's
+// imaginary suppliers before he could enter his own.
+//
+// If no bootstrap administrator is configured, the database is still created
+// correctly and NOBODY CAN SIGN IN. That is deliberate and it is loud: the
+// preflight says so at startup. An installation that cannot be signed into is
+// a phone call; an installation anybody can sign into is a breach.
+// ---------------------------------------------------------------------------
+
+import { randomUUID } from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
+
+import { TEMPLATES, EMAIL_TEMPLATE_TYPES } from '../domain/email.mjs';
+import { hashPassword } from './auth/local-auth.ts';
+import { ROLE_ROWS, SAMPLE_CONTEXT, toPlaceholders, seed } from './seed.ts';
+
+export type BootstrapResult = {
+  created: boolean;
+  orgId: string | null;
+  /** True when the database has no way for anybody to sign in. */
+  noCredentials: boolean;
+  notes: string[];
+};
+
+/**
+ * The one entry point the server calls. Development keeps the pilot cast;
+ * production gets the company's own empty system and at most one administrator.
+ */
+export function bootstrapDatabase(
+  db: DatabaseSync,
+  env: NodeJS.ProcessEnv = process.env,
+  now = new Date().toISOString(),
+): BootstrapResult {
+  // BEFORE ANYTHING WRITES. Both branches below write to the database, and one
+  // of them writes a published demo password, so the question "is this file
+  // allowed to be opened by this process at all?" is answered first.
+  assertDatabaseIdentity(db, env, now);
+
+  if (env.NODE_ENV !== 'production') {
+    const result = seed(db, now);
+    return { created: result.seeded, orgId: result.orgId, noCredentials: false, notes: [] };
+  }
+  return bootstrapProduction(db, env, now);
+}
+
+export const ENVIRONMENTS = ['production', 'rehearsal', 'development', 'unstamped'] as const;
+
+/** What the database says it is. `unstamped` when it was created before the stamp existed. */
+export function stampedEnvironment(db: DatabaseSync): string {
+  try {
+    const row = db.prepare(`select value from schema_meta where key = 'environment'`).get() as any;
+    return (row?.value as string | undefined) ?? 'unstamped';
+  } catch {
+    return 'unstamped';
+  }
+}
+
+/** What the process says this start is. `null` when it declines to say. */
+export function declaredEnvironment(env: NodeJS.ProcessEnv): string | null {
+  const declared = (env.PCC_ENVIRONMENT ?? '').trim().toLowerCase();
+  if (!declared) return null;
+  if (!ENVIRONMENTS.includes(declared as any)) {
+    throw Object.assign(new Error(
+      `PCC_ENVIRONMENT must be one of ${ENVIRONMENTS.join(', ')}. Got ${JSON.stringify(declared)}.`,
+    ), { pccReason: 'configuration' as const });
+  }
+  return declared;
+}
+
+/**
+ * MAY THIS PROCESS OPEN THIS DATABASE?
+ *
+ * The stamp written at creation made a rehearsal distinguishable from
+ * production for a READER. It did nothing for a WRITER, and the writer is where
+ * the damage is:
+ *
+ *   · A production backup restored onto a laptop and started with the ordinary
+ *     development command runs `seed()`, which inserts the demo cast — ten
+ *     accounts, one of them ADMIN, all on a password printed in the README —
+ *     into a database that still stamps itself `production`. Every row written
+ *     afterwards is production evidence by provenance and fiction by fact.
+ *
+ *   · A rehearsal database started with PCC_ENVIRONMENT=production keeps its
+ *     `rehearsal` stamp, because the stamp is written once. That is the right
+ *     answer and a silent one: the operator believes they are in production and
+ *     none of their records will ever be admissible. They find out at the end
+ *     of the first month.
+ *
+ *   · An installation whose database was created before PCC_ORG_ID could be
+ *     declared has a UUID org id. Declaring `PCC_ORG_ID=lippolis` afterwards
+ *     changes nothing, and every baseline keyed on `lippolis` quietly matches
+ *     no execution at all — the exact failure the declared id was added to
+ *     prevent, still reachable on the one database that already exists.
+ *
+ * So identity is checked on EVERY start, in both environments, and a
+ * disagreement refuses to start. FAILS CLOSED: refusing to boot is a phone
+ * call, and it is recoverable. Writing test data into production evidence is
+ * not, because nothing afterwards can tell which rows were which.
+ *
+ * The one permitted transition is `unstamped` → a declaration: nobody ever said
+ * what that database was, so the first process to say is believed, and the
+ * moment it said so is recorded beside the stamp. A database that has already
+ * declared itself never changes its mind.
+ */
+export function assertDatabaseIdentity(
+  db: DatabaseSync,
+  env: NodeJS.ProcessEnv = process.env,
+  now = new Date().toISOString(),
+): { environment: string; orgId: string | null } {
+  const stamped = stampedEnvironment(db);
+  const declared = declaredEnvironment(env);
+
+  if (stamped !== 'unstamped' && declared !== null && declared !== stamped) {
+    throw Object.assign(new Error(
+      `This database was created as "${stamped}" and this process declares PCC_ENVIRONMENT=${declared}. ` +
+      'The stamp is written once, at creation, and is never changed — so continuing would run a ' +
+      `${declared} workload against a ${stamped} database. ` +
+      (stamped === 'production'
+        ? 'If this is a copy of production taken for testing, it is still stamped production and its ' +
+          'records are still evidence: work on a database created by a rehearsal install instead.'
+        : `If you meant to run production, install onto a NEW database — a ${stamped} database cannot ` +
+          'be promoted, because nothing could later tell its rehearsal rows from real ones.'),
+    ), { pccReason: 'configuration' as const });
+  }
+
+  if (stamped === 'production' && declared === null) {
+    throw Object.assign(new Error(
+      'This database is stamped "production" and this process did not declare PCC_ENVIRONMENT. ' +
+      'A production database is only opened by something that says out loud that it is production, ' +
+      'because the alternative is a development start seeding the published demo accounts into it. ' +
+      'Set PCC_ENVIRONMENT=production to work on it, or use a copy created by a rehearsal install.',
+    ), { pccReason: 'configuration' as const });
+  }
+
+  // Nobody had said what this database was. The first declaration is believed,
+  // and the fact that it arrived after creation is recorded, so a reader can
+  // tell a stamp set at creation from one adopted later.
+  const existingOrg = orgIdOf(db);
+
+  if (stamped === 'unstamped' && declared !== null && declared !== 'unstamped') {
+    try {
+      db.prepare(`insert into schema_meta (key, value) values ('environment', ?)
+                    on conflict(key) do update set value = excluded.value`).run(declared);
+      // Only when the installation already existed. A brand-new database is
+      // being stamped AT creation, which is the strong case, and marking it as
+      // a late declaration would understate its own provenance.
+      if (existingOrg) {
+        db.prepare(`insert into schema_meta (key, value) values ('environment_declared_at', ?)
+                      on conflict(key) do nothing`).run(now);
+      }
+    } catch {
+      // schema_meta does not exist yet: this is a database being created, and
+      // bootstrapProduction stamps it a few lines further on.
+    }
+  }
+
+  const declaredOrgId = (env.PCC_ORG_ID ?? '').trim();
+  if (existingOrg && declaredOrgId && existingOrg !== declaredOrgId) {
+    throw Object.assign(new Error(
+      `This database's organization id is "${existingOrg}" and this process declares ` +
+      `PCC_ORG_ID=${declaredOrgId}. The id is permanent — it is what baselines, frozen case ` +
+      'studies and backups are keyed on — and it cannot be changed by starting with a different ' +
+      'value. Either the environment file names the wrong organization, or this is the wrong ' +
+      `database. Nothing has been written. (To measure this installation, its baselines must be ` +
+      `keyed on "${existingOrg}".)`,
+    ), { pccReason: 'configuration' as const });
+  }
+
+  return { environment: declared ?? stamped, orgId: existingOrg };
+}
+
+function orgIdOf(db: DatabaseSync): string | null {
+  try {
+    const row = db.prepare('select id from orgs limit 1').get() as any;
+    return (row?.id as string | undefined) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function bootstrapProduction(db: DatabaseSync, env: NodeJS.ProcessEnv, now: string): BootstrapResult {
+  const notes: string[] = [];
+
+  // Roles are structure — every user_roles row has a foreign key to them — so
+  // they are reconciled on every start rather than only on creation. Adding a
+  // role to the product must not require a fresh database.
+  for (const [key, label, description] of ROLE_ROWS) {
+    db.prepare('insert or ignore into roles (key, label, description) values (?,?,?)').run(key, label, description);
+  }
+
+  // THE ORGANIZATION'S OWN ROLE VOCABULARY, and its absence was the largest
+  // remaining blocker on a second customer.
+  //
+  // ROLE_ROWS above is six names, and they are Lippolis's: REQUESTOR, FOREMAN,
+  // ACCOUNTING, OFFICE, WORKSHOP_APPROVER, ADMIN. `user_roles.role_key` has a
+  // foreign key to this table, so those six were the only role names any
+  // installation could STORE — and a business with an OPERATIONS_MANAGER and a
+  // YARD_HAND could not be provisioned without editing seed.ts. The
+  // role-to-capability MAP was extracted to the organization's authorization
+  // profile some time ago; the vocabulary in the database was not, and nobody
+  // noticed because Lippolis is the only organization that had ever been created.
+  //
+  // Reconciled here, on every start, for exactly the reason the built-in six
+  // are: a foreign key is structure, and structure that only arrives on a fresh
+  // database is structure an established installation can never gain.
+  //
+  // AUTHORITY IS NOT DECIDED HERE and must never be. This table holds a key and
+  // a label; what a role may DO comes from the organization's authorization
+  // profile, which is org-scoped and validated against the domain's capability
+  // vocabulary at construction. Registering a name grants nothing.
+  const vocabulary = (env.PCC_ROLE_VOCABULARY ?? '').split(',').map((r) => r.trim()).filter(Boolean);
+  for (const key of vocabulary) {
+    if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(key)) {
+      throw Object.assign(new Error(
+        `PCC_ROLE_VOCABULARY contains ${JSON.stringify(key)}, which is not a role key. ` +
+          'Role keys are upper snake case, 2-64 characters, e.g. OPERATIONS_MANAGER. ' +
+          'It is derived from the organization\'s authorization profile — see scripts/provision-organization.mjs.',
+      ), { pccReason: 'configuration' as const });
+    }
+    // A readable label from the key. An organization that wants a different one
+    // edits it in Administration; inventing prose here would be worse.
+    const label = key.split('_').map((w) => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+    db.prepare('insert or ignore into roles (key, label, description) values (?,?,?)')
+      .run(key, label, `Declared by this organization's authorization profile.`);
+  }
+  if (vocabulary.length) notes.push(`role vocabulary reconciled: ${vocabulary.join(', ')}`);
+
+  const existing = db.prepare('select id from orgs limit 1').get() as any;
+  if (existing) {
+    // An established installation. Nothing here may touch its data: no
+    // credential backfill (that is what hands out the demo password), no
+    // reference rows, no settings. The only question left is whether anybody
+    // can sign in, and that is worth answering out loud on every start.
+    const credentials = db.prepare('select count(*) as n from auth_identities where disabled = 0').get() as any;
+    return {
+      created: false,
+      orgId: existing.id,
+      noCredentials: Number(credentials?.n ?? 0) === 0,
+      notes,
+    };
+  }
+
+  // THE ORGANIZATION'S IDENTITY, AND WHY IT MAY BE DECLARED.
+  //
+  // This was `randomUUID()` and nothing else, which was correct for a tenant
+  // key and wrong for everything that has to refer to this organization from
+  // OUTSIDE the database. Two consequences, neither visible until the day they
+  // cost something:
+  //
+  //   * Measurement cannot be prepared in advance. A baseline records what a
+  //     named organization's work cost before AWE (proof/baselines/), and it is
+  //     bound to an org id. If that id is not knowable until after first start,
+  //     no baseline can exist on the day the first real purchase happens — and
+  //     that purchase is then unmeasurable for ever, because a baseline written
+  //     afterwards cannot govern work that predates it.
+  //
+  //   * Continuity does not survive a reinstall. Restore into a fresh database,
+  //     or rebuild the VM, and a new UUID is minted. Every baseline, every
+  //     frozen case study and every historical claim silently stops matching
+  //     the organization they were about.
+  //
+  // So the id may be DECLARED, and generated only when it is not. A declared id
+  // is a deliberate, stable, human-readable name for the tenant — `lippolis` —
+  // that the environment file carries beside the letterhead, and that a restore
+  // reproduces exactly.
+  //
+  // Constrained to the shape an identifier can safely have in a path, a URL and
+  // a filename, because it appears in all three. A generated UUID remains the
+  // default, so an installation that says nothing behaves exactly as before.
+  // WHAT KIND OF INSTALLATION IS THIS?
+  //
+  // Stamped into the database at creation, once, because the alternative is
+  // that nothing can tell a rehearsal from the real thing. This is not
+  // hypothetical: the deployment rehearsal for this application builds the
+  // production artifact, starts it with the real company name and the real
+  // organization id, and drives real purchases through it. The resulting file
+  // is byte-for-byte the shape of production and contains no production
+  // evidence whatsoever. Point the case-study reader at it and it will report
+  // Lippolis executions that never happened.
+  //
+  // FAILS CLOSED. Only an explicit PCC_ENVIRONMENT=production counts as
+  // production. A rehearsal that forgets to declare itself is treated as a
+  // rehearsal, which is the harmless mistake; a production install that forgets
+  // is refused as evidence until somebody says so out loud, which is the
+  // recoverable one. There is deliberately no inference from NODE_ENV — the
+  // rehearsal sets NODE_ENV=production too, because it must.
+  const environment = declaredEnvironment(env) ?? 'unstamped';
+  db.prepare(
+    `insert into schema_meta (key, value) values ('environment', ?)
+       on conflict(key) do nothing`,
+  ).run(environment);
+  if (environment !== 'production') {
+    notes.push(`environment "${environment}" — this database is NOT production and its records are not evidence`);
+  }
+
+  const declaredOrgId = (env.PCC_ORG_ID ?? '').trim();
+  if (declaredOrgId && !/^[a-z][a-z0-9_-]{1,62}$/.test(declaredOrgId)) {
+    throw new Error(
+      `PCC_ORG_ID must be lowercase letters, digits, hyphen or underscore, starting with a letter ` +
+      `(2-63 characters). Got: ${JSON.stringify(declaredOrgId)}. It is the tenant's permanent ` +
+      `identity — it appears in evidence, baselines and backups — so it is validated rather than ` +
+      `accepted and regretted.`);
+  }
+  const orgId = declaredOrgId || randomUUID();
+  if (declaredOrgId) {
+    notes.push(`organization id declared as "${declaredOrgId}" — measurement and baselines can be prepared against it, and a restore reproduces it`);
+  }
+  // NO DEFAULT. This used to fall back to 'Lippolis Electric, Inc.', which
+  // means a second organization that forgot the variable would have created
+  // itself under the FIRST customer's legal name — and then printed it on every
+  // purchase order sent to its own suppliers, permanently, because no screen
+  // edits this row afterwards. The address and telephone number below have been
+  // refused rather than defaulted since the day that failure was found; the name
+  // is the most identifying field of the three and was the one still guessing.
+  const orgName = (env.PCC_ORG_NAME ?? '').trim();
+
+  // THE LETTERHEAD IS NOT OPTIONAL, AND THIS IS THE ONLY MOMENT IT CAN BE SET.
+  //
+  // The address and the telephone number print on every purchase order that
+  // reaches a supplier. They are read HERE and nowhere else — once this row
+  // exists no screen edits it — so a first start without them produces a
+  // company whose paperwork carries no address and no telephone number for as
+  // long as the installation lives, fixable only by editing the row on the
+  // server. Verified by starting production without them: PCC came up, logged
+  // ready, reported healthy, and wrote nulls.
+  //
+  // Refused BEFORE the transaction that creates the organization, so nothing
+  // supplier-facing can be generated from a half-identified company. The
+  // database file already exists at this point — it is schema, and only schema.
+  // Setting the two variables and starting again creates the organization
+  // correctly, so the state this leaves behind is a database waiting for its
+  // first start, not a broken one.
+  const orgAddress = (env.PCC_ORG_ADDRESS ?? '').trim();
+  const orgPhone = (env.PCC_ORG_PHONE ?? '').trim();
+
+  // ORGANIZATION POLICY, set once with the organization for the same reason the
+  // letterhead is: `system_settings` is created here and these are the values a
+  // second organization is most likely to differ on. Each has a defensible
+  // default, so none of them is refused — unlike the letterhead, a wrong guess
+  // here is visible on a screen and fixable, not printed and posted.
+  const poTemplateKey = (env.PCC_PO_TEMPLATE ?? '').trim() || 'awe_default';
+  // NULL, not 0. Unstated means the request form offers no default need-by
+  // date, which is what it has always done; zero would mean "same day", which
+  // is a policy somebody would have had to choose.
+  const declaredDays = (env.PCC_DEFAULT_FULFILMENT_DAYS ?? '').trim();
+  const fulfilmentDays = declaredDays === '' ? null : Number(declaredDays);
+  if (fulfilmentDays !== null && (!Number.isSafeInteger(fulfilmentDays) || fulfilmentDays < 0)) {
+    throw Object.assign(new Error(
+      `PCC_DEFAULT_FULFILMENT_DAYS must be a whole number of days or unset (got ${JSON.stringify(declaredDays)}). ` +
+        'Unset means the request form offers no default need-by date. Lippolis: 1.',
+    ), { pccReason: 'configuration' as const });
+  }
+  const needByTime = (env.PCC_DEFAULT_NEED_BY_TIME ?? '').trim() || '07:00';
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(needByTime)) {
+    throw Object.assign(new Error(
+      `PCC_DEFAULT_NEED_BY_TIME must be a 24-hour HH:MM time (got ${JSON.stringify(needByTime)}). Lippolis: 07:00.`,
+    ), { pccReason: 'configuration' as const });
+  }
+
+  // THE TWO THAT DECIDE WHETHER ANY OF THIS IS EVIDENCE, refused on the same
+  // terms as the letterhead and for the same reason: both are written into the
+  // database when it is created and no screen edits them afterwards.
+  //
+  // Without this, an install that simply forgot PCC_ENVIRONMENT succeeded. It
+  // came up, logged ready, reported healthy, and stamped itself `unstamped` —
+  // and every purchase order the company raised from that day was refused as
+  // evidence for the life of the installation, with nothing at any point
+  // saying so. The failure is silent, permanent, and only discovered when
+  // somebody asks for the first month's figures.
+  //
+  // The same applies to PCC_ORG_ID: undeclared, the organization id is a random
+  // UUID, and a baseline — which is what makes a saving measurable rather than
+  // asserted — cannot be written against an id nobody can predict. So the first
+  // real purchases would be permanently unmeasurable.
+  //
+  // ONLY AT CREATION. An established installation is not asked again; it
+  // already answered, and assertDatabaseIdentity() checks that every later
+  // start agrees with what it said.
+  const permanent = [
+    declaredEnvironment(env) ? null : 'PCC_ENVIRONMENT',
+    (env.PCC_ORG_ID ?? '').trim() ? null : 'PCC_ORG_ID',
+  ].filter(Boolean);
+  if (permanent.length) {
+    throw Object.assign(new Error(
+      `${permanent.join(' and ')} must be set before the first start — ` +
+        'both are written into the database when it is created and never again, and no screen ' +
+        'edits them afterwards. Nothing has been created: set them and start again.\n' +
+        '  PCC_ENVIRONMENT=production makes these records admissible as evidence of what PCC did. ' +
+        'Unset, the database stamps itself "unstamped" and every figure ever produced from it ' +
+        'reads NOT EVIDENCE. It is unrelated to NODE_ENV, which a rehearsal also sets to production.\n' +
+        '  PCC_ORG_ID is the tenant\'s permanent name — Lippolis: lippolis. Unset, the id is a ' +
+        'random UUID no baseline can be written against, so the first real purchases would be ' +
+        'permanently unmeasurable.',
+    ), { pccReason: 'configuration' as const });
+  }
+
+  const missing = [
+    orgName ? null : 'PCC_ORG_NAME',
+    orgAddress ? null : 'PCC_ORG_ADDRESS',
+    orgPhone ? null : 'PCC_ORG_PHONE',
+  ].filter(Boolean);
+  if (missing.length) {
+    // Tagged so the startup summary can say CONFIGURATION rather than send an
+    // operator to check filesystem permissions and the schema, which are fine.
+    throw Object.assign(new Error(
+      `${missing.join(' and ')} must be set before the first start — ` +
+        'the company name, address and telephone number print on every purchase order sent to a supplier, ' +
+        'they can only be set when the organization is created, and no screen edits them afterwards. ' +
+        'Nothing has been created: set them and start again. ' +
+        'Lippolis: PCC_ORG_NAME="Lippolis Electric, Inc.", ' +
+        'PCC_ORG_ADDRESS="Licensed Electrical Contractor · 25 Seventh Street, Pelham, NY 10803", ' +
+        'PCC_ORG_PHONE="(914) 738-3550".',
+    ), { pccReason: 'configuration' as const });
+  }
+
+  db.exec('begin immediate');
+  try {
+    db.prepare('insert into orgs (id, name, phone, address, created_at, updated_at) values (?,?,?,?,?,?)').run(
+      orgId,
+      orgName,
+      orgPhone,
+      orgAddress,
+      now,
+      now,
+    );
+
+    // The two destinations that are not job sites. WORKSHOP especially: it is
+    // a first-class delivery destination and receiving authority is granted by
+    // assignment to it, so a database without one cannot express "it came to
+    // the shop" at all. Job sites are the company's and are entered in Admin.
+    //
+    // THE KIND IS THE CONCEPT; THE NAME IS THE ORGANIZATION'S WORD. `WORKSHOP`
+    // is a schema value and stays — receiving authority is granted by
+    // assignment to that kind, and renaming it would change behaviour. The
+    // NAME was the literal "Workshop", which is Lippolis's word, so a second
+    // organization was given a delivery destination called something its staff
+    // do not say. Northgate calls it the yard.
+    const stockLocationName = (env.PCC_STOCK_LOCATION_LABEL ?? '').trim() || 'Workshop';
+    for (const location of [
+      { name: stockLocationName.charAt(0).toUpperCase() + stockLocationName.slice(1), kind: 'WORKSHOP' },
+      { name: 'Office', kind: 'OFFICE' },
+      { name: 'Vendor counter pickup', kind: 'VENDOR_PICKUP' },
+    ]) {
+      db.prepare(
+        'insert into delivery_locations (id, org_id, name, address, kind, is_active, created_at, updated_at) values (?,?,?,?,?,1,?,?)',
+      ).run(randomUUID(), orgId, location.name, null, location.kind, now, now);
+    }
+
+    // NO PURCHASE ORDER SEQUENCE IS CREATED, because there is no such thing as
+    // one. A number is job + vendor + sequence, and each (job, vendor) pair
+    // counts on its own from 1 — the counters come into existence as orders are
+    // raised. A fresh installation therefore has nothing to correct and no
+    // placeholder to send a supplier by accident.
+    //
+    // What DOES still need a person: any pair the office has already written
+    // paper purchase orders for. That is declared per pair in Administration ->
+    // PO numbering, and only where it is true.
+    notes.push(
+      'Purchase orders are numbered job-vendor-sequence, e.g. 1234-COOPER-1, counting from 1 for each ' +
+        'job and vendor. Where the office has already issued paper purchase orders for a job and vendor ' +
+        'PCC will now be used for, set that pair in Administration before the first order.',
+    );
+
+    db.prepare(
+      'insert into request_number_sequences (org_id, prefix, padding, suffix, next_value, updated_at) values (?,?,?,?,?,?)',
+    ).run(orgId, 'PR-', 5, '', 1001, now);
+
+    db.prepare(
+      `insert into system_settings (org_id, allow_self_approval, external_send_enabled, require_email_review,
+                                    overdue_grace_hours, default_delivery_method, po_template_key,
+                                    default_fulfilment_days, default_need_by_time, updated_at)
+       values (?,0,0,1,0,'DELIVERY',?,?,?,?)`,
+    ).run(orgId, poTemplateKey, fulfilmentDays, needByTime, now);
+
+    for (const key of EMAIL_TEMPLATE_TYPES) {
+      const sample = (TEMPLATES as any)[key](SAMPLE_CONTEXT);
+      db.prepare(
+        'insert into email_templates (id, org_id, template_key, subject, body, is_active, updated_at) values (?,?,?,?,?,1,?)',
+      ).run(randomUUID(), orgId, key, toPlaceholders(sample.subject), toPlaceholders(sample.body), now);
+    }
+
+    db.exec('commit');
+  } catch (err) {
+    db.exec('rollback');
+    throw err;
+  }
+
+  const admin = createBootstrapAdministrator(db, env, orgId, now);
+  notes.push(...admin.notes);
+
+  return { created: true, orgId, noCredentials: !admin.created, notes };
+}
+
+/**
+ * The one account that exists so somebody can sign in and invite the others.
+ *
+ * Created only on a database with no users, only from configuration, and only
+ * when the password is long enough to be worth having. A short one would be
+ * the published-password problem again wearing a different hat.
+ */
+function createBootstrapAdministrator(
+  db: DatabaseSync, env: NodeJS.ProcessEnv, orgId: string, now: string,
+): { created: boolean; notes: string[] } {
+  const email = (env.PCC_BOOTSTRAP_ADMIN_EMAIL ?? '').trim().toLowerCase();
+  const password = env.PCC_BOOTSTRAP_ADMIN_PASSWORD ?? '';
+  const name = (env.PCC_BOOTSTRAP_ADMIN_NAME ?? '').trim() || 'Administrator';
+
+  if (!email && !password) {
+    return {
+      created: false,
+      notes: [
+        'no PCC_BOOTSTRAP_ADMIN_EMAIL / PCC_BOOTSTRAP_ADMIN_PASSWORD was set, so NOBODY CAN SIGN IN. ' +
+          'Set both, restart once, then remove the password from the environment.',
+      ],
+    };
+  }
+  if (!email || !password) {
+    return {
+      created: false,
+      notes: ['PCC_BOOTSTRAP_ADMIN_EMAIL and PCC_BOOTSTRAP_ADMIN_PASSWORD must both be set; no administrator was created'],
+    };
+  }
+  if (password.length < 12) {
+    return {
+      created: false,
+      notes: ['PCC_BOOTSTRAP_ADMIN_PASSWORD must be at least 12 characters; no administrator was created'],
+    };
+  }
+
+  const users = db.prepare('select count(*) as n from users').get() as any;
+  if (Number(users?.n ?? 0) > 0) {
+    return { created: false, notes: ['users already exist; the bootstrap administrator was not created'] };
+  }
+
+  const id = randomUUID();
+  db.exec('begin immediate');
+  try {
+    db.prepare(
+      `insert into users (id, org_id, full_name, email, is_active, can_approve, is_primary_approver,
+                          is_backup_approver, is_delivery_receiver, created_at, updated_at)
+       values (?,?,?,?,1,1,0,0,0,?,?)`,
+    ).run(id, orgId, name, email, now, now);
+    db.prepare('insert into user_roles (user_id, role_key, granted_at) values (?,?,?)').run(id, 'ADMIN', now);
+    const { hash, salt } = hashPassword(password);
+    // must_change_password = 1. THE BOOTSTRAP PASSWORD IS THE MOST EXPOSED
+    // CREDENTIAL THIS APPLICATION EVER HAS: it is typed into a file on disk,
+    // read by whoever installs, and the instructions then tell them to delete
+    // it. "Change this password" was already the first line of the install
+    // checklist; this makes it the first thing the account can do, and the only
+    // thing it can do until it is done.
+    db.prepare(
+      `insert into auth_identities
+         (user_id, email, password_hash, salt, disabled, must_change_password, created_at, updated_at)
+       values (?,?,?,?,0,1,?,?)`,
+    ).run(id, email, hash, salt, now, now);
+    db.exec('commit');
+  } catch (err) {
+    db.exec('rollback');
+    throw err;
+  }
+
+  return {
+    created: true,
+    notes: [
+      `created the bootstrap administrator ${email}. Signing in will ask for a new password before ` +
+        'anything else; then invite the real users and remove PCC_BOOTSTRAP_ADMIN_PASSWORD from the environment.',
+    ],
+  };
+}

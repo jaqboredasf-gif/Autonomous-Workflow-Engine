@@ -1,0 +1,351 @@
+// ---------------------------------------------------------------------------
+// session.ts — who the server says you are, and what you may open.
+//
+// The pilot's identity picker is gone. A session now exists only because a
+// credential provider verified an email and password (AuthPort), and the cookie
+// that carries it is signed, expiring and httpOnly. On every request the server:
+//
+//   1. verifies the cookie's signature and expiry (never the browser's claim)
+//   2. loads the user FROM THE DATABASE — roles, org, active flag, assignments
+//   3. applies routeDecision() for the path being opened
+//
+// Step 2 is why a stolen-then-revoked account stops working immediately: the
+// cookie says who, the database says whether, and the database wins.
+//
+// The demo identity picker survives behind PURCHASING_DEMO_MODE=1, refused in
+// production by validateEnvironment(). It is a developer convenience, not a
+// sign-in path.
+// ---------------------------------------------------------------------------
+
+import { cache } from 'react';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+
+import { getDb } from '../purchasing/infrastructure/sqlite/database.ts';
+import { bootstrapDatabase } from '../purchasing/infrastructure/bootstrap.ts';
+import { purchasingContext } from '../purchasing/composition.ts';
+import { loadConfig } from '../purchasing/infrastructure/env.ts';
+import { authAdapter } from '../purchasing/infrastructure/auth/index.ts';
+import { log } from '../purchasing/infrastructure/logging.ts';
+import { checkSignInAllowed, clearSignInFailures, recordSignInFailure } from './sign-in-throttle.ts';
+import {
+  SESSION_COOKIE, newSessionPayload, signSession, verifySession,
+} from '../purchasing/infrastructure/auth/session-token.ts';
+import { identityAdapter } from '../purchasing/infrastructure/adapters.ts';
+import { supabasePurchasingContext } from '../purchasing/infrastructure/supabase/context.ts';
+import { resolveSupabaseActor } from '../purchasing/infrastructure/supabase/identity-resolution.ts';
+import { routeDecision, defaultWorkspaceFor } from '../purchasing/domain/workspaces.mjs';
+import type { Actor } from '../purchasing/application/ports.ts';
+
+export type { Actor };
+
+function database() {
+  const db = getDb();
+  // Development seeds the pilot cast; production creates the company's own
+  // empty system and at most one configured administrator. The difference is
+  // not cosmetic — see bootstrap.ts for the published-password defect that
+  // splitting them closes.
+  bootstrapDatabase(db);
+  return db;
+}
+
+/**
+ * THE ACCESS TOKEN COOKIE.
+ *
+ * httpOnly, so script cannot read it; SameSite=Lax, so another site cannot make
+ * the browser send it on a navigation it caused; Secure in production. It holds
+ * the provider's access token, which is what makes row level security apply to
+ * the caller rather than to a service role.
+ *
+ * It is deliberately separate from the signed identity cookie: that one says
+ * WHO, this one carries the AUTHORITY, and the server re-checks both.
+ */
+const ACCESS_TOKEN_COOKIE = 'purchasing_at';
+const REFRESH_TOKEN_COOKIE = 'purchasing_rt';
+
+async function accessToken(): Promise<string | null> {
+  const store = await cookies();
+  return store.get(ACCESS_TOKEN_COOKIE)?.value ?? null;
+}
+
+/**
+ * Resolve the caller once per request.
+ *
+ * Both the route guard and the repository context need to know who this is, and
+ * both used to ask Postgres independently — two token validations and two
+ * membership reads for every page. `cache()` scopes the answer to the request,
+ * so a page renders on ONE resolution.
+ *
+ * It also removes a subtler problem than the round trips: with two independent
+ * resolutions, a membership changing between them would let a request pass the
+ * guard as one tenant and query as another. One resolution cannot disagree with
+ * itself.
+ */
+const resolveCallerOnce = cache(async (token: string | null) => {
+  return resolveSupabaseActor(loadConfig(), token);
+});
+
+/**
+ * The composed purchasing context for one request.
+ *
+ * Local persistence composes over the file-backed store. Supabase persistence
+ * composes over a client carrying THIS caller's token, and the organization
+ * comes from their ACTIVE membership — never from anything the browser sent.
+ */
+export async function purchasingRequestContext() {
+  const config = loadConfig();
+  if (config.persistenceProvider !== 'supabase') {
+    return purchasingContext(database());
+  }
+
+  const token = await accessToken();
+  const resolved = await resolveCallerOnce(token);
+  if (!resolved.ok) {
+    // Fail closed: no membership, no context. There is no fallback to a
+    // privileged client, because that is how a tenant boundary quietly becomes
+    // optional.
+    // A typed carrier rather than `any`: the reason is part of this error's
+    // contract — callers switch on it — so it belongs in the type.
+    const err = Object.assign(new Error('no authenticated tenant context'), {
+      reason: resolved.reason,
+    });
+    throw err;
+  }
+  return supabasePurchasingContext(config, { accessToken: token, orgId: resolved.orgId });
+}
+
+/**
+ * The signed-in user, or null. Verifies the cookie, then re-reads the person
+ * from the database — a session is a claim, not a fact.
+ */
+export async function currentActor(): Promise<Actor | null> {
+  const config = loadConfig();
+  const store = await cookies();
+  const verified = await verifySession(store.get(SESSION_COOKIE)?.value, config.sessionSecret);
+  if (!verified.valid) return null;
+
+  if (config.persistenceProvider === 'supabase') {
+    // The signed cookie says who claims to be here; Postgres says whether they
+    // still are. A revoked token or a suspended membership stops working on
+    // the next request, not at cookie expiry.
+    const resolved = await resolveCallerOnce(store.get(ACCESS_TOKEN_COOKIE)?.value ?? null);
+    return resolved.ok ? resolved.actor : null;
+  }
+
+  const actor = await identityAdapter(database()).load(verified.payload.uid);
+  if (!actor || !actor.isActive) return null;
+  return actor;
+}
+
+/** Why there is no session — so the UI can say "expired" rather than "denied". */
+export async function sessionState(): Promise<'valid' | 'missing' | 'expired' | 'invalid'> {
+  const config = loadConfig();
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  const verified = await verifySession(token, config.sessionSecret);
+  if (verified.valid) return 'valid';
+  if (verified.reason === 'missing') return 'missing';
+  if (verified.reason === 'expired') return 'expired';
+  return 'invalid';
+}
+
+/**
+ * THE page guard. Every protected page calls it first. The middleware already
+ * refused unauthenticated traffic; this repeats the decision with the real user
+ * loaded, because a middleware can be misconfigured and a page must not assume.
+ */
+export async function requireAccess(pathname: string): Promise<Actor> {
+  const actor = await currentActor();
+  const decision = routeDecision(actor, pathname);
+  if (!decision.allow) {
+    if (decision.reason === 'no_session') {
+      const state = await sessionState();
+      redirect(state === 'expired' ? '/session-expired' : `/sign-in?next=${encodeURIComponent(pathname)}`);
+    }
+    redirect(decision.redirect);
+  }
+  return actor as Actor;
+}
+
+/**
+ * Is this session held together by a password somebody else chose?
+ *
+ * The page guard above expresses this as a redirect, which is right for a
+ * browser navigation and wrong for a download or a server action — one wants a
+ * screen, the others want a refusal. Same rule, two shapes, one source: both
+ * read the flag the credential store put on the actor.
+ */
+export function mustChangePassword(actor: Actor | null): boolean {
+  return Boolean(actor?.mustChangePassword);
+}
+
+/** Where this person belongs after signing in. */
+export async function defaultWorkspace(): Promise<string> {
+  const actor = await currentActor();
+  if (!actor) return '/sign-in';
+  return mustChangePassword(actor) ? '/change-password' : defaultWorkspaceFor(actor);
+}
+
+// --- sign in / out ----------------------------------------------------------
+
+export type SignInOutcome =
+  | { ok: true; redirectTo: string }
+  | {
+      ok: false;
+      error: 'invalid_credentials' | 'account_disabled' | 'unavailable' | 'missing_fields' | 'too_many_attempts';
+      /** Present only for 'too_many_attempts'. Seconds until another try is accepted. */
+      retryAfterSeconds?: number;
+    };
+
+/**
+ * Verify credentials and start a session. The error vocabulary is deliberately
+ * coarse for the browser: a wrong password and an unknown address both report
+ * `invalid_credentials`, because telling a stranger which addresses have
+ * accounts is a favour to the wrong person.
+ */
+export async function signIn(
+  email: string, password: string, next?: string, source: string | null = null,
+): Promise<SignInOutcome> {
+  if (!email?.trim() || !password) return { ok: false, error: 'missing_fields' };
+
+  // THROTTLE FIRST, before the credential is even checked. Checking it first
+  // and refusing afterwards would still let an attacker measure the difference
+  // between a right and a wrong password by how long the answer took.
+  const throttle = checkSignInAllowed(email, source);
+  if (!throttle.allowed) {
+    log.warn('auth.sign_in_throttled', { email, retryAfterSeconds: throttle.retryAfterSeconds });
+    return { ok: false, error: 'too_many_attempts', retryAfterSeconds: throttle.retryAfterSeconds };
+  }
+
+  const config = loadConfig();
+  const db = database();
+  const result = await authAdapter(db, config).signIn(email, password);
+  if (!result.ok) {
+    recordSignInFailure(email, source);
+    return { ok: false, error: result.reason };
+  }
+
+  let actor: Actor | null;
+  if (config.persistenceProvider === 'supabase') {
+    const resolved = await resolveSupabaseActor(config, result.accessToken ?? null);
+    actor = resolved.ok ? resolved.actor : null;
+  } else {
+    actor = await identityAdapter(db).load(result.userId);
+  }
+  if (!actor || !actor.isActive) {
+    // Counted too: an attacker must not get unlimited attempts against an
+    // address simply because it happens to be disabled.
+    recordSignInFailure(email, source);
+    return { ok: false, error: 'account_disabled' };
+  }
+
+  clearSignInFailures(email);
+
+  const token = await signSession(
+    newSessionPayload(actor.id, config.authProvider, config.sessionTtlSeconds),
+    config.sessionSecret,
+  );
+  const store = await cookies();
+  const cookieOptions = {
+    httpOnly: true as const,
+    sameSite: 'lax' as const,
+    // FROM THE SCHEME OF THE ADDRESS, NOT FROM NODE_ENV — see AppConfig
+    // .cookieSecure. `Secure` on a deployment served over plain HTTP is a
+    // permanent sign-in outage for everybody, and one that every health check
+    // reports as fine.
+    secure: config.cookieSecure,
+    path: '/',
+    maxAge: config.sessionTtlSeconds,
+  };
+  store.set(SESSION_COOKIE, token, cookieOptions);
+
+  // The provider's tokens ride in their own httpOnly cookies. They are never
+  // rendered, never returned in a body, and never readable by script.
+  if (result.accessToken) store.set(ACCESS_TOKEN_COOKIE, result.accessToken, cookieOptions);
+  if (result.refreshToken) store.set(REFRESH_TOKEN_COOKIE, result.refreshToken, cookieOptions);
+
+  // A TEMPORARY PASSWORD LANDS ON THE SCREEN THAT REPLACES IT, and `next` does
+  // not survive: honouring it would send somebody to a page that immediately
+  // bounces them here anyway, which reads as the application being broken.
+  if (mustChangePassword(actor)) return { ok: true, redirectTo: '/change-password' };
+
+  // Only ever redirect INSIDE this application: an open redirect on a sign-in
+  // form is a phishing primitive.
+  const safeNext = next && next.startsWith('/') && !next.startsWith('//') ? next : null;
+  return { ok: true, redirectTo: safeNext ?? defaultWorkspaceFor(actor) };
+}
+
+/**
+ * Reissue this browser's identity cookie for the same person.
+ *
+ * Used after a password change. It is NOT session revocation — this
+ * architecture has no session store to revoke from, and pretending otherwise
+ * would be the more dangerous claim. What actually stops an old session is that
+ * every request re-reads the person and their credential flag from the
+ * database, so an administrator's reset governs a browser that signed in
+ * yesterday on its very next request.
+ */
+export async function renewSession(userId: string): Promise<void> {
+  const config = loadConfig();
+  const token = await signSession(
+    newSessionPayload(userId, config.authProvider, config.sessionTtlSeconds),
+    config.sessionSecret,
+  );
+  const store = await cookies();
+  store.set(SESSION_COOKIE, token, {
+    httpOnly: true, sameSite: 'lax', secure: config.cookieSecure, path: '/', maxAge: config.sessionTtlSeconds,
+  });
+}
+
+export async function signOut() {
+  const store = await cookies();
+  // Every cookie, not just the identity one: leaving the access token behind
+  // would leave a usable credential in the browser after "sign out".
+  store.delete(SESSION_COOKIE);
+  store.delete(ACCESS_TOKEN_COOKIE);
+  store.delete(REFRESH_TOKEN_COOKIE);
+}
+
+// --- developer demo mode ----------------------------------------------------
+
+/** Is the demo identity picker available? False in production, always. */
+export function demoModeEnabled(): boolean {
+  return loadConfig().demoMode;
+}
+
+/** The demo picker's options. Refused unless demo mode is explicitly on. */
+export function demoAccounts() {
+  if (!demoModeEnabled()) return [];
+  const db = database();
+  const rows = db
+    .prepare('select id, full_name, email, is_active from users where is_active = 1 order by full_name')
+    .all() as Array<Record<string, unknown>>;
+  return rows.map((u) => ({
+    id: String(u.id),
+    name: String(u.full_name),
+    email: String(u.email),
+    roles: (db.prepare('select role_key from user_roles where user_id = ?').all(u.id as string) as Array<{ role_key: string }>)
+      .map((r) => r.role_key),
+  }));
+}
+
+/** Start a session as a demo account, without a password. Developer tool only. */
+export async function signInAsDemoUser(userId: string): Promise<SignInOutcome> {
+  if (!demoModeEnabled()) return { ok: false, error: 'invalid_credentials' };
+  const config = loadConfig();
+  const actor = await identityAdapter(database()).load(userId);
+  // Not throttled: the demo picker guesses nothing — it takes a user id, not a
+  // password — and validateEnvironment() refuses demo mode in production.
+  if (!actor || !actor.isActive) return { ok: false, error: 'account_disabled' };
+
+  const token = await signSession(
+    newSessionPayload(actor.id, 'local', config.sessionTtlSeconds),
+    config.sessionSecret,
+  );
+  const store = await cookies();
+  store.set(SESSION_COOKIE, token, {
+    // Same rule as signIn: the scheme decides, not the build mode.
+    httpOnly: true, sameSite: 'lax', secure: config.cookieSecure, path: '/', maxAge: config.sessionTtlSeconds,
+  });
+  return { ok: true, redirectTo: defaultWorkspaceFor(actor) };
+}

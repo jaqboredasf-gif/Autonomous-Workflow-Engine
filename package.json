@@ -5,7 +5,38 @@
     "apps/*",
     "packages/*"
   ],
+  "_engines_note": "24, not 20: the purchasing store is node:sqlite, which is part of the runtime rather than a dependency. On Node 20 the import fails at startup with a module-not-found error that names nothing anybody can act on. The Dockerfile already pins 24; this is the same fact stated where a developer installing on a laptop will meet it.",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
+  },
+  "scripts": {
+    "pcc:dev": "bash scripts/pcc-dev.sh",
+    "pcc:dev-user": "node scripts/provision-local-tenants.mjs",
+    "pcc:e2e": "node scripts/eval-purchasing-e2e.mjs",
+    "proof": "node scripts/eval-proof.mjs",
+    "proof:case-study": "node scripts/proof-case-study.mjs",
+    "programs": "node scripts/eval-programs.mjs",
+    "readiness": "node scripts/awe-readiness.mjs",
+    "deployment-gate": "node scripts/pcc-deployment-gate.mjs",
+    "rehearse": "bash scripts/rehearse-locally.sh",
+    "plan": "node scripts/awe-plan.mjs",
+    "baseline": "node scripts/baseline-observations.mjs",
+    "baseline:import": "node scripts/baseline-import.mjs",
+    "baseline:freeze": "node scripts/baseline-freeze.mjs",
+    "discovery": "node scripts/discovery.mjs",
+    "provision": "node scripts/provision-organization.mjs",
+    "second-customer": "node scripts/eval-second-customer.mjs",
+    "pitch": "node scripts/iic-pitch.mjs",
+    "narrative": "node scripts/eval-narrative.mjs",
+    "evidence": "node scripts/iic-evidence.mjs",
+    "verify": "node scripts/awe-verify.mjs",
+    "engineering-state": "node scripts/awe-state.mjs",
+    "guard": "node scripts/awe-guard.mjs",
+    "test:autonomy": "node scripts/eval-autonomy.mjs",
+    "attest": "node scripts/awe-attest.mjs",
+    "inspect": "node scripts/awe-inspect.mjs"
+  },
+  "devDependencies": {
+    "next": "16.2.10"
   }
 }

@@ -1,0 +1,10 @@
+# ONE ROW PER FILED PAPER PURCHASE ORDER. Read the dates off, nothing else.
+# This interrupts nobody and answers "how long did the old process take end to end".
+#
+# po        the purchase order number as written on it
+# raised    the date on the PO           (YYYY-MM-DD)
+# received  the date on the packing slip (YYYY-MM-DD)
+# vendor    optional, but useful for showing the sample was not cherry-picked
+#
+# Take EVERY PO in whatever range you decided before opening the drawer.
+po,raised,received,vendor

@@ -1,0 +1,289 @@
+// ---------------------------------------------------------------------------
+// email.mjs — email templates, draft composition, and the send gate.
+//
+// THIS MODULE CANNOT SEND MAIL AND NEITHER CAN ANYTHING THAT IMPORTS IT.
+// There is no transport in this repository's purchasing module: no SMTP, no
+// Graph, no fetch. `markDraftSent()` records that a HUMAN copied an approved
+// draft into their own mail client and sent it — a ledger entry, not a
+// transmission. Same discipline as migration 0015's mark_message_sent().
+//
+// Draft statuses mirror 0015's outbound_messages so the two can converge later:
+//   GENERATED -> REVIEWED -> APPROVED_TO_SEND -> SENT
+//   any non-terminal -> CANCELLED | FAILED
+//
+// PURE: templates are string functions of their arguments.
+// ---------------------------------------------------------------------------
+
+import { formatMoney, formatQty } from './numbers.mjs';
+
+export const EMAIL_TEMPLATE_TYPES = [
+  'APPROVAL_REQUEST',
+  'VENDOR_PURCHASE_ORDER',
+  'CLARIFICATION_REQUEST',
+  'REJECTION_NOTICE',
+  'ORDER_FOLLOW_UP',
+  'MATERIAL_READY_NOTICE',
+];
+
+export const EMAIL_DRAFT_STATUSES = [
+  'GENERATED',
+  'REVIEWED',
+  'APPROVED_TO_SEND',
+  'SENT',
+  'CANCELLED',
+  'FAILED',
+];
+
+// The draft's state machine used to live here as EMAIL_DRAFT_TRANSITIONS,
+// canTransitionDraft() and draftGuard() — a second hand-rolled graph beside the
+// purchasing one, with its own legality check and its own refusal vocabulary.
+// It now runs on the AWE workflow engine: see domain/email-workflow.mjs.
+// EMAIL_DRAFT_STATUSES stays here because it is what the database CHECK
+// constraint is written against.
+
+export const EXTERNAL_SEND_ENABLED = false;
+
+/** Recipient domain reserved for fixtures/tests. Nothing may leave to it. */
+export const FIXTURE_EMAIL_DOMAIN = 'example.invalid';
+
+export function isFixtureRecipient(addr) {
+  return String(addr ?? '').toLowerCase().endsWith(`@${FIXTURE_EMAIL_DOMAIN}`);
+}
+
+// --- Templates -------------------------------------------------------------
+//
+// Each template is a function (ctx) => {subject, body}. Org-specific wording
+// lives in the email_templates table; these are the built-in defaults and the
+// contract the stored templates must satisfy (same placeholders).
+
+const line = (s = '') => s;
+
+// Money renders as money — unless it is already a string, which is how seed.ts
+// derives the editable templates (a marker in, a {{placeholder}} out).
+const money = (v) => (typeof v === 'string' ? v : formatMoney(v));
+
+export function orderTable(items) {
+  // A string passes straight through: that is how the admin-editable templates
+  // are derived from these defaults (seed.ts renders them with a marker in
+  // place of the items, which becomes the {{itemsTable}} placeholder).
+  if (typeof items === 'string') return items;
+  const rows = (items ?? []).map((i, idx) => {
+    const qty = formatQty(i.finalOrderQty ?? i.qty ?? 0);
+    const cost = i.estimatedUnitCostCents ? `  @ ${formatMoney(i.estimatedUnitCostCents)}` : '';
+    return `  ${idx + 1}. ${qty} ${i.unit ?? 'ea'}  ${i.description}${i.substituteFor ? ` (substitute for ${i.substituteFor})` : ''}${cost}`;
+  });
+  return rows.join('\n');
+}
+
+export const TEMPLATES = {
+  APPROVAL_REQUEST: (ctx) => ({
+    subject: `Purchase request ${ctx.request.requestNumber} needs workshop review — job ${ctx.request.jobNumber}`,
+    body: [
+      `${ctx.approverName ?? 'Workshop'},`,
+      '',
+      `${ctx.request.requestorName} submitted a purchase request for job ${ctx.request.jobNumber}.`,
+      `Needed by ${ctx.request.needByDate} at ${ctx.request.needByTime}, ${ctx.request.deliveryLocationName}.`,
+      '',
+      'Requested:',
+      orderTable(ctx.items),
+      '',
+      ctx.request.reason ? `Reason: ${ctx.request.reason}` : '',
+      '',
+      `Review it here: ${ctx.links?.review ?? '(purchasing app) Workshop queue'}`,
+    ].filter(line).join('\n'),
+  }),
+
+  VENDOR_PURCHASE_ORDER: (ctx) => ({
+    subject: `Purchase Order ${ctx.purchaseOrder.poNumber} — ${ctx.org.name} — job ${ctx.request.jobNumber}`,
+    body: [
+      `${ctx.vendorContact?.name ?? 'Hello'},`,
+      '',
+      `Please supply the following against purchase order ${ctx.purchaseOrder.poNumber}.`,
+      '',
+      `Purchase order: ${ctx.purchaseOrder.poNumber}`,
+      `Job number:     ${ctx.request.jobNumber}`,
+      `Needed by:      ${ctx.request.needByDate} at ${ctx.request.needByTime}`,
+      `${ctx.request.deliveryMethod === 'PICKUP' ? 'Pickup from' : 'Deliver to'}: ${ctx.request.deliveryLocationName}`,
+      ctx.request.deliveryAddress ? `                ${ctx.request.deliveryAddress}` : '',
+      '',
+      'Order:',
+      orderTable(ctx.items),
+      '',
+      // NO PRICE LINE ON AN UNPRICED ORDER.
+      //
+      // Lippolis removed estimated cost from the workflow — accounting prices
+      // from the vendor's invoice afterwards — so this line rendered
+      // "Estimated total: $0.00" on every real purchase order email. To the
+      // supplier reading it that is not an absent price, it is a price: an
+      // order quoted at nothing, on the document they work from. The printed
+      // sheet and the PDF both already suppress money when none was recorded;
+      // this template was the one place the removed field leaked back out to a
+      // vendor.
+      //
+      // OMITTED FROM THE DERIVED TEMPLATE TOO, and that is the half that
+      // matters. A draft is rendered from the admin-editable row in
+      // email_templates, which is generated from this function with
+      // placeholders substituted in — so a version that kept the line "for the
+      // placeholder case" fixed nothing: the seeded template still carried
+      // `Estimated total: {{purchaseOrder.estimatedTotal}}`, and every real
+      // draft still rendered $0.00. Verified by generating one.
+      //
+      // The value is still exposed as {{purchaseOrder.estimatedTotal}}, so an
+      // administrator who wants a total can put the line back in the template.
+      // What PCC will not do is write it there by default on a workflow that
+      // deliberately does not price orders up front.
+      Number(ctx.purchaseOrder.estimatedTotalCents ?? 0) > 0
+        ? `Estimated total: ${money(ctx.purchaseOrder.estimatedTotalCents)}`
+        : '',
+      '',
+      'Please confirm receipt of this order, the price, and the expected delivery or',
+      'pickup date. The signed purchase order is attached as a PDF.',
+      '',
+      `${ctx.sender?.name ?? ''}`,
+      `${ctx.org.name}`,
+      ctx.org.phone ?? '',
+    ].filter(line).join('\n'),
+  }),
+
+  CLARIFICATION_REQUEST: (ctx) => ({
+    subject: `Question on your purchase request ${ctx.request.requestNumber} — job ${ctx.request.jobNumber}`,
+    body: [
+      `${ctx.request.requestorName},`,
+      '',
+      `Before this goes out I need one thing cleared up on request ${ctx.request.requestNumber}:`,
+      '',
+      `  ${ctx.question}`,
+      '',
+      'Reply in the purchasing app and it comes straight back to the workshop queue.',
+      '',
+      `${ctx.sender?.name ?? ''}`,
+    ].filter(line).join('\n'),
+  }),
+
+  REJECTION_NOTICE: (ctx) => ({
+    subject: `Purchase request ${ctx.request.requestNumber} was not approved`,
+    body: [
+      `${ctx.request.requestorName},`,
+      '',
+      `Request ${ctx.request.requestNumber} for job ${ctx.request.jobNumber} was not approved.`,
+      '',
+      `Reason: ${ctx.reason}`,
+      '',
+      'If the job still needs this material, raise a new request with the corrected',
+      'information — this one stays on file as it was submitted.',
+      '',
+      `${ctx.sender?.name ?? ''}`,
+    ].filter(line).join('\n'),
+  }),
+
+  ORDER_FOLLOW_UP: (ctx) => ({
+    subject: `Status check — PO ${ctx.purchaseOrder.poNumber} — job ${ctx.request.jobNumber}`,
+    body: [
+      `${ctx.vendorContact?.name ?? 'Hello'},`,
+      '',
+      `Checking on purchase order ${ctx.purchaseOrder.poNumber}, placed ${ctx.purchaseOrder.orderedAt ?? ''}.`,
+      `We need this material by ${ctx.request.needByDate} at ${ctx.request.needByTime}.`,
+      '',
+      'Could you confirm:',
+      '  - the order is booked and the pricing stands',
+      '  - the shipment or pickup date',
+      '  - a tracking number, if it has shipped',
+      '',
+      'Outstanding:',
+      orderTable(ctx.items),
+      '',
+      `${ctx.sender?.name ?? ''}`,
+      `${ctx.org.name}`,
+    ].filter(line).join('\n'),
+  }),
+
+  MATERIAL_READY_NOTICE: (ctx) => ({
+    subject: `Material ready for job ${ctx.request.jobNumber} — request ${ctx.request.requestNumber}`,
+    body: [
+      `${ctx.request.requestorName},`,
+      '',
+      `The material on request ${ctx.request.requestNumber} is ${ctx.request.deliveryMethod === 'PICKUP' ? 'ready for pickup at' : 'delivered to'} ${ctx.request.deliveryLocationName}.`,
+      '',
+      'Received:',
+      orderTable(ctx.items),
+      '',
+      ctx.shortNote ? `Note: ${ctx.shortNote}` : '',
+      '',
+      `${ctx.sender?.name ?? ''}`,
+    ].filter(line).join('\n'),
+  }),
+};
+
+/**
+ * Compose a draft. Returns the draft record fields — it does NOT persist and it
+ * does NOT send. `draftKey` is the idempotency contract: composing the same
+ * message twice yields the same key, and the store refuses the second row
+ * (23505 idiom from 0015).
+ *
+ * @param {string} type
+ * @param {any} ctx
+ * @param {{template?: {subject: string, body: string} | null}} [options]
+ */
+export function composeDraft(type, ctx, { template = null } = {}) {
+  if (!EMAIL_TEMPLATE_TYPES.includes(type)) {
+    throw new Error(`unknown email template type: ${type}`);
+  }
+  const rendered = template
+    ? renderStoredTemplate(template, ctx)
+    : TEMPLATES[type](ctx);
+
+  const to = dedupe(ctx.to ?? []);
+  return {
+    type,
+    status: 'GENERATED',
+    subject: rendered.subject,
+    body: rendered.body,
+    to,
+    cc: dedupe(ctx.cc ?? []),
+    attachments: ctx.attachments ?? [],
+    draftKey: ctx.draftKey,
+    senderId: ctx.sender?.id ?? null,
+    externalSendEnabled: EXTERNAL_SEND_ENABLED,
+  };
+}
+
+/**
+ * Stored (admin-editable) templates are plain text with {{placeholders}}.
+ * Unknown placeholders render as empty string rather than throwing — a
+ * half-rendered draft a human can fix beats a 500 in the middle of the workshop.
+ */
+export function renderStoredTemplate(template, ctx) {
+  const flat = flatten(ctx);
+  // Derived placeholders: the rendered order table, and money already formatted
+  // (a template author writes {{purchaseOrder.estimatedTotal}}, not cents).
+  flat.itemsTable = orderTable(ctx.items);
+  flat['purchaseOrder.estimatedTotal'] = money(ctx.purchaseOrder?.estimatedTotalCents ?? 0);
+  const fill = (s) => String(s ?? '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => {
+    const v = flat[key];
+    return v === undefined || v === null ? '' : String(v);
+  });
+  return { subject: fill(template.subject), body: fill(template.body) };
+}
+
+export function templatePlaceholders(template) {
+  const found = new Set();
+  const scan = (s) => {
+    for (const m of String(s ?? '').matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)) found.add(m[1]);
+  };
+  scan(template.subject);
+  scan(template.body);
+  return [...found].sort();
+}
+
+function flatten(obj, prefix = '', out = {}) {
+  for (const [k, v] of Object.entries(obj ?? {})) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === 'object' && !Array.isArray(v)) flatten(v, key, out);
+    else out[key] = v;
+  }
+  return out;
+}
+
+function dedupe(list) {
+  return [...new Set((list ?? []).filter(Boolean).map((s) => String(s).trim()))];
+}

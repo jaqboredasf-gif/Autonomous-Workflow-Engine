@@ -1,0 +1,227 @@
+@import "tailwindcss";
+
+/*
+ * PCC design tokens (PCC_UI_HANDOFF/02_DESIGN_SYSTEM.md).
+ *
+ * Light-only on purpose: this gets demoed on a projector and printed, so the
+ * palette must not change with the viewer's OS theme.
+ *
+ * The neutral ramp is Tailwind's slate by value, which is what the existing
+ * screens already use — so naming it here reconciles the two vocabularies
+ * instead of forcing a repo-wide rewrite. `bg-canvas`, `text-ink`,
+ * `border-line` and friends are the names new code should reach for.
+ */
+:root {
+  color-scheme: light;
+
+  /* Neutral ramp */
+  --pcc-white: #ffffff;
+  --pcc-canvas: #f8fafc;
+  --pcc-subtle: #f1f5f9;
+  --pcc-line: #e2e8f0;
+  --pcc-line-strong: #cbd5e1;
+  --pcc-muted: #64748b;
+  --pcc-ink-soft: #334155;
+  --pcc-ink-strong: #1e293b;
+  --pcc-ink: #0f172a;
+
+  /*
+   * Brand — read out of the logo artwork itself (public/brand/lippolis-logo.svg),
+   * not chosen. Two colours, used at two very different volumes:
+   *
+   *   brand   the blue of the mark. The primary accent: active navigation,
+   *           primary buttons, links, focus. Dark enough (≈12:1 on white) to
+   *           carry small text and thin rules without straining.
+   *   accent  the orange of the mark. RESTRAINED — it means "attention here"
+   *           (overdue, exception, urgent) and appears in small quantities, so
+   *           it keeps that meaning. At 3.4:1 on white it is a fill and a
+   *           marker colour, never body text; accent-strong is the text-safe
+   *           darkening of it (≈5.7:1).
+   *
+   * The neutral surfaces below carry the interface. The brand punctuates it.
+   */
+  --pcc-brand: #0800d1;
+  --pcc-brand-hover: #0600a6;
+  --pcc-brand-ink: #05007a;
+  --pcc-brand-soft: #eef0ff;
+  --pcc-brand-line: #c7ccfa;
+
+  --pcc-accent: #ff3d00;
+  --pcc-accent-strong: #c22e00;
+  --pcc-accent-soft: #fff1ec;
+
+  /*
+   * Action == brand. The screens already reach for `bg-action` / `text-action`
+   * everywhere, so pointing that name at the brand blue rebrands the whole
+   * product from one line instead of a repo-wide find-and-replace — and leaves
+   * the two vocabularies unable to drift apart.
+   */
+  --pcc-action-soft: var(--pcc-brand-soft);
+  --pcc-action: var(--pcc-brand);
+  --pcc-action-hover: var(--pcc-brand-hover);
+
+  /* Semantic */
+  --pcc-success-bg: #f0fdf4;
+  --pcc-success-fg: #16a34a;
+  --pcc-warning-bg: #fffbeb;
+  --pcc-warning-fg: #d97706;
+  --pcc-danger-bg: #fef2f2;
+  --pcc-danger-fg: #dc2626;
+  --pcc-info-bg: #f0f9ff;
+  --pcc-info-fg: #0284c7;
+
+  /* Elevation — used sparingly. */
+  --pcc-shadow-card: 0 2px 8px rgba(15, 23, 42, 0.08);
+  --pcc-shadow-pop: 0 8px 24px rgba(15, 23, 42, 0.12);
+
+  /* Shell geometry, shared by the sidebar and the sticky topbar. */
+  --pcc-sidebar-width: 15rem;
+  --pcc-topbar-height: 3.5rem;
+
+  --background: var(--pcc-canvas);
+  --foreground: var(--pcc-ink);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-canvas: var(--pcc-canvas);
+  --color-surface: var(--pcc-white);
+  --color-subtle: var(--pcc-subtle);
+  --color-line: var(--pcc-line);
+  --color-line-strong: var(--pcc-line-strong);
+  --color-muted: var(--pcc-muted);
+  --color-ink-soft: var(--pcc-ink-soft);
+  --color-ink-strong: var(--pcc-ink-strong);
+  --color-ink: var(--pcc-ink);
+
+  --color-action: var(--pcc-action);
+  --color-action-hover: var(--pcc-action-hover);
+  --color-action-soft: var(--pcc-action-soft);
+
+  --color-brand: var(--pcc-brand);
+  --color-brand-hover: var(--pcc-brand-hover);
+  --color-brand-ink: var(--pcc-brand-ink);
+  --color-brand-soft: var(--pcc-brand-soft);
+  --color-brand-line: var(--pcc-brand-line);
+  --color-accent: var(--pcc-accent);
+  --color-accent-strong: var(--pcc-accent-strong);
+  --color-accent-soft: var(--pcc-accent-soft);
+
+  --color-success: var(--pcc-success-fg);
+  --color-success-bg: var(--pcc-success-bg);
+  --color-warning: var(--pcc-warning-fg);
+  --color-warning-bg: var(--pcc-warning-bg);
+  --color-danger: var(--pcc-danger-fg);
+  --color-danger-bg: var(--pcc-danger-bg);
+  --color-info: var(--pcc-info-fg);
+  --color-info-bg: var(--pcc-info-bg);
+
+  --shadow-card: var(--pcc-shadow-card);
+  --shadow-pop: var(--pcc-shadow-pop);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/*
+ * Focus. One visible ring everywhere, in the action colour, so keyboard users
+ * can always see where they are — including on the dense operational tables
+ * where a subtle border change would be invisible.
+ */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--pcc-action);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- Print rules ------------------------------------------------------ */
+/* Save as PDF uses the browser's own print dialog; only the PO sheet prints. */
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  /* The sheet is the page. The application shell around it is hidden, but its
+     layout is not — `main` carries horizontal padding and the sidebar column
+     leaves the content indented, so the printed PO came out shifted right with
+     a ragged margin. Neutralized here rather than by changing the screen
+     layout, which is correct on screen. */
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    display: block !important;
+  }
+
+  .print-sheet {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* BLACK AND WHITE IS THE TARGET. This is printed on a shared office laser
+     printer and filed with the vendor's receipt stapled to it, so every
+     printed value is black and every rule is a grey dark enough to survive
+     toner saving. Colour is a screen affordance; on paper it is a photocopy
+     that loses the difference. */
+  .print-sheet,
+  .print-sheet * {
+    color: #000 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .print-sheet [class*='border'] {
+    border-color: #4a4a4a !important;
+  }
+
+  /* A MULTI-PAGE ORDER MUST STILL BE READABLE. A long list of material runs
+     past one sheet; without this, page two is a column of numbers with no
+     headings and the estimated total can land alone on page three. */
+  thead {
+    display: table-header-group;
+  }
+  tfoot {
+    display: table-footer-group;
+  }
+
+  /* Keep the material table from splitting a row across pages. */
+  tr,
+  td,
+  th {
+    break-inside: avoid;
+  }
+
+  /* A heading at the foot of a page, with its content overleaf, reads as an
+     empty section. */
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+
+  /* The filing block — where somebody writes who ordered it and when — must
+     not be separated from the order it belongs to. */
+  .print-keep-together {
+    break-inside: avoid;
+  }
+}
+
+@page {
+  size: letter portrait;
+  margin: 0.5in;
+}

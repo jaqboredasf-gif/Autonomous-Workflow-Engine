@@ -1,0 +1,234 @@
+// ---------------------------------------------------------------------------
+// catalog.mjs — turning what people typed into what an organization buys.
+//
+// PURE. No I/O, no clock, no storage. Two providers must agree on the result
+// byte for byte, so the rule lives here and nowhere else.
+//
+// WHAT THIS IS FOR (and what it is NOT)
+// A company types the same thing many ways: "2x4 LED Troffer 4000K",
+// "2X4 led troffer, 4000k", "troffer 2x4 (4000K)". Normalization is what lets
+// those collapse into one catalog entry, which is the substrate for the future
+// features named in the brief — autocomplete, frequently-purchased ranking,
+// recent items, preferred vendor, reorder suggestions, analytics.
+//
+// NONE of those features are built here. This is the data rule they will need,
+// added now because retrofitting it means reprocessing history that was never
+// captured.
+//
+// TWO THINGS ARE ALWAYS KEPT SEPARATELY:
+//   description             what the person actually typed. Never rewritten.
+//   normalized_description  what it matched on, stored AT THE TIME.
+//
+// The normalized form is stored rather than recomputed on read, because these
+// rules will change. When they do, new lines normalize differently and old
+// lines keep the key they were matched under — history does not silently
+// re-cluster because someone improved a regex. That is what NORMALIZER_VERSION
+// records.
+// ---------------------------------------------------------------------------
+
+/**
+ * Bump when the rules below change in a way that produces different output.
+ * Stored alongside the normalized value so a later migration can tell which
+ * rows were computed under which rules.
+ */
+export const NORMALIZER_VERSION = 1;
+
+/** Words that carry no matching signal in a materials description. */
+const NOISE_WORDS = new Set(['the', 'a', 'an', 'of', 'for', 'with', 'and']);
+
+/**
+ * Normalize a free-text material description into a matching key.
+ *
+ * Deterministic, and deliberately conservative: it collapses typography and
+ * spacing, not meaning. "4000K" and "3500K" are different items and stay
+ * different; "2x4" and "2 x 4" are the same and converge.
+ *
+ * @param {string} description what the person typed
+ * @returns {string} the matching key, or '' when there is nothing to match on
+ */
+export function normalizeDescription(description) {
+  const text = String(description ?? '');
+  if (!text.trim()) return '';
+
+  return (
+    text
+      // Accents fold: "Válvula" and "Valvula" are the same item. This also
+      // matters for the Spanish interface the product will support.
+      .normalize('NFKD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      // Dimensions converge: "2 x 4" -> "2x4", "1/2 in" keeps its fraction.
+      .replace(/(\d)\s*[x×]\s*(\d)/g, '$1x$2')
+      // Punctuation becomes space, EXCEPT the marks that carry meaning in a
+      // materials description: / for fractions, . for decimals, - inside a part
+      // number.
+      .replace(/[^\p{L}\p{N}\s/.\-]/gu, ' ')
+      // A trailing or leading dash/dot is punctuation, not part number.
+      .replace(/(^|\s)[-.]+|[-.]+(\s|$)/g, ' ')
+      .split(/\s+/)
+      .filter((word) => word.length > 0 && !NOISE_WORDS.has(word))
+      .join(' ')
+      .trim()
+  );
+}
+
+/**
+ * The catalog entry a line item should match, given what was typed.
+ * Returns null when there is nothing to match on — an empty description is not
+ * a catalog entry, it is a validation problem that belongs upstream.
+ *
+ * @param {{orgId: string, description: string, unit?: string|null,
+ *          vendorId?: string|null, catalogNumber?: string|null}} line
+ */
+export function catalogKeyFor(line) {
+  const normalized = normalizeDescription(line?.description);
+  if (!normalized) return null;
+  return {
+    orgId: line.orgId,
+    normalizedDescription: normalized,
+    // What the organization sees offered, if this is the first time the item
+    // is seen. Curation can change it later; the raw text is never lost.
+    canonicalDescription: String(line.description).trim(),
+    defaultUnit: line.unit ?? null,
+    defaultVendorId: line.vendorId ?? null,
+    catalogNumber: line.catalogNumber ?? null,
+    normalizerVersion: NORMALIZER_VERSION,
+  };
+}
+
+/**
+ * Do two descriptions refer to the same catalogued item?
+ * Used by tests and by any future de-duplication tool. Not used to REWRITE
+ * history — matching is recorded when the line is written, not re-derived.
+ */
+export function isSameItem(a, b) {
+  const left = normalizeDescription(a);
+  return left !== '' && left === normalizeDescription(b);
+}
+
+/**
+ * The fields a historical line must carry for the later features to work.
+ * Exported so a schema test can assert the shape rather than a person
+ * remembering it.
+ *
+ * Cross-tenant mixing is prevented by `orgId` being part of every one of these
+ * rows AND part of the catalog's unique key — two organizations that buy the
+ * same troffer have two catalog entries, and neither can see the other's.
+ */
+export const HISTORY_FIELDS = Object.freeze([
+  'orgId',                  // tenant ownership, on the row itself
+  'normalizedDescription',  // what it matched on, at the time
+  'description',            // what the person actually typed
+  'quantity',
+  'unit',
+  'vendorId',               // vendor relationship, when known
+  'jobNumber',              // job context
+  'requestId',
+  'purchaseOrderId',
+  'poNumber',
+  'estimatedUnitCostCents', // what the workshop thought — may be unknown
+  'actualUnitCostCents',    // what the invoice said — may be unknown
+  'receivedQty',
+  'orderedAt',
+  'createdAt',
+]);
+
+// ---------------------------------------------------------------------------
+// SEARCHING AND RANKING THE CATALOGUE
+//
+// Both providers read the catalogue differently — one aggregates in SQL, the
+// other in JavaScript — but they must MATCH and RANK identically, or the same
+// organization would get different autocomplete depending on where its data
+// lives. So the rules live here, with the normalizer they depend on, and the
+// repositories only supply rows.
+// ---------------------------------------------------------------------------
+
+/**
+ * Filter catalogue entries by a user's search text.
+ *
+ * Prose is matched on the NORMALIZED form, so the catalogue finds items the
+ * same way the domain says two descriptions are the same item: "2 x 4" finds
+ * "2x4", and an accent does not hide a row. Part numbers are matched raw,
+ * because a part number is an identifier, not prose.
+ *
+ * The entry shape is the repositories' CatalogEntry; it is annotated loosely
+ * here because this module is plain JavaScript shared by both providers.
+ *
+ * @template T
+ * @param {T[]} entries
+ * @param {string} search
+ * @returns {T[]}
+ */
+export function matchCatalog(entries = [], search = '') {
+  const raw = String(search ?? '').trim();
+  if (!raw) return [...entries];
+  const needle = normalizeDescription(raw);
+  const rawLower = raw.toLowerCase();
+  return entries.filter((entry) => {
+    if (needle && String(entry.normalizedDescription ?? '').includes(needle)) return true;
+    if (String(entry.canonicalDescription ?? '').toLowerCase().includes(rawLower)) return true;
+    if (String(entry.catalogNumber ?? '').toLowerCase().includes(rawLower)) return true;
+    return (entry.aliases ?? []).some((alias) => String(alias).toLowerCase().includes(rawLower));
+  });
+}
+
+/**
+ * Autocomplete order: what this organization asks for OFTEN, then what it
+ * asked for RECENTLY. Both matter — the item bought every week and the item
+ * bought yesterday are the two a person is most likely to be typing.
+ */
+export function byCatalogUsefulness(a, b) {
+  const timesA = Number(a?.timesRequested ?? 0);
+  const timesB = Number(b?.timesRequested ?? 0);
+  if (timesB !== timesA) return timesB - timesA;
+  return String(b?.lastRequestedAt ?? '').localeCompare(String(a?.lastRequestedAt ?? ''));
+}
+
+/**
+ * MATCH TIER — how well an entry matches what was typed, as a rank.
+ *
+ * The handoff states the autocomplete priority: exact, then alias, then
+ * frequent, then recent. The first two are about the MATCH and the last two are
+ * about the HISTORY, so they compose rather than compete: tier orders the
+ * matches, and byCatalogUsefulness breaks ties inside a tier.
+ *
+ * 0 exact      — what was typed IS the item, by canonical description, by
+ *                catalogue number, or by normalized form. Typing a part number
+ *                should land on that part, not on the thing bought most often.
+ * 1 alias      — one of the organization's own names for it matches exactly.
+ * 2 prefix     — the item starts with what has been typed. Mid-keystroke, this
+ *                is what a person means far more often than a substring hit.
+ * 3 contains   — matched somewhere inside.
+ *
+ * @param {object} entry
+ * @param {string} search
+ * @returns {number}
+ */
+export function matchTier(entry, search) {
+  const raw = String(search ?? '').trim().toLowerCase();
+  if (!raw) return 3;
+  const needle = normalizeDescription(raw);
+  const canonical = String(entry?.canonicalDescription ?? '').toLowerCase();
+  const number = String(entry?.catalogNumber ?? '').toLowerCase();
+  const normalized = String(entry?.normalizedDescription ?? '');
+  const aliases = (entry?.aliases ?? []).map((a) => String(a).toLowerCase());
+
+  if (canonical === raw || number === raw || (needle && normalized === needle)) return 0;
+  if (aliases.some((a) => a === raw)) return 1;
+  if (canonical.startsWith(raw) || number.startsWith(raw) || aliases.some((a) => a.startsWith(raw))) return 2;
+  return 3;
+}
+
+/**
+ * The autocomplete list: filtered by matchCatalog(), then ordered by tier and,
+ * within a tier, by what this organization actually buys.
+ *
+ * One function so every provider — and the future QuickBooks or spreadsheet
+ * adapter — produces the SAME list. An adapter that ranked in its own SQL would
+ * quietly give two deployments different suggestions for the same typing.
+ */
+export function rankMaterialMatches(entries = [], search = '', limit = 8) {
+  const matched = matchCatalog(entries, search).map((entry) => ({ entry, tier: matchTier(entry, search) }));
+  matched.sort((a, b) => (a.tier - b.tier) || byCatalogUsefulness(a.entry, b.entry));
+  return matched.slice(0, Math.max(0, limit)).map((m) => m.entry);
+}

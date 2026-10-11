@@ -1,0 +1,170 @@
+# AWE verification. Runs the registered suites (autonomy/suites.json, profile
+# "ci") on a clean checkout and keeps the machine-readable result.
+#
+# VERIFICATION ONLY. This workflow builds and tests; it never pushes, merges,
+# deploys, comments or calls a model, and it holds no secrets. Changing this
+# file is an L3 act (autonomy/policy.json): it changes what "green" means.
+#
+# Outcomes are deliberately distinguishable:
+#   awe-verify exit 0  -> green
+#   awe-verify exit 1  -> a BLOCKING SUITE FAILED: the code is wrong
+#   awe-verify exit 3  -> a blocking suite was BLOCKED: the RUNNER could not
+#                         answer (infrastructure / environment), not a code verdict
+# Either way, verify.json and engineering-state.json are uploaded.
+
+name: AWE verify
+
+on:
+  push:
+    branches: [pcc-production, 'autonomy/**']
+  pull_request:
+    branches: [pcc-production]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: awe-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Check out (clean, full history for the blocker detectors)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Node 24 (package.json engines; node:sqlite)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies exactly as locked
+        run: npm ci --no-audit --no-fund
+
+      - name: Run registered verification suites
+        id: verify
+        run: |
+          set +e
+          node scripts/awe-verify.mjs --profile ci --out .awe
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Derive engineering state
+        if: always()
+        run: node scripts/awe-state.mjs --out .awe
+
+      - name: Autonomy guard (autonomy/* branches only)
+        if: startsWith(github.head_ref, 'autonomy/') || startsWith(github.ref_name, 'autonomy/')
+        run: node scripts/awe-guard.mjs --base origin/pcc-production
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: awe-verify-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .awe/
+          if-no-files-found: error
+          # .awe/ is a dot-directory; upload-artifact v4 skips hidden files unless told.
+          include-hidden-files: true
+          retention-days: 90
+
+      - name: Verdict
+        if: always()
+        env:
+          CODE: ${{ steps.verify.outputs.code }}
+        run: |
+          case "$CODE" in
+            0) echo "AWE verify: PASS" ;;
+            1) echo "::error title=AWE verify FAILED::A blocking suite failed (or the registry is invalid). This is a code verdict. See verify.json."; exit 1 ;;
+            3) echo "::error title=AWE verify BLOCKED::A blocking suite could not run on this runner. This is an infrastructure/environment problem, not a code verdict. See verify.json for the unmet requirement."; exit 3 ;;
+            *) echo "::error title=AWE verify did not complete::awe-verify exited '$CODE' (usage error or crash). No verdict was produced."; exit 1 ;;
+          esac
+
+  # DEPLOYMENT EVIDENCE — NON-BLOCKING. Runs the "deploy" profile: the
+  # container suites that install PCC from a clean export, install it twice,
+  # back it up and restore it, plus the platform-neutral deployment suites, so
+  # one run on one commit answers autonomy/deployment-readiness.json. It cannot
+  # fail the workflow (continue-on-error) until it has a record of being
+  # reliable here. Its verdicts use the same PASS/FAIL/BLOCKED model; a pull
+  # that fails leaves the image absent, and the suites that need it report
+  # BLOCKED before they start.
+  #
+  # It proves the Linux container path and the shared Node tools. Lippolis
+  # runs Windows Server (LIPELE-RDS02); what only that server can prove is
+  # listed in .awe-deploy/deployment-readiness.json, never assumed.
+  deploy-evidence:
+    name: deploy evidence (non-blocking)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    continue-on-error: true
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Check out (clean)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies exactly as locked
+        run: npm ci --no-audit --no-fund
+
+      - name: Pull the base image (Docker Hub, one retry, then Google's Docker Hub mirror)
+        continue-on-error: true
+        run: |
+          img=node:24-bookworm-slim
+          docker pull -q "$img" \
+            || { sleep 20; docker pull -q "$img"; } \
+            || { docker pull -q "mirror.gcr.io/library/$img" && docker tag "mirror.gcr.io/library/$img" "$img"; }
+          docker image inspect "$img" --format '{{.Id}} {{.Created}}'
+
+      - name: Run the deploy profile
+        id: verify
+        run: |
+          set +e
+          node scripts/awe-verify.mjs --profile deploy --out .awe-deploy
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Derive deployment readiness
+        id: readiness
+        if: always()
+        run: |
+          set +e
+          node scripts/awe-readiness.mjs --verify .awe-deploy/verify.json --out .awe-deploy
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: awe-deploy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .awe-deploy/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+      - name: Verdict
+        if: always()
+        env:
+          CODE: ${{ steps.readiness.outputs.code }}
+        run: |
+          case "$CODE" in
+            0) echo "Deployment evidence: every machine question VERIFIED on this commit (Linux container path). See deployment-readiness.json for what only LIPELE-RDS02 can prove." ;;
+            1) echo "::error title=Deployment evidence FAILED::A deployment suite failed. This is a code verdict. See deployment-readiness.json."; exit 1 ;;
+            3) echo "::error title=Deployment evidence INCOMPLETE::A deployment question could not be answered on this runner (BLOCKED or not run). See deployment-readiness.json for the unmet requirement."; exit 3 ;;
+            *) echo "::error title=Deployment readiness did not complete::awe-readiness exited '$CODE'."; exit 1 ;;
+          esac

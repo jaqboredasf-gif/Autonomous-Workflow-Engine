@@ -1,0 +1,14 @@
+job_number,vendor_name,last_issued_sequence
+# EMPTY ON PURPOSE, and it is a real answer rather than a missing file.
+#
+# A starting sequence continues a paper book: it says "Ferndale has already had
+# seven purchase orders from us, so the next one is eight". Northgate is being
+# stood up from nothing in a rehearsal, so there is no book to continue and
+# every counter correctly starts at 1.
+#
+# Note also that this organization numbers per VENDOR, not per job-and-vendor
+# pair, so a real Northgate would leave job_number blank here. A real design
+# partner switching from paper MUST fill this in, and it is the one piece of
+# instance data that cannot be corrected later: an issued purchase order number
+# is immutable, so a counter started too low collides and one started too high
+# silently skips numbers the office will look for.

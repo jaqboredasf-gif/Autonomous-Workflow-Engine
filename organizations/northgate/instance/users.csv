@@ -1,0 +1,6 @@
+full_name,email,roles,approver,receiver,workshop_assignment,job_assignments,login_enabled
+Dana Whitfield,dana@example.invalid,SYSTEM_ADMIN,no,no,no,,yes
+Sam Okafor,sam@example.invalid,OPERATIONS_MANAGER,yes,yes,yes,,yes
+Priya Raman,priya@example.invalid,OFFICE_ADMIN,no,yes,no,,yes
+Tomas Ruiz,tomas@example.invalid,YARD_HAND,no,yes,no,,yes
+Erin Vasquez,erin@example.invalid,FIELD_STAFF,no,no,no,NG-3301,yes
