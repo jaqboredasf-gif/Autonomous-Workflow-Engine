@@ -478,6 +478,13 @@ ok(tidy.ranked.find((x) => x.id === 'todo-markers-deployed-path')?.authority.cla
 ok(!tidy.decision.build && tidy.decision.reasons.some((r) => /tidying, not leverage/.test(r)),
    'and the engine still refuses to build it: tidying is not leverage', tidy.decision.reasons.join(' | '));
 
+const rootWorld = runEngine(obs({ verify: { ci: { commit: 'h', fresh: true, suites: [{ id: 'auth-recovery', status: 'BLOCKED', blocking: true, category: 'security', area: 'purchasing', reason: 'unmet: must run as a non-root user' }] }, deploy: { fresh: true } } }));
+const blockedSuite = rootWorld.ranked.find((x) => x.id === 'suite-blocked-auth-recovery');
+ok(blockedSuite && blockedSuite.action.kind === 'observe-only' && blockedSuite.action.touches.length === 0,
+   'a BLOCKED suite proposes getting the verdict where it can run, never editing code');
+ok(rootWorld.ranked.indexOf(blockedSuite) > rootWorld.ranked.findIndex((x) => x.id === 'install-pcc-at-lippolis'),
+   'and does not outrank the installation');
+
 const wp = generateWorkPackage(clear.ranked.find((x) => x.id === 'production-evidence-return'), { policy, blockers, now: 't' });
 ok(wp.status === 'PREPARED_NOT_DISPATCHED', 'a work package is prepared, never dispatched (there is no Builder)');
 ok(wp.allowed_files.length > 0 && wp.allowed_files.every((p) => checkChange({ paths: [p], ref: 'autonomy/x' }, policy, blockers).length === 0),

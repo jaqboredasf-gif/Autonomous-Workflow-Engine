@@ -259,7 +259,23 @@ export function inspect(obs) {
       confidence: 1,
     }));
   }
-  for (const s of (ci?.fresh ? ci.suites : []).filter((x) => x.status === 'FAIL' || (x.status === 'BLOCKED' && x.blocking))) {
+  // A BLOCKED suite is the environment failing to answer, not the code failing
+  // (Milestone 2A's evidence model). The first version of this rule scored it as
+  // an urgent defect and proposed editing product code to fix a root container.
+  // The right action is to get the answer where the requirement holds.
+  for (const s of (ci?.fresh ? ci.suites : []).filter((x) => x.status === 'BLOCKED' && x.blocking)) {
+    out.push(f({
+      id: `suite-blocked-${s.id}`,
+      category: 'infrastructure',
+      finding: `${s.id} could not run here (${s.reason}); this checkout has no verdict for it.`,
+      evidence: [ev('.awe/verify.json', `${s.id} BLOCKED — ${s.reason}`)],
+      claims: [],
+      action: { summary: `Obtain ${s.id}'s verdict where its requirement holds (the CI runner), and read that instead of this checkout's`, actor: 'MACHINE', touches: [], effort: 'LOW', kind: 'observe-only' },
+      factors: { value: [0, 'no code is known to be wrong'], unlock: [2, 'machine work waits on a complete verdict'], risk: [1, 'unknown, not failing'], urgency: [2, 'precedes any machine work'] },
+      confidence: 1,
+    }));
+  }
+  for (const s of (ci?.fresh ? ci.suites : []).filter((x) => x.status === 'FAIL')) {
     const janitor = !s.blocking && ['lint'].includes(s.category);
     out.push(f({
       id: `suite-${s.status.toLowerCase()}-${s.id}`,
