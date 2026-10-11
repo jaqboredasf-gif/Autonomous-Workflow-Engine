@@ -3,7 +3,9 @@
 Status: **APPROVED by Jack, 2026-10-11**, with these constraints: build on `pcc-production` (main
 is not reconciled; see blocker GOV-1); keep the limits in section 4; S1 and MIGRATION-0016 are
 observe-and-escalate only (`autonomy/blockers.json`). **Milestone 2A (the verification foundation)
-is implemented:** `autonomy/README.md`. Nothing after 2A is implemented.
+is implemented:** `autonomy/README.md`. **Milestone 2B (deployment confidence) is implemented,** with the
+Inspector/Prioritizer deliberately deferred by Jack (2026-10-11) in favour of evidence for the first
+Lippolis installation. No Builder, scheduler or Inspector exists.
 Grounded in `docs/autonomy/CURRENT_STATE.md`. Every design choice cites the existing mechanism it
 reuses or the gap it answers.
 
