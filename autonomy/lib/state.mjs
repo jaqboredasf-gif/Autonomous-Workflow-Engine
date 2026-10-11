@@ -84,7 +84,8 @@ export function deriveEngineeringState({ verify, verifyError = null, blockers, p
   return {
     schema: 'awe.engineering-state/1',
     generated_at: now,
-    commit: verify?.tree?.commit ?? head ?? null,
+    // With CI as the verification, the state is about HEAD, whatever a stale local run says.
+    commit: ciPass ? head : verify?.tree?.commit ?? head ?? null,
     head,
     branch: verify?.tree?.branch ?? null,
     verification_source: ciPass ? 'ci' : verify ? 'local' : null,

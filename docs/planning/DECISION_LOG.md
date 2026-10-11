@@ -1059,3 +1059,23 @@ with a test against a real repository. It also found three hardening gaps:
 - refusal state carried into a retry.
 All three are fixed. Builder code now runs with a throwaway HOME, no global git config and no
 tokens, and the config fingerprint is re-checked after it runs.
+
+**Cycle 1 (`c20261011T150928Z-d2c64fe`) ran end to end and was REJECTED. The verdict stands.**
+
+What the engine did, unassisted:
+- It observed CI PASS on its own commit and chose `production-evidence-return` (score 17.3).
+- The top constraint, the baseline (31.2), is Jack's to capture. The engine recorded it rather than acting on it.
+- It prepared one package, cut `autonomy/c20261011T150928Z-d2c64fe` from 555c882, and dispatched a Builder.
+
+Attempt 1:
+- The Builder disclosed one breach: `git checkout -- package.json` on its own uncommitted edit.
+- The rule was tightened before collection (`collect --breach`), and the attempt was rejected.
+
+Attempt 2 (a fresh Builder):
+- Built the intake, the procedure and 14 tests.
+- Passed every check the evaluator owns: scope, guard, file rules, no weakened tests, the base self-test on the head (208), the head self-test (222), 13/13 probes, the budget (7.9/45 minutes), and an independent review (no blocking findings, 2 majors).
+- CI was red, so the verdict is REJECT. All 40 suites passed, but the guard step refused the branch `""`: on push events `GITHUB_HEAD_REF` is empty, and `??` kept it.
+
+The defect was in the M2A verification infrastructure and had never been exercised. The fix is PR #22. With both attempts spent, no draft PR was opened, as the rules require.
+
+Decided against: treating the red CI as "not the Builder's fault" and opening the PR anyway. The evaluator has no override input. Adding a supervisor override at the first inconvenient result would make every later verdict negotiable. Cycle 2 runs the same package once #22 is on `pcc-production`.

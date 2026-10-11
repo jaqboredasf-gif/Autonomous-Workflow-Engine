@@ -98,6 +98,8 @@ console.log('--- the queue counts other work, not the work in hand ------------'
   ok(q.length === 1 && q[0].branch === 'autonomy/c1', 'the current branch, a merged branch and an alias of HEAD are not queued work', JSON.stringify(q));
   ok(awaitingReview([b('autonomy/c1'), b('autonomy/c2')], { current: 'x', head: 'y' }).length === 2, 'two other unmerged autonomy branches are two');
   ok(awaitingReview([b('autonomy/c1'), b('autonomy/c2')], { current: 'autonomy/c1', head: 'y' }).length === 2, 'standing on a cycle branch does not take its PR off the queue (review)');
+  ok(awaitingReview([b('autonomy/c1'), b('autonomy/c2')], { current: 'x', head: 'y', closedCycles: new Set(['autonomy/c1']) }).length === 1,
+     'a cycle the ledger finished without a PR (rejected, kept for audit) awaits no reviewer');
 }
 
 console.log('--- the work package measures from a commit, not a branch --------');

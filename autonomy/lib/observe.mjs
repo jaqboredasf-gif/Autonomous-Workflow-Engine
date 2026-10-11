@@ -104,12 +104,21 @@ export function probeCapability(root, cap) {
   return { observable: false, reason: `unknown probe ${p.kind}` };
 }
 
+/** Branches of finished cycles that produced no PR, from the cycle ledger. */
+function prLessCycles(root) {
+  const p = join(root, 'autonomy/cycles/ledger.jsonl');
+  if (!existsSync(p)) return new Set();
+  return new Set(readFileSync(p, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter((e) => e && e.branch && !e.pr).map((e) => e.branch));
+}
+
 /** Pure: which autonomy branches are queued for review, given where we stand. */
-export function awaitingReview(branches, { current, head, prefix = 'autonomy/' }) {
+export function awaitingReview(branches, { current, head, prefix = 'autonomy/', closedCycles = new Set() }) {
   // Standing on a cycle's own autonomy/* branch does not take it off the queue:
-  // only the supervisor's milestone branch is "the work in hand".
+  // only the supervisor's milestone branch is "the work in hand". A branch the
+  // ledger says finished WITHOUT a PR (rejected, kept for audit) awaits nobody.
   const inHand = (b) => b.branch === current && !b.branch.startsWith(prefix);
-  return branches.filter((b) => !b.merged && !inHand(b) && b.tip !== head)
+  return branches.filter((b) => !b.merged && !inHand(b) && b.tip !== head && !closedCycles.has(b.branch))
     .map(({ branch, ahead }) => ({ branch, ahead }));
 }
 
@@ -159,7 +168,7 @@ export async function observe(root, { now = new Date() } = {}) {
     tip: git(root, ['rev-parse', b]),
     merged: git(root, ['merge-base', '--is-ancestor', b, productRef]) !== null,
     ahead: Number(git(root, ['rev-list', '--count', `${productRef}..${b}`]) ?? 0),
-  })), { current: tree.branch, head, prefix: policy.autonomy_branch_prefix });
+  })), { current: tree.branch, head, prefix: policy.autonomy_branch_prefix, closedCycles: prLessCycles(root) });
 
   // The IIC evidence deadline, read from the spec that states it.
   const spec2027 = existsSync(join(root, 'programs/iic-2027/MASTER_SPEC.md')) ? readFileSync(join(root, 'programs/iic-2027/MASTER_SPEC.md'), 'utf8') : '';

@@ -36,7 +36,11 @@ else if (arg('base')) {
   console.error('usage: awe-guard --base <ref> | --paths a,b [--ref <branch>]');
   process.exit(64);
 }
-const ref = arg('ref') ?? process.env.GITHUB_HEAD_REF ?? git(ROOT, ['rev-parse', '--abbrev-ref', 'HEAD']);
+// `||`, not `??`: on a push event GitHub sets GITHUB_HEAD_REF to the EMPTY
+// string (it names a PR's head only on pull_request events), and `??` would
+// keep that "" and refuse every autonomy branch. GITHUB_REF_NAME is the pushed
+// branch. Found by the first autonomous cycle's CI run (2026-10-11).
+const ref = arg('ref') || process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || git(ROOT, ['rev-parse', '--abbrev-ref', 'HEAD']);
 
 const violations = checkChange({ paths, ref }, policy, blockers);
 for (const v of violations) console.log(`REFUSED  [${v.rule}] ${v.detail}`);

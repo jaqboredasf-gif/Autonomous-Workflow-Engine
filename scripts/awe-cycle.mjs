@@ -427,7 +427,9 @@ if (cmd === 'finish') {
     ...(r.pr ? [`Review draft PR ${r.pr.url} (evaluator: ${r.evaluation.verdict}). Merging it is your decision; AWE will not.`] : []),
     ...human.slice(0, 4).map((x) => `${x.id}: ${x.action.summary.slice(0, 200)}`),
   ];
+  const failedChecks = (r.evaluation?.checks ?? []).filter((c) => c.status === 'FAIL').map((c) => c.id);
   r.next = r.pr ? 'Jack reviews the draft PR; AWE records the disposition at the next cycle and stays within one open autonomy PR per reviewer.'
+    : r.evaluation ? `Remove the cause of the rejection (${failedChecks.join(', ')}), then run the same package again in a new cycle.`
     : human[0] ? `Nothing for the machine above the floor. ${human[0].id} is the constraint.` : 'Re-run the cycle when the evidence changes.';
   r.finished_at = nowIso();
   r = advance(r, 'FINISHED', r.finished_at);
@@ -443,6 +445,17 @@ if (cmd === 'finish') {
   appendFileSync(CHAIN_FILE, JSON.stringify(ledgerEntry(r, text, lines.at(-1))) + '\n');
   console.log(renderBrief(r));
   console.log(`wrote autonomy/cycles/${r.cycle_id}.json, .md and a ledger line; commit them on the supervisor's branch`);
+  process.exit(0);
+}
+
+// --- brief ------------------------------------------------------------------
+// Re-render a finished cycle's Captain Brief from its durable record. The
+// record (hash-chained in the ledger) is read, never rewritten.
+if (cmd === 'brief') {
+  const id = arg('cycle') ?? die('usage: brief --cycle <id>');
+  const text = readText(join(DURABLE, `${id}.json`));
+  writeFileSync(join(DURABLE, `${id}.md`), renderBrief(JSON.parse(text)));
+  console.log(`rendered autonomy/cycles/${id}.md from its record`);
   process.exit(0);
 }
 
