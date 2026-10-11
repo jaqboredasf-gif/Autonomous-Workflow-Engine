@@ -102,3 +102,28 @@ Two verdicts, never "production ready":
 
 The CI job `deploy evidence (non-blocking)` runs this on every PR into `pcc-production`. It cannot
 fail the workflow until it has a record of being reliable.
+
+## The improvement engine (Milestone 3, step 1: it thinks, it does not act)
+
+```bash
+npm run verify && node scripts/awe-verify.mjs --profile deploy --out .awe-deploy   # fresh evidence first
+npm run inspect                                                                    # → .awe/inspection.json
+```
+
+OBSERVE (`lib/observe.mjs`, which reads plan, readiness, engineering state, blockers, attestations,
+the gate and git) → FINDINGS (`lib/inspect.mjs`) → AUTHORITY (`lib/authority.mjs`) → PRIORITY and
+DECISION (`lib/prioritize.mjs`) → WORK PACKAGE (`lib/work-package.mjs`). It changes nothing and
+dispatches nothing. There is no Builder.
+
+- **A finding exists only with evidence.** It is OBSERVED (a fact in the evidence) or HYPOTHESIZED
+  (an observed gap with a guessed remedy, scored at most 0.5 confidence). Structural gaps come only
+  from deterministic probes in `capabilities.json` (L3).
+- **Score** = (5·north_star + 2·value + 2·unlock + 2·risk + 2·urgency) × confidence ÷ effort
+  (LOW 1, MEDIUM 1.25, HIGH 1.5). North star is the plan's own gate order. A dependency inherits the
+  score of what it blocks. Every finding prints its breakdown.
+- **Authority** is decided before anything happens, with the same guard that enforces it later:
+  MACHINE_EXECUTABLE · HUMAN_APPROVAL_REQUIRED · JACK_ACTION_REQUIRED · EXTERNAL_DEPENDENCY · BLOCKED.
+- **The decision may be no.** It builds only if the best machine action is machine-executable,
+  serves an unmeasured North Star claim, clears a score floor, the engineering state is not
+  NOT_SAFE, and the open autonomy PR count is under the limit. Otherwise it prints why, and when the
+  top finding is a person's: `DO NOT BUILD ANYTHING. JACK IS THE BOTTLENECK.`

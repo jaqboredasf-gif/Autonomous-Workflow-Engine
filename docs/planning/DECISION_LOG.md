@@ -972,3 +972,35 @@ local sandbox reached ENOSPC with 28 GB of cache, and the same pattern could exh
 disk. The production build fetches Google Fonts at build time, so the build machine needs internet
 access (the server does not). Docker Hub rate limits are real; the CI job retries once, then uses
 Google's Docker Hub mirror, and an absent image is BLOCKED, never a mid-build crash.
+
+## 2026-10-11 (the improvement engine thinks before it acts — autonomy Milestone 3, step 1)
+
+**Inspector, prioritizer, authority classifier and work-package generator, with no Builder.** Jack's
+instruction: first prove the system can think about what matters, before it is given permission to
+act.
+
+**It composes; it does not replace.** North-Star alignment is the venture plan's gate order
+(`npm run plan --json`); deployment facts come from the deployment gate; readiness, engineering
+state, blockers and attestations come from their own derivations. The engine adds only what nothing
+else observed: a few git facts (product-line idleness, unmerged autonomy branches) and three
+deterministic capability probes (`autonomy/capabilities.json`).
+
+**The first ranking was wrong, and was fixed rather than trusted.** Weighted 3·NS with effort up to
+÷2, it put "one discovery interview" above "install PCC", because installing is hard. It also put
+"merge the CI PRs" second overall, through a borrowed link to `repeatable_deployment`: that claim is
+unproven because of Lippolis IT facts, not CI. Fixed: North Star weight 5, effort a milder divisor
+(at most 1.5), no borrowed claim, and dependencies inherit the score of what they block. The
+corrected order (baseline, install, the IT prerequisites it depends on, production evidence return,
+external interview) is pinned by tests, and each weight change is proven to fail them.
+
+**The engine's answer on 2026-10-11 is DO NOT BUILD ANYTHING. JACK IS THE BOTTLENECK.** The review
+queue is at its limit (2 autonomy PRs), and the top five findings belong to Jack or Lippolis IT. Its
+best machine action, a read-only intake for production records copied off RDS02, is prepared as a
+work package and not dispatched.
+
+**Dogfooding: what may become general AWE capability (not generalized yet).** An evidence-only
+finding schema (observed vs hypothesized); a transparent, composable priority formula that accepts
+an organization's own goal ordering; authority classification by the same guard that enforces it;
+"no" as a first-class decision when a person is the bottleneck; and the cost of the machine's own
+output to the human reviewing it, counted explicitly. For a customer, "the review queue" would be
+"the approver's inbox".

@@ -25,8 +25,7 @@ import { dirname, join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deriveReadiness } from '../autonomy/lib/readiness.mjs';
 import { loadHumanEvidence } from '../autonomy/lib/human-evidence.mjs';
-import { readApprovalRecord } from '../deployment/approval-record.mjs';
-import { git } from '../autonomy/lib/git.mjs';
+import { signedRelease } from '../autonomy/lib/release.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -44,30 +43,7 @@ let gate = null;
 const g = spawnSync(process.execPath, [join(ROOT, 'scripts/pcc-deployment-gate.mjs'), '--json'], { cwd: ROOT, encoding: 'utf8' });
 try { gate = JSON.parse(g.stdout); } catch { gate = null; }
 
-// What ships is the SIGNED commit. Compare the application it carries with the
-// code the evidence ran on. The paths are what the release package installs and
-// the data tools the runbook runs; tooling outside them may differ by design
-// (APPROVED_RELEASE.md records that choice).
-const APPLICATION_PATHS = ['apps/purchasing', 'packages', 'capability', 'config',
-  'scripts/pcc-backup.mjs', 'scripts/pcc-restore.mjs'];
-const TOOLING_PATHS = ['scripts/pcc-verify-deployment.mjs', 'scripts/pcc-verify-production.mjs',
-  'deployment/approval-record.mjs', 'scripts/package-release.mjs', 'scripts/Deploy-PCCProduction.ps1',
-  'scripts/install-backup-task.ps1', 'scripts/Configure-PCCIIS.ps1', 'scripts/preflight-windows.ps1'];
-const approved = readApprovalRecord(join(ROOT, 'deployment/APPROVED_RELEASE.md'));
-const evidenceCommit = verify?.tree?.commit ?? null;
-const changed = (paths) => approved && evidenceCommit
-  ? (git(ROOT, ['diff', '--name-only', approved.commit, evidenceCommit, '--', ...paths]) ?? '').split('\n').filter(Boolean)
-  : null;
-const appDiffs = changed(APPLICATION_PATHS);
-const release = approved ? {
-  approved_commit: approved.commit,
-  signed_by: approved.signedBy,
-  evidence_commit: evidenceCommit,
-  application_identical: appDiffs === null ? null : appDiffs.length === 0,
-  application_differs: appDiffs ?? [],
-  tooling_differs: changed(TOOLING_PATHS) ?? [],
-  compared_paths: APPLICATION_PATHS,
-} : null;
+const release = signedRelease(ROOT, verify?.tree?.commit ?? null);
 
 const human = await loadHumanEvidence(ROOT);
 const r = deriveReadiness({ spec, verify, gate, facts: human.facts, baseline: human.baseline, blockers, release, now: new Date().toISOString() });

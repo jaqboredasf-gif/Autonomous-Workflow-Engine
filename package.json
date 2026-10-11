@@ -33,7 +33,8 @@
     "engineering-state": "node scripts/awe-state.mjs",
     "guard": "node scripts/awe-guard.mjs",
     "test:autonomy": "node scripts/eval-autonomy.mjs",
-    "attest": "node scripts/awe-attest.mjs"
+    "attest": "node scripts/awe-attest.mjs",
+    "inspect": "node scripts/awe-inspect.mjs"
   },
   "devDependencies": {
     "next": "16.2.10"
