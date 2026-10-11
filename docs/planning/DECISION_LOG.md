@@ -913,3 +913,9 @@ each classified by *running* it, unbuilt and built, as root and as a normal user
 - The 0016 collision is wider than the audit said: four variants (purchasing_control,
   drop_undeclared_client_policies, manual_intake_bridge, m365_integration_plane), and 0017–0020
   collide too.
+- **The first CI run caught a real defect that root had been hiding.** `scripts/rehearse-locally.sh`
+  called `mktemp -d -t pcc-rehearsal`, which works on macOS but fails on GNU. `DATA` came back
+  empty, so the rehearsal database went to `/pcc.sqlite`. As root that write succeeds and the
+  rehearsal "passed"; on the non-root runner the server never started. Fixed with a portable
+  template and a refusal on an empty directory. Reproduced (old script, non-root: FAIL) and
+  verified (fixed, non-root: PASS) before pushing. It is a harness fix, not a product change.

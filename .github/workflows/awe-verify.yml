@@ -72,6 +72,8 @@ jobs:
           name: awe-verify-${{ github.run_id }}-${{ github.run_attempt }}
           path: .awe/
           if-no-files-found: error
+          # .awe/ is a dot-directory; upload-artifact v4 skips hidden files unless told.
+          include-hidden-files: true
           retention-days: 90
 
       - name: Verdict

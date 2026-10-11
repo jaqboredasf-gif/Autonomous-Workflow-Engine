@@ -41,7 +41,12 @@ set -u
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 PORT=${PCC_REHEARSAL_PORT:-3477}
-DATA=${PCC_REHEARSAL_DIR:-$(mktemp -d -t pcc-rehearsal)}
+# The template needs its X's. Without them BSD/macOS mktemp still works but GNU
+# mktemp refuses, DATA comes back empty, and the database path becomes
+# /pcc.sqlite: written silently into / when run as root, and a server that
+# never starts when not. Found by the first CI run (non-root) on 2026-10-11.
+DATA=${PCC_REHEARSAL_DIR:-$(mktemp -d -t pcc-rehearsal.XXXXXX)}
+[ -n "$DATA" ] && [ "$DATA" != "/" ] || { echo "could not create a rehearsal directory (DATA='$DATA')"; exit 1; }
 SERVER=apps/purchasing/.next/standalone/apps/purchasing/server.js
 KEEP=0; [ "${1:-}" = "--keep" ] && KEEP=1
 fails=0

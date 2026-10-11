@@ -109,6 +109,9 @@ for (const { suite, selected, reason } of registryErrors.length ? [] : selectSui
   results.push(r);
   statusOf.set(suite.id, status);
   console.log(`${status.padEnd(7)}  ${suite.id} (${(r.duration_ms / 1000).toFixed(1)}s)${status === 'PASS' ? '' : ` — ${why}`}`);
+  // The cause goes to stdout too: if the artifact is lost, a FAIL with no
+  // reason visible anywhere is a FAIL nobody can act on.
+  if (status !== 'PASS') for (const l of run.tail.slice(-12)) console.log(`         | ${l}`);
 }
 
 const finishedAt = new Date();
